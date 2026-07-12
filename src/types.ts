@@ -159,27 +159,57 @@ export interface AIResponse {
   modelId: string
 }
 
-/** SPEC §9.2: 双引擎任务类型（M3 只跑 fact_check） */
-export type DualEngineTaskType =
-  | 'fact_check'
-  | 'translate'
-  | 'summarize'
-  | 'novelty_check'
+/** SPEC §9.2 (M3.5): 双引擎任务类型 —— 忠实性核查（面向"总结不加戏"场景） */
+export type DualEngineTaskType = 'faithfulness_check'
 
-/** SPEC §9.2: AI-2 反馈中的单个问题 */
-export interface DualEngineIssue {
-  type: 'divergence' | 'omission' | 'mistranslation' | 'unverified_link' | 'other'
-  detail: string
+/** SPEC §9.2 (M3.5): 单条 claim 的核查结论
+ *  - supported: 源材料明确支撑该 claim
+ *  - added: 源材料未提及（AI-1 引入了源材料以外的信息，即"加戏"）
+ *  - contradicted: 源材料与该 claim 矛盾（AI-1 曲解了原文）
+ */
+export type FaithfulnessVerdict = 'supported' | 'added' | 'contradicted'
+
+/** SPEC §9.2 (M3.5): AI-2 输出的单条 claim 核查 */
+export interface FaithfulnessClaim {
+  /** 从 AI-1 总结中抽取的可核查断言（原文或轻度精简，保留核心语义） */
+  claim: string
+  /** 核查结论 */
+  verdict: FaithfulnessVerdict
+  /** 源材料中的原文引用（用于自动锚定校验）
+   *  - supported: 支撑该 claim 的源材料原文片段（≥10 字符）
+   *  - contradicted: 被 claim 矛盾的源材料原文片段（≥10 字符）
+   *  - added: 空字符串（源材料未提及，无需 span）
+   */
+  source_span: string
+  /** 中文简要说明 */
+  explanation: string
 }
 
-/** SPEC §9.2: 双引擎完整结果 */
+/** SPEC §9.2 (M3.5): 引证锚定校验结果
+ *  前端遍历 AI-2 输出的 claims，逐条 sourceMaterial.includes(source_span) 校验；
+ *  任何一条应有 span 但校验失败 → ok=false → 强制 passed=false（AI-2 编造引用）。
+ */
+export interface EvidenceCheck {
+  /** 是否全部锚定命中（无编造引用） */
+  ok: boolean
+  /** 需要校验的 claim 数（verdict !== 'added'） */
+  checked: number
+  /** 命中数（source_span 能在源材料中 grep 到） */
+  matched: number
+  /** 校验失败的 claim 索引 */
+  failedIndices: number[]
+}
+
+/** SPEC §9.2 (M3.5): 双引擎完整结果 —— 忠实性核查 */
 export interface DualEngineResult {
   taskType: DualEngineTaskType
-  /** AI-1 原文输入 */
-  input: string
+  /** 用户提供的源材料（唯一 ground truth） */
+  sourceMaterial: string
+  /** 用户对 AI-1 的指令（如"简洁总结上述材料"） */
+  ai1Instruction: string
   /** AI-1 使用的模型 id */
   ai1Model: string
-  /** AI-1 生成的输出 */
+  /** AI-1 生成的总结 */
   ai1Output: string
   /** AI-1 token 使用 */
   ai1Usage: AIResponse['usage']
@@ -187,9 +217,14 @@ export interface DualEngineResult {
   ai2Model: string
   /** AI-2 审阅结论 */
   ai2Feedback: {
+    /** 无 added/contradicted 且 evidenceCheck.ok=true 时才为 true */
     passed: boolean
-    issues: DualEngineIssue[]
+    /** 逐条 claim 核查 */
+    claims: FaithfulnessClaim[]
+    /** 对 AI-1 总结整体忠实性的一段评价 */
     summary: string
+    /** 引证锚定校验（防 AI-2 编造引用） */
+    evidenceCheck: EvidenceCheck
   }
   /** AI-2 原始文本（未 JSON 解析时的兜底） */
   ai2RawOutput: string

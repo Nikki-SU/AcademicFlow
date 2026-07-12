@@ -1,7 +1,7 @@
 /**
  * 设置状态管理 (Zustand)
  * -------------------------------------------------
- * 对应 SPEC v0.3 §6 / §7.3。存储所有 API keys / AI 模型选择 / 高级模式开关。
+ * 对应 SPEC v0.3 §6 / §7.3 / §9.2。存储所有 API keys / AI 模型选择 / 高级模式开关。
  * 数据持久层：IndexedDB via ../services/db.ts（settings KV store）。
  *
  * 关键设计：
@@ -9,7 +9,7 @@
  * - updateSettings(patch) 支持局部更新，写入 state + 同步落 IndexedDB
  * - init() 从 IndexedDB rehydrate 所有字段，未存过的走 DEFAULT_SETTINGS
  * - refreshModels() 拉 /v1/models + 缓存（TTL 24h，与 SPEC §9.3 对齐）
- * - runFactCheckTest() 走 dual-engine（AI-1 + AI-2），M3 试运行入口
+ * - runFactCheckTest() 走 dual-engine（AI-1 生成 + AI-2 忠实性核查），M3.5 试运行入口
  */
 import { create } from 'zustand'
 import {
@@ -87,8 +87,11 @@ interface SettingsActions {
   updateSettings: (patch: Partial<SettingsData>) => Promise<void>
   /** 拉取硅基流动 /v1/models（force=true 忽略 24h 缓存） */
   refreshModels: (force?: boolean) => Promise<AIModel[]>
-  /** 用当前设置跑一次 fact_check 双引擎试运行 */
-  runFactCheckTest: (input: string) => Promise<DualEngineResult>
+  /** 用当前设置跑一次双引擎试运行（M3.5：忠实性核查） */
+  runFactCheckTest: (
+    sourceMaterial: string,
+    ai1Instruction?: string,
+  ) => Promise<DualEngineResult>
   /** 清空错误提示 */
   clearError: () => void
   /** 重置为默认值（保留 API keys 不清，避免误伤） */
@@ -105,6 +108,10 @@ const initialState: SettingsState = {
   lastDualEngineResult: null,
   error: null,
 }
+
+/** M3.5 默认 AI-1 指令 */
+const DEFAULT_AI1_INSTRUCTION =
+  '用 2-3 句话简洁忠实地总结上述源材料，保留关键事实。'
 
 export const useSettingsStore = create<SettingsState & SettingsActions>(
   (set, get) => ({
@@ -124,7 +131,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         patch[field] = value
       }
 
-      // 2. 加载模型清单缓存（不管过没过期，都先显示上次的，UI 判断时间戳）
+      // 2. 加载模型清单缓存
       const cachedModels = await loadCachedModels()
       const fetchedAt = await loadCachedModelsFetchedAt()
 
@@ -137,9 +144,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
     },
 
     updateSettings: async (patch) => {
-      // 1. 更新内存态
       set(patch)
-      // 2. 批量落 IndexedDB
       await Promise.all(
         (Object.keys(patch) as (keyof SettingsData)[]).map((field) =>
           putSetting(KEY_MAP[field], serialize(field, patch[field])),
@@ -155,7 +160,6 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         throw new Error('missing siliconflow api key')
       }
 
-      // 缓存命中：非 force 且未过期
       if (!force) {
         const cached = await loadCachedModels()
         if (cached && cached.length > 0) {
@@ -185,10 +189,12 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       }
     },
 
-    runFactCheckTest: async (input) => {
+    runFactCheckTest: async (
+      sourceMaterial,
+      ai1Instruction = DEFAULT_AI1_INSTRUCTION,
+    ) => {
       const state = get()
 
-      // 决定 AI-1 / AI-2 端点
       let ai1BaseUrl: string
       let ai1ApiKey: string
       let ai1Model: string
@@ -223,8 +229,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       set({ isRunningDualEngine: true, error: null })
       try {
         const result = await runDualEngine({
-          taskType: 'fact_check',
-          input,
+          taskType: 'faithfulness_check',
+          sourceMaterial,
+          ai1Instruction,
           ai1: { baseUrl: ai1BaseUrl, apiKey: ai1ApiKey, model: ai1Model },
           ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
         })
