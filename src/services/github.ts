@@ -206,21 +206,43 @@ function utf8ToBase64(text: string): string {
 }
 
 /**
- * 用 Git Data API 给空仓库写入初始骨架 commit
+ * 检测仓库是否为空（无任何 commit / 无默认分支）
  * -------------------------------------------------
- * v0.3 §10.5 是"已有 commit 的批量提交流程"，本函数处理**空仓库**首次 commit：
- *   1. FOR EACH file: POST /git/blobs（用 base64 编码，避免中英文混排的 encoding 陷阱）
- *   2. POST /git/trees {tree}  ← 无 base_tree（空仓库没有前置 tree）
- *   3. POST /git/commits {message, tree, parents:[]}  ← 无 parents（空仓库没有前置 commit）
- *   4. POST /git/refs {ref:'refs/heads/main', sha}  ← 用 POST 创建，不是 PATCH 更新
+ * 空仓库的判定信号：`GET /repos/{owner}/{repo}/branches` 返回空数组。
+ * 空仓库不能直接 POST /git/blobs（GitHub 会返回 409 "Git Repository is empty."）。
+ */
+export async function isRepoEmpty(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<boolean> {
+  const res = await githubFetch(`/repos/${owner}/${repo}/branches`, token)
+  if (!res.ok) {
+    const err = await res.text().catch(() => '')
+    throw new GitHubAPIError(res.status, err, `检测分支列表失败：${err}`)
+  }
+  const branches = (await res.json()) as unknown[]
+  return branches.length === 0
+}
+
+/**
+ * 用 Git Data API 给仓库写入初始骨架 commit
+ * -------------------------------------------------
+ * 兼容两种起始状态：
+ *   A. **完全空仓库**（无任何 commit / 无 main 分支）
+ *      GitHub 的 POST /git/blobs 会返回 409 "Git Repository is empty."
+ *      → 先用 Contents API PUT 引导第一个文件（触发 initial commit + 自动建 main）
+ *      → 剩余 11 个文件走 Git Data API 追加模式（有 base_tree + parents + PATCH refs）
+ *   B. **已有 initial commit**（比如上次骨架初始化失败，但仓库已被引导过）
+ *      → 直接走 Git Data API 追加模式，把所有骨架文件补齐
  *
  * @param owner   仓库 owner 用户名
  * @param repo    仓库名
  * @param files   骨架文件列表
  * @param message commit message
  * @param token   PAT
- * @param onProgress 进度回调（可选），用于 UI 显示"正在上传第 N 个文件..."
- * @returns 首次 commit 的 sha
+ * @param onProgress 进度回调（可选）
+ * @returns 最终 commit 的 sha
  */
 export async function initEmptyRepoSkeleton(
   owner: string,
@@ -232,7 +254,77 @@ export async function initEmptyRepoSkeleton(
 ): Promise<string> {
   const base = `/repos/${owner}/${repo}`
 
-  // Step 1: 每个文件创建一个 blob
+  // Step 0: 判定是否需要引导 commit
+  onProgress?.('检测仓库状态…')
+  const empty = await isRepoEmpty(owner, repo, token)
+
+  let baseCommitSha: string
+  let baseTreeSha: string
+  let filesToUpload: SkeletonFile[]
+
+  if (empty) {
+    // 空仓库：用 Contents API PUT 引导第一个文件（自动创建 main 分支 + initial commit）
+    if (files.length === 0) {
+      throw new Error('骨架文件列表为空，无法初始化')
+    }
+    const bootstrap = files[0]
+    onProgress?.(`引导仓库首个 commit（${bootstrap.path}）…`)
+    const putRes = await githubFetch(
+      `${base}/contents/${encodeURI(bootstrap.path)}`,
+      token,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'chore: bootstrap workspace',
+          content: utf8ToBase64(bootstrap.content),
+          branch: 'main',
+        }),
+      },
+    )
+    if (!putRes.ok) {
+      const err = await putRes.text().catch(() => '')
+      throw new GitHubAPIError(putRes.status, err, `引导 commit 失败：${err}`)
+    }
+    const putResult = (await putRes.json()) as {
+      commit: { sha: string; tree: { sha: string } }
+    }
+    baseCommitSha = putResult.commit.sha
+    baseTreeSha = putResult.commit.tree.sha
+    // 骨架剩余项（除去已引导的第一个）
+    filesToUpload = files.slice(1)
+  } else {
+    // 已有 initial commit：拿 main HEAD 作为 base
+    onProgress?.('拉取 main HEAD…')
+    const refRes = await githubFetch(`${base}/git/ref/heads/main`, token)
+    if (!refRes.ok) {
+      const err = await refRes.text().catch(() => '')
+      throw new GitHubAPIError(refRes.status, err, `拉取 main 引用失败：${err}`)
+    }
+    const ref = (await refRes.json()) as { object: { sha: string } }
+    baseCommitSha = ref.object.sha
+
+    const commitRes = await githubFetch(
+      `${base}/git/commits/${baseCommitSha}`,
+      token,
+    )
+    if (!commitRes.ok) {
+      const err = await commitRes.text().catch(() => '')
+      throw new GitHubAPIError(commitRes.status, err, `拉取 commit 失败：${err}`)
+    }
+    const c = (await commitRes.json()) as { tree: { sha: string } }
+    baseTreeSha = c.tree.sha
+    // 全量骨架都补
+    filesToUpload = files
+  }
+
+  // 如果引导已经把唯一骨架文件写完了（极端情况：骨架只有 1 项），直接返回
+  if (filesToUpload.length === 0) {
+    onProgress?.(`完成，commit：${baseCommitSha.slice(0, 8)}`)
+    return baseCommitSha
+  }
+
+  // Step 1: 剩余每个文件创建一个 blob
   const treeEntries: {
     path: string
     mode: '100644'
@@ -240,9 +332,9 @@ export async function initEmptyRepoSkeleton(
     sha: string
   }[] = []
   let idx = 0
-  for (const f of files) {
+  for (const f of filesToUpload) {
     idx++
-    onProgress?.(`上传骨架文件 ${idx}/${files.length}：${f.path}`)
+    onProgress?.(`上传骨架文件 ${idx}/${filesToUpload.length}：${f.path}`)
     const blobRes = await githubFetch(`${base}/git/blobs`, token, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -268,12 +360,15 @@ export async function initEmptyRepoSkeleton(
     })
   }
 
-  // Step 2: 创建 tree（无 base_tree）
+  // Step 2: 创建 tree（追加模式，有 base_tree）
   onProgress?.('组装 tree 结构…')
   const treeRes = await githubFetch(`${base}/git/trees`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tree: treeEntries }),
+    body: JSON.stringify({
+      base_tree: baseTreeSha,
+      tree: treeEntries,
+    }),
   })
   if (!treeRes.ok) {
     const err = await treeRes.text().catch(() => '')
@@ -281,38 +376,46 @@ export async function initEmptyRepoSkeleton(
   }
   const tree = (await treeRes.json()) as { sha: string }
 
-  // Step 3: 创建 commit（无 parents）
-  onProgress?.('创建首个 commit…')
+  // Step 3: 创建 commit（追加模式，有 parents）
+  onProgress?.('创建骨架 commit…')
   const commitRes = await githubFetch(`${base}/git/commits`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message,
       tree: tree.sha,
-      parents: [],
+      parents: [baseCommitSha],
     }),
   })
   if (!commitRes.ok) {
     const err = await commitRes.text().catch(() => '')
     throw new GitHubAPIError(commitRes.status, err, `创建 commit 失败：${err}`)
   }
-  const commit = (await commitRes.json()) as { sha: string }
+  const newCommit = (await commitRes.json()) as { sha: string }
 
-  // Step 4: 创建 refs/heads/main 指向该 commit（POST，不是 PATCH）
-  onProgress?.('发布 main 分支…')
-  const refRes = await githubFetch(`${base}/git/refs`, token, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ref: 'refs/heads/main',
-      sha: commit.sha,
-    }),
-  })
-  if (!refRes.ok) {
-    const err = await refRes.text().catch(() => '')
-    throw new GitHubAPIError(refRes.status, err, `创建 main 分支失败：${err}`)
+  // Step 4: 更新 refs/heads/main（PATCH，因为分支已存在）
+  onProgress?.('更新 main 分支…')
+  const refUpdateRes = await githubFetch(
+    `${base}/git/refs/heads/main`,
+    token,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sha: newCommit.sha,
+        force: false,
+      }),
+    },
+  )
+  if (!refUpdateRes.ok) {
+    const err = await refUpdateRes.text().catch(() => '')
+    throw new GitHubAPIError(
+      refUpdateRes.status,
+      err,
+      `更新 main 分支失败：${err}`,
+    )
   }
 
-  onProgress?.(`完成，首个 commit：${commit.sha.slice(0, 8)}`)
-  return commit.sha
+  onProgress?.(`完成，骨架 commit：${newCommit.sha.slice(0, 8)}`)
+  return newCommit.sha
 }

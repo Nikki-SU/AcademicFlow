@@ -20,6 +20,7 @@ import {
   checkRepoExists,
   createPrivateRepo,
   initEmptyRepoSkeleton,
+  isRepoEmpty,
 } from '../services/github'
 import type { WorkspaceState } from '../types'
 import { useAuthStore } from './auth'
@@ -70,11 +71,20 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
           DEFAULT_WORKSPACE_REPO_NAME,
           token,
         )
-        set({
-          repo,
-          isChecked: true,
-          isLoading: false,
-        })
+        if (!repo) {
+          // 仓库不存在 → 需要 onboarding
+          set({ repo: null, isChecked: true, isLoading: false })
+          return
+        }
+        // 仓库存在，还要判断是否真正完成过初始化（骨架已 commit）
+        // 判定：如果仓库为空（无任何 commit / 无分支），视为"未完成 onboarding"
+        const empty = await isRepoEmpty(user.login, repo.name, token)
+        if (empty) {
+          // 仓库已创建但骨架 commit 失败过（M2 首次尝试就撞到这个坑）
+          set({ repo: null, isChecked: true, isLoading: false })
+          return
+        }
+        set({ repo, isChecked: true, isLoading: false })
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         set({
@@ -93,17 +103,27 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
       }
       if (get().isLoading) return
 
-      set({ isLoading: true, error: null, progress: '正在创建私库…' })
+      set({ isLoading: true, error: null, progress: '检测已有仓库…' })
       try {
-        // Step 1: 创建私库
-        const repo = await createPrivateRepo(
+        // 幂等：如果之前已经建过库（比如上次骨架 commit 失败），跳过 createPrivateRepo 直接进初始化
+        let repo = await checkRepoExists(
+          user.login,
           DEFAULT_WORKSPACE_REPO_NAME,
-          WORKSPACE_REPO_DESCRIPTION,
           token,
         )
-        set({ progress: `私库已创建：${repo.full_name}` })
+        if (!repo) {
+          set({ progress: '正在创建私库…' })
+          repo = await createPrivateRepo(
+            DEFAULT_WORKSPACE_REPO_NAME,
+            WORKSPACE_REPO_DESCRIPTION,
+            token,
+          )
+          set({ progress: `私库已创建：${repo.full_name}` })
+        } else {
+          set({ progress: `已有私库 ${repo.full_name}，继续初始化…` })
+        }
 
-        // Step 2: 首次 commit 骨架 12 项文件
+        // 一次性完成骨架 commit（内部会自动判空并选择引导策略）
         await initEmptyRepoSkeleton(
           repo.owner.login,
           repo.name,
