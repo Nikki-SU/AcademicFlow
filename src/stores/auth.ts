@@ -13,6 +13,7 @@ import {
 } from '../services/db'
 import { verifyPAT } from '../services/github'
 import type { AuthState, GitHubUser } from '../types'
+import { useWorkspaceStore } from './workspace'
 
 interface AuthActions {
   /** 应用启动时调用：从 IndexedDB 恢复登录态 */
@@ -132,6 +133,8 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
       SETTING_KEYS.GITHUB_USER_CACHE,
       SETTING_KEYS.GITHUB_SCOPES,
     ])
+    // 同步清空 workspace store，避免下次登录看到上一账号的 repo
+    useWorkspaceStore.getState().reset()
     set({ ...initialState, isInitialized: true })
   },
 

@@ -50,3 +50,34 @@ export class GitHubAPIError extends Error {
     this.githubMessage = githubMessage
   }
 }
+
+/** GitHub 仓库信息（GET /repos/{owner}/{repo} 返回的核心字段） */
+export interface GitHubRepo {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+  owner: {
+    login: string
+    id: number
+  }
+  html_url: string
+  description: string | null
+  default_branch: string
+  created_at: string
+  updated_at: string
+}
+
+/** Workspace 状态 */
+export interface WorkspaceState {
+  /** 是否已完成一次检测（避免加载态闪烁） */
+  isChecked: boolean
+  /** 是否正在检测/创建中 */
+  isLoading: boolean
+  /** 用户 workspace 仓库（存在则代表已 onboarding） */
+  repo: GitHubRepo | null
+  /** onboarding 阶段的分步进度提示，用于 UI 展示 */
+  progress: string | null
+  /** 检测/创建过程中的错误 */
+  error: string | null
+}
