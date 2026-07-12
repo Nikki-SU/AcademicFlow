@@ -13,15 +13,19 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
+import Settings from './pages/Settings'
 import { useAuthStore } from './stores/auth'
+import { useSettingsStore } from './stores/settings'
 
 function App() {
-  const init = useAuthStore((s) => s.init)
+  const initAuth = useAuthStore((s) => s.init)
+  const initSettings = useSettingsStore((s) => s.init)
 
   useEffect(() => {
-    // 应用启动时从 IndexedDB 恢复登录态
-    init()
-  }, [init])
+    // 应用启动时从 IndexedDB 恢复登录态 + 用户设置
+    initAuth()
+    initSettings()
+  }, [initAuth, initSettings])
 
   return (
     <Routes>
@@ -39,6 +43,14 @@ function App() {
         element={
           <ProtectedRoute>
             <Onboarding />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
           </ProtectedRoute>
         }
       />

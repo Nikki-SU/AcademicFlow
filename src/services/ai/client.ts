@@ -1,0 +1,166 @@
+/**
+ * AI 服务底层客户端（OpenAI 兼容协议）
+ * -------------------------------------------------
+ * 对应 SPEC v0.3 §9.1。所有 AI 请求统一走这里，硅基流动/自定义端点都用同一套。
+ *
+ * 错误处理策略：
+ *   401 → AIAuthError（凭据无效，上层 toast + 引导去设置页）
+ *   402/403 → AIQuotaError（余额不足/权限不足）
+ *   429 → AIRateLimitError（限流）
+ *   5xx / 网络错误 → AINetworkError（可重试 1 次由上层决定）
+ *   其他 4xx → AIClientError
+ */
+import type { AIRequest, AIResponse } from '../../types'
+
+/** AI 请求异常基类 */
+export class AIError extends Error {
+  status: number
+  providerMessage: string
+  constructor(status: number, providerMessage: string, friendly?: string) {
+    super(friendly || providerMessage)
+    this.name = 'AIError'
+    this.status = status
+    this.providerMessage = providerMessage
+  }
+}
+
+export class AIAuthError extends AIError {
+  constructor(msg: string) {
+    super(401, msg, 'AI 服务凭据无效或已过期，请到设置页检查 API Key')
+    this.name = 'AIAuthError'
+  }
+}
+
+export class AIQuotaError extends AIError {
+  constructor(status: number, msg: string) {
+    super(status, msg, 'AI 服务额度不足或权限受限，请到服务商后台检查')
+    this.name = 'AIQuotaError'
+  }
+}
+
+export class AIRateLimitError extends AIError {
+  constructor(msg: string) {
+    super(429, msg, 'AI 服务触发限流，请稍后重试')
+    this.name = 'AIRateLimitError'
+  }
+}
+
+export class AINetworkError extends AIError {
+  constructor(msg: string) {
+    super(0, msg, 'AI 服务网络异常，请检查连接后重试')
+    this.name = 'AINetworkError'
+  }
+}
+
+export class AIClientError extends AIError {
+  constructor(status: number, msg: string) {
+    super(status, msg)
+    this.name = 'AIClientError'
+  }
+}
+
+/** 拼接 chat completions 端点：兼容 base_url 尾部带/不带 /v1 */
+function buildChatEndpoint(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, '')
+  if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`
+  return `${trimmed}/v1/chat/completions`
+}
+
+/**
+ * 提取错误响应中的服务商 message
+ * OpenAI 兼容协议错误体一般是 {error:{message,type,code}} 或 {message}
+ */
+async function parseErrorBody(res: Response): Promise<string> {
+  const text = await res.text().catch(() => '')
+  if (!text) return `HTTP ${res.status}`
+  try {
+    const json = JSON.parse(text)
+    const msg =
+      json?.error?.message ||
+      json?.message ||
+      json?.error ||
+      JSON.stringify(json)
+    return typeof msg === 'string' ? msg : JSON.stringify(msg)
+  } catch {
+    return text.slice(0, 500)
+  }
+}
+
+/**
+ * 调用 OpenAI 兼容 chat completion 接口
+ *
+ * 使用示例：
+ * ```ts
+ * const resp = await callAI({
+ *   baseUrl: 'https://api.siliconflow.cn/v1',
+ *   apiKey: 'sk-xxx',
+ *   model: 'Qwen/Qwen2.5-72B-Instruct',
+ *   messages: [{ role: 'user', content: 'hello' }],
+ *   temperature: 0.3,
+ * })
+ * console.log(resp.content, resp.usage.total_tokens)
+ * ```
+ */
+export async function callAI(req: AIRequest): Promise<AIResponse> {
+  const endpoint = buildChatEndpoint(req.baseUrl)
+  const body = {
+    model: req.model,
+    messages: req.messages,
+    temperature: req.temperature ?? 0.3,
+    max_tokens: req.maxTokens ?? 2048,
+    stream: false,
+  }
+
+  let res: Response
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${req.apiKey}`,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch (err) {
+    throw new AINetworkError(err instanceof Error ? err.message : String(err))
+  }
+
+  if (!res.ok) {
+    const providerMsg = await parseErrorBody(res)
+    if (res.status === 401) throw new AIAuthError(providerMsg)
+    if (res.status === 402 || res.status === 403)
+      throw new AIQuotaError(res.status, providerMsg)
+    if (res.status === 429) throw new AIRateLimitError(providerMsg)
+    if (res.status >= 500) throw new AINetworkError(providerMsg)
+    throw new AIClientError(res.status, providerMsg)
+  }
+
+  const data = (await res.json()) as {
+    choices?: {
+      message?: { content?: string; role?: string }
+      finish_reason?: string
+    }[]
+    usage?: {
+      prompt_tokens?: number
+      completion_tokens?: number
+      total_tokens?: number
+    }
+    model?: string
+  }
+
+  const choice = data.choices?.[0]
+  const content = choice?.message?.content ?? ''
+  const usage = data.usage ?? {}
+
+  return {
+    content,
+    usage: {
+      prompt_tokens: usage.prompt_tokens ?? 0,
+      completion_tokens: usage.completion_tokens ?? 0,
+      total_tokens: usage.total_tokens ?? 0,
+    },
+    finishReason: choice?.finish_reason ?? 'stop',
+    modelId: data.model ?? req.model,
+  }
+}

@@ -16,9 +16,25 @@ export interface SettingRow {
 
 /** IndexedDB 已知 key 白名单（避免拼写错误） */
 export const SETTING_KEYS = {
+  // 认证（M1）
   GITHUB_TOKEN: 'github_token',
   GITHUB_USER_CACHE: 'github_user_cache',
   GITHUB_SCOPES: 'github_scopes',
+  // 设置（M3，SPEC v0.3 §7.3）
+  ADVANCED_MODE: 'advanced_mode',
+  AI_PROVIDER_MODE: 'ai_provider_mode',
+  SILICONFLOW_API_KEY: 'siliconflow_api_key',
+  AI_1_MODEL: 'ai_1_model',
+  AI_2_MODEL: 'ai_2_model',
+  CUSTOM_AI_1_BASE_URL: 'custom_ai_1_base_url',
+  CUSTOM_AI_1_API_KEY: 'custom_ai_1_api_key',
+  CUSTOM_AI_1_MODEL: 'custom_ai_1_model',
+  CUSTOM_AI_2_BASE_URL: 'custom_ai_2_base_url',
+  CUSTOM_AI_2_API_KEY: 'custom_ai_2_api_key',
+  CUSTOM_AI_2_MODEL: 'custom_ai_2_model',
+  // AI 模型清单缓存（M3，TTL 24h）
+  AI_MODELS_CACHE_SILICONFLOW: 'ai_models_cache_siliconflow',
+  AI_MODELS_CACHE_AT: 'ai_models_cache_at',
 } as const
 
 class AcademicFlowDB extends Dexie {

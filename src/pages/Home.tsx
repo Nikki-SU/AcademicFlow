@@ -13,11 +13,12 @@ import {
   Github,
   Loader2,
   LogOut,
+  Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react'
 import { useEffect } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -91,6 +92,14 @@ function Home() {
                   @{user.login}
                 </span>
               </a>
+              <Link
+                to="/settings"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-sm text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
+                title="设置"
+              >
+                <SettingsIcon className="w-4 h-4" />
+                <span className="hidden sm:inline">设置</span>
+              </Link>
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-1 px-2.5 py-1.5 text-sm text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-md transition"
@@ -216,7 +225,7 @@ function Home() {
             <div>Build: {buildTime}</div>
             <div>Base: /AcademicFlow/</div>
             <div>License: AGPL-3.0-or-later</div>
-            <div>Stage: M2 (workspace 已就绪)</div>
+            <div>Stage: M3 (设置页 + AI 双引擎)</div>
           </div>
         </div>
       </main>
