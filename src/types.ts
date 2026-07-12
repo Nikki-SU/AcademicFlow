@@ -234,3 +234,51 @@ export interface DualEngineResult {
   startedAt: number
   finishedAt: number
 }
+
+// ============================================================
+// M3.5.1: 双引擎分阶段进度反馈（UX 增强，不改核心语义）
+// ============================================================
+
+/** 双引擎运行阶段（面向 UI 时间线展示） */
+export type DualEngineStage =
+  | 'idle' // 未开始
+  | 'ai1_running' // AI-1 生成总结中
+  | 'ai1_done' // AI-1 完成（AI-2 尚未启动）
+  | 'ai2_running' // AI-2 核查中
+  | 'ai2_done' // AI-2 返回（前端锚定校验尚未做）
+  | 'verifying' // 前端锚定校验中（通常 <100ms）
+  | 'finished' // 全部完成
+  | 'error' // 中途异常
+
+/** 单次进度回调事件 —— dual-engine 在关键节点触发 */
+export interface DualEngineProgressEvent {
+  stage: DualEngineStage
+  /** AI-1 完成后传出（供 UI 提前展示 AI-1 输出） */
+  ai1Output?: string
+  ai1Model?: string
+  ai1Usage?: AIResponse['usage']
+  /** 已知的各阶段耗时（ms） */
+  ai1Ms?: number
+  ai2Ms?: number
+  /** 错误信息（stage='error' 时） */
+  errorMessage?: string
+}
+
+/** 双引擎进度回调签名 */
+export type DualEngineProgressCallback = (
+  event: DualEngineProgressEvent,
+) => void
+
+/** M3.5.1: 硅基流动账户信息（用于双引擎面板顶部余额显示 + 跑之前预检） */
+export interface UserAccountInfo {
+  /** 总余额（充值+赠送），字符串形式（避免 float 精度问题），如 "12.34" */
+  totalBalance: string
+  /** 充值余额（可选，服务商可能不返回） */
+  chargeBalance?: string
+  /** 账号状态："normal" / "suspended" 等（可选） */
+  status?: string
+  /** 服务商返回的 name / 昵称（可选，用于 UI 上下文） */
+  name?: string
+  /** 客户端拉取时间戳（用于展示"更新于 XX 秒前"） */
+  fetchedAt: number
+}

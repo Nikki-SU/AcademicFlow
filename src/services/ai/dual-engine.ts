@@ -1,7 +1,7 @@
 /**
  * AI 双引擎编排（AI-1 生成 + AI-2 忠实性核查）
  * -------------------------------------------------
- * SPEC v0.3 §9.2 · M3.5 重构版
+ * SPEC v0.3 §9.2 · M3.5 语义 + M3.5.1 分阶段进度回调
  *
  * 语义（M3.5 起，替换 M3 版）：
  *   - AI-1: 拿用户提供的**源材料**（ground truth）+ 用户指令 → 生成总结
@@ -10,11 +10,14 @@
  *   - 前端锚定校验：AI-2 给出的 source_span 必须能在源材料中 grep 到，
  *     否则判定"AI-2 编造引用"，强制降级 passed=false。
  *
- * 面向场景：写论文时 AI 帮我总结一段文献/教材 → 我要保证总结忠于原文，
- *   不掺 AI 自己的常识私货、不曲解、不遗漏关键立场。
+ * M3.5.1 新增：
+ *   - runDualEngine 接受可选 onProgress 回调
+ *   - 在 AI-1 前后、AI-2 前后、锚定校验前后、错误路径触发进度事件
+ *   - AI-1 完成时把 ai1Output 提前推给 UI，让用户不必等 AI-2 也能看到进展
  */
 import type {
   AIRequest,
+  DualEngineProgressCallback,
   DualEngineResult,
   DualEngineTaskType,
   EvidenceCheck,
@@ -30,7 +33,7 @@ export interface DualEngineSideConfig {
   model: string
 }
 
-/** 双引擎运行参数（M3.5） */
+/** 双引擎运行参数（M3.5 + M3.5.1） */
 export interface DualEngineRunParams {
   taskType: DualEngineTaskType
   /** 源材料原文 —— 唯一 ground truth */
@@ -39,6 +42,8 @@ export interface DualEngineRunParams {
   ai1Instruction: string
   ai1: DualEngineSideConfig
   ai2: DualEngineSideConfig
+  /** M3.5.1: 分阶段进度回调（可选） */
+  onProgress?: DualEngineProgressCallback
 }
 
 /** AI-1（生成位）prompt —— 严禁引入源材料以外的信息 */
@@ -226,7 +231,7 @@ function verifyEvidence(
 }
 
 /**
- * 双引擎完整流程（M3.5 语义 · 忠实性核查）
+ * 双引擎完整流程（M3.5 语义 · M3.5.1 分阶段进度）
  * @throws 底层 client.ts 里的 AIError 子类
  */
 export async function runDualEngine(
@@ -234,54 +239,74 @@ export async function runDualEngine(
 ): Promise<DualEngineResult> {
   const startedAt = Date.now()
 
-  // 步骤 1：AI-1 基于源材料生成总结
-  const ai1Resp = await callAI({
-    baseUrl: params.ai1.baseUrl,
-    apiKey: params.ai1.apiKey,
-    model: params.ai1.model,
-    messages: buildAI1Messages(params),
-    temperature: 0.2,
-    maxTokens: 2048,
-  })
+  try {
+    // 步骤 1：AI-1 基于源材料生成总结
+    params.onProgress?.({ stage: 'ai1_running' })
+    const ai1T0 = Date.now()
+    const ai1Resp = await callAI({
+      baseUrl: params.ai1.baseUrl,
+      apiKey: params.ai1.apiKey,
+      model: params.ai1.model,
+      messages: buildAI1Messages(params),
+      temperature: 0.2,
+      maxTokens: 2048,
+    })
+    const ai1Ms = Date.now() - ai1T0
+    params.onProgress?.({
+      stage: 'ai1_done',
+      ai1Output: ai1Resp.content,
+      ai1Model: params.ai1.model,
+      ai1Usage: ai1Resp.usage,
+      ai1Ms,
+    })
 
-  // 步骤 2：AI-2 拿 (源材料, AI-1 总结) 做忠实性核查
-  const ai2Resp = await callAI({
-    baseUrl: params.ai2.baseUrl,
-    apiKey: params.ai2.apiKey,
-    model: params.ai2.model,
-    messages: buildAI2Messages(params, ai1Resp.content),
-    temperature: 0.1,
-    maxTokens: 2048,
-  })
+    // 步骤 2：AI-2 拿 (源材料, AI-1 总结) 做忠实性核查
+    params.onProgress?.({ stage: 'ai2_running', ai1Ms })
+    const ai2T0 = Date.now()
+    const ai2Resp = await callAI({
+      baseUrl: params.ai2.baseUrl,
+      apiKey: params.ai2.apiKey,
+      model: params.ai2.model,
+      messages: buildAI2Messages(params, ai1Resp.content),
+      temperature: 0.1,
+      maxTokens: 2048,
+    })
+    const ai2Ms = Date.now() - ai2T0
+    params.onProgress?.({ stage: 'ai2_done', ai1Ms, ai2Ms })
 
-  // 步骤 3：解析 AI-2 报告
-  const report = parseFaithfulnessReport(ai2Resp.content)
+    // 步骤 3：解析 AI-2 报告 + 锚定校验
+    params.onProgress?.({ stage: 'verifying', ai1Ms, ai2Ms })
+    const report = parseFaithfulnessReport(ai2Resp.content)
+    const evidenceCheck = verifyEvidence(params.sourceMaterial, report.claims)
 
-  // 步骤 4：锚定校验 —— AI-2 引用的原文必须真的在源材料中
-  const evidenceCheck = verifyEvidence(params.sourceMaterial, report.claims)
+    // 步骤 4：合并 passed —— AI-2 自判通过 + 锚定校验通过，才算真通过
+    const finalPassed = report.passed && evidenceCheck.ok
 
-  // 步骤 5：合并 passed —— AI-2 自判通过 + 锚定校验通过，才算真通过
-  const finalPassed = report.passed && evidenceCheck.ok
+    const finishedAt = Date.now()
+    params.onProgress?.({ stage: 'finished', ai1Ms, ai2Ms })
 
-  const finishedAt = Date.now()
-
-  return {
-    taskType: params.taskType,
-    sourceMaterial: params.sourceMaterial,
-    ai1Instruction: params.ai1Instruction,
-    ai1Model: params.ai1.model,
-    ai1Output: ai1Resp.content,
-    ai1Usage: ai1Resp.usage,
-    ai2Model: params.ai2.model,
-    ai2Feedback: {
-      passed: finalPassed,
-      claims: report.claims,
-      summary: report.summary,
-      evidenceCheck,
-    },
-    ai2RawOutput: ai2Resp.content,
-    ai2Usage: ai2Resp.usage,
-    startedAt,
-    finishedAt,
+    return {
+      taskType: params.taskType,
+      sourceMaterial: params.sourceMaterial,
+      ai1Instruction: params.ai1Instruction,
+      ai1Model: params.ai1.model,
+      ai1Output: ai1Resp.content,
+      ai1Usage: ai1Resp.usage,
+      ai2Model: params.ai2.model,
+      ai2Feedback: {
+        passed: finalPassed,
+        claims: report.claims,
+        summary: report.summary,
+        evidenceCheck,
+      },
+      ai2RawOutput: ai2Resp.content,
+      ai2Usage: ai2Resp.usage,
+      startedAt,
+      finishedAt,
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    params.onProgress?.({ stage: 'error', errorMessage: msg })
+    throw err
   }
 }

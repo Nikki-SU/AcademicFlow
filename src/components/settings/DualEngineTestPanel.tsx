@@ -1,41 +1,47 @@
 /**
- * AI 双引擎试运行面板（M3.5 重构 · 忠实性核查语义）
+ * AI 双引擎试运行面板（M3.5 忠实性核查 · M3.5.1 分阶段进度 + 余额预检 + 错误分类）
  * -------------------------------------------------
- * 让用户贴一段【源材料】+ 给 AI-1 一条【指令】
- *   → AI-1 基于源材料生成总结
- *   → AI-2 拿 (源材料, 总结) 逐条核查忠实性
- *   → 前端锚定校验 AI-2 的引证是否真的在源材料中
+ * 语义（M3.5）：源材料 + AI-1 指令 → AI-1 总结 → AI-2 忠实性核查 → 前端锚定校验
  *
- * 三色徽章：
- *   - 绿 supported（源材料支撑该 claim）
- *   - 黄 added（AI-1 加了源材料没有的信息）
- *   - 红 contradicted（AI-1 曲解了源材料）
- *
- * 引证不实警告：如果 AI-2 给出的 source_span 无法在源材料中 grep 到 → 顶部红条 + 该 claim 标 ❌
+ * M3.5.1 UX 增强：
+ * - 顶部余额条 (BalanceBar)：进入面板/跑前自动刷新，让"没钱"和"纯慢"从画面上区分
+ * - 时间线 (StageTimeline)：四节点三态 + 秒表，跑得慢也能看到进度
+ * - AI-1 早期显示：ai1_done 立刻展示 AI-1 总结（不等 AI-2 完成）
+ * - 错误分类：余额 / 401 / 限流 / 超时 / 其他，分色顶部条 + 引导链接
  */
 import {
   AlertTriangle,
   BookOpenCheck,
   CheckCircle,
   ClipboardList,
+  ExternalLink,
   FileText,
   Loader2,
   Play,
-  Timer,
   XCircle,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import {
+  AIAuthError,
+  AIQuotaError,
+  AIRateLimitError,
+  AITimeoutError,
+} from '../../services/ai/client'
+import { fetchSiliconflowUserInfo } from '../../services/ai/models'
 import { useSettingsStore } from '../../stores/settings'
-import type { FaithfulnessClaim } from '../../types'
+import type {
+  DualEngineStage,
+  FaithfulnessClaim,
+  UserAccountInfo,
+} from '../../types'
+import BalanceBar from './BalanceBar'
+import StageTimeline from './StageTimeline'
 
-/** 预填示例源材料（真实、事实正确 · 用于跑通 M3.5） */
 const SAMPLE_SOURCE = `2015 年 10 月 5 日，瑞典卡罗琳医学院宣布，中国科学家屠呦呦与另外两位科学家共同获得诺贝尔生理学或医学奖，以表彰她在青蒿素研究方面的成就。屠呦呦是首位获得诺贝尔科学奖的中国大陆科学家。青蒿素是从植物青蒿中提取的一种化合物，可有效治疗疟疾。屠呦呦的研究团队在 20 世纪 70 年代从东晋葛洪所著《肘后备急方》中获得灵感，采用低温乙醚提取法成功分离出青蒿素。世界卫生组织已将青蒿素类药物列为疟疾的一线治疗药物。`
-
 const SAMPLE_INSTRUCTION = '用 2-3 句话简洁忠实地总结上述源材料，保留关键事实。'
 
-/** verdict → 徽章样式 */
 const VERDICT_STYLE: Record<
   FaithfulnessClaim['verdict'],
   { label: string; color: string; icon: JSX.Element }
@@ -57,6 +63,61 @@ const VERDICT_STYLE: Record<
   },
 }
 
+interface ClassifiedError {
+  title: string
+  detail: string
+  color: string
+  cta?: { text: string; href: string }
+}
+
+function classifyError(err: unknown): ClassifiedError {
+  if (err instanceof AIQuotaError) {
+    return {
+      title: '⛔ 硅基流动余额不足或权限受限',
+      detail:
+        '服务商返回 402/403，说明账户余额不足、订单异常或该模型无访问权限。请前往硅基流动控制台核实。',
+      color: 'bg-red-50 border-red-300 text-red-800',
+      cta: {
+        text: '前往充值 →',
+        href: 'https://cloud.siliconflow.cn/account/balance',
+      },
+    }
+  }
+  if (err instanceof AIAuthError) {
+    return {
+      title: '🔑 API Key 无效或已过期',
+      detail: '服务商返回 401。请在上方设置页更新 API Key。',
+      color: 'bg-red-50 border-red-300 text-red-800',
+      cta: {
+        text: '生成新 Key →',
+        href: 'https://cloud.siliconflow.cn/account/ak',
+      },
+    }
+  }
+  if (err instanceof AIRateLimitError) {
+    return {
+      title: '⏱ 触发限流（429）',
+      detail:
+        '当前模型 QPS 达上限。建议：稍后重试 · 或换用非 Pro 版模型 · 或降低并发。',
+      color: 'bg-amber-50 border-amber-300 text-amber-800',
+    }
+  }
+  if (err instanceof AITimeoutError) {
+    return {
+      title: '⏳ 请求超时（90s 未响应）',
+      detail:
+        '硬性超时熔断。可能是网络阻塞、模型排队、账户异常或推理链过长。建议：① 换更快模型（DeepSeek-V3.2 替代 R1） ② 检查网络 ③ 稍后重试。',
+      color: 'bg-orange-50 border-orange-300 text-orange-800',
+    }
+  }
+  const msg = err instanceof Error ? err.message : String(err)
+  return {
+    title: '⚠️ 试运行失败',
+    detail: msg,
+    color: 'bg-slate-50 border-slate-300 text-slate-800',
+  }
+}
+
 function DualEngineTestPanel() {
   const {
     isRunningDualEngine,
@@ -68,10 +129,31 @@ function DualEngineTestPanel() {
     advancedMode,
     customAi1Model,
     customAi2Model,
+    siliconflowApiKey,
   } = useSettingsStore()
 
   const [sourceMaterial, setSourceMaterial] = useState(SAMPLE_SOURCE)
   const [ai1Instruction, setAi1Instruction] = useState(SAMPLE_INSTRUCTION)
+
+  // M3.5.1 进度 state
+  const [stage, setStage] = useState<DualEngineStage>('idle')
+  const [ai1Ms, setAi1Ms] = useState<number | null>(null)
+  const [ai2Ms, setAi2Ms] = useState<number | null>(null)
+  const [partialAi1Output, setPartialAi1Output] = useState<string | null>(null)
+  const [partialAi1Model, setPartialAi1Model] = useState<string | null>(null)
+  const [ai1StartedAt, setAi1StartedAt] = useState<number | null>(null)
+  const [ai2StartedAt, setAi2StartedAt] = useState<number | null>(null)
+  const [hasRunOnce, setHasRunOnce] = useState(false)
+  const [lastError, setLastError] = useState<ClassifiedError | null>(null)
+  const [errorAtStage, setErrorAtStage] = useState<DualEngineStage | null>(null)
+  const stageRef = useRef<DualEngineStage>('idle')
+  const [, setTick] = useState(0)
+
+  // M3.5.1 账户余额
+  const [account, setAccount] = useState<UserAccountInfo | null>(null)
+  const [isLoadingAccount, setIsLoadingAccount] = useState(false)
+  const [accountError, setAccountError] = useState<string | null>(null)
+  const accountFetchedOnce = useRef(false)
 
   const useCustom = aiProviderMode === 'custom' && advancedMode
   const displayAI1Model = useCustom
@@ -80,6 +162,48 @@ function DualEngineTestPanel() {
   const displayAI2Model = useCustom
     ? customAi2Model || '（自定义 AI-2）'
     : ai2Model
+  const canFetchBalance = !useCustom && !!siliconflowApiKey.trim()
+
+  // 秒表：running 状态下每 250ms 刷新 UI
+  useEffect(() => {
+    if (
+      stage === 'ai1_running' ||
+      stage === 'ai2_running' ||
+      stage === 'verifying'
+    ) {
+      const id = setInterval(() => setTick((t) => t + 1), 250)
+      return () => clearInterval(id)
+    }
+  }, [stage])
+
+  // 首次挂载：已配置 Key 就自动拉一次余额
+  const refreshBalance = async () => {
+    if (!canFetchBalance) return
+    setIsLoadingAccount(true)
+    setAccountError(null)
+    try {
+      const info = await fetchSiliconflowUserInfo(siliconflowApiKey.trim())
+      setAccount({
+        totalBalance: info.totalBalance,
+        chargeBalance: info.chargeBalance,
+        status: info.status,
+        name: info.name,
+        fetchedAt: Date.now(),
+      })
+    } catch (err) {
+      setAccount(null)
+      setAccountError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setIsLoadingAccount(false)
+    }
+  }
+  useEffect(() => {
+    if (!accountFetchedOnce.current && canFetchBalance) {
+      accountFetchedOnce.current = true
+      refreshBalance()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canFetchBalance])
 
   const handleRun = async () => {
     const source = sourceMaterial.trim()
@@ -92,12 +216,46 @@ function DualEngineTestPanel() {
       toast.error('请填写给 AI-1 的指令')
       return
     }
+
+    // 重置进度
+    setStage('idle')
+    stageRef.current = 'idle'
+    setAi1Ms(null)
+    setAi2Ms(null)
+    setPartialAi1Output(null)
+    setPartialAi1Model(null)
+    setAi1StartedAt(null)
+    setAi2StartedAt(null)
+    setLastError(null)
+    setErrorAtStage(null)
+    setHasRunOnce(true)
+
+    // 跑之前后台顺手刷余额（不阻塞主流程）
+    if (canFetchBalance) refreshBalance()
+
     try {
-      await runFactCheckTest(source, instr)
+      await runFactCheckTest(source, instr, (event) => {
+        setStage(event.stage)
+        stageRef.current = event.stage
+        if (event.stage === 'ai1_running') {
+          setAi1StartedAt(Date.now())
+        } else if (event.stage === 'ai1_done') {
+          setAi1Ms(event.ai1Ms ?? null)
+          setPartialAi1Output(event.ai1Output ?? null)
+          setPartialAi1Model(event.ai1Model ?? null)
+          setAi2StartedAt(Date.now())
+        } else if (event.stage === 'ai2_done') {
+          setAi2Ms(event.ai2Ms ?? null)
+        }
+      })
       toast.success('双引擎忠实性核查完成')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`试运行失败：${msg}`)
+      const cls = classifyError(err)
+      setLastError(cls)
+      setErrorAtStage(stageRef.current)
+      setStage('error')
+      toast.error(cls.title)
+      if (err instanceof AIQuotaError && canFetchBalance) refreshBalance()
     }
   }
 
@@ -107,10 +265,6 @@ function DualEngineTestPanel() {
   }
 
   const result = lastDualEngineResult
-  const duration = result
-    ? ((result.finishedAt - result.startedAt) / 1000).toFixed(1)
-    : null
-
   const claims = result?.ai2Feedback.claims ?? []
   const evidence = result?.ai2Feedback.evidenceCheck
   const supportedCount = claims.filter((c) => c.verdict === 'supported').length
@@ -119,8 +273,44 @@ function DualEngineTestPanel() {
     (c) => c.verdict === 'contradicted',
   ).length
 
+  // 秒表格式化
+  const fmt = (ms: number) => `${(ms / 1000).toFixed(1)}s`
+  const now = Date.now()
+  const ai1Text: string | null =
+    stage === 'ai1_running' && ai1StartedAt
+      ? `已 ${fmt(now - ai1StartedAt)}`
+      : ai1Ms !== null
+        ? fmt(ai1Ms)
+        : null
+  const ai2Text: string | null =
+    stage === 'ai2_running' && ai2StartedAt
+      ? `已 ${fmt(now - ai2StartedAt)}`
+      : ai2Ms !== null
+        ? fmt(ai2Ms)
+        : null
+  const totalMs = ai1Ms !== null && ai2Ms !== null ? ai1Ms + ai2Ms : null
+  const totalText: string | null =
+    stage === 'finished' && totalMs !== null ? `${fmt(totalMs)} 总` : null
+
+  // AI-1 输出：早期用 partial，最终用 result
+  const ai1OutputToShow = partialAi1Output ?? result?.ai1Output ?? ''
+  const ai1ModelToShow = partialAi1Model ?? result?.ai1Model ?? ''
+
+  const showResult = result && stage === 'finished'
+
   return (
     <div className="space-y-4">
+      {/* 顶部：账户余额条（仅硅基流动模式） */}
+      {!useCustom && (
+        <BalanceBar
+          account={account}
+          isLoading={isLoadingAccount}
+          error={accountError}
+          canFetch={canFetchBalance}
+          onRefresh={refreshBalance}
+        />
+      )}
+
       {/* 源材料输入 */}
       <div>
         <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mb-1.5">
@@ -197,16 +387,65 @@ function DualEngineTestPanel() {
         )}
       </button>
 
-      {/* 结果 */}
-      {result && (
-        <div className="space-y-3 pt-2">
-          {/* 概览 */}
+      {/* 时间线 —— 只要跑过至少一次就一直显示 */}
+      {hasRunOnce && (
+        <StageTimeline
+          stage={stage}
+          ai1Text={ai1Text}
+          ai2Text={ai2Text}
+          totalText={totalText}
+          errorAtStage={errorAtStage}
+        />
+      )}
+
+      {/* 错误分类顶部条 */}
+      {lastError && (
+        <div className={`p-3 rounded-md border ${lastError.color}`}>
+          <div className="font-semibold text-sm mb-1">{lastError.title}</div>
+          <div className="text-xs leading-relaxed break-words">
+            {lastError.detail}
+          </div>
+          {lastError.cta && (
+            <a
+              href={lastError.cta.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 mt-2 text-xs font-medium underline hover:no-underline"
+            >
+              {lastError.cta.text}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* AI-1 总结 —— 从 ai1_done 起就展示（不等 AI-2） */}
+      {ai1OutputToShow && (
+        <details
+          open
+          className="border border-slate-200 rounded-md overflow-hidden"
+        >
+          <summary className="cursor-pointer px-3 py-2 bg-slate-50 hover:bg-slate-100 text-sm font-medium text-slate-800 flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-indigo-600" />
+            AI-1 总结（{ai1ModelToShow}）
+            {stage === 'ai2_running' && (
+              <span className="ml-auto flex items-center gap-1 text-xs font-normal text-indigo-600">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                AI-2 核查中…
+              </span>
+            )}
+          </summary>
+          <pre className="p-3 text-xs bg-white text-slate-800 whitespace-pre-wrap font-sans leading-relaxed max-h-[400px] overflow-y-auto">
+            {ai1OutputToShow}
+          </pre>
+        </details>
+      )}
+
+      {/* 结果概览 + AI-2 核查 —— 仅在 finished 时展示 */}
+      {showResult && (
+        <div className="space-y-3">
+          {/* 概览条 */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-xs">
-            <div className="flex items-center gap-1">
-              <Timer className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-slate-600">耗时</span>
-              <span className="font-mono text-slate-800">{duration}s</span>
-            </div>
             <div className="flex items-center gap-1">
               <span className="text-slate-600">AI-1</span>
               <span className="font-mono text-slate-800">
@@ -225,9 +464,7 @@ function DualEngineTestPanel() {
                 <span className="font-mono text-green-700">
                   ✓{supportedCount}
                 </span>
-                <span className="font-mono text-amber-700">
-                  ⊕{addedCount}
-                </span>
+                <span className="font-mono text-amber-700">⊕{addedCount}</span>
                 <span className="font-mono text-red-700">
                   ✗{contradictedCount}
                 </span>
@@ -250,19 +487,11 @@ function DualEngineTestPanel() {
             </div>
           )}
 
-          {/* AI-1 总结 */}
-          <details open className="border border-slate-200 rounded-md overflow-hidden">
-            <summary className="cursor-pointer px-3 py-2 bg-slate-50 hover:bg-slate-100 text-sm font-medium text-slate-800 flex items-center gap-2">
-              <ClipboardList className="w-4 h-4 text-indigo-600" />
-              AI-1 总结（{result.ai1Model}）
-            </summary>
-            <pre className="p-3 text-xs bg-white text-slate-800 whitespace-pre-wrap font-sans leading-relaxed max-h-[400px] overflow-y-auto">
-              {result.ai1Output}
-            </pre>
-          </details>
-
           {/* AI-2 核查 */}
-          <details open className="border border-slate-200 rounded-md overflow-hidden">
+          <details
+            open
+            className="border border-slate-200 rounded-md overflow-hidden"
+          >
             <summary className="cursor-pointer px-3 py-2 bg-slate-50 hover:bg-slate-100 text-sm font-medium text-slate-800 flex items-center gap-2">
               {result.ai2Feedback.passed ? (
                 <CheckCircle className="w-4 h-4 text-green-600" />

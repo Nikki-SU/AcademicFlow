@@ -148,3 +148,82 @@ export async function loadCachedModelsFetchedAt(): Promise<number | null> {
   const at = Number(atRaw)
   return Number.isFinite(at) ? at : null
 }
+
+/**
+ * M3.5.1: 拉取硅基流动账户信息（余额 / 状态）
+ *
+ * 端点：GET /v1/user/info
+ * 认证：Authorization: Bearer <key>
+ * 返回结构（硅基流动 2026-07 契约）：
+ *   { code, message, status, data: { id, name, email, image, isAdmin, balance,
+ *     status, introduction, role, chargeBalance, totalBalance, category, ... } }
+ * 我们只关心 data.totalBalance / data.chargeBalance / data.status / data.name。
+ *
+ * @throws AIAuthError / AIQuotaError / AIRateLimitError / AINetworkError / AIClientError
+ */
+export async function fetchSiliconflowUserInfo(apiKey: string): Promise<{
+  totalBalance: string
+  chargeBalance?: string
+  status?: string
+  name?: string
+}> {
+  if (!apiKey || !apiKey.trim()) {
+    throw new AIAuthError('未配置硅基流动 API Key')
+  }
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 15_000)
+
+  let res: Response
+  try {
+    res = await fetch(`${SILICONFLOW_BASE_URL}/user/info`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new AINetworkError('user/info 请求超时（15s 未响应）')
+    }
+    throw new AINetworkError(err instanceof Error ? err.message : String(err))
+  } finally {
+    clearTimeout(timeoutId)
+  }
+
+  if (!res.ok) {
+    const providerMsg = await parseErrorBody(res)
+    if (res.status === 401) throw new AIAuthError(providerMsg)
+    if (res.status === 402 || res.status === 403)
+      throw new AIQuotaError(res.status, providerMsg)
+    if (res.status === 429) throw new AIRateLimitError(providerMsg)
+    if (res.status >= 500) throw new AINetworkError(providerMsg)
+    throw new AIClientError(res.status, providerMsg)
+  }
+
+  const raw = (await res.json()) as {
+    data?: {
+      totalBalance?: string | number
+      chargeBalance?: string | number
+      balance?: string | number
+      status?: string
+      name?: string
+    }
+  }
+  const data = raw?.data ?? {}
+  const totalBalance =
+    data.totalBalance !== undefined
+      ? String(data.totalBalance)
+      : data.balance !== undefined
+        ? String(data.balance)
+        : '0'
+  return {
+    totalBalance,
+    chargeBalance:
+      data.chargeBalance !== undefined ? String(data.chargeBalance) : undefined,
+    status: data.status,
+    name: data.name,
+  }
+}

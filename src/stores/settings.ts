@@ -9,7 +9,8 @@
  * - updateSettings(patch) 支持局部更新，写入 state + 同步落 IndexedDB
  * - init() 从 IndexedDB rehydrate 所有字段，未存过的走 DEFAULT_SETTINGS
  * - refreshModels() 拉 /v1/models + 缓存（TTL 24h，与 SPEC §9.3 对齐）
- * - runFactCheckTest() 走 dual-engine（AI-1 生成 + AI-2 忠实性核查），M3.5 试运行入口
+ * - runFactCheckTest() 走 dual-engine（AI-1 生成 + AI-2 忠实性核查）
+ *   · M3.5.1: 增加可选 onProgress 回调，透传给 runDualEngine
  */
 import { create } from 'zustand'
 import {
@@ -23,6 +24,7 @@ import { runDualEngine } from '../services/ai/dual-engine'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
 import type {
   AIModel,
+  DualEngineProgressCallback,
   DualEngineResult,
   SettingsData,
   SettingsState,
@@ -87,10 +89,11 @@ interface SettingsActions {
   updateSettings: (patch: Partial<SettingsData>) => Promise<void>
   /** 拉取硅基流动 /v1/models（force=true 忽略 24h 缓存） */
   refreshModels: (force?: boolean) => Promise<AIModel[]>
-  /** 用当前设置跑一次双引擎试运行（M3.5：忠实性核查） */
+  /** 用当前设置跑一次双引擎试运行（M3.5：忠实性核查 · M3.5.1：分阶段进度回调） */
   runFactCheckTest: (
     sourceMaterial: string,
     ai1Instruction?: string,
+    onProgress?: DualEngineProgressCallback,
   ) => Promise<DualEngineResult>
   /** 清空错误提示 */
   clearError: () => void
@@ -192,6 +195,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
     runFactCheckTest: async (
       sourceMaterial,
       ai1Instruction = DEFAULT_AI1_INSTRUCTION,
+      onProgress,
     ) => {
       const state = get()
 
@@ -234,6 +238,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           ai1Instruction,
           ai1: { baseUrl: ai1BaseUrl, apiKey: ai1ApiKey, model: ai1Model },
           ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
+          onProgress,
         })
         set({ isRunningDualEngine: false, lastDualEngineResult: result })
         return result

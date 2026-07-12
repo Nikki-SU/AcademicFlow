@@ -8,9 +8,17 @@
  *   402/403 → AIQuotaError（余额不足/权限不足）
  *   429 → AIRateLimitError（限流）
  *   5xx / 网络错误 → AINetworkError（可重试 1 次由上层决定）
+ *   AbortError → AITimeoutError（M3.5.1 新增，硬超时 90s）
  *   其他 4xx → AIClientError
+ *
+ * M3.5.1: 每次请求硬性 90s 超时（AbortSignal），防止服务端挂起时 UI 无限等待。
+ *   90s 上限选取：DeepSeek-R1 推理模型正常单次 30-60s，留 30s 富余；超时即分类为
+ *   AITimeoutError 让 UI 明确提示，避免用户误以为在正常跑（可能是网络阻塞/模型排队/额度问题）。
  */
 import type { AIRequest, AIResponse } from '../../types'
+
+/** AI 请求硬超时（ms）—— 覆盖 R1 推理模型正常场景 */
+const DEFAULT_TIMEOUT_MS = 90_000
 
 /** AI 请求异常基类 */
 export class AIError extends Error {
@@ -49,6 +57,20 @@ export class AINetworkError extends AIError {
   constructor(msg: string) {
     super(0, msg, 'AI 服务网络异常，请检查连接后重试')
     this.name = 'AINetworkError'
+  }
+}
+
+/** M3.5.1: 请求超时（AbortSignal 触发） */
+export class AITimeoutError extends AIError {
+  timeoutMs: number
+  constructor(timeoutMs: number) {
+    super(
+      0,
+      `AI request timed out after ${timeoutMs}ms`,
+      `AI 请求超时（${(timeoutMs / 1000).toFixed(0)}s 未响应）—— 可能是网络阻塞、模型排队或账户异常`,
+    )
+    this.name = 'AITimeoutError'
+    this.timeoutMs = timeoutMs
   }
 }
 
@@ -111,6 +133,10 @@ export async function callAI(req: AIRequest): Promise<AIResponse> {
     stream: false,
   }
 
+  const controller = new AbortController()
+  const timeoutMs = DEFAULT_TIMEOUT_MS
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
   let res: Response
   try {
     res = await fetch(endpoint, {
@@ -121,9 +147,15 @@ export async function callAI(req: AIRequest): Promise<AIResponse> {
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     })
   } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new AITimeoutError(timeoutMs)
+    }
     throw new AINetworkError(err instanceof Error ? err.message : String(err))
+  } finally {
+    clearTimeout(timeoutId)
   }
 
   if (!res.ok) {
