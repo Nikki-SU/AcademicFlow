@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AcademicFlow</title>
+  <!--
+    SPA on GitHub Pages 兜底：
+    用户直接刷新 /AcademicFlow/xxx 时 GitHub Pages 会给这个 404.html，
+    该脚本把当前 URL 重写为 /AcademicFlow/?/xxx 并跳回根路径，
+    index.html 里的恢复脚本会解出真实路径交给 React Router。
+    参考：https://github.com/rafgraph/spa-github-pages (MIT License)
+  -->
+  <script type="text/javascript">
+    // pathSegmentsToKeep = 1 表示保留一层，即 "/AcademicFlow/"
+    var pathSegmentsToKeep = 1;
+    var l = window.location;
+    l.replace(
+      l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+      l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+      l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+      (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+      l.hash
+    );
+  </script>
+</head>
+<body>
+  <p>正在跳转…</p>
+</body>
+</html>
