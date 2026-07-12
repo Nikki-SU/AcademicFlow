@@ -1,13 +1,22 @@
 /**
- * AI 双引擎试运行面板（M3.5 忠实性核查 · M3.5.1 分阶段进度 + 余额预检 + 错误分类）
+ * AI 双引擎试运行面板（M3.5 忠实性核查 · M3.5.1 分阶段进度 · M3.6 分层归因重试）
  * -------------------------------------------------
- * 语义（M3.5）：源材料 + AI-1 指令 → AI-1 总结 → AI-2 忠实性核查 → 前端锚定校验
+ * 语义：
+ *   - M3.5: 源材料 + AI-1 指令 → AI-1 总结 → AI-2 忠实性核查 → 前端引证锚定
+ *   - M3.5.1: 分阶段进度、余额预检、错误分类、90s 硬超时
+ *   - M3.6: 分层归因重试
+ *     · passed=false & 引证 ok=true → AI-1 加戏 → 打回 AI-1 重写
+ *     · 引证 ok=false → AI-2 编造引用 → AI-2 自我纠错
+ *     · 两个都错 → 优先 AI-2 自纠（引证都错，AI-2 verdict 也不可信）
+ *     · 最多 5 轮，仍失败则输出最后一版 + 显著红标
  *
- * M3.5.1 UX 增强：
- * - 顶部余额条 (BalanceBar)：进入面板/跑前自动刷新，让"没钱"和"纯慢"从画面上区分
- * - 时间线 (StageTimeline)：四节点三态 + 秒表，跑得慢也能看到进度
- * - AI-1 早期显示：ai1_done 立刻展示 AI-1 总结（不等 AI-2 完成）
- * - 错误分类：余额 / 401 / 限流 / 超时 / 其他，分色顶部条 + 引导链接
+ * UI 组成：
+ *   - 顶部：账户余额条 (BalanceBar)
+ *   - 输入：源材料 textarea + AI-1 指令 textarea + "使用示例"
+ *   - 时间线 (StageTimeline)：含 M3.6 轮次徽章
+ *   - AI-1 总结（最新一轮）+ AI-2 核查结果（最新一轮）
+ *   - 重试历史 (AttemptHistory)：仅在 attempts.length > 1 时展示
+ *   - 5 轮全失败红色横幅（finalPassed=false）
  */
 import {
   AlertTriangle,
@@ -32,15 +41,28 @@ import {
 import { fetchSiliconflowUserInfo } from '../../services/ai/models'
 import { useSettingsStore } from '../../stores/settings'
 import type {
+  AttemptReason,
   DualEngineStage,
   FaithfulnessClaim,
   UserAccountInfo,
 } from '../../types'
+import AttemptHistory from './AttemptHistory'
 import BalanceBar from './BalanceBar'
 import StageTimeline from './StageTimeline'
 
-const SAMPLE_SOURCE = `2015 年 10 月 5 日，瑞典卡罗琳医学院宣布，中国科学家屠呦呦与另外两位科学家共同获得诺贝尔生理学或医学奖，以表彰她在青蒿素研究方面的成就。屠呦呦是首位获得诺贝尔科学奖的中国大陆科学家。青蒿素是从植物青蒿中提取的一种化合物，可有效治疗疟疾。屠呦呦的研究团队在 20 世纪 70 年代从东晋葛洪所著《肘后备急方》中获得灵感，采用低温乙醚提取法成功分离出青蒿素。世界卫生组织已将青蒿素类药物列为疟疾的一线治疗药物。`
-const SAMPLE_INSTRUCTION = '用 2-3 句话简洁忠实地总结上述源材料，保留关键事实。'
+// M3.6: 默认样例改成光催化英文文献 + 中文总结指令
+//   来源：Xi et al., Molecules 2026, 31(13), 2216（open access）
+//   本地存档：/app/data/所有对话/主对话/AcademicFlow测试用例2_光催化论文.md
+const SAMPLE_SOURCE = `We report a visible-light-mediated photoreduction strategy for the three-component 1,2-arylpyridylation of alkenes with arylboronic acids and 4-cyanopyridines. The reaction mechanism was verified via radical trapping experiments and DFT calculations. This reaction proceeds under mild conditions, features broad substrate compatibility and is readily scalable to the gram scale.
+
+Pyridine derivatives are ubiquitous in natural products, pharmaceutical molecules, and functional materials, serving as core heterocyclic structures with great research value. Coupling reactions represent modular and efficient strategies for constructing Csp2-Csp3 bonds between pyridines and functionalized carbon-containing groups. A diverse array of synthetic routes is available to access pyridine derivatives, ranging from Minisci-type reactions and transition-metal-catalyzed C–H activation to photochemical synthetic protocols. In recent years, radical-mediated synthetic strategies represented by photochemistry and electrochemistry have emerged as promising alternatives. These protocols feature mild conditions, low cost, no need for pre-functionalization of substrates, and excellent functional group compatibility. Among them, visible-light-driven photoredox catalysis for alkene difunctionalization exhibits great application potential. It enables the activation of alkenes via single electron transfer (SET), introduces two functional groups in a single step and rapidly constructs diverse molecular frameworks, thus becoming an efficient new approach to alkene difunctionalization.
+
+We used 4-cyanopyridine, 4-methylphenylboronic acid, and styrene as model substrates. After an extensive screening of the reaction conditions, we found that using Ir[dF(Me)ppy]2(dtbbpy)PF6 (1.2 mol %) as the photocatalyst and NaHCO3 as the base, the reaction in acetonitrile (MeCN) proceeded under blue LED irradiation at room temperature for 24 h to afford product 4a in 73% yield. Control experiments showed that both the light and photocatalyst were essential for the reaction, which established the photochemical character of the reaction. Furthermore, the yield decreased significantly when the reaction was carried out under an air atmosphere, demonstrating the necessity of an argon protective environment. Green light failed to drive the reaction; violet light accelerated the reaction rate but did not improve the product yield.
+
+To investigate the mechanism of the reaction, free radical trapping experiments were conducted. When the radical scavenger 2,2,6,6-tetramethylpiperidine (TEMPO) was added to the model reaction, the reaction was completely inhibited and no product 4a was detected. The reaction was also found to be effectively quenched by the addition of another radical scavenger 2,6-di-tert-butyl-4-methylphenol (BHT). Furthermore, the corresponding trapped radical adducts were unambiguously detected by HRMS. These facts strongly suggest that the reactions proceed via a radical pathway. To further examine the proposed reaction mechanism, we performed density functional theory (DFT) calculations on the energy profile of the reaction sequence for the reaction of 4-cyanopyridine, 4-methylphenylboronic acid, and styrene, using Gaussian 09 program.`
+
+const SAMPLE_INSTRUCTION =
+  '用 4-6 句中文简洁忠实地总结上述文献，保留关键的实验条件、催化剂、产率和机理证据。'
 
 const VERDICT_STYLE: Record<
   FaithfulnessClaim['verdict'],
@@ -149,6 +171,11 @@ function DualEngineTestPanel() {
   const stageRef = useRef<DualEngineStage>('idle')
   const [, setTick] = useState(0)
 
+  // M3.6 轮次 state
+  const [attempt, setAttempt] = useState<number>(0)
+  const [maxAttempts, setMaxAttempts] = useState<number>(5)
+  const [reason, setReason] = useState<AttemptReason | undefined>(undefined)
+
   // M3.5.1 账户余额
   const [account, setAccount] = useState<UserAccountInfo | null>(null)
   const [isLoadingAccount, setIsLoadingAccount] = useState(false)
@@ -169,6 +196,7 @@ function DualEngineTestPanel() {
     if (
       stage === 'ai1_running' ||
       stage === 'ai2_running' ||
+      stage === 'ai2_self_correct_running' ||
       stage === 'verifying'
     ) {
       const id = setInterval(() => setTick((t) => t + 1), 250)
@@ -228,27 +256,58 @@ function DualEngineTestPanel() {
     setAi2StartedAt(null)
     setLastError(null)
     setErrorAtStage(null)
+    setAttempt(0)
+    setMaxAttempts(5)
+    setReason(undefined)
     setHasRunOnce(true)
 
     // 跑之前后台顺手刷余额（不阻塞主流程）
     if (canFetchBalance) refreshBalance()
 
     try {
-      await runFactCheckTest(source, instr, (event) => {
+      const result = await runFactCheckTest(source, instr, (event) => {
         setStage(event.stage)
         stageRef.current = event.stage
-        if (event.stage === 'ai1_running') {
+        // M3.6: 每个事件都可能带轮次信息
+        if (event.attempt) setAttempt(event.attempt)
+        if (event.maxAttempts) setMaxAttempts(event.maxAttempts)
+        if (event.reason) setReason(event.reason)
+
+        if (event.stage === 'attempt_start') {
+          // 新一轮开始：清理秒表 + 早期显示占位
+          setAi1Ms(null)
+          setAi2Ms(null)
+          setPartialAi1Output(null)
+          setAi1StartedAt(null)
+          setAi2StartedAt(null)
+        } else if (event.stage === 'ai1_running') {
           setAi1StartedAt(Date.now())
         } else if (event.stage === 'ai1_done') {
           setAi1Ms(event.ai1Ms ?? null)
           setPartialAi1Output(event.ai1Output ?? null)
           setPartialAi1Model(event.ai1Model ?? null)
           setAi2StartedAt(Date.now())
+        } else if (
+          event.stage === 'ai2_running' ||
+          event.stage === 'ai2_self_correct_running'
+        ) {
+          setAi2StartedAt(Date.now())
         } else if (event.stage === 'ai2_done') {
           setAi2Ms(event.ai2Ms ?? null)
         }
       })
-      toast.success('双引擎忠实性核查完成')
+      // 根据 finalPassed 决定 toast 语气
+      if (result.finalPassed) {
+        toast.success(
+          result.attempts.length > 1
+            ? `双引擎第 ${result.attempts.length}/${result.maxAttempts} 轮通过 ✅`
+            : '双引擎忠实性核查通过 ✅',
+        )
+      } else {
+        toast.error(
+          `双引擎 ${result.attempts.length}/${result.maxAttempts} 轮反复纠错后仍未通过`,
+        )
+      }
     } catch (err) {
       const cls = classifyError(err)
       setLastError(cls)
@@ -283,20 +342,24 @@ function DualEngineTestPanel() {
         ? fmt(ai1Ms)
         : null
   const ai2Text: string | null =
-    stage === 'ai2_running' && ai2StartedAt
+    (stage === 'ai2_running' || stage === 'ai2_self_correct_running') &&
+    ai2StartedAt
       ? `已 ${fmt(now - ai2StartedAt)}`
       : ai2Ms !== null
         ? fmt(ai2Ms)
         : null
   const totalMs = ai1Ms !== null && ai2Ms !== null ? ai1Ms + ai2Ms : null
   const totalText: string | null =
-    stage === 'finished' && totalMs !== null ? `${fmt(totalMs)} 总` : null
+    stage === 'finished' && totalMs !== null ? `${fmt(totalMs)} 本轮` : null
 
   // AI-1 输出：早期用 partial，最终用 result
   const ai1OutputToShow = partialAi1Output ?? result?.ai1Output ?? ''
   const ai1ModelToShow = partialAi1Model ?? result?.ai1Model ?? ''
 
   const showResult = result && stage === 'finished'
+  // M3.6: 5 轮全失败标识
+  const showFinalFailureBanner =
+    showResult && !result.finalPassed && result.attempts.length >= 1
 
   return (
     <div className="space-y-4">
@@ -348,7 +411,7 @@ function DualEngineTestPanel() {
         <div className="flex items-center justify-between mt-1">
           <p className="text-xs text-slate-500">
             AI-1 <span className="font-mono">{displayAI1Model}</span> 生成 → AI-2{' '}
-            <span className="font-mono">{displayAI2Model}</span> 核查忠实性
+            <span className="font-mono">{displayAI2Model}</span> 核查忠实性（最多 5 轮）
           </p>
           <button
             type="button"
@@ -395,10 +458,13 @@ function DualEngineTestPanel() {
           ai2Text={ai2Text}
           totalText={totalText}
           errorAtStage={errorAtStage}
+          attempt={attempt || undefined}
+          maxAttempts={maxAttempts}
+          reason={reason}
         />
       )}
 
-      {/* 错误分类顶部条 */}
+      {/* 错误分类顶部条（真·异常，非"5 轮未通过"） */}
       {lastError && (
         <div className={`p-3 rounded-md border ${lastError.color}`}>
           <div className="font-semibold text-sm mb-1">{lastError.title}</div>
@@ -419,6 +485,24 @@ function DualEngineTestPanel() {
         </div>
       )}
 
+      {/* M3.6: 5 轮反复纠错仍未通过 —— 红色显著横幅 */}
+      {showFinalFailureBanner && result.attempts.length >= result.maxAttempts && (
+        <div className="p-3 rounded-md border-2 border-red-400 bg-red-50">
+          <div className="flex items-start gap-2">
+            <XCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-red-900 leading-relaxed">
+              <div className="font-semibold mb-1">
+                ❌ 双引擎 {result.attempts.length}/{result.maxAttempts} 轮反复纠错后仍未通过
+              </div>
+              <div className="text-xs leading-relaxed">
+                AI-1 和 AI-2 都参与了纠错但收敛不到"忠实性通过"。可能原因：源材料存在歧义、AI-1
+                持续加戏、AI-2 引证能力受模型能力限制。<b>下面展示的是第 {result.attempts.length} 轮（最后一版）结果</b>，请人工复核，或换更强的模型重试。
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* AI-1 总结 —— 从 ai1_done 起就展示（不等 AI-2） */}
       {ai1OutputToShow && (
         <details
@@ -427,11 +511,18 @@ function DualEngineTestPanel() {
         >
           <summary className="cursor-pointer px-3 py-2 bg-slate-50 hover:bg-slate-100 text-sm font-medium text-slate-800 flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-indigo-600" />
-            AI-1 总结（{ai1ModelToShow}）
-            {stage === 'ai2_running' && (
+            AI-1 总结（{ai1ModelToShow}
+            {result && result.attempts.length > 1 && showResult
+              ? ` · 第 ${result.attempts.length}/${result.maxAttempts} 轮`
+              : ''}
+            ）
+            {(stage === 'ai2_running' ||
+              stage === 'ai2_self_correct_running') && (
               <span className="ml-auto flex items-center gap-1 text-xs font-normal text-indigo-600">
                 <Loader2 className="w-3 h-3 animate-spin" />
-                AI-2 核查中…
+                {stage === 'ai2_self_correct_running'
+                  ? 'AI-2 自纠中…'
+                  : 'AI-2 核查中…'}
               </span>
             )}
           </summary>
@@ -470,9 +561,18 @@ function DualEngineTestPanel() {
                 </span>
               </div>
             )}
+            {result.attempts.length > 1 && (
+              <div className="ml-auto flex items-center gap-1 text-slate-600">
+                <span>共</span>
+                <span className="font-mono">
+                  {result.attempts.length}/{result.maxAttempts}
+                </span>
+                <span>轮</span>
+              </div>
+            )}
           </div>
 
-          {/* 引证不实警告 */}
+          {/* 引证不实警告（仅当最新一轮引证仍失败） */}
           {evidence && !evidence.ok && (
             <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
               <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
@@ -487,7 +587,7 @@ function DualEngineTestPanel() {
             </div>
           )}
 
-          {/* AI-2 核查 */}
+          {/* AI-2 核查（最新一轮） */}
           <details
             open
             className="border border-slate-200 rounded-md overflow-hidden"
@@ -502,7 +602,11 @@ function DualEngineTestPanel() {
               {result.ai2Feedback.passed
                 ? '通过 ✅'
                 : `发现 ${addedCount + contradictedCount} 个问题`}
-              · {result.ai2Model}）
+              · {result.ai2Model}
+              {result.attempts.length > 1
+                ? ` · 第 ${result.attempts.length}/${result.maxAttempts} 轮`
+                : ''}
+              ）
             </summary>
             <div className="p-3 space-y-2 bg-white">
               {result.ai2Feedback.summary && (
@@ -580,19 +684,27 @@ function DualEngineTestPanel() {
             </div>
           </details>
 
-          {/* 未通过提示 */}
-          {!result.ai2Feedback.passed && (
-            <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-md">
-              <XCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-orange-800 leading-relaxed">
-                双引擎未通过审阅。按 SPEC §9.2 设计，M4 起 AI 结果将只放入
-                <code className="mx-1 px-1 py-0.5 bg-orange-100 rounded">
-                  :::ai-output
-                </code>
-                折叠块由用户 review，不自动合并到笔记正文。
+          {/* M3.6 重试历史（多轮才展示） */}
+          <AttemptHistory
+            attempts={result.attempts}
+            maxAttempts={result.maxAttempts}
+            finalPassed={result.finalPassed}
+          />
+
+          {/* 未通过提示（非 5 轮全失败场景 —— 5 轮场景由上方红色横幅覆盖） */}
+          {!result.finalPassed &&
+            result.attempts.length < result.maxAttempts && (
+              <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-md">
+                <XCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                <div className="text-xs text-orange-800 leading-relaxed">
+                  双引擎未通过审阅。按 SPEC §9.2 设计，M4 起 AI 结果将只放入
+                  <code className="mx-1 px-1 py-0.5 bg-orange-100 rounded">
+                    :::ai-output
+                  </code>
+                  折叠块由用户 review，不自动合并到笔记正文。
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       )}
     </div>

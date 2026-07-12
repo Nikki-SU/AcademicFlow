@@ -200,35 +200,86 @@ export interface EvidenceCheck {
   failedIndices: number[]
 }
 
-/** SPEC §9.2 (M3.5): 双引擎完整结果 —— 忠实性核查 */
+/** SPEC §9.2 (M3.5): AI-2 结构化反馈 */
+export interface FaithfulnessFeedback {
+  /** 无 added/contradicted 且 evidenceCheck.ok=true 时才为 true */
+  passed: boolean
+  /** 逐条 claim 核查 */
+  claims: FaithfulnessClaim[]
+  /** 对 AI-1 总结整体忠实性的一段评价 */
+  summary: string
+  /** 引证锚定校验（防 AI-2 编造引用） */
+  evidenceCheck: EvidenceCheck
+}
+
+/** SPEC §9.2 (M3.6): 触发本轮的原因 —— 分层归因用
+ *
+ *  - first_run: 首轮，直接跑 AI-1 → AI-2
+ *  - ai1_rewrite: 上一轮 AI-2 抓出 added/contradicted（AI-1 加戏），且引证锚定 ok；本轮打回 AI-1 重写 + AI-2 重审
+ *  - ai2_self_correct: 上一轮引证锚定失败（AI-2 编造 span），本轮 AI-1 输出保留不变，只让 AI-2 自我纠错
+ */
+export type AttemptReason = 'first_run' | 'ai1_rewrite' | 'ai2_self_correct'
+
+/** SPEC §9.2 (M3.6): 单轮尝试的完整记录 —— 用于 5 轮重写循环的历史留痕
+ *
+ *  每轮 = 一次归因 + 只调那个错的 AI（分层归因）
+ *  - first_run: 首次跑 AI-1 → AI-2
+ *  - ai1_rewrite: 只调 AI-1（用上一轮反馈重写）+ 重跑 AI-2 审新版
+ *  - ai2_self_correct: 只调 AI-2（AI-1 输出复用上一轮），让它重挑真实存在的 span
+ */
+export interface DualEngineAttempt {
+  /** 轮次序号，从 1 开始 */
+  attempt: number
+  /** 本轮触发原因（决定本轮调哪个 AI） */
+  reason: AttemptReason
+  /** AI-1 本轮的输出（ai2_self_correct 时 = 上一轮的 ai1Output，AI-1 未重调） */
+  ai1Output: string
+  /** AI-1 是否本轮真正被调用（ai2_self_correct 时为 false） */
+  ai1Invoked: boolean
+  /** AI-1 token 使用（未调用时为占位空对象） */
+  ai1Usage: AIResponse['usage']
+  /** AI-1 耗时（ms；未调用时为 0） */
+  ai1Ms: number
+  /** AI-2 结构化反馈 */
+  ai2Feedback: FaithfulnessFeedback
+  /** AI-2 原始文本（JSON 解析失败时的兜底） */
+  ai2RawOutput: string
+  /** AI-2 token 使用 */
+  ai2Usage: AIResponse['usage']
+  /** AI-2 耗时（ms） */
+  ai2Ms: number
+  /** 本轮是否通过（= ai2Feedback.passed；即 AI-2 自判 passed 且引证锚定全命中） */
+  passed: boolean
+  /** 上一轮的 AI-1 输出（重写时作为 context；首轮为 null） */
+  previousAI1Output: string | null
+}
+
+/** SPEC §9.2 (M3.5 语义 · M3.6 重写循环): 双引擎完整结果 —— 忠实性核查 */
 export interface DualEngineResult {
   taskType: DualEngineTaskType
   /** 用户提供的源材料（唯一 ground truth） */
   sourceMaterial: string
   /** 用户对 AI-1 的指令（如"简洁总结上述材料"） */
   ai1Instruction: string
-  /** AI-1 使用的模型 id */
+  /** AI-1 使用的模型 id（本次运行统一使用） */
   ai1Model: string
-  /** AI-1 生成的总结 */
-  ai1Output: string
-  /** AI-1 token 使用 */
-  ai1Usage: AIResponse['usage']
-  /** AI-2 使用的模型 id */
+  /** AI-2 使用的模型 id（本次运行统一使用） */
   ai2Model: string
-  /** AI-2 审阅结论 */
-  ai2Feedback: {
-    /** 无 added/contradicted 且 evidenceCheck.ok=true 时才为 true */
-    passed: boolean
-    /** 逐条 claim 核查 */
-    claims: FaithfulnessClaim[]
-    /** 对 AI-1 总结整体忠实性的一段评价 */
-    summary: string
-    /** 引证锚定校验（防 AI-2 编造引用） */
-    evidenceCheck: EvidenceCheck
-  }
-  /** AI-2 原始文本（未 JSON 解析时的兜底） */
+  /** 最终交付的 AI-1 输出（= attempts 中最后一轮的 ai1Output） */
+  ai1Output: string
+  /** 最终 AI-2 反馈（= attempts 中最后一轮的 ai2Feedback） */
+  ai2Feedback: FaithfulnessFeedback
+  /** 最终 AI-2 原始输出（= attempts 中最后一轮的 ai2RawOutput） */
   ai2RawOutput: string
-  /** AI-2 token 使用 */
+  /** M3.6: 全部尝试历史（长度 = 实际执行轮数，最少 1 最多 maxAttempts） */
+  attempts: DualEngineAttempt[]
+  /** M3.6: 最大允许轮数（用于 UI 显示"第 N/M 轮"，默认 5） */
+  maxAttempts: number
+  /** M3.6: 最终是否通过（= 最后一轮 passed；5 轮全失败时为 false） */
+  finalPassed: boolean
+  /** 首轮 AI-1 token 使用（保留向后兼容，= attempts[0].ai1Usage） */
+  ai1Usage: AIResponse['usage']
+  /** 首轮 AI-2 token 使用（保留向后兼容，= attempts[0].ai2Usage） */
   ai2Usage: AIResponse['usage']
   /** 起止时间戳 */
   startedAt: number
@@ -239,20 +290,29 @@ export interface DualEngineResult {
 // M3.5.1: 双引擎分阶段进度反馈（UX 增强，不改核心语义）
 // ============================================================
 
-/** 双引擎运行阶段（面向 UI 时间线展示） */
+/** 双引擎运行阶段（面向 UI 时间线展示；M3.6 加入 attempt_start / attempt_failed_retry / ai2_self_correct） */
 export type DualEngineStage =
   | 'idle' // 未开始
-  | 'ai1_running' // AI-1 生成总结中
+  | 'attempt_start' // 新一轮开始（M3.6：event.attempt=当前轮次 · event.reason=本轮触发原因）
+  | 'ai1_running' // AI-1 生成/重写中
   | 'ai1_done' // AI-1 完成（AI-2 尚未启动）
-  | 'ai2_running' // AI-2 核查中
+  | 'ai2_running' // AI-2 首次核查中
+  | 'ai2_self_correct_running' // M3.6: AI-2 自我纠错中（上一轮引证锚定失败，AI-1 输出不变，AI-2 重跑）
   | 'ai2_done' // AI-2 返回（前端锚定校验尚未做）
   | 'verifying' // 前端锚定校验中（通常 <100ms）
-  | 'finished' // 全部完成
+  | 'attempt_failed_retry' // M3.6: 本轮未通过，准备进入下一轮
+  | 'finished' // 全部完成（可能是通过，也可能是 maxAttempts 用尽）
   | 'error' // 中途异常
 
-/** 单次进度回调事件 —— dual-engine 在关键节点触发 */
+/** 单次进度回调事件 —— dual-engine 在关键节点触发（M3.6 加入 attempt / reason 相关字段） */
 export interface DualEngineProgressEvent {
   stage: DualEngineStage
+  /** M3.6: 当前轮次（从 1 开始） */
+  attempt?: number
+  /** M3.6: 最大轮数（默认 5） */
+  maxAttempts?: number
+  /** M3.6: 本轮触发原因（决定本轮调哪个 AI） */
+  reason?: AttemptReason
   /** AI-1 完成后传出（供 UI 提前展示 AI-1 输出） */
   ai1Output?: string
   ai1Model?: string
@@ -260,6 +320,8 @@ export interface DualEngineProgressEvent {
   /** 已知的各阶段耗时（ms） */
   ai1Ms?: number
   ai2Ms?: number
+  /** M3.6: 本轮 AI-2 反馈（attempt_failed_retry 时传出，供 UI 展示"上轮为何被打回"） */
+  ai2Feedback?: FaithfulnessFeedback
   /** 错误信息（stage='error' 时） */
   errorMessage?: string
 }

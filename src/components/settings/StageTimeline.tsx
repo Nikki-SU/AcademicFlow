@@ -1,18 +1,17 @@
 /**
- * 双引擎运行时间线（M3.5.1）
+ * 双引擎运行时间线（M3.5.1 · M3.6 加轮次徽章）
  * -------------------------------------------------
  * 四节点横向进度条：① AI-1 生成 → ② AI-2 核查 → ③ 引证校验 → ④ 完成。
- * 每个节点三态：
- *   - pending：待运行（灰）
- *   - running：进行中（蓝，转圈 icon + 实时秒表）
- *   - done：已完成（绿，✓ icon + 定格总耗时）
- *   - error：中途异常（红，⚠ icon）—— 只有出错节点单独染红，其余按已达到状态展示
+ * 每个节点三态：pending / running / done / error
  *
- * 秒表由父组件传入（elapsedText），父组件用 useEffect setInterval 触发 rerender。
+ * M3.6 新增：
+ *   - 顶部一行"第 N/M 轮 · 原因"轮次徽章
+ *   - AI-2 自我纠错时（stage='ai2_self_correct_running'），节点 2 显示"AI-2 自纠"
+ *   - reason='ai2_self_correct' 时，节点 1（AI-1）视为 done 保留（AI-1 未重跑）
  */
-import { AlertTriangle, CheckCircle, Loader2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Loader2, RotateCcw } from 'lucide-react'
 import type { JSX } from 'react'
-import type { DualEngineStage } from '../../types'
+import type { AttemptReason, DualEngineStage } from '../../types'
 
 /** 节点状态 */
 export type NodeStatus = 'pending' | 'running' | 'done' | 'error'
@@ -25,24 +24,32 @@ interface StageTimelineProps {
   totalText: string | null
   /** 是否处于错误态（stage='error' 时判断错在哪一节点） */
   errorAtStage: DualEngineStage | null
+  /** M3.6: 当前轮次（1..maxAttempts） */
+  attempt?: number
+  /** M3.6: 最大轮数 */
+  maxAttempts?: number
+  /** M3.6: 本轮触发原因 */
+  reason?: AttemptReason
 }
 
-/** 根据 stage 计算各节点状态 */
+/** 根据 stage 计算各节点状态（M3.6: 加 ai2_self_correct_running / attempt_start） */
 function computeStatuses(
   stage: DualEngineStage,
   errorAtStage: DualEngineStage | null,
+  reason: AttemptReason | undefined,
 ): {
   ai1: NodeStatus
   ai2: NodeStatus
   verify: NodeStatus
   done: NodeStatus
 } {
-  // 错误态：错在哪一节点，就该节点标 error，之前的节点保持 done，之后的保持 pending
+  // 错误态：错在哪一节点，就该节点标 error
   if (stage === 'error' && errorAtStage) {
     const errIdx =
       errorAtStage === 'ai1_running'
         ? 1
-        : errorAtStage === 'ai2_running'
+        : errorAtStage === 'ai2_running' ||
+            errorAtStage === 'ai2_self_correct_running'
           ? 2
           : errorAtStage === 'verifying'
             ? 3
@@ -55,16 +62,37 @@ function computeStatuses(
     }
   }
 
+  // AI-2 自纠：AI-1 直接算 done（未重跑，但输出保留）
+  if (reason === 'ai2_self_correct') {
+    const ai2: NodeStatus =
+      stage === 'ai2_self_correct_running' || stage === 'ai2_running'
+        ? 'running'
+        : stage === 'ai2_done' || stage === 'verifying' || stage === 'finished'
+          ? 'done'
+          : 'pending'
+    const verify: NodeStatus =
+      stage === 'verifying'
+        ? 'running'
+        : stage === 'finished'
+          ? 'done'
+          : 'pending'
+    const done: NodeStatus = stage === 'finished' ? 'done' : 'pending'
+    return { ai1: 'done', ai2, verify, done }
+  }
+
   const ai1: NodeStatus =
-    stage === 'idle'
+    stage === 'idle' || stage === 'attempt_start'
       ? 'pending'
       : stage === 'ai1_running'
         ? 'running'
         : 'done'
   const ai2: NodeStatus =
-    stage === 'idle' || stage === 'ai1_running' || stage === 'ai1_done'
+    stage === 'idle' ||
+    stage === 'attempt_start' ||
+    stage === 'ai1_running' ||
+    stage === 'ai1_done'
       ? 'pending'
-      : stage === 'ai2_running'
+      : stage === 'ai2_running' || stage === 'ai2_self_correct_running'
         ? 'running'
         : 'done'
   const verify: NodeStatus =
@@ -75,6 +103,21 @@ function computeStatuses(
         : 'pending'
   const done: NodeStatus = stage === 'finished' ? 'done' : 'pending'
   return { ai1, ai2, verify, done }
+}
+
+/** M3.6: 归因原因转 UI 文案 */
+function reasonLabel(reason: AttemptReason | undefined): string {
+  if (!reason) return ''
+  if (reason === 'first_run') return '首次运行'
+  if (reason === 'ai1_rewrite') return 'AI-1 重写'
+  return 'AI-2 自纠'
+}
+
+function reasonColor(reason: AttemptReason | undefined): string {
+  if (reason === 'ai1_rewrite') return 'bg-amber-100 text-amber-800 border-amber-300'
+  if (reason === 'ai2_self_correct')
+    return 'bg-purple-100 text-purple-800 border-purple-300'
+  return 'bg-slate-100 text-slate-700 border-slate-300'
 }
 
 /** 单节点渲染 */
@@ -127,14 +170,44 @@ function StageTimeline({
   ai2Text,
   totalText,
   errorAtStage,
+  attempt,
+  maxAttempts,
+  reason,
 }: StageTimelineProps) {
-  const { ai1, ai2, verify, done } = computeStatuses(stage, errorAtStage)
+  const { ai1, ai2, verify, done } = computeStatuses(
+    stage,
+    errorAtStage,
+    reason,
+  )
+  const ai2Label = reason === 'ai2_self_correct' ? 'AI-2 自纠' : 'AI-2 核查'
+  const showBadge = attempt && maxAttempts
+
   return (
-    <div className="flex items-stretch gap-1.5">
-      <Node index={1} label="AI-1 生成" status={ai1} text={ai1Text} />
-      <Node index={2} label="AI-2 核查" status={ai2} text={ai2Text} />
-      <Node index={3} label="引证校验" status={verify} text={null} />
-      <Node index={4} label="完成" status={done} text={totalText} />
+    <div className="space-y-1.5">
+      {/* M3.6 轮次徽章（跑过至少一轮才显示） */}
+      {showBadge && (
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono border rounded ${reasonColor(reason)}`}
+          >
+            {(reason === 'ai1_rewrite' || reason === 'ai2_self_correct') && (
+              <RotateCcw className="w-3 h-3" />
+            )}
+            第 {attempt}/{maxAttempts} 轮 · {reasonLabel(reason)}
+          </span>
+          {maxAttempts > 1 && attempt < maxAttempts && (
+            <span className="text-[11px] text-slate-500">
+              未通过将自动进入下一轮（最多 {maxAttempts} 轮）
+            </span>
+          )}
+        </div>
+      )}
+      <div className="flex items-stretch gap-1.5">
+        <Node index={1} label="AI-1 生成" status={ai1} text={ai1Text} />
+        <Node index={2} label={ai2Label} status={ai2} text={ai2Text} />
+        <Node index={3} label="引证校验" status={verify} text={null} />
+        <Node index={4} label="完成" status={done} text={totalText} />
+      </div>
     </div>
   )
 }
