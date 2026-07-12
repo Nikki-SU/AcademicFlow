@@ -16,6 +16,7 @@ import {
   AIAuthError,
   AIClientError,
   AINetworkError,
+  AIPermissionError,
   AIQuotaError,
   AIRateLimitError,
 } from './client'
@@ -84,7 +85,7 @@ async function parseErrorBody(res: Response): Promise<string> {
 
 /**
  * 从硅基流动拉取 /v1/models 完整列表
- * @throws AIAuthError / AIQuotaError / AIRateLimitError / AINetworkError / AIClientError
+ * @throws AIAuthError / AIQuotaError / AIPermissionError / AIRateLimitError / AINetworkError / AIClientError
  */
 export async function fetchSiliconflowModels(apiKey: string): Promise<AIModel[]> {
   if (!apiKey || !apiKey.trim()) {
@@ -107,8 +108,8 @@ export async function fetchSiliconflowModels(apiKey: string): Promise<AIModel[]>
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
     if (res.status === 401) throw new AIAuthError(providerMsg)
-    if (res.status === 402 || res.status === 403)
-      throw new AIQuotaError(res.status, providerMsg)
+    if (res.status === 402) throw new AIQuotaError(providerMsg)
+    if (res.status === 403) throw new AIPermissionError(providerMsg)
     if (res.status === 429) throw new AIRateLimitError(providerMsg)
     if (res.status >= 500) throw new AINetworkError(providerMsg)
     throw new AIClientError(res.status, providerMsg)
@@ -159,7 +160,7 @@ export async function loadCachedModelsFetchedAt(): Promise<number | null> {
  *     status, introduction, role, chargeBalance, totalBalance, category, ... } }
  * 我们只关心 data.totalBalance / data.chargeBalance / data.status / data.name。
  *
- * @throws AIAuthError / AIQuotaError / AIRateLimitError / AINetworkError / AIClientError
+ * @throws AIAuthError / AIQuotaError / AIPermissionError / AIRateLimitError / AINetworkError / AIClientError
  */
 export async function fetchSiliconflowUserInfo(apiKey: string): Promise<{
   totalBalance: string
@@ -196,8 +197,8 @@ export async function fetchSiliconflowUserInfo(apiKey: string): Promise<{
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
     if (res.status === 401) throw new AIAuthError(providerMsg)
-    if (res.status === 402 || res.status === 403)
-      throw new AIQuotaError(res.status, providerMsg)
+    if (res.status === 402) throw new AIQuotaError(providerMsg)
+    if (res.status === 403) throw new AIPermissionError(providerMsg)
     if (res.status === 429) throw new AIRateLimitError(providerMsg)
     if (res.status >= 500) throw new AINetworkError(providerMsg)
     throw new AIClientError(res.status, providerMsg)
