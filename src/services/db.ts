@@ -35,6 +35,9 @@ export const SETTING_KEYS = {
   // AI 模型清单缓存（M3，TTL 24h）
   AI_MODELS_CACHE_SILICONFLOW: 'ai_models_cache_siliconflow',
   AI_MODELS_CACHE_AT: 'ai_models_cache_at',
+  // MinerU 相关（M3.7）
+  MINERU_TOKEN: 'mineru_token',
+  EXTRACT_COVER_IMAGE: 'extract_cover_image',
 } as const
 
 class AcademicFlowDB extends Dexie {

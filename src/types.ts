@@ -117,6 +117,14 @@ export interface SettingsData {
   customAi2BaseUrl: string
   customAi2ApiKey: string
   customAi2Model: string
+  /** MinerU JWT token（BYO）——用于 PDF → Markdown 解析 */
+  mineruToken: string
+  /**
+   * 是否提取"题图（cover figure）"—— 论文里最能代表全文核心的那张单图。
+   * 通常是第一张但不必然（有些论文第一张是路线图/示意图/TOC graphic）。
+   * 理工科需要，社科可关。判断需要 AI 参与，逻辑在 Import 里落地。默认 true。
+   */
+  extractCoverImage: boolean
 }
 
 /** 设置 store 状态 */
@@ -343,4 +351,151 @@ export interface UserAccountInfo {
   name?: string
   /** 客户端拉取时间戳（用于展示"更新于 XX 秒前"） */
   fetchedAt: number
+}
+
+// ============================================================================
+// MinerU 类型定义（M3.7）
+// ============================================================================
+// 官方 v4 API 契约（2026-06 抓取自 mineru.net/apiManage/docs）：
+//   POST /api/v4/file-urls/batch  申请上传 URL
+//   PUT  <presigned_url>          上传 PDF 二进制
+//   GET  /api/v4/extract-results/batch/{batch_id}  轮询解析状态
+//   GET  <full_zip_url>           下载解析产物 zip
+// 单文件硬约束：≤200MB 且 ≤600 页（Rosa 实测 200 页最稳，本项目锁 180 页/片）
+
+/** MinerU JWT 解析结果（用于 UI 展示到期时间和倒计时） */
+export interface MineruJwtInfo {
+  /** 原 token 字符串 */
+  raw: string
+  /** JWT jti（会话 id，硅基流动侧可用于工单排查） */
+  jti?: string
+  /** UUID（Rosa 侧账号标识） */
+  uuid?: string
+  /** iat 签发时间（秒 unix 时间戳） */
+  iat?: number
+  /** exp 过期时间（秒 unix 时间戳） */
+  exp?: number
+  /** exp 转成 Date 便于 UI 直接展示 */
+  expiresAt?: Date
+  /** 距离过期还剩多少天（可为负） */
+  remainingDays?: number
+  /** 是否已过期 */
+  isExpired: boolean
+  /** 解析出错时的错误信息（token 格式无效等） */
+  parseError?: string
+}
+
+/** MinerU 单个文件的处理状态（v4 API 官方枚举） */
+export type MineruFileState =
+  | 'waiting-file' // 已申请 URL，等文件上传
+  | 'pending' // 已上传，排队中
+  | 'running' // 解析中
+  | 'converting' // 转换中（部分场景）
+  | 'done' // 完成
+  | 'failed' // 解析失败（提取业务错误）
+  | 'error' // 系统错误
+
+/** POST /api/v4/file-urls/batch 请求体 */
+export interface MineruApplyRequest {
+  /** 待上传文件描述（batch 单批可多个，本项目 M3.7 只用 1 个） */
+  files: Array<{
+    name: string
+    /** 是否强制 OCR（扫描 PDF 需要 true，正常 PDF false 即可） */
+    is_ocr?: boolean
+    /** 页范围过滤，例如 "1-5,7,10-N"；不传则全量 */
+    page_ranges?: string
+    /** 自定义 data_id 便于回调关联 */
+    data_id?: string
+  }>
+  /** 模型版本，v4 默认 pipeline */
+  model_version?: 'pipeline' | 'vlm'
+  /** 是否解析公式 */
+  enable_formula?: boolean
+  /** 是否解析表格 */
+  enable_table?: boolean
+  /** 语言提示，'ch' / 'en' / 'auto' 等 */
+  language?: string
+  /** 附加输出格式，如 ['docx','html','latex'] —— 需按需申请配额 */
+  extra_formats?: string[]
+  /** 回调 URL（Web 前端场景一般不用） */
+  callback?: string
+  seed?: string
+}
+
+/** POST /api/v4/file-urls/batch 响应体 */
+export interface MineruApplyResponse {
+  code: number
+  msg: string
+  data: {
+    batch_id: string
+    /** 与 files[] 顺序一致的预签名上传 URL */
+    file_urls: string[]
+  }
+}
+
+/** GET /api/v4/extract-results/batch/{batch_id} 里单文件的结果 */
+export interface MineruFileResult {
+  file_name: string
+  state: MineruFileState
+  /** state=done 时才有：解析产物 zip 的下载 URL */
+  full_zip_url?: string
+  /** state=failed / error 时的错误说明 */
+  err_msg?: string
+  /** 部分状态下的进度百分比（0-100） */
+  extract_progress?: number
+  data_id?: string
+}
+
+/** GET /api/v4/extract-results/batch/{batch_id} 响应体 */
+export interface MineruBatchResult {
+  code: number
+  msg: string
+  data: {
+    batch_id: string
+    extract_result: MineruFileResult[]
+  }
+}
+
+/** MineruTestPanel 阶段可视化用（DualEngineTestPanel StageTimeline 同款语义） */
+export type MineruStage =
+  | 'idle'
+  | 'applying' // 申请上传 URL
+  | 'uploading' // PUT 到 OSS
+  | 'polling' // 轮询解析状态
+  | 'downloading' // 拉产物 zip
+  | 'extracting' // jszip 解压
+  | 'done'
+  | 'failed'
+
+/** MineruTestPanel 单步进度事件 */
+export interface MineruProgressEvent {
+  stage: MineruStage
+  /** 人类可读的进度描述，比如"上传 3.2MB..."、"解析进度 42%..." */
+  message: string
+  /** 事件时刻（Date.now()） */
+  at: number
+  /** 可选：service 侧透出的关键 id / url，便于错误排查 */
+  batchId?: string
+  fileName?: string
+}
+
+/** MineruProgressCallback 回调签名（组件订阅进度） */
+export type MineruProgressCallback = (event: MineruProgressEvent) => void
+
+/** MineruTestPanel 最终跑完的完整结果 */
+export interface MineruTestResult {
+  batchId: string
+  fileName: string
+  /** 页数（客户端粗探） */
+  pageCount?: number
+  /** 各阶段耗时（ms），键 = stage */
+  timing: Partial<Record<MineruStage, number>>
+  /** 提取到的 markdown 全文（合并前的原始 md） */
+  markdown: string
+  /** 图片名 → Blob 的映射（组件里再 URL.createObjectURL 展示） */
+  images: Record<string, Blob>
+  /** markdown 里引用了但 zip 里没有的图（缺失图，一般是 layout 分析副产物） */
+  missingImages: string[]
+  /** zip 里有但 markdown 没引用的图（孤儿图，非致命） */
+  orphanImages: string[]
 }

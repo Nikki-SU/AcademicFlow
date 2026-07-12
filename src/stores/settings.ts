@@ -43,6 +43,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   customAi2BaseUrl: '',
   customAi2ApiKey: '',
   customAi2Model: '',
+  mineruToken: '',
+  extractCoverImage: true,
 }
 
 /** SettingsData 字段 → SETTING_KEYS 映射 */
@@ -58,6 +60,8 @@ const KEY_MAP: Record<keyof SettingsData, string> = {
   customAi2BaseUrl: SETTING_KEYS.CUSTOM_AI_2_BASE_URL,
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
   customAi2Model: SETTING_KEYS.CUSTOM_AI_2_MODEL,
+  mineruToken: SETTING_KEYS.MINERU_TOKEN,
+  extractCoverImage: SETTING_KEYS.EXTRACT_COVER_IMAGE,
 }
 
 /** 字段 → 序列化/反序列化（boolean 需转字符串） */

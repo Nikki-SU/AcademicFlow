@@ -24,6 +24,7 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
+import MineruTestPanel from '../components/settings/MineruTestPanel'
 import { isChatModel } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import type { AIProviderMode } from '../types'
@@ -324,6 +325,19 @@ function Settings() {
             用当前配置跑一次事实核查任务，验证 AI-1 生成 + AI-2 审阅链路。
           </p>
           <DualEngineTestPanel />
+        </section>
+
+        {/* MinerU 全流程测试（M3.7） */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
+          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-purple-600" />
+            MinerU 全流程测试（PDF → Markdown）
+          </h2>
+          <p className="text-xs text-slate-500">
+            填入 Token → 选一份 PDF → 一键跑完申请上传 URL / 上传 / 轮询解析 / 下载 / 前端解压 5 步。
+            用于验证 MinerU 服务可用性和网络链路，产物可预览下载。
+          </p>
+          <MineruTestPanel />
         </section>
 
         <div className="text-center text-xs text-slate-400 pt-4">
