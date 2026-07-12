@@ -5,11 +5,14 @@
  *
  * 错误处理策略：
  *   401 → AIAuthError（凭据无效，上层 toast + 引导去设置页）
- *   402/403 → AIQuotaError（余额不足/权限不足）
+ *   402 → AIQuotaError（余额不足，CTA：去充钱）
+ *   403 → AIPermissionError（权限受限/劝退模型，CTA：去改身份或换模型）
  *   429 → AIRateLimitError（限流）
  *   5xx / 网络错误 → AINetworkError（可重试 1 次由上层决定）
  *   AbortError → AITimeoutError（M3.5.1 新增，硬超时 90s）
  *   其他 4xx → AIClientError
+ *
+ * M3.6.1: 402 和 403 语义完全不同（穷 vs 没资格），必须拆开引导用户到正确后台页面。
  *
  * M3.5.1: 每次请求硬性 90s 超时（AbortSignal），防止服务端挂起时 UI 无限等待。
  *   90s 上限选取：DeepSeek-R1 推理模型正常单次 30-60s，留 30s 富余；超时即分类为
@@ -40,9 +43,17 @@ export class AIAuthError extends AIError {
 }
 
 export class AIQuotaError extends AIError {
-  constructor(status: number, msg: string) {
-    super(status, msg, 'AI 服务额度不足或权限受限，请到服务商后台检查')
+  constructor(msg: string) {
+    super(402, msg, 'AI 服务余额不足（HTTP 402）—— 请到服务商充值')
     this.name = 'AIQuotaError'
+  }
+}
+
+/** M3.6.1: 403 权限受限（模型访问权限、实名认证、劝退模型等） */
+export class AIPermissionError extends AIError {
+  constructor(msg: string) {
+    super(403, msg, 'AI 服务权限受限（HTTP 403）—— 可能是模型无访问权限、账户身份限制或劝退模型')
+    this.name = 'AIPermissionError'
   }
 }
 
@@ -161,8 +172,8 @@ export async function callAI(req: AIRequest): Promise<AIResponse> {
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
     if (res.status === 401) throw new AIAuthError(providerMsg)
-    if (res.status === 402 || res.status === 403)
-      throw new AIQuotaError(res.status, providerMsg)
+    if (res.status === 402) throw new AIQuotaError(providerMsg)
+    if (res.status === 403) throw new AIPermissionError(providerMsg)
     if (res.status === 429) throw new AIRateLimitError(providerMsg)
     if (res.status >= 500) throw new AINetworkError(providerMsg)
     throw new AIClientError(res.status, providerMsg)

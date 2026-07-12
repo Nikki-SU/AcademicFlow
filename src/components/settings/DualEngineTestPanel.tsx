@@ -34,6 +34,7 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   AIAuthError,
+  AIPermissionError,
   AIQuotaError,
   AIRateLimitError,
   AITimeoutError,
@@ -61,8 +62,22 @@ We used 4-cyanopyridine, 4-methylphenylboronic acid, and styrene as model substr
 
 To investigate the mechanism of the reaction, free radical trapping experiments were conducted. When the radical scavenger 2,2,6,6-tetramethylpiperidine (TEMPO) was added to the model reaction, the reaction was completely inhibited and no product 4a was detected. The reaction was also found to be effectively quenched by the addition of another radical scavenger 2,6-di-tert-butyl-4-methylphenol (BHT). Furthermore, the corresponding trapped radical adducts were unambiguously detected by HRMS. These facts strongly suggest that the reactions proceed via a radical pathway. To further examine the proposed reaction mechanism, we performed density functional theory (DFT) calculations on the energy profile of the reaction sequence for the reaction of 4-cyanopyridine, 4-methylphenylboronic acid, and styrene, using Gaussian 09 program.`
 
-const SAMPLE_INSTRUCTION =
-  '用 4-6 句中文简洁忠实地总结上述文献，保留关键的实验条件、催化剂、产率和机理证据。'
+// M3.6.1: 默认指令换成结构化学术沉淀模板
+//   - 目标：AI-1 的输出是「知识库沉淀单元」，检索时会被整段召回作为 RAG 上下文，
+//     信息密度决定后续调用质量，因此结构化 + 保留数值 + 未提及字段明示。
+//   - 300-500 字：既避免过度精简（4-6 句损失细节），又不至于把源材料全量复读。
+//   - 6 字段（研究问题/方法/发现/机理/底物/展望）覆盖化学论文核心结构；跨学科用户
+//     可自行改写为自己领域的骨架（Prompt Library 稍后落地）。
+const SAMPLE_INSTRUCTION = `请用中文按以下结构总结上述文献，作为知识库沉淀单元（约 300-500 字）。必须完全基于原文，未提及的字段明示"原文未提及"，禁止推测或补充外部知识。
+
+**研究问题**：论文要解决什么科学/工程问题？
+**方法与体系**：反应体系、实验方法或理论框架的核心构成（催化剂、条件、变量、模型等）
+**核心发现**：产率、性能、机理证据等关键数值和实验事实
+**机理洞察**：作者如何解释观察到的现象（自由基/中间体/相互作用等）
+**底物范围与局限**：适用/不适用的场景，作者自陈的边界
+**展望与未提及项**：作者提出的后续方向；若某字段原文未提及，直接写"原文未提及"
+
+要求：保留关键化学式、专有名词、缩写和具体数值（如产率、当量、波长）。`
 
 const VERDICT_STYLE: Record<
   FaithfulnessClaim['verdict'],
@@ -93,11 +108,20 @@ interface ClassifiedError {
 }
 
 function classifyError(err: unknown): ClassifiedError {
+  // M3.6.1: 优先透出服务商原始 message（provider 报错文本比通用文案信息量大）
+  const providerMsg =
+    err instanceof AIQuotaError ||
+    err instanceof AIPermissionError ||
+    err instanceof AIAuthError
+      ? err.providerMessage
+      : null
+
   if (err instanceof AIQuotaError) {
     return {
-      title: '⛔ 硅基流动余额不足或权限受限',
-      detail:
-        '服务商返回 402/403，说明账户余额不足、订单异常或该模型无访问权限。请前往硅基流动控制台核实。',
+      title: '💸 硅基流动余额不足（402）',
+      detail: providerMsg
+        ? `服务商原始报错：${providerMsg}\n\n处理建议：账户余额不足或订单异常，请到控制台充值。`
+        : '服务商返回 402，账户余额不足或订单异常。',
       color: 'bg-red-50 border-red-300 text-red-800',
       cta: {
         text: '前往充值 →',
@@ -105,10 +129,25 @@ function classifyError(err: unknown): ClassifiedError {
       },
     }
   }
+  if (err instanceof AIPermissionError) {
+    return {
+      title: '🚫 模型权限受限（403）',
+      detail: providerMsg
+        ? `服务商原始报错：${providerMsg}\n\n可能原因：① 该模型属于劝退/需实名/需订阅模型 ② 账户身份未完成认证 ③ 模型 ID 拼写错误。请换一个模型或到控制台核实。`
+        : '服务商返回 403，可能是模型无访问权限、账户身份限制或劝退模型。',
+      color: 'bg-red-50 border-red-300 text-red-800',
+      cta: {
+        text: '前往账户设置 →',
+        href: 'https://cloud.siliconflow.cn/account/info',
+      },
+    }
+  }
   if (err instanceof AIAuthError) {
     return {
-      title: '🔑 API Key 无效或已过期',
-      detail: '服务商返回 401。请在上方设置页更新 API Key。',
+      title: '🔑 API Key 无效或已过期（401）',
+      detail: providerMsg
+        ? `服务商原始报错：${providerMsg}\n\n处理建议：请在上方设置页更新 API Key。`
+        : '服务商返回 401，请在上方设置页更新 API Key。',
       color: 'bg-red-50 border-red-300 text-red-800',
       cta: {
         text: '生成新 Key →',

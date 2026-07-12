@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   advancedMode: false,
   aiProviderMode: 'siliconflow',
   siliconflowApiKey: '',
-  ai1Model: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+  ai1Model: 'Qwen/Qwen3.6-27B',
   ai2Model: 'deepseek-ai/DeepSeek-V3.2',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
