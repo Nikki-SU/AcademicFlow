@@ -36,7 +36,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   aiProviderMode: 'siliconflow',
   siliconflowApiKey: '',
   ai1Model: 'Qwen/Qwen2.5-72B-Instruct',
-  ai2Model: 'deepseek-ai/DeepSeek-R1',
+  ai2Model: 'deepseek-ai/DeepSeek-V3.2',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
