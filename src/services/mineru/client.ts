@@ -43,7 +43,7 @@ export function buildMineruBaseUrl(workerUrl: string | null | undefined): string
   const trimmed = (workerUrl ?? '').trim().replace(/\/+$/, '')
   if (!trimmed) {
     throw new MineruError(
-      'MinerU 代理未配置。请前往 Settings → MinerU 代理，一键部署你自己的 Cloudflare Worker（免费）。',
+      'MinerU 代理未配置。请前往 Settings → MinerU 代理，选择方案并部署你自己的透传代理（免费）。',
     )
   }
   return trimmed + MINERU_API_SUFFIX
@@ -66,7 +66,7 @@ export function buildMineruProxyUrl(
   const trimmed = (workerUrl ?? '').trim().replace(/\/+$/, '')
   if (!trimmed) {
     throw new MineruError(
-      'MinerU 代理未配置。请前往 Settings → MinerU 代理，一键部署你自己的 Cloudflare Worker（免费）。',
+      'MinerU 代理未配置。请前往 Settings → MinerU 代理，选择方案并部署你自己的透传代理（免费）。',
     )
   }
   return `${trimmed}${MINERU_PROXY_SUFFIX}?url=${encodeURIComponent(targetUrl)}`

@@ -17,11 +17,18 @@ AcademicFlow 是一个**纯前端 SPA**，把用户自己的 GitHub 私库作为
 
 AcademicFlow **无任何后端服务器**。所有数据（笔记、论文、词汇、AI 调用）均通过用户自己的凭据直连 GitHub / 硅基流动 / Free Dictionary，**工具作者在架构上无法获取任何用户数据**。代码开源可审计（AGPL-3.0），出站请求可通过浏览器 DevTools → Network 面板自行核验。
 
-## MinerU PDF → Markdown（BYO Worker）
+## MinerU PDF → Markdown（BYO 代理，双 Runtime）
 
 论文导入需要把 PDF 转成 Markdown（保留公式和图片），AcademicFlow 用 [MinerU v4 API](https://mineru.net)。但 MinerU 服务端不返回 CORS 头，浏览器不能直连，需要一个「透传代理」。
 
-**这个代理由每位用户自己部署到自己的 Cloudflare 账号，作者不接触任何数据。**
+**这个代理由每位用户自己部署到自己的账号，作者不接触任何数据。** 提供两种 Runtime，功能等价，同一份代码，用户在 Settings 面板里二选一：
+
+| | 🇨🇳 Deno Deploy | 🌍 Cloudflare Workers |
+|---|---|---|
+| **国内直连** | ✅ 三大运营商基本可达 | ❌ workers.dev 需代理 |
+| **部署** | dash.deno.com 网页 4 步 | Deploy Button 一键 |
+| **免费额度** | 100k requests/day | 100k requests/day |
+| **推荐给** | 国内用户（默认） | 有代理 / 出海用户 |
 
 ### 数据链路
 
@@ -29,20 +36,20 @@ AcademicFlow **无任何后端服务器**。所有数据（笔记、论文、词
 你的浏览器
    │  (1) 申请上传 URL / 轮询 / 下载 markdown
    ▼
-你的 Cloudflare Worker  ──→  https://mineru.net/api/v4/*
-   │  (2) PUT 上传 PDF / GET 下载 zip
+你的代理（Deno Deploy 或 Cloudflare Workers）  ──→  https://mineru.net/api/v4/*
+   │  (2) PUT 上传 PDF / GET 下载 zip 走 /proxy 白名单转发
    └──→  MinerU 阿里云 OSS 预签名 URL (*.aliyuncs.com)
 ```
 
-Worker 代码只有约 150 行，不缓存、不落盘、不记录任何请求，完全开源可审计（MIT 协议）：
+代理代码约 200 行（core.js + 两个入口），不缓存、不落盘、不记录任何请求，完全开源可审计（MIT 协议）：
 👉 https://github.com/Nikki-SU/AcademicFlow-Worker
 
 ### 分发场景下的隔离
 
 如果 AcademicFlow 被分发给多个用户：
 
-- **每位用户走各自部署的 Worker**，Worker URL 只保存在各自浏览器的 IndexedDB（Origin 隔离，物理分区）
-- 源代码里**没有任何硬编码的 Worker URL**（`DEFAULT_SETTINGS.mineruWorkerUrl = ''`），未配置时 MinerU 测试按钮 disabled、流程抛错，绝无回退到作者 Worker 的可能
+- **每位用户走各自部署的代理**，URL 只保存在各自浏览器的 IndexedDB（Origin 隔离，物理分区）
+- 源代码里**没有任何硬编码的代理 URL**（`DEFAULT_SETTINGS.mineruWorkerUrl = ''`），未配置时 MinerU 测试按钮 disabled、流程抛错，绝无回退到作者代理的可能
 - 作者只提供两个静态资源：GitHub Pages 上的前端 SPA + GitHub 上的 Worker 模板仓库；两个都是纯代码，不承载数据
 
 即使把 AcademicFlow 前端 URL 转发给 100 个用户，作者仍然全程零接触任何请求和数据。

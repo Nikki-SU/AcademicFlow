@@ -351,14 +351,14 @@ function Settings() {
           <DualEngineTestPanel />
         </section>
 
-        {/* MinerU 代理配置（M3.6.2-b · BYO Cloudflare Worker） */}
+        {/* MinerU 代理配置（M3.6.2-d · 双 Runtime：Deno Deploy / Cloudflare Workers） */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
           <h2 className="font-semibold text-slate-800 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-orange-600" />
             MinerU 代理（必须配置）
           </h2>
           <p className="text-xs text-slate-500">
-            MinerU 官方 API 不支持浏览器直连（CORS 限制）。请在你自己的 Cloudflare 账号部署一个免费的透传代理，30 秒完事，永久免费。
+            MinerU 官方 API 不支持浏览器直连（CORS 限制）。请选择合适的方案，在你自己的账号部署一个免费的透传代理。
           </p>
           <MineruProxyConfig />
         </section>

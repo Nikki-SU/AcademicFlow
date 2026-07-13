@@ -61,7 +61,7 @@ export async function runMineruSingleFile(
   if (!token.trim()) throw new Error('MinerU token 为空')
   if (!workerUrl.trim()) {
     throw new Error(
-      'MinerU 代理未配置，请到 Settings → MinerU 代理，一键部署你自己的 Cloudflare Worker（免费）',
+      'MinerU 代理未配置，请到 Settings → MinerU 代理，选择方案并部署你自己的透传代理（免费）',
     )
   }
   if (!file) throw new Error('未选择 PDF 文件')

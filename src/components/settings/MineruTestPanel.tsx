@@ -65,7 +65,7 @@ export default function MineruTestPanel() {
 
   const handleRun = async () => {
     if (!mineruWorkerUrl.trim()) {
-      toast.error('请先在上面「MinerU 代理」区域配置 Cloudflare Worker URL')
+      toast.error('请先在上面「MinerU 代理」区域配置代理 URL')
       return
     }
     if (!mineruToken.trim()) {
