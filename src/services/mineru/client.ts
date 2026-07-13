@@ -27,6 +27,7 @@ import type {
 } from '../../types'
 
 export const MINERU_API_SUFFIX = '/api/v4'
+export const MINERU_PROXY_SUFFIX = '/proxy'
 
 /**
  * 构造 MinerU API 的 baseUrl。
@@ -46,6 +47,29 @@ export function buildMineruBaseUrl(workerUrl: string | null | undefined): string
     )
   }
   return trimmed + MINERU_API_SUFFIX
+}
+
+/**
+ * 构造走 Worker /proxy 白名单透传的 URL，用于 MinerU 返回的 OSS 预签名 URL。
+ * OSS 域名（如 mineru-pdf.oss-cn-shanghai.aliyuncs.com）不会返回 CORS 头，
+ * 浏览器 PUT/GET 触发 preflight 会挂，必须让 Worker 服务端到服务端转发一次。
+ *
+ * @param workerUrl 用户 Worker URL（如 https://xxx.workers.dev）
+ * @param targetUrl MinerU 返回的预签名 URL
+ * @returns 如 `https://xxx.workers.dev/proxy?url=<encoded>`
+ * @throws 当 workerUrl 为空时抛错
+ */
+export function buildMineruProxyUrl(
+  workerUrl: string | null | undefined,
+  targetUrl: string,
+): string {
+  const trimmed = (workerUrl ?? '').trim().replace(/\/+$/, '')
+  if (!trimmed) {
+    throw new MineruError(
+      'MinerU 代理未配置。请前往 Settings → MinerU 代理，一键部署你自己的 Cloudflare Worker（免费）。',
+    )
+  }
+  return `${trimmed}${MINERU_PROXY_SUFFIX}?url=${encodeURIComponent(targetUrl)}`
 }
 
 // ============================================================================
@@ -208,14 +232,21 @@ export async function applyUploadUrls(opts: ApplyOptions): Promise<{
 // ============================================================================
 
 /**
- * PUT 到 MinerU 提供的 OSS 预签名 URL。
- * 注意：官方要求**不带任何自定义 header**（含 Content-Type / Authorization），
- * 否则签名校验失败。
+ * PUT 到 MinerU 提供的 OSS 预签名 URL（通过 Worker /proxy 白名单转发）。
+ *
+ * 官方要求**不带任何自定义 header**（含 Content-Type / Authorization），否则签名校验失败。
+ * OSS 域名（*.aliyuncs.com）不返回 CORS 头，浏览器直连 PUT 会 preflight 挂，
+ * 因此必须通过用户自持的 Worker /proxy 转发一次。
  */
-export async function uploadFile(uploadUrl: string, file: Blob): Promise<void> {
+export async function uploadFile(
+  uploadUrl: string,
+  file: Blob,
+  workerUrl: string,
+): Promise<void> {
+  const proxied = buildMineruProxyUrl(workerUrl, uploadUrl)
   let res: Response
   try {
-    res = await fetch(uploadUrl, {
+    res = await fetch(proxied, {
       method: 'PUT',
       body: file,
       // 关键：不加 headers；浏览器默认会带 Content-Type: application/octet-stream 或 blob 的 type
@@ -335,10 +366,20 @@ export async function pollBatch(
 // 步骤 4：下载解析产物 zip
 // ============================================================================
 
-export async function downloadZip(fullZipUrl: string): Promise<Blob> {
+/**
+ * 通过 Worker /proxy 白名单转发下载 MinerU 返回的 full_zip_url（OSS/CDN）。
+ *
+ * 直连也可能成功（简单 GET 请求不触发 preflight），但如果响应缺 CORS 头，
+ * 浏览器仍会拒绝把 body 暴露给 JS。走 Worker 稳一点。
+ */
+export async function downloadZip(
+  fullZipUrl: string,
+  workerUrl: string,
+): Promise<Blob> {
+  const proxied = buildMineruProxyUrl(workerUrl, fullZipUrl)
   let res: Response
   try {
-    res = await fetch(fullZipUrl, { method: 'GET' })
+    res = await fetch(proxied, { method: 'GET' })
   } catch (err) {
     throw new MineruNetworkError(err instanceof Error ? err.message : String(err))
   }

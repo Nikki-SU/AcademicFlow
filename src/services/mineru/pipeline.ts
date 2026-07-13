@@ -98,7 +98,7 @@ export async function runMineruSingleFile(
     `上传 PDF 到 OSS...`,
     { batchId, fileName: file.name },
   )
-  await uploadFile(uploadUrl, file)
+  await uploadFile(uploadUrl, file, workerUrl)
   timing.uploading = Date.now() - t2
   if (signal?.aborted) throw new Error('已取消')
 
@@ -129,7 +129,7 @@ export async function runMineruSingleFile(
     '下载解析产物 zip...',
     { batchId, fileName: file.name },
   )
-  const zipBlob = await downloadZip(fileResult.full_zip_url)
+  const zipBlob = await downloadZip(fileResult.full_zip_url, workerUrl)
   timing.downloading = Date.now() - t4
 
   // ---- Stage 5: 解压 & 交叉验证 ----

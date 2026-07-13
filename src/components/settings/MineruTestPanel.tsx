@@ -169,7 +169,7 @@ export default function MineruTestPanel() {
         <p className="text-xs text-slate-500">仅存本机 IndexedDB，不上传任何服务器</p>
       </div>
 
-      {/* 提取题图开关 */}
+      {/* 提取题图开关（设置默认值 · 测试面板不消费此开关） */}
       <label className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-md cursor-pointer">
         <input
           type="checkbox"
@@ -181,10 +181,15 @@ export default function MineruTestPanel() {
           <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
             提取题图（cover figure）
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-normal bg-amber-100 text-amber-700 rounded">
+              Import 时生效
+            </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
             论文里最能代表全文核心的那张单图，通常是第一张但不必然；
-            理工科需要、社科可关。判断需要 AI 参与，具体逻辑在 Import 时启用。
+            理工科需要、社科可关。此处只保存默认值到本机 IndexedDB，
+            实际的题图挑选逻辑（AI 参与）在后续 Import 功能里启用；
+            当前测试面板固定返回全部图片，不消费本开关。
           </p>
         </div>
       </label>

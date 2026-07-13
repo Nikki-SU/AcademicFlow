@@ -1,0 +1,41 @@
+# Dependabot 配置
+# - 每周一 09:00 (UTC+8) 扫描一次 npm 依赖
+# - 发现安全漏洞立即开 PR（不受 schedule 限制）
+# - 每次最多同时 5 个 open PR，避免刷屏
+# - 自动 rebase，遇冲突让 dependabot 自己处理
+# - 分组策略：dev deps 合并成一个 PR，prod deps 每个单独 PR 便于评审
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    rebase-strategy: "auto"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions 依赖也扫一下（低频，防 actions/checkout 之类的过期）
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
