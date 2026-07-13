@@ -79,15 +79,24 @@ function buildAI1FirstMessages(params: DualEngineRunParams): AIRequest['messages
     '',
     '【核心约束（必须严格遵守）】',
     '1. 只使用【源材料】中的信息，禁止引入源材料未提及的外部知识、常识、评论、推测或联想。',
-    '2. 若源材料信息不足以完成指令，明确写"源材料未提及"，不要猜测、不要补全。',
+    '2. 若源材料信息不足以完成指令的某一子问题，**必须**用固定语式明确声明，禁止猜测/补全/回避：',
+    '   - 优先写：`[原文未涉及此内容]`',
+    '   - 或整句写："源材料中未提及 XXX 相关内容。"',
+    '   这种"诚实声明"是必需的义务，不会被追责，反而是加分项——它划定了源材料的边界。',
     '3. 忠于原文字面含义，不泛化、不外推、不改写数字/年份/人名/机构。',
     '4. 输出简洁的 Markdown，保持事实性描述，不发表主观评论。',
     '5. 输出语言跟随用户指令：用户指令是中文就用中文输出，用户指令是英文就用英文输出。',
     '',
+    '【三种输出策略（对每一个需要回答的子问题）】',
+    '- 源材料明确覆盖 → 忠实转述（措辞可精简，语义必须锁死）',
+    '- 源材料部分覆盖 → 只写覆盖部分，未覆盖部分用固定语式标注',
+    '- 源材料完全未覆盖 → 整句用固定语式声明，禁止外推',
+    '',
     '【反例（禁止行为）】',
-    '- 源材料只说"屠呦呦获诺奖" → 不能写"她是中国大陆首位诺奖科学得主"（源材料没说）',
+    '- 源材料只说"屠呦呦获诺奖" → 不能写"她是中国大陆首位诺奖科学得主"（源材料没说 = 加戏）',
     '- 源材料说"2015 年" → 不能改写为"约 2015 年前后"（曲解）',
-    '- 源材料没提某作者 → 不能补充"该研究是 XX 团队做的"（编造）',
+    '- 源材料没提某作者 → **不能**补充"该研究是 XX 团队做的"（编造）',
+    '- 源材料没提某作者 → **应该**写 "[原文未涉及此内容]" 或 "源材料中未提及该研究团队信息。"（诚实声明）',
   ].join('\n')
 
   const user = [
@@ -117,10 +126,13 @@ function buildAI1RewriteMessages(
     '',
     '【核心约束（必须严格遵守）】',
     '1. 只使用【源材料】中的信息，禁止引入源材料未提及的外部知识、常识、评论、推测或联想。',
-    '2. 对反馈中被判 "added" 的 claim：**必须完全删除**该说法，不要换个措辞保留。',
-    '3. 对反馈中被判 "contradicted" 的 claim：**改写为源材料明确支持的说法**，或直接删掉。',
-    '4. 对反馈中被判 "supported" 的 claim：可以保留原意（措辞可微调）。',
-    '5. 不要为了凑字数补充新的、源材料没有的信息；宁可短，不可加戏。',
+    '2. 对反馈中被判 "added" 的 claim：**禁止换措辞保留**。必须二选一：',
+    '   （a）**完全删除**该说法；或',
+    '   （b）**替换为固定占位** `[原文未涉及此内容]`，或整句改写为 "源材料中未提及 XXX 相关内容。"',
+    '   注意：`[原文未涉及此内容]` / "源材料中未提及…" 属于合法的诚实声明（AI-2 会标为 out_of_scope），不会被再次追责。',
+    '3. 对反馈中被判 "contradicted" 的 claim：**改写为源材料明确支持的说法**，或直接删掉，或用固定占位替代。',
+    '4. 对反馈中被判 "supported" 或 "out_of_scope" 的 claim：保留原意，措辞可微调。',
+    '5. **禁止**为了凑字数补充新的、源材料没有的信息；宁可短，宁可用固定占位，不可加戏。',
     '6. 忠于原文字面含义，不泛化、不外推、不改写数字/年份/人名/机构。',
     '7. 输出简洁的 Markdown，保持事实性描述，不发表主观评论。',
     '8. 输出语言跟随用户原始指令（中文指令则中文，英文指令则英文）。',
@@ -130,12 +142,20 @@ function buildAI1RewriteMessages(
 
   const feedbackLines: string[] = []
   previousFeedback.claims.forEach((c, i) => {
-    const tag =
-      c.verdict === 'added'
-        ? '❌ added（必须删除）'
-        : c.verdict === 'contradicted'
-          ? '❌ contradicted（必须改写或删除）'
-          : '✅ supported（可保留）'
+    let tag: string
+    switch (c.verdict) {
+      case 'added':
+        tag = '❌ added（必须删除或替换为 `[原文未涉及此内容]`）'
+        break
+      case 'contradicted':
+        tag = '❌ contradicted（必须改写或删除）'
+        break
+      case 'out_of_scope':
+        tag = '✓ out_of_scope（诚实声明，保留）'
+        break
+      default:
+        tag = '✅ supported（可保留）'
+    }
     feedbackLines.push(`${i + 1}. ${tag}`)
     feedbackLines.push(`   claim: ${c.claim}`)
     if (c.explanation) feedbackLines.push(`   审查意见: ${c.explanation}`)
@@ -184,26 +204,37 @@ function buildAI2Messages(
     '【任务】',
     '逐条抽取 AI-1 总结中的可核查断言（claim），针对每条给出结论：',
     '- supported: 源材料明确支撑该 claim',
-    '- added: 源材料未提及该 claim（AI-1 引入了源材料以外的信息）',
-    '- contradicted: 源材料的内容与该 claim 矛盾（AI-1 曲解了源材料）',
+    '- added: AI-1 编造/补充了源材料未提及的内容（"加戏"，追责项）',
+    '- contradicted: 源材料的内容与该 claim 矛盾（AI-1 曲解源材料，追责项）',
+    '- out_of_scope: AI-1 明确声明"源材料未涉及/未提及某内容"的元陈述（诚实声明，加分项，不追责）',
+    '',
+    '【关键区分：added vs out_of_scope】',
+    '这是本次核查最容易出错的地方，务必分清：',
+    '- **added** = AI-1 用陈述句写了源材料没写的内容。例：源材料没提作者，AI-1 写"该研究由张三团队完成" → added',
+    '- **out_of_scope** = AI-1 用元陈述明确指出"这个信息不在源材料里"。例：AI-1 写 "[原文未涉及此内容]" / "源材料中未提及作者信息" / "该问题超出源材料范围" → out_of_scope',
+    '',
+    'out_of_scope 是 AI-1 应尽的**诚实义务**——当用户索要源材料不存在的信息时，AI-1 必须诚实标注而不能编造。你要奖励这种行为，而不是把它误判为 added。',
+    '识别 out_of_scope 的信号词：`[原文未涉及此内容]`、"源材料中未提及"、"源材料未涉及"、"原文未提及"、"超出源材料范围"、"源材料未讨论"、"文中未涉及"、"未在源材料中提到" 等。',
     '',
     '【严格要求】',
     '1. 每条 claim 必须给出 source_span：',
     '   - supported: 源材料中支撑该 claim 的**原文片段**（≥10 字符，直接从源材料中原样引用）',
     '   - contradicted: 源材料中被 claim 矛盾的**原文片段**（≥10 字符，直接从源材料中原样引用）',
     '   - added: source_span 为空字符串（源材料没提到，无需 span）',
+    '   - out_of_scope: source_span 为空字符串（元陈述，原文本就没有可引之处）',
     '2. source_span **必须是源材料的原文引用**，禁止改写、压缩、意译、翻译。',
     '   前端会用 sourceMaterial.includes(source_span) 做锚定校验，若引用不实会自动标记为"AI-2 编造引用"并强制降级。',
     '3. 只处理 AI-1 总结中的断言，不要评价其"是否符合世界常识" —— ground truth 只有源材料。',
-    '4. 输出严格 JSON，不要 markdown 代码块，不要任何前后缀说明。',
+    '4. **passed 定义**：无 added 且无 contradicted 时 passed=true；out_of_scope 不影响 passed（它是诚实声明，本身合法）。',
+    '5. 输出严格 JSON，不要 markdown 代码块，不要任何前后缀说明。',
     '',
     '【输出 JSON 结构】',
     '{',
-    '  "passed": boolean,           // 无 added 且无 contradicted 时为 true',
+    '  "passed": boolean,           // 无 added 且无 contradicted 时为 true（out_of_scope 不影响）',
     '  "claims": [',
     '    {',
     '      "claim": "从 AI-1 总结中抽取的断言（保留核心语义）",',
-    '      "verdict": "supported" | "added" | "contradicted",',
+    '      "verdict": "supported" | "added" | "contradicted" | "out_of_scope",',
     '      "source_span": "源材料原文引用（≥10 字符）或空字符串",',
     '      "explanation": "中文简要说明为何这么判断"',
     '    }',
@@ -259,9 +290,16 @@ function buildAI2SelfCorrectMessages(
     '【本轮任务】',
     '1. **AI-1 的总结保持不变**，你需要基于同一份 (源材料, AI-1 总结) **重新给出核查报告**。',
     '2. 每条 supported / contradicted 的 source_span **必须原样 copy 自源材料**（≥10 字符，逐字对齐，含标点/大小写/空格）。',
-    '3. 如果你找不到能字面对齐源材料的 span 来支持某条 claim → 说明源材料确实没有明确表达 → 老实标为 "added"（source_span 留空字符串）。',
-    '4. added 类型的 span 一律为空字符串。',
-    '5. 输出严格 JSON，格式与首次核查完全一致。',
+    '3. 如果你找不到能字面对齐源材料的 span 来支持某条 claim，请**先判断该 claim 属于哪一类**：',
+    '   - AI-1 用陈述句写了源材料没写的内容 → 标 **added**（追责，source_span 留空）',
+    '   - AI-1 用元陈述明确指出"该内容不在源材料里"（如 `[原文未涉及此内容]` / "源材料中未提及…" 等）→ 标 **out_of_scope**（诚实声明，source_span 留空，不追责）',
+    '4. 四类 verdict 及 span 规则：',
+    '   - supported: 需要 ≥10 字符原文 span',
+    '   - contradicted: 需要 ≥10 字符原文 span',
+    '   - added: source_span 留空字符串',
+    '   - out_of_scope: source_span 留空字符串',
+    '5. **passed 定义**：无 added 且无 contradicted 时 passed=true；out_of_scope 不影响 passed。',
+    '6. 输出严格 JSON，格式与首次核查完全一致。',
     '',
     `这是第 ${attemptIndex}/${maxAttempts} 轮尝试（AI-2 自我纠错模式）。`,
   ].join('\n')
@@ -306,7 +344,14 @@ function buildAI2SelfCorrectMessages(
 // ============================================================
 
 function normalizeVerdict(v: unknown): FaithfulnessVerdict {
-  if (v === 'supported' || v === 'added' || v === 'contradicted') return v
+  if (
+    v === 'supported' ||
+    v === 'added' ||
+    v === 'contradicted' ||
+    v === 'out_of_scope'
+  ) {
+    return v
+  }
   return 'added'
 }
 
@@ -367,7 +412,9 @@ function verifyEvidence(
   let checked = 0
   let matched = 0
   claims.forEach((c, idx) => {
-    if (c.verdict === 'added') return
+    // M3.6.2: added（AI-1 加戏，无需 span）和 out_of_scope（元陈述，原文本就没有）
+    // 均从引证校验池中排除
+    if (c.verdict === 'added' || c.verdict === 'out_of_scope') return
     checked++
     if (!c.source_span || c.source_span.length < 10) {
       failedIndices.push(idx)

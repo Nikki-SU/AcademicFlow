@@ -170,12 +170,22 @@ export interface AIResponse {
 /** SPEC §9.2 (M3.5): 双引擎任务类型 —— 忠实性核查（面向"总结不加戏"场景） */
 export type DualEngineTaskType = 'faithfulness_check'
 
-/** SPEC §9.2 (M3.5): 单条 claim 的核查结论
+/** SPEC §9.2 (M3.5 · M3.6.2 扩展为四分类): 单条 claim 的核查结论
  *  - supported: 源材料明确支撑该 claim
- *  - added: 源材料未提及（AI-1 引入了源材料以外的信息，即"加戏"）
- *  - contradicted: 源材料与该 claim 矛盾（AI-1 曲解了原文）
+ *  - added: 源材料未提及但 AI-1 引入了外部内容（"加戏"，需追责，AI-1 必须删除或替换为占位）
+ *  - contradicted: 源材料与该 claim 矛盾（AI-1 曲解原文，需追责）
+ *  - out_of_scope: AI-1 明确声明"源材料未涉及/未提及此项"的元陈述（诚实声明，加分项，不追责）
+ *
+ *  M3.6.2 关键区分：
+ *   - added = AI-1 补内容（编造）
+ *   - out_of_scope = AI-1 划边界（诚实说没有）
+ *   前者是污染，后者是必要的诚实义务，不能一视同仁。
  */
-export type FaithfulnessVerdict = 'supported' | 'added' | 'contradicted'
+export type FaithfulnessVerdict =
+  | 'supported'
+  | 'added'
+  | 'contradicted'
+  | 'out_of_scope'
 
 /** SPEC §9.2 (M3.5): AI-2 输出的单条 claim 核查 */
 export interface FaithfulnessClaim {
@@ -187,20 +197,23 @@ export interface FaithfulnessClaim {
    *  - supported: 支撑该 claim 的源材料原文片段（≥10 字符）
    *  - contradicted: 被 claim 矛盾的源材料原文片段（≥10 字符）
    *  - added: 空字符串（源材料未提及，无需 span）
+   *  - out_of_scope: 空字符串（元陈述，原文本就没有可引之处）
    */
   source_span: string
   /** 中文简要说明 */
   explanation: string
 }
 
-/** SPEC §9.2 (M3.5): 引证锚定校验结果
+/** SPEC §9.2 (M3.5 · M3.6.2): 引证锚定校验结果
  *  前端遍历 AI-2 输出的 claims，逐条 sourceMaterial.includes(source_span) 校验；
  *  任何一条应有 span 但校验失败 → ok=false → 强制 passed=false（AI-2 编造引用）。
+ *
+ *  M3.6.2: added / out_of_scope 两类均无需 span，均从 checked 池中排除。
  */
 export interface EvidenceCheck {
   /** 是否全部锚定命中（无编造引用） */
   ok: boolean
-  /** 需要校验的 claim 数（verdict !== 'added'） */
+  /** 需要校验的 claim 数（verdict === 'supported' || verdict === 'contradicted'） */
   checked: number
   /** 命中数（source_span 能在源材料中 grep 到） */
   matched: number
@@ -210,7 +223,8 @@ export interface EvidenceCheck {
 
 /** SPEC §9.2 (M3.5): AI-2 结构化反馈 */
 export interface FaithfulnessFeedback {
-  /** 无 added/contradicted 且 evidenceCheck.ok=true 时才为 true */
+  /** M3.6.2: 无 added/contradicted 且 evidenceCheck.ok=true 时才为 true
+   *  （out_of_scope 是诚实声明，不影响 passed） */
   passed: boolean
   /** 逐条 claim 核查 */
   claims: FaithfulnessClaim[]

@@ -64,6 +64,9 @@ function AttemptHistory({
           const contradicted = claims.filter(
             (c) => c.verdict === 'contradicted',
           ).length
+          const outOfScope = claims.filter(
+            (c) => c.verdict === 'out_of_scope',
+          ).length
           const ec = a.ai2Feedback.evidenceCheck
           const evidenceLine = ec.checked
             ? `引证 ${ec.matched}/${ec.checked}`
@@ -98,7 +101,7 @@ function AttemptHistory({
                   {fmtMs(a.ai2Ms)}
                 </span>
                 <span className="font-mono text-slate-500">
-                  ⊕{added} ✗{contradicted} · {evidenceLine}
+                  ⊕{added} ✗{contradicted} ⓘ{outOfScope} · {evidenceLine}
                 </span>
               </summary>
               <div className="p-2 space-y-2 bg-white text-xs">
@@ -135,18 +138,29 @@ function AttemptHistory({
                       {claims.map((c, idx) => {
                         const evidenceFailed =
                           ec.failedIndices.includes(idx)
-                        const tag =
-                          c.verdict === 'supported'
-                            ? '✓'
-                            : c.verdict === 'added'
-                              ? '⊕'
-                              : '✗'
-                        const tagColor =
-                          c.verdict === 'supported'
-                            ? 'text-green-700'
-                            : c.verdict === 'added'
-                              ? 'text-amber-700'
-                              : 'text-red-700'
+                        let tag: string
+                        let tagColor: string
+                        switch (c.verdict) {
+                          case 'supported':
+                            tag = '✓'
+                            tagColor = 'text-green-700'
+                            break
+                          case 'added':
+                            tag = '⊕'
+                            tagColor = 'text-amber-700'
+                            break
+                          case 'contradicted':
+                            tag = '✗'
+                            tagColor = 'text-red-700'
+                            break
+                          case 'out_of_scope':
+                            tag = 'ⓘ'
+                            tagColor = 'text-sky-700'
+                            break
+                          default:
+                            tag = '?'
+                            tagColor = 'text-slate-500'
+                        }
                         return (
                           <li
                             key={idx}

@@ -25,6 +25,7 @@ import {
   ClipboardList,
   ExternalLink,
   FileText,
+  Info,
   Loader2,
   Play,
   XCircle,
@@ -97,6 +98,11 @@ const VERDICT_STYLE: Record<
     label: '曲解 contradicted',
     color: 'bg-red-100 text-red-800 border-red-300',
     icon: <XCircle className="w-3.5 h-3.5" />,
+  },
+  out_of_scope: {
+    label: '诚实声明 out_of_scope',
+    color: 'bg-sky-100 text-sky-800 border-sky-300',
+    icon: <Info className="w-3.5 h-3.5" />,
   },
 }
 
@@ -370,6 +376,9 @@ function DualEngineTestPanel() {
   const contradictedCount = claims.filter(
     (c) => c.verdict === 'contradicted',
   ).length
+  const outOfScopeCount = claims.filter(
+    (c) => c.verdict === 'out_of_scope',
+  ).length
 
   // 秒表格式化
   const fmt = (ms: number) => `${(ms / 1000).toFixed(1)}s`
@@ -598,6 +607,12 @@ function DualEngineTestPanel() {
                 <span className="font-mono text-red-700">
                   ✗{contradictedCount}
                 </span>
+                <span
+                  className="font-mono text-sky-700"
+                  title="out_of_scope：AI-1 诚实声明源材料未涉及（不追责）"
+                >
+                  ⓘ{outOfScopeCount}
+                </span>
               </div>
             )}
             {result.attempts.length > 1 && (
@@ -664,7 +679,8 @@ function DualEngineTestPanel() {
                     const style = VERDICT_STYLE[c.verdict]
                     const evidenceFailed =
                       evidence?.failedIndices.includes(idx) ?? false
-                    const needsSpan = c.verdict !== 'added'
+                    const needsSpan =
+                      c.verdict !== 'added' && c.verdict !== 'out_of_scope'
                     return (
                       <li
                         key={idx}
