@@ -21,6 +21,11 @@ import { extractZip } from './extract'
 
 export interface RunMineruSingleFileOptions {
   token: string
+  /**
+   * 用户配置的 Cloudflare Worker URL（如 https://xxx.workers.dev）
+   * MinerU 官方 API 无 CORS，浏览器直连不通，必须走用户自持的透传代理。
+   */
+  workerUrl: string
   file: File
   /** 组件订阅进度事件 */
   onProgress?: MineruProgressCallback
@@ -52,8 +57,13 @@ function emitStage(
 export async function runMineruSingleFile(
   opts: RunMineruSingleFileOptions,
 ): Promise<MineruTestResult> {
-  const { token, file, onProgress, signal } = opts
+  const { token, file, workerUrl, onProgress, signal } = opts
   if (!token.trim()) throw new Error('MinerU token 为空')
+  if (!workerUrl.trim()) {
+    throw new Error(
+      'MinerU 代理未配置，请到 Settings → MinerU 代理，一键部署你自己的 Cloudflare Worker（免费）',
+    )
+  }
   if (!file) throw new Error('未选择 PDF 文件')
   if (!/\.pdf$/i.test(file.name)) {
     throw new Error(`只支持 PDF 输入，收到：${file.name}`)
@@ -70,6 +80,7 @@ export async function runMineruSingleFile(
   )
   const { batchId, uploadUrl } = await applyUploadUrls({
     token,
+    workerUrl,
     fileName: file.name,
     isOcr: opts.isOcr,
     enableFormula: opts.enableFormula,
@@ -100,6 +111,7 @@ export async function runMineruSingleFile(
   )
   const fileResult = await pollBatch({
     token,
+    workerUrl,
     batchId,
     fileName: file.name,
     onProgress,

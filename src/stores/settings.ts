@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   customAi2ApiKey: '',
   customAi2Model: '',
   mineruToken: '',
+  mineruWorkerUrl: '',
   extractCoverImage: true,
 }
 
@@ -61,6 +62,7 @@ const KEY_MAP: Record<keyof SettingsData, string> = {
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
   customAi2Model: SETTING_KEYS.CUSTOM_AI_2_MODEL,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
+  mineruWorkerUrl: SETTING_KEYS.MINERU_WORKER_URL,
   extractCoverImage: SETTING_KEYS.EXTRACT_COVER_IMAGE,
 }
 

@@ -120,6 +120,17 @@ export interface SettingsData {
   /** MinerU JWT token（BYO）——用于 PDF → Markdown 解析 */
   mineruToken: string
   /**
+   * MinerU Cloudflare Worker 代理地址（BYO）
+   * -------------------------------------------------
+   * MinerU 服务端不返回 CORS 头，浏览器直连会被 preflight 拒绝。
+   * 用户需要在自己的 Cloudflare 账号部署一个 30 行的透传代理（免费），
+   * 然后把 xxx.workers.dev URL 填在这里。之后所有 MinerU 请求走这个代理。
+   *
+   * 部署指引：https://github.com/Nikki-SU/AcademicFlow-Worker
+   * 数据隐私：Worker 只做纯转发，不缓存不落盘。部署在用户自己的 CF 账号，作者不接触。
+   */
+  mineruWorkerUrl: string
+  /**
    * 是否提取"题图（cover figure）"—— 论文里最能代表全文核心的那张单图。
    * 通常是第一张但不必然（有些论文第一张是路线图/示意图/TOC graphic）。
    * 理工科需要，社科可关。判断需要 AI 参与，逻辑在 Import 里落地。默认 true。

@@ -26,7 +26,27 @@ import type {
   MineruProgressCallback,
 } from '../../types'
 
-export const MINERU_BASE_URL = 'https://mineru.net/api/v4'
+export const MINERU_API_SUFFIX = '/api/v4'
+
+/**
+ * 构造 MinerU API 的 baseUrl。
+ * MinerU 服务端不返回 CORS 头，浏览器直连会 preflight 405，
+ * 因此必须走用户自持的 Cloudflare Worker 透传代理。
+ *
+ * @param workerUrl 用户在 Settings 里配置的 workers.dev URL（如 https://xxx.workers.dev）
+ *                  尾斜杠会自动清理
+ * @returns 如 `https://xxx.workers.dev/api/v4`
+ * @throws 当 workerUrl 为空时抛错，提醒调用方去 Settings 配置
+ */
+export function buildMineruBaseUrl(workerUrl: string | null | undefined): string {
+  const trimmed = (workerUrl ?? '').trim().replace(/\/+$/, '')
+  if (!trimmed) {
+    throw new MineruError(
+      'MinerU 代理未配置。请前往 Settings → MinerU 代理，一键部署你自己的 Cloudflare Worker（免费）。',
+    )
+  }
+  return trimmed + MINERU_API_SUFFIX
+}
 
 // ============================================================================
 // 错误类型
@@ -118,6 +138,8 @@ function throwHttpError(status: number, providerMsg: string): never {
 
 export interface ApplyOptions {
   token: string
+  /** 用户配置的 Worker URL（如 https://xxx.workers.dev），无尾斜杠 */
+  workerUrl: string
   fileName: string
   isOcr?: boolean
   enableFormula?: boolean
@@ -131,6 +153,7 @@ export async function applyUploadUrls(opts: ApplyOptions): Promise<{
   batchId: string
   uploadUrl: string
 }> {
+  const baseUrl = buildMineruBaseUrl(opts.workerUrl)
   const body: MineruApplyRequest = {
     files: [
       {
@@ -147,7 +170,7 @@ export async function applyUploadUrls(opts: ApplyOptions): Promise<{
 
   let res: Response
   try {
-    res = await fetch(`${MINERU_BASE_URL}/file-urls/batch`, {
+    res = await fetch(`${baseUrl}/file-urls/batch`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${opts.token}`,
@@ -212,6 +235,8 @@ export async function uploadFile(uploadUrl: string, file: Blob): Promise<void> {
 
 export interface PollOptions {
   token: string
+  /** 用户配置的 Worker URL（如 https://xxx.workers.dev），无尾斜杠 */
+  workerUrl: string
   batchId: string
   /** 单个文件（本项目只跑 1 个） */
   fileName: string
@@ -228,6 +253,7 @@ export interface PollOptions {
 export async function pollBatch(
   opts: PollOptions,
 ): Promise<MineruFileResult> {
+  const baseUrl = buildMineruBaseUrl(opts.workerUrl)
   const interval = opts.intervalMs ?? 5000
   const timeout = opts.timeoutMs ?? 15 * 60 * 1000
   const t0 = Date.now()
@@ -243,7 +269,7 @@ export async function pollBatch(
     let res: Response
     try {
       res = await fetch(
-        `${MINERU_BASE_URL}/extract-results/batch/${opts.batchId}`,
+        `${baseUrl}/extract-results/batch/${opts.batchId}`,
         {
           headers: {
             Authorization: `Bearer ${opts.token}`,

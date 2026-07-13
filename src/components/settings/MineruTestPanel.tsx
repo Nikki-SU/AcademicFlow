@@ -33,7 +33,7 @@ import { MineruResultPanel } from './MineruResultPanel'
 import { MineruTokenStatus } from './MineruTokenStatus'
 
 export default function MineruTestPanel() {
-  const { mineruToken, extractCoverImage, updateSettings } = useSettingsStore()
+  const { mineruToken, mineruWorkerUrl, extractCoverImage, updateSettings } = useSettingsStore()
 
   const [showToken, setShowToken] = useState(false)
   const [file, setFile] = useState<File | null>(null)
@@ -64,6 +64,10 @@ export default function MineruTestPanel() {
   }, [])
 
   const handleRun = async () => {
+    if (!mineruWorkerUrl.trim()) {
+      toast.error('请先在上面「MinerU 代理」区域配置 Cloudflare Worker URL')
+      return
+    }
     if (!mineruToken.trim()) {
       toast.error('请先填写 MinerU Token')
       return
@@ -87,6 +91,7 @@ export default function MineruTestPanel() {
     try {
       const res = await runMineruSingleFile({
         token: mineruToken,
+        workerUrl: mineruWorkerUrl,
         file,
         onProgress,
         signal: abortRef.current.signal,
@@ -214,7 +219,7 @@ export default function MineruTestPanel() {
           <button
             type="button"
             onClick={handleRun}
-            disabled={!file || !mineruToken.trim() || jwtInfo.isExpired}
+            disabled={!file || !mineruToken.trim() || !mineruWorkerUrl.trim() || jwtInfo.isExpired}
             className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm bg-indigo-600 text-white
                        rounded-md hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
           >

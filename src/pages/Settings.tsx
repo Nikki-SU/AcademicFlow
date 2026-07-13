@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
 import MineruTestPanel from '../components/settings/MineruTestPanel'
+import MineruProxyConfig from '../components/settings/MineruProxyConfig'
 import { isChatModel } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import type { AIProviderMode } from '../types'
@@ -348,6 +349,18 @@ function Settings() {
             用当前配置跑一次事实核查任务，验证 AI-1 生成 + AI-2 审阅链路。
           </p>
           <DualEngineTestPanel />
+        </section>
+
+        {/* MinerU 代理配置（M3.6.2-b · BYO Cloudflare Worker） */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
+          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-orange-600" />
+            MinerU 代理（必须配置）
+          </h2>
+          <p className="text-xs text-slate-500">
+            MinerU 官方 API 不支持浏览器直连（CORS 限制）。请在你自己的 Cloudflare 账号部署一个免费的透传代理，30 秒完事，永久免费。
+          </p>
+          <MineruProxyConfig />
         </section>
 
         {/* MinerU 全流程测试（M3.7） */}
