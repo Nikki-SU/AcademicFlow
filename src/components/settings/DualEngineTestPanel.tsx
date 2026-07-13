@@ -25,7 +25,6 @@ import {
   ClipboardList,
   ExternalLink,
   FileText,
-  Info,
   Loader2,
   Play,
   XCircle,
@@ -100,9 +99,11 @@ const VERDICT_STYLE: Record<
     icon: <XCircle className="w-3.5 h-3.5" />,
   },
   out_of_scope: {
-    label: '诚实声明 out_of_scope',
-    color: 'bg-sky-100 text-sky-800 border-sky-300',
-    icon: <Info className="w-3.5 h-3.5" />,
+    // 静默归化：UI 上等同 supported（不给用户看 out_of_scope 概念，
+    // 也不给 AI-1 学 prompt 技巧的负担；开发者兜底原则）
+    label: '有据 supported',
+    color: 'bg-green-100 text-green-800 border-green-300',
+    icon: <CheckCircle className="w-3.5 h-3.5" />,
   },
 }
 
@@ -371,13 +372,13 @@ function DualEngineTestPanel() {
   const result = lastDualEngineResult
   const claims = result?.ai2Feedback.claims ?? []
   const evidence = result?.ai2Feedback.evidenceCheck
-  const supportedCount = claims.filter((c) => c.verdict === 'supported').length
+  // out_of_scope 静默归入 supported 计数（用户不可感原则）
+  const supportedCount = claims.filter(
+    (c) => c.verdict === 'supported' || c.verdict === 'out_of_scope',
+  ).length
   const addedCount = claims.filter((c) => c.verdict === 'added').length
   const contradictedCount = claims.filter(
     (c) => c.verdict === 'contradicted',
-  ).length
-  const outOfScopeCount = claims.filter(
-    (c) => c.verdict === 'out_of_scope',
   ).length
 
   // 秒表格式化
@@ -606,12 +607,6 @@ function DualEngineTestPanel() {
                 <span className="font-mono text-amber-700">⊕{addedCount}</span>
                 <span className="font-mono text-red-700">
                   ✗{contradictedCount}
-                </span>
-                <span
-                  className="font-mono text-sky-700"
-                  title="out_of_scope：AI-1 诚实声明源材料未涉及（不追责）"
-                >
-                  ⓘ{outOfScopeCount}
                 </span>
               </div>
             )}

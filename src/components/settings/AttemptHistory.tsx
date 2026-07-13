@@ -64,9 +64,8 @@ function AttemptHistory({
           const contradicted = claims.filter(
             (c) => c.verdict === 'contradicted',
           ).length
-          const outOfScope = claims.filter(
-            (c) => c.verdict === 'out_of_scope',
-          ).length
+          // out_of_scope 归化：UI 层视觉上等同于 supported（静默通过），
+          // 不单独显示徽章或计数（详见 dual-engine.ts M3.6.2-a-fix 注释）
           const ec = a.ai2Feedback.evidenceCheck
           const evidenceLine = ec.checked
             ? `引证 ${ec.matched}/${ec.checked}`
@@ -101,7 +100,7 @@ function AttemptHistory({
                   {fmtMs(a.ai2Ms)}
                 </span>
                 <span className="font-mono text-slate-500">
-                  ⊕{added} ✗{contradicted} ⓘ{outOfScope} · {evidenceLine}
+                  ⊕{added} ✗{contradicted} · {evidenceLine}
                 </span>
               </summary>
               <div className="p-2 space-y-2 bg-white text-xs">
@@ -154,8 +153,9 @@ function AttemptHistory({
                             tagColor = 'text-red-700'
                             break
                           case 'out_of_scope':
-                            tag = 'ⓘ'
-                            tagColor = 'text-sky-700'
+                            // 静默归化：UI 层等同于 supported
+                            tag = '✓'
+                            tagColor = 'text-green-700'
                             break
                           default:
                             tag = '?'
