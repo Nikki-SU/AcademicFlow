@@ -19,8 +19,8 @@ const README_MD = `# academicflow-workspace
 这是 [AcademicFlow](https://nikki-su.github.io/AcademicFlow/) 的**个人工作区**，
 由 AcademicFlow 首次登录时自动初始化。
 
-- **归属**：仅所有者（Nikki-SU）可读写，私库
-- **License**：数据主权归所有者所有
+- **归属**：仅仓库所有者可读写，私库
+- **License**：数据主权归仓库所有者所有
 - **管理方式**：请通过 AcademicFlow 客户端读写，不建议直接编辑 GitHub Web UI
   （直接编辑不会破坏数据，但可能导致 CSV 结构不一致）
 

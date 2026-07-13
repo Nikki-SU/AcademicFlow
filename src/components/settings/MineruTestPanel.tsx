@@ -12,6 +12,7 @@
  */
 import {
   AlertCircle,
+  Bug,
   Eye,
   EyeOff,
   Loader2,
@@ -23,22 +24,32 @@ import { toast } from 'sonner'
 import { useSettingsStore } from '../../stores/settings'
 import { parseMineruJwt, runMineruSingleFile, severity } from '../../services/mineru'
 import type {
+  MineruDebugEvent,
   MineruProgressEvent,
   MineruStage,
   MineruTestResult,
 } from '../../types'
 import { STAGE_LABEL } from './mineru-stages'
+import { MineruDebugConsole } from './MineruDebugConsole'
 import { MineruProgressTimeline } from './MineruProgressTimeline'
 import { MineruResultPanel } from './MineruResultPanel'
 import { MineruTokenStatus } from './MineruTokenStatus'
 
 export default function MineruTestPanel() {
-  const { mineruToken, mineruWorkerUrl, extractCoverImage, updateSettings } = useSettingsStore()
+  const {
+    mineruToken,
+    mineruWorkerUrl,
+    extractCoverImage,
+    mineruDebugMode,
+    updateSettings,
+  } = useSettingsStore()
 
   const [showToken, setShowToken] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [currentStage, setCurrentStage] = useState<MineruStage>('idle')
   const [progressLog, setProgressLog] = useState<MineruProgressEvent[]>([])
+  const [debugEvents, setDebugEvents] = useState<MineruDebugEvent[]>([])
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<MineruTestResult | null>(null)
@@ -55,12 +66,18 @@ export default function MineruTestPanel() {
     setResult(null)
     setError(null)
     setProgressLog([])
+    setDebugEvents([])
     setCurrentStage('idle')
+    setRunStartedAt(null)
   }
 
   const onProgress = useCallback((ev: MineruProgressEvent) => {
     setCurrentStage(ev.stage)
     setProgressLog((prev) => [...prev, ev])
+  }, [])
+
+  const onDebug = useCallback((ev: MineruDebugEvent) => {
+    setDebugEvents((prev) => [...prev, ev])
   }, [])
 
   const handleRun = async () => {
@@ -85,7 +102,9 @@ export default function MineruTestPanel() {
     setError(null)
     setResult(null)
     setProgressLog([])
+    setDebugEvents([])
     setCurrentStage('applying')
+    setRunStartedAt(Date.now())
 
     abortRef.current = new AbortController()
     try {
@@ -94,6 +113,7 @@ export default function MineruTestPanel() {
         workerUrl: mineruWorkerUrl,
         file,
         onProgress,
+        onDebug: mineruDebugMode ? onDebug : undefined,
         signal: abortRef.current.signal,
       })
       setResult(res)
@@ -168,6 +188,30 @@ export default function MineruTestPanel() {
         {mineruToken.trim() && <MineruTokenStatus jwtInfo={jwtInfo} sev={sev} />}
         <p className="text-xs text-slate-500">仅存本机 IndexedDB，不上传任何服务器</p>
       </div>
+
+      {/* 调试模式开关（M3.6.3-b · 分发前 Settings 可关） */}
+      <label className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-md cursor-pointer">
+        <input
+          type="checkbox"
+          checked={mineruDebugMode}
+          onChange={(e) => updateSettings({ mineruDebugMode: e.target.checked })}
+          className="mt-0.5 w-4 h-4 accent-indigo-600"
+        />
+        <div className="flex-1">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+            <Bug className="w-3.5 h-3.5 text-indigo-500" />
+            调试模式（Debug Console）
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-normal bg-indigo-100 text-indigo-700 rounded">
+              开发期默认开启
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+            开启后，测试面板底部会实时打印 pipeline 每一步的 fetch 详情：
+            method / URL / 状态码 / 耗时 / 错误。用于定位"上传成功但等待解析卡住"
+            这类客户端侧问题；分发正式版前建议关闭以减少日志噪声。
+          </p>
+        </div>
+      </label>
 
       {/* 提取题图开关（设置默认值 · 测试面板不消费此开关） */}
       <label className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-md cursor-pointer">
@@ -270,6 +314,15 @@ export default function MineruTestPanel() {
           </div>
           <p className="whitespace-pre-wrap break-all font-mono text-xs">{error}</p>
         </div>
+      )}
+
+      {/* 调试控制台（M3.6.3-b · 仅 mineruDebugMode=true 时挂载） */}
+      {mineruDebugMode && (
+        <MineruDebugConsole
+          events={debugEvents}
+          onClear={() => setDebugEvents([])}
+          startedAt={runStartedAt}
+        />
       )}
     </div>
   )

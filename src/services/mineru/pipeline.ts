@@ -7,6 +7,7 @@
  * 本模块只做单文件（≤180 页）流程。多文件分片/合并留到 Import 阶段。
  */
 import type {
+  MineruDebugCallback,
   MineruProgressCallback,
   MineruStage,
   MineruTestResult,
@@ -29,6 +30,12 @@ export interface RunMineruSingleFileOptions {
   file: File
   /** 组件订阅进度事件 */
   onProgress?: MineruProgressCallback
+  /**
+   * M3.6.3-b：组件订阅底层 HTTP debug 事件（可选）。
+   * 传入后，client.ts 里的每次 fetch 前后会挂 request / response / error / info 事件，
+   * 便于 UI 层挂 Debug Console 展示每步 method / url / status / 耗时 / 错误详情。
+   */
+  onDebug?: MineruDebugCallback
   /** 主动取消 */
   signal?: AbortSignal
   /** 是否强制 OCR（默认 false，正常 PDF 不用） */
@@ -57,7 +64,7 @@ function emitStage(
 export async function runMineruSingleFile(
   opts: RunMineruSingleFileOptions,
 ): Promise<MineruTestResult> {
-  const { token, file, workerUrl, onProgress, signal } = opts
+  const { token, file, workerUrl, onProgress, onDebug, signal } = opts
   if (!token.trim()) throw new Error('MinerU token 为空')
   if (!workerUrl.trim()) {
     throw new Error(
@@ -87,6 +94,7 @@ export async function runMineruSingleFile(
     enableTable: opts.enableTable,
     language: opts.language,
     modelVersion: opts.modelVersion,
+    onDebug,
   })
   timing.applying = Date.now() - t1
   if (signal?.aborted) throw new Error('已取消')
@@ -98,7 +106,7 @@ export async function runMineruSingleFile(
     `上传 PDF 到 OSS...`,
     { batchId, fileName: file.name },
   )
-  await uploadFile(uploadUrl, file, workerUrl)
+  await uploadFile(uploadUrl, file, workerUrl, onDebug)
   timing.uploading = Date.now() - t2
   if (signal?.aborted) throw new Error('已取消')
 
@@ -115,6 +123,7 @@ export async function runMineruSingleFile(
     batchId,
     fileName: file.name,
     onProgress,
+    onDebug,
     signal,
   })
   timing.polling = Date.now() - t3
@@ -129,7 +138,7 @@ export async function runMineruSingleFile(
     '下载解析产物 zip...',
     { batchId, fileName: file.name },
   )
-  const zipBlob = await downloadZip(fileResult.full_zip_url, workerUrl)
+  const zipBlob = await downloadZip(fileResult.full_zip_url, workerUrl, onDebug)
   timing.downloading = Date.now() - t4
 
   // ---- Stage 5: 解压 & 交叉验证 ----

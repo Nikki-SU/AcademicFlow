@@ -135,7 +135,7 @@ export interface SettingsData {
   /**
    * MinerU 代理 URL（BYO）——对应 mineruDeployMode 部署完成后填入。
    *
-   *   - deno       → https://xxx.deno.dev
+   *   - deno       → https://xxx.deno.net
    *   - cf-workers → https://xxx.workers.dev
    *
    * 部署指引：https://github.com/Nikki-SU/AcademicFlow-Worker
@@ -148,6 +148,14 @@ export interface SettingsData {
    * 理工科需要，社科可关。判断需要 AI 参与，逻辑在 Import 里落地。默认 true。
    */
   extractCoverImage: boolean
+  /**
+   * MinerU 调试模式（M3.6.3-b）
+   * -------------------------------------------------
+   * 打开时，MineruTestPanel 会展示一个 Debug Console，
+   * 展示每个 fetch 的 method/url/status/duration/body 片段，方便定位卡点。
+   * 分发前可在 Settings 里手动关。默认 true（开发期）。
+   */
+  mineruDebugMode: boolean
 }
 
 /** 设置 store 状态 */
@@ -193,22 +201,24 @@ export interface AIResponse {
 /** SPEC §9.2 (M3.5): 双引擎任务类型 —— 忠实性核查（面向"总结不加戏"场景） */
 export type DualEngineTaskType = 'faithfulness_check'
 
-/** SPEC §9.2 (M3.5 · M3.6.2 扩展为四分类): 单条 claim 的核查结论
+/** SPEC §9.2 (M3.5 · M3.6.3 回到三分类 + 固定 tag 硬编码): 单条 claim 的核查结论
  *  - supported: 源材料明确支撑该 claim
  *  - added: 源材料未提及但 AI-1 引入了外部内容（"加戏"，需追责，AI-1 必须删除或替换为占位）
  *  - contradicted: 源材料与该 claim 矛盾（AI-1 曲解原文，需追责）
- *  - out_of_scope: AI-1 明确声明"源材料未涉及/未提及此项"的元陈述（诚实声明，加分项，不追责）
  *
- *  M3.6.2 关键区分：
- *   - added = AI-1 补内容（编造）
- *   - out_of_scope = AI-1 划边界（诚实说没有）
- *   前者是污染，后者是必要的诚实义务，不能一视同仁。
+ *  M3.6.3 关键变更（治本方案）：
+ *   - 废除 out_of_scope verdict：AI-1 用户指令索取源材料未覆盖信息时，
+ *     硬编码要求 AI-1 输出固定 tag `[NOT_IN_SOURCE] <字段>` 格式；
+ *     AI-2 抽取阶段识别到 tag → 直接跳过，不成为 claim；
+ *     前端 verifyEvidence 也识别 tag 做前置过滤（三层保底）。
+ *   - 这样元陈述根本不进 verdict/引证核查流程，从根源上避免了
+ *     "AI-2 判 verdict 陷入模糊边界 → 被迫改判 added → AI-1 rewrite 死循环"的旧 bug。
+ *   - 旧 IndexedDB 记录里若含 out_of_scope，UI 渲染时静默降级为 supported，不炸。
  */
 export type FaithfulnessVerdict =
   | 'supported'
   | 'added'
   | 'contradicted'
-  | 'out_of_scope'
 
 /** SPEC §9.2 (M3.5): AI-2 输出的单条 claim 核查 */
 export interface FaithfulnessClaim {
@@ -220,23 +230,29 @@ export interface FaithfulnessClaim {
    *  - supported: 支撑该 claim 的源材料原文片段（≥10 字符）
    *  - contradicted: 被 claim 矛盾的源材料原文片段（≥10 字符）
    *  - added: 空字符串（源材料未提及，无需 span）
-   *  - out_of_scope: 空字符串（元陈述，原文本就没有可引之处）
+   *
+   *  M3.6.3: 元陈述（含 `[NOT_IN_SOURCE]` tag 的 AI-1 输出）由 AI-2 在抽取阶段
+   *  就跳过，不成为 claim，因此不会出现在此 span 校验流程中。
    */
   source_span: string
   /** 中文简要说明 */
   explanation: string
 }
 
-/** SPEC §9.2 (M3.5 · M3.6.2): 引证锚定校验结果
+/** SPEC §9.2 (M3.5 · M3.6.3): 引证锚定校验结果
  *  前端遍历 AI-2 输出的 claims，逐条 sourceMaterial.includes(source_span) 校验；
  *  任何一条应有 span 但校验失败 → ok=false → 强制 passed=false（AI-2 编造引用）。
  *
- *  M3.6.2: added / out_of_scope 两类均无需 span，均从 checked 池中排除。
+ *  M3.6.3: 三层保底跳过规则：
+ *    ① AI-1 硬编码用 `[NOT_IN_SOURCE] <字段>` tag 表达元陈述
+ *    ② AI-2 抽取阶段识别 tag → 不抽为 claim
+ *    ③ verifyEvidence 兜底：claim.claim 或 explanation 含 tag → 跳过校验
+ *  同时 added 类无需 span，也从 checked 池中排除。
  */
 export interface EvidenceCheck {
   /** 是否全部锚定命中（无编造引用） */
   ok: boolean
-  /** 需要校验的 claim 数（verdict === 'supported' || verdict === 'contradicted'） */
+  /** 需要校验的 claim 数（verdict === 'supported' || verdict === 'contradicted'，且不含 tag） */
   checked: number
   /** 命中数（source_span 能在源材料中 grep 到） */
   matched: number
@@ -246,8 +262,8 @@ export interface EvidenceCheck {
 
 /** SPEC §9.2 (M3.5): AI-2 结构化反馈 */
 export interface FaithfulnessFeedback {
-  /** M3.6.2: 无 added/contradicted 且 evidenceCheck.ok=true 时才为 true
-   *  （out_of_scope 是诚实声明，不影响 passed） */
+  /** M3.6.3: 无 added/contradicted 且 evidenceCheck.ok=true 时才为 true
+   *  （元陈述 `[NOT_IN_SOURCE]` 已在抽取阶段被跳过，不进入 verdict 池） */
   passed: boolean
   /** 逐条 claim 核查 */
   claims: FaithfulnessClaim[]
@@ -518,6 +534,37 @@ export interface MineruProgressEvent {
 
 /** MineruProgressCallback 回调签名（组件订阅进度） */
 export type MineruProgressCallback = (event: MineruProgressEvent) => void
+
+/**
+ * MinerU 调试事件（M3.6.3-b）
+ * -------------------------------------------------
+ * 独立于 MineruProgressEvent，专门记 HTTP 请求级细节：
+ * method / url / status / duration / body 片段 / 错误堆栈。
+ * 不影响 UI 主进度条，仅在 debugMode 开启时挂到 Debug Console 展示。
+ */
+export interface MineruDebugEvent {
+  /** 事件类型 */
+  kind: 'request' | 'response' | 'error' | 'info'
+  /** 属于哪个阶段（跟 MineruStage 对齐） */
+  phase: MineruStage
+  /** 事件时刻 Date.now() */
+  at: number
+  /** HTTP 方法（kind=request/response 时有） */
+  method?: string
+  /** 请求 URL（kind=request/response 时有） */
+  url?: string
+  /** HTTP 状态码（kind=response 时有） */
+  status?: number
+  /** 从对应 request 到 response 的耗时（ms，kind=response 时有） */
+  durationMs?: number
+  /** 关键 payload 片段：body / message / snippet，最多 500 字符 */
+  detail?: string
+  /** 错误名（kind=error 时有，如 'MineruNetworkError'） */
+  errorName?: string
+}
+
+/** MineruDebugCallback 回调签名（组件订阅底层 debug 流） */
+export type MineruDebugCallback = (event: MineruDebugEvent) => void
 
 /** MineruTestPanel 最终跑完的完整结果 */
 export interface MineruTestResult {

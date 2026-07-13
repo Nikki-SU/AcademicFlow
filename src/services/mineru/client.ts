@@ -22,12 +22,42 @@ import type {
   MineruApplyRequest,
   MineruApplyResponse,
   MineruBatchResult,
+  MineruDebugCallback,
+  MineruDebugEvent,
   MineruFileResult,
   MineruProgressCallback,
 } from '../../types'
 
 export const MINERU_API_SUFFIX = '/api/v4'
 export const MINERU_PROXY_SUFFIX = '/proxy'
+
+// ============================================================================
+// 调试打点 helper（M3.6.3-b）
+// ============================================================================
+// 独立于业务流，把每个 fetch 的 method/url/status/耗时/错误细节挂出去。
+// 上层组件（如 MineruTestPanel）在 debugMode 开启时消费此流并渲染 Debug Console。
+
+function emitDebug(
+  cb: MineruDebugCallback | undefined,
+  ev: Omit<MineruDebugEvent, 'at'>,
+): void {
+  cb?.({ ...ev, at: Date.now() })
+}
+
+/** 截取 body / 错误消息片段（避免超长 blob 塞爆内存），最多 500 字符 */
+function snippet(v: unknown, max = 500): string {
+  if (v === undefined || v === null) return ''
+  const s = typeof v === 'string' ? v : safeStringify(v)
+  return s.length > max ? s.slice(0, max) + `…(${s.length - max} more)` : s
+}
+
+function safeStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v)
+  } catch {
+    return String(v)
+  }
+}
 
 /**
  * 构造 MinerU API 的 baseUrl。
@@ -171,6 +201,8 @@ export interface ApplyOptions {
   language?: string
   pageRanges?: string
   modelVersion?: 'pipeline' | 'vlm'
+  /** M3.6.3-b：底层 debug 事件回调（可选，仅在 debugMode 开启时挂上） */
+  onDebug?: MineruDebugCallback
 }
 
 export async function applyUploadUrls(opts: ApplyOptions): Promise<{
@@ -192,9 +224,19 @@ export async function applyUploadUrls(opts: ApplyOptions): Promise<{
     language: opts.language ?? 'auto',
   }
 
+  const url = `${baseUrl}/file-urls/batch`
+  const t0 = Date.now()
+  emitDebug(opts.onDebug, {
+    kind: 'request',
+    phase: 'applying',
+    method: 'POST',
+    url,
+    detail: snippet(body),
+  })
+
   let res: Response
   try {
-    res = await fetch(`${baseUrl}/file-urls/batch`, {
+    res = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${opts.token}`,
@@ -204,16 +246,48 @@ export async function applyUploadUrls(opts: ApplyOptions): Promise<{
       body: JSON.stringify(body),
     })
   } catch (err) {
-    throw new MineruNetworkError(err instanceof Error ? err.message : String(err))
+    const msg = err instanceof Error ? err.message : String(err)
+    emitDebug(opts.onDebug, {
+      kind: 'error',
+      phase: 'applying',
+      method: 'POST',
+      url,
+      durationMs: Date.now() - t0,
+      errorName: err instanceof Error ? err.name : 'Unknown',
+      detail: msg,
+    })
+    throw new MineruNetworkError(msg)
   }
+
+  emitDebug(opts.onDebug, {
+    kind: 'response',
+    phase: 'applying',
+    method: 'POST',
+    url,
+    status: res.status,
+    durationMs: Date.now() - t0,
+  })
 
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
+    emitDebug(opts.onDebug, {
+      kind: 'error',
+      phase: 'applying',
+      method: 'POST',
+      url,
+      status: res.status,
+      detail: providerMsg,
+    })
     throwHttpError(res.status, providerMsg)
   }
 
   const data = (await res.json()) as MineruApplyResponse
   if (data.code !== 0) {
+    emitDebug(opts.onDebug, {
+      kind: 'error',
+      phase: 'applying',
+      detail: `code=${data.code} msg=${data.msg}`,
+    })
     throw new MineruClientError(res.status, `code=${data.code} msg=${data.msg}`)
   }
   const batchId = data.data?.batch_id
@@ -224,6 +298,11 @@ export async function applyUploadUrls(opts: ApplyOptions): Promise<{
       `响应结构异常：batch_id=${batchId} file_urls[0]=${uploadUrl ? 'present' : 'missing'}`,
     )
   }
+  emitDebug(opts.onDebug, {
+    kind: 'info',
+    phase: 'applying',
+    detail: `batch_id=${batchId}  upload_url_host=${new URL(uploadUrl).host}`,
+  })
   return { batchId, uploadUrl }
 }
 
@@ -242,8 +321,18 @@ export async function uploadFile(
   uploadUrl: string,
   file: Blob,
   workerUrl: string,
+  onDebug?: MineruDebugCallback,
 ): Promise<void> {
   const proxied = buildMineruProxyUrl(workerUrl, uploadUrl)
+  const t0 = Date.now()
+  emitDebug(onDebug, {
+    kind: 'request',
+    phase: 'uploading',
+    method: 'PUT',
+    url: proxied,
+    detail: `file size=${(file.size / 1024 / 1024).toFixed(2)}MB  target_host=${new URL(uploadUrl).host}`,
+  })
+
   let res: Response
   try {
     res = await fetch(proxied, {
@@ -252,10 +341,36 @@ export async function uploadFile(
       // 关键：不加 headers；浏览器默认会带 Content-Type: application/octet-stream 或 blob 的 type
     })
   } catch (err) {
-    throw new MineruNetworkError(err instanceof Error ? err.message : String(err))
+    const msg = err instanceof Error ? err.message : String(err)
+    emitDebug(onDebug, {
+      kind: 'error',
+      phase: 'uploading',
+      method: 'PUT',
+      url: proxied,
+      durationMs: Date.now() - t0,
+      errorName: err instanceof Error ? err.name : 'Unknown',
+      detail: msg,
+    })
+    throw new MineruNetworkError(msg)
   }
+
+  emitDebug(onDebug, {
+    kind: 'response',
+    phase: 'uploading',
+    method: 'PUT',
+    url: proxied,
+    status: res.status,
+    durationMs: Date.now() - t0,
+  })
+
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
+    emitDebug(onDebug, {
+      kind: 'error',
+      phase: 'uploading',
+      status: res.status,
+      detail: providerMsg,
+    })
     throwHttpError(res.status, providerMsg)
   }
 }
@@ -279,6 +394,8 @@ export interface PollOptions {
   onProgress?: MineruProgressCallback
   /** 主动取消信号 */
   signal?: AbortSignal
+  /** M3.6.3-b：底层 debug 事件回调 */
+  onDebug?: MineruDebugCallback
 }
 
 export async function pollBatch(
@@ -288,39 +405,88 @@ export async function pollBatch(
   const interval = opts.intervalMs ?? 5000
   const timeout = opts.timeoutMs ?? 15 * 60 * 1000
   const t0 = Date.now()
+  const pollUrl = `${baseUrl}/extract-results/batch/${opts.batchId}`
+  let pollCount = 0
+
+  emitDebug(opts.onDebug, {
+    kind: 'info',
+    phase: 'polling',
+    detail: `start polling  batchId=${opts.batchId}  interval=${interval}ms  timeout=${timeout}ms`,
+  })
 
   while (true) {
     if (opts.signal?.aborted) throw new Error('轮询被用户取消')
     if (Date.now() - t0 > timeout) {
+      emitDebug(opts.onDebug, {
+        kind: 'error',
+        phase: 'polling',
+        detail: `polling timeout after ${pollCount} attempts  batchId=${opts.batchId}`,
+      })
       throw new MineruNetworkError(
         `轮询超时（${Math.floor(timeout / 60000)} 分钟未 done）`,
       )
     }
 
+    pollCount += 1
+    const tReq = Date.now()
+    emitDebug(opts.onDebug, {
+      kind: 'request',
+      phase: 'polling',
+      method: 'GET',
+      url: pollUrl,
+      detail: `poll #${pollCount}`,
+    })
+
     let res: Response
     try {
-      res = await fetch(
-        `${baseUrl}/extract-results/batch/${opts.batchId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${opts.token}`,
-            Accept: 'application/json',
-          },
+      res = await fetch(pollUrl, {
+        headers: {
+          Authorization: `Bearer ${opts.token}`,
+          Accept: 'application/json',
         },
-      )
+      })
     } catch (err) {
-      throw new MineruNetworkError(
-        err instanceof Error ? err.message : String(err),
-      )
+      const msg = err instanceof Error ? err.message : String(err)
+      emitDebug(opts.onDebug, {
+        kind: 'error',
+        phase: 'polling',
+        method: 'GET',
+        url: pollUrl,
+        durationMs: Date.now() - tReq,
+        errorName: err instanceof Error ? err.name : 'Unknown',
+        detail: `poll #${pollCount} fetch rejected: ${msg}`,
+      })
+      throw new MineruNetworkError(msg)
     }
+
+    emitDebug(opts.onDebug, {
+      kind: 'response',
+      phase: 'polling',
+      method: 'GET',
+      url: pollUrl,
+      status: res.status,
+      durationMs: Date.now() - tReq,
+      detail: `poll #${pollCount}`,
+    })
 
     if (!res.ok) {
       const providerMsg = await parseErrorBody(res)
+      emitDebug(opts.onDebug, {
+        kind: 'error',
+        phase: 'polling',
+        status: res.status,
+        detail: `poll #${pollCount}  ${providerMsg}`,
+      })
       throwHttpError(res.status, providerMsg)
     }
 
     const payload = (await res.json()) as MineruBatchResult
     if (payload.code !== 0) {
+      emitDebug(opts.onDebug, {
+        kind: 'error',
+        phase: 'polling',
+        detail: `poll #${pollCount}  code=${payload.code} msg=${payload.msg}`,
+      })
       throw new MineruClientError(
         res.status,
         `code=${payload.code} msg=${payload.msg}`,
@@ -349,8 +515,24 @@ export async function pollBatch(
       fileName: opts.fileName,
     })
 
+    emitDebug(opts.onDebug, {
+      kind: 'info',
+      phase: 'polling',
+      detail: `poll #${pollCount}  state=${target.state}${
+        target.extract_progress !== undefined
+          ? `  progress=${target.extract_progress}%`
+          : ''
+      }${target.full_zip_url ? `  zip_ready=true` : ''}`,
+    })
+
     if (target.state === 'done') return target
     if (target.state === 'failed' || target.state === 'error') {
+      emitDebug(opts.onDebug, {
+        kind: 'error',
+        phase: 'polling',
+        errorName: 'MineruProcessingError',
+        detail: `state=${target.state}  err_msg=${target.err_msg ?? '(none)'}`,
+      })
       throw new MineruProcessingError(
         target.file_name,
         target.state,
@@ -375,17 +557,60 @@ export async function pollBatch(
 export async function downloadZip(
   fullZipUrl: string,
   workerUrl: string,
+  onDebug?: MineruDebugCallback,
 ): Promise<Blob> {
   const proxied = buildMineruProxyUrl(workerUrl, fullZipUrl)
+  const t0 = Date.now()
+  emitDebug(onDebug, {
+    kind: 'request',
+    phase: 'downloading',
+    method: 'GET',
+    url: proxied,
+    detail: `target_host=${new URL(fullZipUrl).host}`,
+  })
+
   let res: Response
   try {
     res = await fetch(proxied, { method: 'GET' })
   } catch (err) {
-    throw new MineruNetworkError(err instanceof Error ? err.message : String(err))
+    const msg = err instanceof Error ? err.message : String(err)
+    emitDebug(onDebug, {
+      kind: 'error',
+      phase: 'downloading',
+      method: 'GET',
+      url: proxied,
+      durationMs: Date.now() - t0,
+      errorName: err instanceof Error ? err.name : 'Unknown',
+      detail: msg,
+    })
+    throw new MineruNetworkError(msg)
   }
+
+  emitDebug(onDebug, {
+    kind: 'response',
+    phase: 'downloading',
+    method: 'GET',
+    url: proxied,
+    status: res.status,
+    durationMs: Date.now() - t0,
+    detail: `content-length=${res.headers.get('content-length') ?? '(unknown)'}`,
+  })
+
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
+    emitDebug(onDebug, {
+      kind: 'error',
+      phase: 'downloading',
+      status: res.status,
+      detail: providerMsg,
+    })
     throwHttpError(res.status, providerMsg)
   }
-  return await res.blob()
+  const blob = await res.blob()
+  emitDebug(onDebug, {
+    kind: 'info',
+    phase: 'downloading',
+    detail: `blob size=${(blob.size / 1024 / 1024).toFixed(2)}MB  total_ms=${Date.now() - t0}`,
+  })
+  return blob
 }

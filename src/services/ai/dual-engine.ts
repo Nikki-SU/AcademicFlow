@@ -73,10 +73,14 @@ const EMPTY_USAGE = {
  *
  *  语言约束：跟随用户指令语言（用户写中文指令就中文输出，写英文指令就英文输出）
  *
- *  设计原则（M3.6.2-a-fix）：
- *    "未提及项处理"（out_of_scope）是开发者层面的默认兜底，由 AI-2 侧独立识别，
- *    不塞进 AI-1 prompt。AI-1 只需要一句通用的诚实指令即可，用户无需感知
- *    out_of_scope 这个概念，也不需要学任何 prompt 技巧。
+ *  设计原则（M3.6.3-fix · 固定 tag 硬编码）：
+ *    对"源材料未涉及但用户任务指令索取"的字段，强制 AI-1 输出**固定 tag**
+ *    `[NOT_IN_SOURCE] <字段名>`。这是内部机器可识别标记，前端会自动替换为
+ *    用户友好文案（"（原文未提及：字段名）"）；AI-2 抽取时识别到 tag 就跳过，
+ *    不成为 claim；verifyEvidence 也做兜底过滤。
+ *
+ *    这样元陈述根本不进 verdict/引证核查流程，从根源上避免了旧版
+ *    "AI-2 判 verdict 陷入模糊边界 → 被迫改判 added → AI-1 rewrite 死循环"的 bug。
  */
 function buildAI1FirstMessages(params: DualEngineRunParams): AIRequest['messages'] {
   const system = [
@@ -89,10 +93,22 @@ function buildAI1FirstMessages(params: DualEngineRunParams): AIRequest['messages
     '4. 输出简洁的 Markdown，保持事实性描述，不发表主观评论。',
     '5. 输出语言跟随用户指令：用户指令是中文就用中文输出，用户指令是英文就用英文输出。',
     '',
+    '【未提及项的固定表达格式（强制机器可识别标记，务必严格遵守）】',
+    '6. 当用户任务指令要求源材料未涉及/未提及的字段或子问题时，**必须**以以下固定格式输出：',
+    '     `[NOT_IN_SOURCE] <字段名或子问题的简要中文描述>`',
+    '   示例：`[NOT_IN_SOURCE] 作者信息`、`[NOT_IN_SOURCE] 发表年份`、`[NOT_IN_SOURCE] 实验设备型号`',
+    '7. **必须**保留字面完整的 tag：方括号、全大写英文单词、下划线一个都不能变。',
+    '   - 禁止翻译（不能写 `[原文未涉及]` / `[NOT MENTIONED]` / `[未提及]`）',
+    '   - 禁止改写（不能写自然语言"原文未提及作者"、"该问题超出源材料范围"）',
+    '   - 禁止省略 tag 直接留白或跳过该子问题',
+    '   - 禁止在 tag 后附加任何编造/推测内容（tag 后只能跟字段名的中文简要描述）',
+    '8. 该 tag 是给系统识别的内部标记，前端会自动替换成用户友好文案，你无需担心用户看到 tag 字符本身。',
+    '',
     '【反例（禁止行为）】',
     '- 源材料只说"屠呦呦获诺奖" → 不能写"她是中国大陆首位诺奖科学得主"（源材料没说 = 加戏）',
     '- 源材料说"2015 年" → 不能改写为"约 2015 年前后"（曲解）',
-    '- 源材料没提某作者 → 不能补充"该研究是 XX 团队做的"（编造）',
+    '- 源材料没提某作者，指令要求列出作者 → 必须写 `[NOT_IN_SOURCE] 作者信息`；',
+    '  禁止编造"该研究是 XX 团队做的"，也禁止写自然语言"原文未提及作者"（tag 必须原样保留）',
   ].join('\n')
 
   const user = [
@@ -130,6 +146,17 @@ function buildAI1RewriteMessages(
     '7. 输出简洁的 Markdown，保持事实性描述，不发表主观评论。',
     '8. 输出语言跟随用户原始指令（中文指令则中文，英文指令则英文）。',
     '',
+    '【未提及项的固定表达格式（M3.6.3 强制机器可识别标记，务必严格遵守）】',
+    '9. 当用户任务指令要求源材料未涉及/未提及的字段或子问题时，**必须**以固定格式输出：',
+    '     `[NOT_IN_SOURCE] <字段名或子问题的简要中文描述>`',
+    '   示例：`[NOT_IN_SOURCE] 作者信息`、`[NOT_IN_SOURCE] 发表年份`',
+    '10. **必须**保留字面完整的 tag：方括号、全大写英文单词、下划线一个都不能变。',
+    '    - 禁止翻译（不能写 `[原文未涉及]` / `[NOT MENTIONED]` / `[未提及]`）',
+    '    - 禁止改写（不能写自然语言"原文未提及作者"、"该问题超出源材料范围"）',
+    '    - 禁止省略 tag 直接留白或跳过该子问题',
+    '    - 禁止在 tag 后附加任何编造/推测内容',
+    '11. 若上一版你已经用了 tag，本轮请**原样保留**这些 tag 行，AI-2 不会追责它们。',
+    '',
     `这是第 ${attemptIndex}/${maxAttempts} 轮尝试。若本轮仍未通过，将继续被打回（或者转由 AI-2 自我纠错）。`,
   ].join('\n')
 
@@ -143,11 +170,8 @@ function buildAI1RewriteMessages(
       case 'contradicted':
         tag = '❌ contradicted（必须改写或删除）'
         break
-      case 'out_of_scope':
-        // 用户不可感原则：不向 AI-1 暴露 out_of_scope 概念，
-        // AI-1 只需要知道这条 claim 已通过审查即可
-        tag = '✅ 通过（可保留）'
-        break
+      // M3.6.3: out_of_scope 类别已废除，但需向后兼容旧 IndexedDB 数据中可能残留的记录
+      // 若 verdict 值不在三分类中（如旧数据里的 'out_of_scope'），静默视为"通过"
       default:
         tag = '✅ supported（可保留）'
     }
@@ -196,45 +220,42 @@ function buildAI2Messages(
     '- 【源材料】：唯一 ground truth',
     '- 【AI-1 总结】：待核查的总结（AI-1 应仅基于源材料生成，你的任务是抓出它是否加戏或曲解）',
     '',
+    '【前置抽取规则（M3.6.3 关键·务必遵守）】',
+    '在抽取 claim 之前，先做元陈述过滤：',
+    '- AI-1 侧被硬编码要求：源材料未涉及的字段用固定 tag `[NOT_IN_SOURCE] <字段名>` 表达（例：`[NOT_IN_SOURCE] 作者信息`）。',
+    '- **含有 `[NOT_IN_SOURCE]` tag 的行 / 项目符号 / 句子，一律不抽取为 claim**（它是 AI-1 的诚实标注，不是关于源材料内容的事实断言，不参与忠实性核查）。',
+    '- 只有真正对源材料内容做出事实断言的语句才抽取为 claim。',
+    '',
     '【任务】',
-    '逐条抽取 AI-1 总结中的可核查断言（claim），针对每条给出结论：',
+    '逐条抽取 AI-1 总结中的可核查断言（claim，跳过含 tag 行后），针对每条给出结论：',
     '- supported: 源材料明确支撑该 claim',
     '- added: AI-1 编造/补充了源材料未提及的内容（"加戏"，追责项）',
     '- contradicted: 源材料的内容与该 claim 矛盾（AI-1 曲解源材料，追责项）',
-    '- out_of_scope: AI-1 明确声明"源材料未涉及/未提及某内容"的元陈述（诚实声明，加分项，不追责）',
-    '',
-    '【关键区分：added vs out_of_scope】',
-    '这是本次核查最容易出错的地方，务必分清：',
-    '- **added** = AI-1 用陈述句写了源材料没写的内容。例：源材料没提作者，AI-1 写"该研究由张三团队完成" → added',
-    '- **out_of_scope** = AI-1 用元陈述明确指出"这个信息不在源材料里"。例：AI-1 写 "[原文未涉及此内容]" / "源材料中未提及作者信息" / "该问题超出源材料范围" → out_of_scope',
-    '',
-    'out_of_scope 是 AI-1 应尽的**诚实义务**——当用户索要源材料不存在的信息时，AI-1 必须诚实标注而不能编造。你要奖励这种行为，而不是把它误判为 added。',
-    '识别 out_of_scope 的信号词：`[原文未涉及此内容]`、"源材料中未提及"、"源材料未涉及"、"原文未提及"、"超出源材料范围"、"源材料未讨论"、"文中未涉及"、"未在源材料中提到" 等。',
     '',
     '【严格要求】',
     '1. 每条 claim 必须给出 source_span：',
     '   - supported: 源材料中支撑该 claim 的**原文片段**（≥10 字符，直接从源材料中原样引用）',
     '   - contradicted: 源材料中被 claim 矛盾的**原文片段**（≥10 字符，直接从源材料中原样引用）',
     '   - added: source_span 为空字符串（源材料没提到，无需 span）',
-    '   - out_of_scope: source_span 为空字符串（元陈述，原文本就没有可引之处）',
     '2. source_span **必须是源材料的原文引用**，禁止改写、压缩、意译、翻译。',
     '   前端会用 sourceMaterial.includes(source_span) 做锚定校验，若引用不实会自动标记为"AI-2 编造引用"并强制降级。',
-    '3. 只处理 AI-1 总结中的断言，不要评价其"是否符合世界常识" —— ground truth 只有源材料。',
-    '4. **passed 定义**：无 added 且无 contradicted 时 passed=true；out_of_scope 不影响 passed（它是诚实声明，本身合法）。',
-    '5. 输出严格 JSON，不要 markdown 代码块，不要任何前后缀说明。',
+    '3. 只处理 AI-1 总结中真正对源材料做出的事实断言，不要评价其"是否符合世界常识" —— ground truth 只有源材料。',
+    '4. **含 `[NOT_IN_SOURCE]` tag 的行绝对不抽取为 claim**（这是本次核查铁律，违反将触发死循环 bug）。',
+    '5. **passed 定义**：抽取出的所有 claim 中无 added 且无 contradicted 时 passed=true。',
+    '6. 输出严格 JSON，不要 markdown 代码块，不要任何前后缀说明。',
     '',
     '【输出 JSON 结构】',
     '{',
-    '  "passed": boolean,           // 无 added 且无 contradicted 时为 true（out_of_scope 不影响）',
+    '  "passed": boolean,           // 无 added 且无 contradicted 时为 true',
     '  "claims": [',
     '    {',
     '      "claim": "从 AI-1 总结中抽取的断言（保留核心语义）",',
-    '      "verdict": "supported" | "added" | "contradicted" | "out_of_scope",',
+    '      "verdict": "supported" | "added" | "contradicted",',
     '      "source_span": "源材料原文引用（≥10 字符）或空字符串",',
     '      "explanation": "中文简要说明为何这么判断"',
     '    }',
     '  ],',
-    '  "summary": "对 AI-1 总结整体忠实性的评价（中文 1-3 句）"',
+    '  "summary": "对 AI-1 总结整体忠实性的评价（中文 1-3 句）；若 AI-1 大量使用了 [NOT_IN_SOURCE] tag 属于诚实行为，可正面评价"',
     '}',
   ].join('\n')
 
@@ -282,19 +303,24 @@ function buildAI2SelfCorrectMessages(
     '- 你把跨段的两个句子拼接成一个 span（源材料中不存在这样的连续片段）',
     '- 你给 supported/contradicted 类型的 claim 留了空 span 或 <10 字符的 span',
     '',
+    '【前置抽取规则（M3.6.3 关键·务必遵守）】',
+    '在抽取 claim 之前，先做元陈述过滤：',
+    '- AI-1 侧被硬编码要求：源材料未涉及的字段用固定 tag `[NOT_IN_SOURCE] <字段名>` 表达（例：`[NOT_IN_SOURCE] 作者信息`）。',
+    '- **含有 `[NOT_IN_SOURCE]` tag 的行 / 项目符号 / 句子，一律不抽取为 claim**（诚实标注，不参与忠实性核查）。',
+    '- 如果你上一版把含 tag 的行错误抽取为 claim，本轮**必须剔除**这些条目。',
+    '',
     '【本轮任务】',
     '1. **AI-1 的总结保持不变**，你需要基于同一份 (源材料, AI-1 总结) **重新给出核查报告**。',
     '2. 每条 supported / contradicted 的 source_span **必须原样 copy 自源材料**（≥10 字符，逐字对齐，含标点/大小写/空格）。',
     '3. 如果你找不到能字面对齐源材料的 span 来支持某条 claim，请**先判断该 claim 属于哪一类**：',
-    '   - AI-1 用陈述句写了源材料没写的内容 → 标 **added**（追责，source_span 留空）',
-    '   - AI-1 用元陈述明确指出"该内容不在源材料里"（如 `[原文未涉及此内容]` / "源材料中未提及…" 等）→ 标 **out_of_scope**（诚实声明，source_span 留空，不追责）',
-    '4. 四类 verdict 及 span 规则：',
+    '   - claim 内容中含 `[NOT_IN_SOURCE]` tag → **不应作为 claim 抽取**，本轮请直接剔除',
+    '   - AI-1 用陈述句写了源材料没写的内容（且无 tag）→ 标 **added**（追责，source_span 留空）',
+    '4. 三类 verdict 及 span 规则：',
     '   - supported: 需要 ≥10 字符原文 span',
     '   - contradicted: 需要 ≥10 字符原文 span',
     '   - added: source_span 留空字符串',
-    '   - out_of_scope: source_span 留空字符串',
-    '5. **passed 定义**：无 added 且无 contradicted 时 passed=true；out_of_scope 不影响 passed。',
-    '6. 输出严格 JSON，格式与首次核查完全一致。',
+    '5. **passed 定义**：无 added 且无 contradicted 时 passed=true。',
+    '6. 输出严格 JSON，格式与首次核查完全一致（verdict 只允许 supported / added / contradicted 三值）。',
     '',
     `这是第 ${attemptIndex}/${maxAttempts} 轮尝试（AI-2 自我纠错模式）。`,
   ].join('\n')
@@ -339,13 +365,13 @@ function buildAI2SelfCorrectMessages(
 // ============================================================
 
 function normalizeVerdict(v: unknown): FaithfulnessVerdict {
-  if (
-    v === 'supported' ||
-    v === 'added' ||
-    v === 'contradicted' ||
-    v === 'out_of_scope'
-  ) {
+  if (v === 'supported' || v === 'added' || v === 'contradicted') {
     return v
+  }
+  // M3.6.3: 向后兼容 —— 旧数据/漏网 AI-2 输出的 'out_of_scope' 静默归为 supported
+  //   （元陈述本身天然合法，不追责）
+  if (v === 'out_of_scope') {
+    return 'supported'
   }
   return 'added'
 }
@@ -399,6 +425,19 @@ function parseFaithfulnessReport(rawOutput: string): {
   }
 }
 
+/** M3.6.3 元陈述固定 tag —— AI-1 硬编码使用，AI-2 抽取跳过，前端兜底过滤。
+ *  三层保底任一失守，其他层还能拦。 */
+const NOT_IN_SOURCE_TAG = '[NOT_IN_SOURCE]'
+
+/** 判断一条 claim 是否是元陈述（含固定 tag） */
+function isMetaClaim(c: FaithfulnessClaim): boolean {
+  return (
+    c.claim.includes(NOT_IN_SOURCE_TAG) ||
+    c.explanation.includes(NOT_IN_SOURCE_TAG) ||
+    c.source_span.includes(NOT_IN_SOURCE_TAG)
+  )
+}
+
 function verifyEvidence(
   sourceMaterial: string,
   claims: FaithfulnessClaim[],
@@ -407,9 +446,13 @@ function verifyEvidence(
   let checked = 0
   let matched = 0
   claims.forEach((c, idx) => {
-    // M3.6.2: added（AI-1 加戏，无需 span）和 out_of_scope（元陈述，原文本就没有）
-    // 均从引证校验池中排除
-    if (c.verdict === 'added' || c.verdict === 'out_of_scope') return
+    // M3.6.3 兜底过滤（前端第三层保底）：
+    //   若 AI-2 违反抽取规则、把含 [NOT_IN_SOURCE] tag 的行错误抽取为 claim，
+    //   前端在此静默剔除，绝不让元陈述进入引证锚定校验 —— 从根源上避免
+    //   "supported 无 span → grep fail → AI-2 自纠 → 改判 added → AI-1 rewrite 死循环"。
+    if (isMetaClaim(c)) return
+    // added 类无需 span，也从 checked 池中排除
+    if (c.verdict === 'added') return
     checked++
     if (!c.source_span || c.source_span.length < 10) {
       failedIndices.push(idx)

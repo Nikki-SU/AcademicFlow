@@ -3,7 +3,7 @@
  * -------------------------------------------------
  * MinerU 服务端不返回 CORS 头 → 浏览器直连被 preflight 拒。
  * 解决方案：用户在自己的账号部署透传代理（同一份 Worker 代码，两种 Runtime）：
- *   - Deno Deploy       → *.deno.dev（国内三大运营商基本可达，默认）
+ *   - Deno Deploy       → *.deno.net（国内三大运营商基本可达，默认）
  *   - Cloudflare Workers → *.workers.dev（一键部署，但国内需代理才能访问）
  *
  * 本组件职责：
@@ -187,7 +187,7 @@ export default function MineruProxyConfig() {
   const showSaveButton = draft.trim().replace(/\/+$/, '') !== mineruWorkerUrl
   const placeholder =
     mineruDeployMode === 'deno'
-      ? 'https://academicflow-worker-你的用户名.deno.dev'
+      ? 'https://academicflow-worker-xxxx.你的组织.deno.net'
       : 'https://academicflow-worker.你的用户名.workers.dev'
 
   return (

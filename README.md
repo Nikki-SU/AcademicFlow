@@ -26,7 +26,7 @@ AcademicFlow **无任何后端服务器**。所有数据（笔记、论文、词
 | | 🇨🇳 Deno Deploy | 🌍 Cloudflare Workers |
 |---|---|---|
 | **国内直连** | ✅ 三大运营商基本可达 | ❌ workers.dev 需代理 |
-| **部署** | dash.deno.com 网页 4 步 | Deploy Button 一键 |
+| **部署** | dash.deno.com 网页 6 步（含 Organization 建立） | Deploy Button 一键 |
 | **免费额度** | 100k requests/day | 100k requests/day |
 | **推荐给** | 国内用户（默认） | 有代理 / 出海用户 |
 

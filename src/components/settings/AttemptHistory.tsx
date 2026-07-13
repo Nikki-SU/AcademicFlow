@@ -152,11 +152,8 @@ function AttemptHistory({
                             tag = '✗'
                             tagColor = 'text-red-700'
                             break
-                          case 'out_of_scope':
-                            // 静默归化：UI 层等同于 supported
-                            tag = '✓'
-                            tagColor = 'text-green-700'
-                            break
+                          // M3.6.3: verdict 严格三分类。旧 IndexedDB 记录里若含 out_of_scope，
+                          // normalizeVerdict 已在读取时降级为 supported，这里无需再列 case。
                           default:
                             tag = '?'
                             tagColor = 'text-slate-500'

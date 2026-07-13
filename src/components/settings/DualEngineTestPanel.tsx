@@ -68,14 +68,16 @@ To investigate the mechanism of the reaction, free radical trapping experiments 
 //   - 300-500 字：既避免过度精简（4-6 句损失细节），又不至于把源材料全量复读。
 //   - 6 字段（研究问题/方法/发现/机理/底物/展望）覆盖化学论文核心结构；跨学科用户
 //     可自行改写为自己领域的骨架（Prompt Library 稍后落地）。
-const SAMPLE_INSTRUCTION = `请用中文按以下结构总结上述文献，作为知识库沉淀单元（约 300-500 字）。必须完全基于原文，未提及的字段明示"原文未提及"，禁止推测或补充外部知识。
+//   - M3.6.3: 未提及字段的处理逻辑改由 AI-1 硬编码 prompt 统一负责（`[NOT_IN_SOURCE] <字段>` tag），
+//     用户可编辑指令层不再重复叮嘱"原文未提及"字样，避免与硬编码约束语义漂移。
+const SAMPLE_INSTRUCTION = `请用中文按以下结构总结上述文献，作为知识库沉淀单元（约 300-500 字）。必须完全基于原文，禁止推测或补充外部知识。
 
 **研究问题**：论文要解决什么科学/工程问题？
 **方法与体系**：反应体系、实验方法或理论框架的核心构成（催化剂、条件、变量、模型等）
 **核心发现**：产率、性能、机理证据等关键数值和实验事实
 **机理洞察**：作者如何解释观察到的现象（自由基/中间体/相互作用等）
 **底物范围与局限**：适用/不适用的场景，作者自陈的边界
-**展望与未提及项**：作者提出的后续方向；若某字段原文未提及，直接写"原文未提及"
+**展望**：作者提出的后续研究方向
 
 要求：保留关键化学式、专有名词、缩写和具体数值（如产率、当量、波长）。`
 
@@ -98,13 +100,9 @@ const VERDICT_STYLE: Record<
     color: 'bg-red-100 text-red-800 border-red-300',
     icon: <XCircle className="w-3.5 h-3.5" />,
   },
-  out_of_scope: {
-    // 静默归化：UI 上等同 supported（不给用户看 out_of_scope 概念，
-    // 也不给 AI-1 学 prompt 技巧的负担；开发者兜底原则）
-    label: '有据 supported',
-    color: 'bg-green-100 text-green-800 border-green-300',
-    icon: <CheckCircle className="w-3.5 h-3.5" />,
-  },
+  // M3.6.3: 废除 out_of_scope verdict —— 元陈述改由 AI-1 硬编码输出
+  // `[NOT_IN_SOURCE] <字段>` tag，AI-2 抽取阶段直接跳过，不进入 verdict 池。
+  // 旧 IndexedDB 记录里若含 out_of_scope，normalizeVerdict 会静默降级为 supported。
 }
 
 interface ClassifiedError {
@@ -372,14 +370,19 @@ function DualEngineTestPanel() {
   const result = lastDualEngineResult
   const claims = result?.ai2Feedback.claims ?? []
   const evidence = result?.ai2Feedback.evidenceCheck
-  // out_of_scope 静默归入 supported 计数（用户不可感原则）
-  const supportedCount = claims.filter(
-    (c) => c.verdict === 'supported' || c.verdict === 'out_of_scope',
-  ).length
+  // M3.6.3: verdict 严格三分类（元陈述在抽取阶段已被 `[NOT_IN_SOURCE]` tag 过滤，
+  // 不进入 claims）。旧 IndexedDB 记录里若含 out_of_scope，normalizeVerdict 会
+  // 静默降级为 supported，这里无需再做归并。
+  const supportedCount = claims.filter((c) => c.verdict === 'supported').length
   const addedCount = claims.filter((c) => c.verdict === 'added').length
   const contradictedCount = claims.filter(
     (c) => c.verdict === 'contradicted',
   ).length
+
+  // M3.6.3 兜底：即便 AI-2 抽取阶段没跳过 [NOT_IN_SOURCE] tag，
+  // 前端也把它渲染成对用户友好的中文，避免暴露技术标签。
+  const renderClaimText = (text: string): string =>
+    text.replace(/\[NOT_IN_SOURCE\]\s*([^\n]+)/g, '（原文未提及：$1）')
 
   // 秒表格式化
   const fmt = (ms: number) => `${(ms / 1000).toFixed(1)}s`
@@ -674,8 +677,8 @@ function DualEngineTestPanel() {
                     const style = VERDICT_STYLE[c.verdict]
                     const evidenceFailed =
                       evidence?.failedIndices.includes(idx) ?? false
-                    const needsSpan =
-                      c.verdict !== 'added' && c.verdict !== 'out_of_scope'
+                    // M3.6.3: 三分类下 supported/contradicted 需引证 span，added 无需（无源材料）
+                    const needsSpan = c.verdict !== 'added'
                     return (
                       <li
                         key={idx}
@@ -689,12 +692,12 @@ function DualEngineTestPanel() {
                             {style.label}
                           </span>
                           <span className="text-xs text-slate-800 leading-relaxed font-medium">
-                            {c.claim}
+                            {renderClaimText(c.claim)}
                           </span>
                         </div>
                         {c.explanation && (
                           <div className="text-xs text-slate-600 pl-1 leading-relaxed">
-                            {c.explanation}
+                            {renderClaimText(c.explanation)}
                           </div>
                         )}
                         {needsSpan && (

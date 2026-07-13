@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   mineruDeployMode: 'deno',
   mineruWorkerUrl: '',
   extractCoverImage: true,
+  mineruDebugMode: true,
 }
 
 /** SettingsData 字段 → SETTING_KEYS 映射 */
@@ -66,6 +67,7 @@ const KEY_MAP: Record<keyof SettingsData, string> = {
   mineruDeployMode: SETTING_KEYS.MINERU_DEPLOY_MODE,
   mineruWorkerUrl: SETTING_KEYS.MINERU_WORKER_URL,
   extractCoverImage: SETTING_KEYS.EXTRACT_COVER_IMAGE,
+  mineruDebugMode: SETTING_KEYS.MINERU_DEBUG_MODE,
 }
 
 /** 字段 → 序列化/反序列化（boolean 需转字符串） */
