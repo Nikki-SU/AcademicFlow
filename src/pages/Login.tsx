@@ -3,7 +3,7 @@
  * -------------------------------------------------
  * 让用户走"跳转 GitHub 一键创建 PAT → 复制回粘贴 → 登录"三步。
  */
-import { FormEvent, useState } from 'react'
+import { FormEvent, useState, type CSSProperties } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import {
   BookOpen,
@@ -84,8 +84,14 @@ function Login() {
           </p>
         </div>
 
-        {/* PAT 表单 */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* PAT 表单
+            anti-autofill：不使用 type=password，避免 Chrome/Edge 密码管理器
+            保存 PAT 后污染 Settings 页的 API Key 字段（详见 APIKeyInput.tsx 注释） */}
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-4"
+          autoComplete="off"
+        >
           <div>
             <label
               htmlFor="pat"
@@ -97,13 +103,21 @@ function Login() {
             <div className="relative">
               <input
                 id="pat"
-                type={showPAT ? 'text' : 'password'}
+                name="af-github-pat"
+                type="text"
                 value={patInput}
                 onChange={(e) => setPatInput(e.target.value)}
                 placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                autoComplete="off"
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-form-type="other"
+                data-1p-ignore="true"
                 spellCheck={false}
                 disabled={isLoading}
+                style={{
+                  WebkitTextSecurity: showPAT ? 'none' : 'disc',
+                  textSecurity: showPAT ? 'none' : 'disc',
+                } as CSSProperties}
                 className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm font-mono disabled:bg-slate-100"
                 required
               />

@@ -86,6 +86,29 @@ function deserialize(
   return raw as SettingsData[typeof key]
 }
 
+/**
+ * 检测受污染的 secret 字段
+ * -------------------------------------------------
+ * 场景：Chrome/Edge 密码管理器保存了 Login 页的 GitHub PAT (ghp_/github_pat_/gho_/ghu_)，
+ * 之后 autofill 到 Settings 页的 SiliconFlow / MinerU / Custom AI key 字段。
+ * 检测规则：这些字段绝不可能以 GitHub token 前缀开头（SiliconFlow 用 sk-*，MinerU 用 JWT eyJ*）
+ */
+function detectPatContamination(
+  patch: Partial<SettingsData>,
+): (keyof SettingsData)[] {
+  const secretFields: (keyof SettingsData)[] = [
+    'siliconflowApiKey',
+    'customAi1ApiKey',
+    'customAi2ApiKey',
+    'mineruToken',
+  ]
+  const patPrefixes = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
+  return secretFields.filter((field) => {
+    const val = String(patch[field] ?? '').trim()
+    return val.length > 0 && patPrefixes.some((p) => val.startsWith(p))
+  })
+}
+
 interface SettingsActions {
   /** 应用启动时调用：从 IndexedDB 恢复所有设置 + 加载模型清单缓存 */
   init: () => Promise<void>
@@ -136,6 +159,27 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       for (const [field, value] of entries) {
         // @ts-expect-error runtime-safe: field 与 value 一一对应
         patch[field] = value
+      }
+
+      // 1.5. 数据清洗：修复历史上被浏览器密码管理器 autofill 污染的字段
+      //     现象：F5 后 SiliconFlow / MinerU 等 API Key 字段被填成 GitHub PAT
+      //     根因：过去的 APIKeyInput 用 type=password，触发浏览器密码管理器
+      //     修复：v2 起改用 text + text-security，但已污染的 IndexedDB 值需清理
+      const contamination = detectPatContamination(patch)
+      if (contamination.length > 0) {
+        for (const field of contamination) {
+          // @ts-expect-error 清空受污染的 string 字段
+          patch[field] = ''
+          await putSetting(KEY_MAP[field], '')
+        }
+        // 用 window 事件通知 UI 层弹 toast（settings store 不直接依赖 sonner，避免循环）
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('af:credential-cleaned', {
+              detail: { fields: contamination },
+            }),
+          )
+        }
       }
 
       // 2. 加载模型清单缓存

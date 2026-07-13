@@ -67,6 +67,26 @@ function Settings() {
     if (!isInitialized) init()
   }, [isInitialized, init])
 
+  /** 监听 settings store 触发的凭据清洗事件：向用户解释一次为什么 Key 被清空 */
+  useEffect(() => {
+    const onCleaned = (e: Event) => {
+      const detail = (e as CustomEvent<{ fields: string[] }>).detail
+      const fieldLabelMap: Record<string, string> = {
+        siliconflowApiKey: '硅基流动 API Key',
+        customAi1ApiKey: '自定义 AI-1 API Key',
+        customAi2ApiKey: '自定义 AI-2 API Key',
+        mineruToken: 'MinerU Token',
+      }
+      const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
+      toast.warning(
+        `检测到浏览器密码管理器将 GitHub PAT 误填到 ${labels}，已自动清空。请重新填写正确的 Key。`,
+        { duration: 8000 },
+      )
+    }
+    window.addEventListener('af:credential-cleaned', onCleaned)
+    return () => window.removeEventListener('af:credential-cleaned', onCleaned)
+  }, [])
+
   /** 过滤后的 chat 类模型清单（用于 UI 下拉） */
   const chatModels = useMemo(() => {
     const filtered = siliconflowModels
@@ -201,6 +221,7 @@ function Settings() {
 
             <APIKeyInput
               label="硅基流动 API Key"
+              fieldId="siliconflow"
               value={siliconflowApiKey}
               onChange={(v) => updateSettings({ siliconflowApiKey: v })}
               hint="仅存在你浏览器的 IndexedDB，不上传任何服务器"
@@ -272,6 +293,7 @@ function Settings() {
               />
               <APIKeyInput
                 label="API Key"
+                fieldId="custom-ai1"
                 value={customAi1ApiKey}
                 onChange={(v) => updateSettings({ customAi1ApiKey: v })}
               />
@@ -300,6 +322,7 @@ function Settings() {
               />
               <APIKeyInput
                 label="API Key"
+                fieldId="custom-ai2"
                 value={customAi2ApiKey}
                 onChange={(v) => updateSettings({ customAi2ApiKey: v })}
               />

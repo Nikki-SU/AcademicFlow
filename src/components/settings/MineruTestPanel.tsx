@@ -18,7 +18,7 @@ import {
   Play,
   Sparkles,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { toast } from 'sonner'
 import { useSettingsStore } from '../../stores/settings'
 import { parseMineruJwt, runMineruSingleFile, severity } from '../../services/mineru'
@@ -135,10 +135,20 @@ export default function MineruTestPanel() {
         </div>
         <div className="relative">
           <input
-            type={showToken ? 'text' : 'password'}
+            type="text"
+            name="af-secret-mineru-token"
             value={mineruToken}
             onChange={(e) => updateSettings({ mineruToken: e.target.value })}
             placeholder="eyJ0eXBlIjoiSldUIi..."
+            autoComplete="new-password"
+            data-lpignore="true"
+            data-form-type="other"
+            data-1p-ignore="true"
+            spellCheck={false}
+            style={{
+              WebkitTextSecurity: showToken ? 'none' : 'disc',
+              textSecurity: showToken ? 'none' : 'disc',
+            } as CSSProperties}
             className="w-full pl-3 pr-10 py-2 text-sm font-mono border border-slate-300 rounded-md
                        focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           />
