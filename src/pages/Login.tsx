@@ -4,7 +4,7 @@
  * 让用户走"跳转 GitHub 一键创建 PAT → 复制回粘贴 → 登录"三步。
  */
 import { FormEvent, useState } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import {
   BookOpen,
   ExternalLink,
@@ -13,6 +13,8 @@ import {
   KeyRound,
   Loader2,
   ShieldCheck,
+  FileText,
+  BookMarked,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
@@ -149,6 +151,43 @@ function Login() {
             )}
           </button>
         </form>
+
+        {/* 免登录功能入口 */}
+        <div className="mt-6 pt-6 border-t border-slate-200">
+          <p className="text-sm font-medium text-slate-700 mb-3">
+            🔓 免登录即可试用
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Link
+              to="/journal-format"
+              className="group p-3 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg hover:shadow-md hover:border-indigo-300 transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <FileText className="w-4 h-4 text-indigo-600" />
+                <span className="text-sm font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                  AI 期刊排版
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Markdown → LaTeX，按期刊格式自动排版
+              </p>
+            </Link>
+            <Link
+              to="/journal-templates"
+              className="group p-3 bg-white border border-slate-200 rounded-lg hover:shadow-md hover:border-indigo-200 transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <BookMarked className="w-4 h-4 text-slate-600 group-hover:text-indigo-600 transition" />
+                <span className="text-sm font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                  期刊模板管理
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                粘贴投稿须知，AI 提取格式规范
+              </p>
+            </Link>
+          </div>
+        </div>
 
         {/* 数据主权声明 */}
         <div className="mt-6 pt-6 border-t border-slate-200">
