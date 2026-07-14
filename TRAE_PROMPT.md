@@ -1,8 +1,15 @@
 # Trae 提示词 — AcademicFlow 10 次速通搭大框架
 
-> **给 Rosa**：把这个文件的内容**整段复制粘贴**到 Trae IDE AI 对话框即可。
+> **Trae 直接从 GitHub 读取本文件及所有配套文档**，Rosa 不复制粘贴任何 md 内容。
+> **本文件 URL**：`https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/TRAE_PROMPT.md`
+> **配套文档**（必读）：
+> - 主文档：`https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/TECH_SPEC_FOR_TRAE.md`
+> - v0.2.5 原文归档：`https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/TECH_SPEC.md`
+> - 项目记忆：`https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/PROJECT_HISTORY_FOR_TRAE.md`
 >
-> **给 Trae**：仔细读完整个 prompt 再开工。
+> **Rosa 的操作**：在 Trae 对话框里输入"请先读这个文件再开工：https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/TRAE_PROMPT.md"，剩下 Trae 自己去拉。**不要复制任何 md 内容**。
+
+Trae 仔细读完整个 prompt + 上述 3 份配套文档再开工。
 
 ---
 
@@ -11,6 +18,8 @@
 你是 Trae IDE AI，帮我（Rosa）从零搭建一个学术工作流 Web 应用 **AcademicFlow**。10 次速通把大框架搭完。
 
 ## 文档读取（必读，先读再开工）
+
+> 下面 3 份文档**全部从 GitHub raw URL 拉取**，Rosa 不复制粘贴任何 md 内容。
 
 1. **主文档**（自包含实施指南）：
    `https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/TECH_SPEC_FOR_TRAE.md`
@@ -175,10 +184,15 @@
 
 ---
 
-*本提示词是 Rosa 给你（Trae）的完整指令。版本：v1.2*
+*本提示词是 Rosa 给你（Trae）的完整指令。版本：v1.3*
 *配套文档：*
 - `TECH_SPEC_FOR_TRAE.md`（**必读**，产品架构 + 实现细节）
 - `TECH_SPEC.md`（v0.2.5 原文归档，可选参考）
 - `PROJECT_HISTORY_FOR_TRAE.md`（**必读**，项目记忆 + 踩过的坑 + 当前状态）
 
-*版本说明：v1.2 把"一次问好"从 4 个问题砍到 1 个（只留学习模块 UI 风格）。v0.2.5 §6.4 / §1.12.1 / §1.12.2 / §7 / §7.1.1 已经定的事项（AI 选型 / 认证 flow / Token 存储 / 私库创建）一律默认掉，Trae 按 v0.2.5 实现。*
+*全部走 GitHub raw URL 拉取，Rosa 不复制粘贴任何 md。*
+
+*版本说明：*
+- v1.1 把"一次问好"从 8 个问题砍到 4 个
+- v1.2 把"一次问好"从 4 个问题砍到 1 个（只留学习模块 UI 风格）。v0.2.5 §6.4 / §1.12.1 / §1.12.2 / §7 / §7.1.1 已经定的事项（AI 选型 / 认证 flow / Token 存储 / 私库创建）一律默认掉
+- v1.3 文件头改为"Trae 从 GitHub URL 读取"（不再让 Rosa 复制粘贴任何 md），因为 Trae 不能接收直粘 md
