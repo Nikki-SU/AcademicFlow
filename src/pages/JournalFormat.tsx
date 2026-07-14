@@ -50,19 +50,17 @@ function JournalFormatPage() {
   const [markdown, setMarkdown] = useState(SAMPLE_MARKDOWN)
   const [result, setResult] = useState<LatexConversionResult | null>(null)
   const [isConverting, setIsConverting] = useState(false)
-  const [progressStage, setProgressStage] = useState<LatexConvertProgress['stage'] | null>(null)
+  const [progressStage, setProgressStage] = useState<Parameters<LatexConvertProgress>[0]['stage'] | null>(null)
   const [progressMessage, setProgressMessage] = useState('')
   const [activeTab, setActiveTab] = useState<'latex' | 'bibtex'>('latex')
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false)
   const [sortMode, setSortMode] = useState<'appearance' | 'author-year' | 'alphabetical'>('appearance')
   const [showQuickSettings, setShowQuickSettings] = useState(false)
   const [tempApiKey, setTempApiKey] = useState('')
-  const [loadingTemplates, setLoadingTemplates] = useState(true)
 
   // 加载模板列表
   useEffect(() => {
     const load = async () => {
-      setLoadingTemplates(true)
       try {
         const list = await getAllTemplates()
         setTemplates(list)
@@ -74,8 +72,8 @@ function JournalFormatPage() {
         } else if (list.length > 0) {
           setSelectedTemplateId(list[0].id)
         }
-      } finally {
-        setLoadingTemplates(false)
+      } catch {
+        // 加载失败就保持空列表
       }
     }
     load()

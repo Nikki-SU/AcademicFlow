@@ -20,9 +20,7 @@ import {
   FileText,
   Save,
   X,
-  AlertCircle,
   CheckCircle2,
-  RefreshCw,
   Columns,
   Type,
   Palette,
@@ -38,7 +36,6 @@ import {
 } from '../services/journal-templates'
 import {
   extractGuidelinesWithAI,
-  applyExtractedToTemplate,
   type ExtractedGuidelines,
 } from '../services/guideline-extractor'
 import type { JournalTemplate } from '../types'

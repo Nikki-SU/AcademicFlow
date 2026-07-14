@@ -15,7 +15,7 @@ import {
   getCitationEntries,
   generateBibtex,
 } from './citation'
-import type { JournalTemplate, LatexConversionResult, CitationEntry } from '../types'
+import type { JournalTemplate, LatexConversionResult } from '../types'
 
 /** 转换进度回调 */
 export type LatexConvertProgress = (stage: {
