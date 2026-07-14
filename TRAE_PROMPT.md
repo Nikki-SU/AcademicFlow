@@ -18,7 +18,11 @@
 2. **辅助文档**（v0.2.5 原文归档）：
    `https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/TECH_SPEC.md`
 
+3. **项目记忆**（**必读** — 项目背景、踩过的坑、当前状态，避免你从零摸索）：
+   `https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/PROJECT_HISTORY_FOR_TRAE.md`
+
 读完主文档后，**按 §13.3 必读章节清单顺序**通读，§0-§11 是产品/架构，§12 是引用与编译流程细节，§13 是给你的施工指南。
+**第 3 份（项目记忆）尤其要看 §5.1「8MB PDF 上传失败 — 根因不在 worker 端」和 §6「项目硬约束」**。
 
 ## 仓库
 
@@ -89,44 +93,37 @@
 
 ## 一次问好（步 1 开始时）
 
-在步 1 开始时，**把以下所有问题一次性问完**：
+**只问那些你必须自己决定的**。Trae 看代码（`package.json` / `src/` / `tailwind.config.js` / 仓库根目录列表等）能自己定的，不要问；v0.2.5 §9 决策表里已经定下的，不要问；§13 实施原则里已经写明的，不要问。
 
-1. **仓库初始化确认**：
-   - 在 `Nikki-SU/AcademicFlow` 现有仓库上继续？还是新建一个？
-   - 如果继续，是否要保留现有的 `index.html` / `package.json` / `vite.config.ts` / `src/` / `public/` 等？
+在步 1 开始时，**只问以下 4 个问题，一次问完**：
 
-2. **技术栈确认**（默认 Vite + React 18 + TypeScript + Tailwind）：
-   - 用 `pnpm` 还是 `npm` 还是 `yarn`？
-   - Tailwind 用 v3 还是 v4？
-   - 路由用 `react-router` v6 还是 v7？
+1. **仓库策略**：
+   - 在 `Nikki-SU/AcademicFlow` 现有仓库上继续（保留所有现有文件 `index.html` / `src/` / `public/` / `package.json` / `vite.config.ts` / `tailwind.config.js` / `tsconfig*.json` / `postcss.config.js`），还是新建一个仓库？
 
-3. **AI 双引擎实现细节**（§6）：
+2. **AI 双引擎选型**（§6）：
    - AI-1 和 AI-2 用同一个模型还是不同模型？
    - 调哪家 API（OpenAI / Anthropic / 其他）？
-   - API key 怎么配置（环境变量 / BYO GitHub 私库存放 / UI 输入）？
+   - API key 怎么配（环境变量 / BYO GitHub 私库存放 / UI 输入）？
 
-4. **GitHub PAT 流程**（§7 BYO 架构）：
-   - 首次启动提示用户输入 PAT？
-   - PAT 存在哪（localStorage / sessionStorage / IndexedDB）？
-   - 私库不存在时是自动创建还是提示用户手动创建？
+3. **GitHub 私库不存在时的处理**（v0.2.5 §1.12 没明确）：
+   - 自动创建还是提示用户手动创建？
 
-5. **8MB PDF 上传限制**（v0.2.5 §5 没明确，但 §2 提到 8MB 是 OSS 限制）：
-   - 先按 8MB 实现？
-   - 还是要做分片上传 / 压缩？
+4. **学习模块 UI 风格**（步 7）：
+   - 暗色主题 / 亮色主题 / 跟随系统？
+   - 是否需要夜间模式手动切换？
 
-6. **Tectonic WASM 部署**（§12.4）：
-   - WASM 文件放 `public/tectonic/`？
-   - 是否需要 preload？
+**这 4 个问题一次问完**。我回答完后再开工步 1。
 
-7. **CSL 模板来源**（§12.3）：
-   - 用 `citation-js` 内置的 CSL？
-   - 还是从 `https://github.com/citation-style-language/styles` 拉？
+### Trae 可以自己决定（不要问我）
 
-8. **学习模块（Cat 借鉴）UI 风格**（§13.1 步 7）：
-   - 暗色主题还是亮色？
-   - 是否需要夜间模式切换？
-
-**这 8 个问题一次问完**。我回答完后再开工步 1。
+- **包管理器**：看 `package-lock.json` 决定 pnpm/npm/yarn
+- **Tailwind 版本**：看 `tailwind.config.js` 决定 v3/v4
+- **路由库**：看 `package.json` 决定 react-router v6/v7
+- **8MB PDF 上传策略**：先按 8MB 实现（v0.2.5 §1.2 / §5 已定），后续再优化
+- **Tectonic WASM 部署位置**：默认 `public/tectonic/`
+- **CSL 模板来源**：默认 `citation-js` 内置（更简单）
+- **字段命名规范**：§13.5 已定（snake_case + 后缀表义）
+- **项目结构**：§13.6 已定
 
 ## 10 步施工顺序（§13.1）
 
@@ -177,5 +174,10 @@
 
 ---
 
-*本提示词是 Rosa 给你（Trae）的完整指令。版本：v1.0*
-*配套文档：`TECH_SPEC_FOR_TRAE.md`（必读）+ `TECH_SPEC.md`（v0.2.5 原文归档，可选参考）*
+*本提示词是 Rosa 给你（Trae）的完整指令。版本：v1.1*
+*配套文档：*
+- `TECH_SPEC_FOR_TRAE.md`（**必读**，产品架构 + 实现细节）
+- `TECH_SPEC.md`（v0.2.5 原文归档，可选参考）
+- `PROJECT_HISTORY_FOR_TRAE.md`（**必读**，项目记忆 + 踩过的坑 + 当前状态）
+
+*版本说明：v1.1 把"一次问好"从 8 个问题砍到 4 个（只留 Rosa 必须自己决定的），把其他能由 Trae 看代码自己定的项目（包管理器 / Tailwind 版本 / 路由 / Tectonic 位置 / CSL 来源 / 字段命名 / 项目结构）放到了"Trae 可以自己决定（不要问我）"小节。*
