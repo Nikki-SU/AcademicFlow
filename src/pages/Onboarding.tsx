@@ -13,9 +13,10 @@ import {
   Loader2,
   Rocket,
   ShieldCheck,
+  BookMarked,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   DEFAULT_WORKSPACE_REPO_NAME,
@@ -222,6 +223,51 @@ function Onboarding() {
           <p className="mt-4 text-xs text-slate-500 text-center">
             首次初始化约需 5~15 秒；期间请勿关闭页面。
           </p>
+        </div>
+
+        {/* 其他功能入口（不初始化 workspace 也能用） */}
+        <div className="mt-6">
+          <p className="text-sm text-slate-500 text-center mb-3">
+            👀 想先看看？试试这些不需要工作区的功能：
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Link
+              to="/journal-format"
+              className="group p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-indigo-50 rounded-lg group-hover:bg-indigo-100 transition">
+                  <FileText className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                    AI 期刊排版
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Markdown → LaTeX，按期刊格式自动排版，DOI 引用一键解析
+                  </div>
+                </div>
+              </div>
+            </Link>
+            <Link
+              to="/journal-templates"
+              className="group p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-slate-50 rounded-lg group-hover:bg-indigo-50 transition">
+                  <BookMarked className="w-5 h-5 text-slate-600 group-hover:text-indigo-600 transition" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                    期刊模板管理
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    粘贴投稿须知，AI 自动提取格式规范，生成可复用模板
+                  </div>
+                </div>
+              </div>
+            </Link>
+          </div>
         </div>
       </main>
     </div>
