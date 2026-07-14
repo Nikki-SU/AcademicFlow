@@ -70,6 +70,43 @@ export function isChatModel(modelId: string): boolean {
   return !hasDeny
 }
 
+/**
+ * 根据 model id 推断厂商/提供方
+ *
+ * 硅基流动是聚合平台，上面有多家模型厂商。
+ * 此处根据 model id 前缀做粗略分类，用于 UI 展示，避免用户误以为
+ * "用了硅基流动 API = 模型是硅基流动的"。
+ */
+export function getModelVendor(modelId: string): string {
+  const id = modelId.trim()
+  if (!id) return '未知'
+  if (id.startsWith('Qwen/') || id.startsWith('Tongyi-Zhiwen/') || id.startsWith('THUDM/')) {
+    return '通义千问 / 阿里'
+  }
+  if (id.startsWith('deepseek-ai/') || id.startsWith('Pro/deepseek-ai/')) {
+    return 'DeepSeek / 深度求索'
+  }
+  if (id.startsWith('meta-llama/') || id.startsWith('Meta/')) {
+    return 'Llama / Meta'
+  }
+  if (id.startsWith('zai-org/') || id.startsWith('Pro/zai-org/')) {
+    return 'GLM / 智谱'
+  }
+  if (id.startsWith('moonshotai/') || id.startsWith('Pro/moonshotai/')) {
+    return 'Kimi / 月之暗面'
+  }
+  if (id.startsWith('MiniMaxAI/') || id.startsWith('Pro/MiniMaxAI/')) {
+    return 'MiniMax / 稀宇'
+  }
+  if (id.startsWith('ByteDance-Seed/')) {
+    return '豆包 / 字节跳动'
+  }
+  if (id.startsWith('internlm/')) {
+    return 'InternLM / 书生'
+  }
+  return '其他'
+}
+
 /** 复用 client.ts 的错误分类 */
 async function parseErrorBody(res: Response): Promise<string> {
   const text = await res.text().catch(() => '')

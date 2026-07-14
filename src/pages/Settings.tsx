@@ -26,7 +26,7 @@ import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
 import MineruTestPanel from '../components/settings/MineruTestPanel'
 import MineruProxyConfig from '../components/settings/MineruProxyConfig'
-import { isChatModel } from '../services/ai/models'
+import { isChatModel, getModelVendor } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import type { AIProviderMode } from '../types'
 
@@ -266,7 +266,9 @@ function Settings() {
               />
             </div>
             <p className="text-xs text-slate-500">
-              按 SPEC §9.2，AI-1 负责生成，AI-2 全量审阅 AI-1 输出。推荐生成位用 Qwen2.5-72B、审阅位用 DeepSeek-R1（可切换）。
+              硅基流动是 AI 聚合平台，上面接入了多家厂商的模型（通义千问、DeepSeek、Llama、GLM 等）。
+              下拉中每个模型都标注了实际提供方，选择时请注意区分。
+              推荐生成位用 Qwen2.5-72B、审阅位用 DeepSeek-R1（可切换）。
             </p>
           </section>
         )}
@@ -393,7 +395,14 @@ function ModelSelect(props: {
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-slate-700">{props.label}</label>
+      <label className="block text-sm font-medium text-slate-700">
+        {props.label}
+        {props.value && (
+          <span className="ml-2 text-xs font-normal text-slate-500">
+            （{getModelVendor(props.value)}）
+          </span>
+        )}
+      </label>
       <select
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
@@ -405,7 +414,7 @@ function ModelSelect(props: {
         ) : (
           props.options.map((id) => (
             <option key={id} value={id}>
-              {id}
+              [{getModelVendor(id)}] {id}
             </option>
           ))
         )}
