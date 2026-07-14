@@ -583,3 +583,138 @@ export interface MineruTestResult {
   /** zip 里有但 markdown 没引用的图（孤儿图，非致命） */
   orphanImages: string[]
 }
+
+// ============================================================================
+// 期刊模板 & 引用系统（M? · AI 期刊排版）
+// ============================================================================
+
+/** 引用条目元数据（从 CrossRef / OpenAlex 等源获取） */
+export interface CitationEntry {
+  /** 归一化后的纯 DOI（10.xxx/xxx，不含协议前缀），作为主键 */
+  doi: string
+  /** 文献标题 */
+  title: string
+  /** 作者列表（姓, 名 缩写 格式） */
+  authors: string[]
+  /** 期刊名 */
+  journal?: string
+  /** 发表年份 */
+  year?: number
+  /** 卷号 */
+  volume?: string
+  /** 期号 */
+  issue?: string
+  /** 页码范围 */
+  pages?: string
+  /** 出版社 */
+  publisher?: string
+  /** 原始 BibTeX（如果有） */
+  bibtex?: string
+  /** 数据来源：crossref / openalex / manual */
+  source: 'crossref' | 'openalex' | 'manual'
+  /** 获取时间戳 */
+  fetched_at: number
+}
+
+/** 期刊模板 —— 存储投稿须知 + LaTeX 排版参数 */
+export interface JournalTemplate {
+  /** 模板唯一 id（小写字母+数字+连字符） */
+  id: string
+  /** 期刊全称 */
+  name: string
+  /** 期刊简称 / 缩写 */
+  short_name?: string
+  /** 出版社 */
+  publisher?: string
+  /** 期刊主页 URL */
+  journal_url?: string
+  /** 投稿须知 URL */
+  guidelines_url?: string
+  /** 投稿须知原文（纯文本 / HTML，用户粘贴或抓取） */
+  guidelines_content?: string
+  /** 投稿须知版本历史（每次更新留一条） */
+  guidelines_history?: GuidelineVersion[]
+  /** 投稿须知最后检测时间 */
+  guidelines_last_checked_at?: number
+  /** 投稿须知最后更新时间 */
+  guidelines_last_updated_at?: number
+  /** 投稿须知内容哈希（用于检测变化） */
+  guidelines_content_hash?: string
+  /** LaTeX documentclass，如 article / elsarticle / IEEEtran */
+  document_class: string
+  /** LaTeX 文档选项，如 twocolumn,12pt */
+  document_options?: string
+  /** 需要引入的宏包列表 */
+  packages: string[]
+  /** 引用样式（BibTeX style），如 unsrt / apalike / ieeetr */
+  bibtex_style: string
+  /** 是否双栏排版 */
+  two_column: boolean
+  /** 字号（pt） */
+  font_size?: number
+  /** 页边距配置 */
+  margins?: {
+    top?: string
+    bottom?: string
+    left?: string
+    right?: string
+  }
+  /** 标题格式说明（给 AI 的 prompt 用） */
+  title_format_note?: string
+  /** 摘要格式说明 */
+  abstract_format_note?: string
+  /** 参考文献格式说明 */
+  reference_format_note?: string
+  /** 自定义 LaTeX 前置代码（插入 \begin{document} 之前） */
+  custom_preamble?: string
+  /** 备注 / 用户笔记 */
+  notes?: string
+  /** 创建时间 */
+  created_at: number
+  /** 更新时间 */
+  updated_at: number
+}
+
+/** 投稿须知版本记录 */
+export interface GuidelineVersion {
+  /** 版本号，从 1 开始递增 */
+  version: number
+  /** 更新时间 */
+  updated_at: number
+  /** 内容摘要（前 200 字） */
+  summary: string
+  /** 完整内容（可选，节省空间可只存最新版全文） */
+  full_content?: string
+  /** 更新说明 */
+  change_note?: string
+}
+
+/** Markdown → LaTeX 转换结果 */
+export interface LatexConversionResult {
+  /** 生成的完整 LaTeX 代码 */
+  latex: string
+  /** 提取出的引用 DOI 列表（按出现顺序） */
+  citations: string[]
+  /** 解析成功的引用条目 */
+  citation_entries: CitationEntry[]
+  /** 解析失败的 DOI */
+  failed_dois: string[]
+  /** 生成的 BibTeX 内容 */
+  bibtex: string
+  /** AI 原始输出（用于调试） */
+  ai_raw_output?: string
+  /** 耗时（ms） */
+  duration_ms: number
+  /** 使用的期刊模板 id */
+  journal_template_id: string
+}
+
+/** DOI 归一化结果 */
+export interface DoiNormalizeResult {
+  /** 是否是有效的 DOI */
+  valid: boolean
+  /** 归一化后的纯 DOI（10.xxx/xxx） */
+  doi?: string
+  /** 原始输入 */
+  raw: string
+}

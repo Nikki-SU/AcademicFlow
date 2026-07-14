@@ -16,6 +16,8 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
+  FileText,
+  BookMarked,
 } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link, Navigate } from 'react-router-dom'
@@ -187,6 +189,45 @@ function Home() {
               </a>
             </div>
           )}
+
+          {/* 功能入口 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <Link
+              to="/journal-format"
+              className="group p-5 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl hover:shadow-lg hover:border-indigo-300 transition-all"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-indigo-100 rounded-lg group-hover:bg-indigo-200 transition">
+                  <FileText className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                    AI 期刊排版
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Markdown → LaTeX，按期刊格式自动排版，DOI 引用一键解析
+                  </div>
+                </div>
+                <BookMarked className="w-5 h-5 text-indigo-400 group-hover:text-indigo-600 transition flex-shrink-0" />
+              </div>
+            </Link>
+
+            <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl opacity-60">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-slate-200 rounded-lg">
+                  <Sparkles className="w-6 h-6 text-slate-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-slate-700">
+                    更多功能
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    词汇学习、文献追踪、笔记管理 — 开发中
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* 认证状态 */}
           <div className="space-y-3 mb-6">

@@ -5,14 +5,23 @@
  *
  * 表结构：
  * - settings: 键值对存储（PAT / 已登录用户缓存 / 用户偏好等）
+ * - journal_templates: 期刊模板
+ * - citation_cache: 引用元数据缓存（DOI 为 key）
  */
 import Dexie, { type Table } from 'dexie'
+import type { JournalTemplate, CitationEntry } from '../types'
 
 /** settings 表行结构 */
 export interface SettingRow {
   key: string
   value: string
 }
+
+/** journal_templates 表行结构 = JournalTemplate */
+export type JournalTemplateRow = JournalTemplate
+
+/** citation_cache 表行结构 = CitationEntry */
+export type CitationCacheRow = CitationEntry
 
 /** IndexedDB 已知 key 白名单（避免拼写错误） */
 export const SETTING_KEYS = {
@@ -45,12 +54,18 @@ export const SETTING_KEYS = {
 
 class AcademicFlowDB extends Dexie {
   settings!: Table<SettingRow, string>
+  journal_templates!: Table<JournalTemplateRow, string>
+  citation_cache!: Table<CitationCacheRow, string>
 
   constructor() {
     super('academicflow')
     this.version(1).stores({
-      // 主键 key，无索引其他字段
       settings: 'key',
+    })
+    this.version(2).stores({
+      settings: 'key',
+      journal_templates: 'id, name, publisher, created_at, updated_at',
+      citation_cache: 'doi, title, year, journal, fetched_at',
     })
   }
 }

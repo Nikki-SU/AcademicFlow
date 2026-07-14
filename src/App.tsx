@@ -14,6 +14,7 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import Settings from './pages/Settings'
+import JournalFormat from './pages/JournalFormat'
 import { useAuthStore } from './stores/auth'
 import { useSettingsStore } from './stores/settings'
 
@@ -53,6 +54,10 @@ function App() {
             <Settings />
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/journal-format"
+        element={<JournalFormat />}
       />
       {/* 兜底：未知路径回首页（首页会再判断是否已登录 / 已 onboarding） */}
       <Route path="*" element={<Navigate to="/" replace />} />
