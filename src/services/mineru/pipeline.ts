@@ -23,7 +23,7 @@ import { extractZip } from './extract'
 export interface RunMineruSingleFileOptions {
   token: string
   /**
-   * 用户配置的 Cloudflare Worker URL（如 https://xxx.workers.dev）
+   * 用户配置的 Deno Deploy 代理 URL（如 https://xxx.deno.net）
    * MinerU 官方 API 无 CORS，浏览器直连不通，必须走用户自持的透传代理。
    */
   workerUrl: string

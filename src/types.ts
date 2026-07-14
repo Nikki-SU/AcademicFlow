@@ -414,7 +414,7 @@ export interface UserAccountInfo {
 //   PUT  <presigned_url>          上传 PDF 二进制
 //   GET  /api/v4/extract-results/batch/{batch_id}  轮询解析状态
 //   GET  <full_zip_url>           下载解析产物 zip
-// 单文件硬约束：≤200MB 且 ≤600 页（Rosa 实测 200 页最稳，本项目锁 180 页/片）
+// 单文件硬约束：≤200MB 且 ≤200 页（官方 2026-07 更新，原 600 页已降为 200 页）
 
 /** MinerU JWT 解析结果（用于 UI 展示到期时间和倒计时） */
 export interface MineruJwtInfo {

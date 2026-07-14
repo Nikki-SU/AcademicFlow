@@ -9,7 +9,8 @@
  *   3) pollBatch: GET /api/v4/extract-results/batch/{batch_id} 轮询到 state=done
  *   4) downloadZip: GET <full_zip_url> → Blob → 交给 extractZip 用 jszip 解
  *
- * 单文件硬约束：≤200MB 且 ≤600 页（Rosa 一手实测 200 页更稳，产品侧锁 180 页/片）
+ * 单文件硬约束：≤200MB 且 ≤200 页（官方 2026-07 更新，原 600 页已降为 200 页）
+ * 每日优先级额度：1000 页（原 2000 页已降为 1000 页）
  *
  * 错误分类（对齐 services/ai/client.ts 风格）：
  *   - 401 → MineruAuthError（token 过期/无效）
@@ -62,11 +63,11 @@ function safeStringify(v: unknown): string {
 /**
  * 构造 MinerU API 的 baseUrl。
  * MinerU 服务端不返回 CORS 头，浏览器直连会 preflight 405，
- * 因此必须走用户自持的 Cloudflare Worker 透传代理。
+ * 因此必须走用户自持的 Deno Deploy 透传代理。
  *
- * @param workerUrl 用户在 Settings 里配置的 workers.dev URL（如 https://xxx.workers.dev）
+ * @param workerUrl 用户在 Settings 里配置的 deno.net URL（如 https://xxx.deno.net）
  *                  尾斜杠会自动清理
- * @returns 如 `https://xxx.workers.dev/api/v4`
+ * @returns 如 `https://xxx.deno.net/api/v4`
  * @throws 当 workerUrl 为空时抛错，提醒调用方去 Settings 配置
  */
 export function buildMineruBaseUrl(workerUrl: string | null | undefined): string {
@@ -338,7 +339,11 @@ export async function uploadFile(
     res = await fetch(proxied, {
       method: 'PUT',
       body: file,
-      // 关键：不加 headers；浏览器默认会带 Content-Type: application/octet-stream 或 blob 的 type
+      // 官方要求不带任何自定义 header（含 Content-Type）。
+      // 但浏览器会自动为 Blob 添加 Content-Type，可能导致 OSS 签名校验失败。
+      // Worker 代理侧需要剥离 Content-Type 后再转发到 OSS。
+      // 如果仍然失败，可尝试用 ArrayBuffer + 手动覆盖：
+      //   new ArrayBuffer(file.size) 不会自动带 Content-Type
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

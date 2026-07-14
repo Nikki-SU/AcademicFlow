@@ -51,9 +51,12 @@ Run-Git "config --local credential.helper manager" | Out-Null
 $userName = Get-GitOutput "config --get user.name"
 $userEmail = Get-GitOutput "config --get user.email"
 if (-not $userName -or -not $userEmail) {
-    Write-Status "Setting git user info..." "warning"
-    Run-Git "config --local user.name `"AcademicFlow`"" | Out-Null
-    Run-Git "config --local user.email `"academicflow@local`"" | Out-Null
+    Write-Status "Git user info not configured" "warning"
+    Write-Status "Please set your GitHub username and email:" "warning"
+    Write-Status '  git config --local user.name "Your GitHub Name"' "warning"
+    Write-Status '  git config --local user.email "your@email.com"' "warning"
+    Write-Status "Or provide via parameters: .\push.ps1 -GitUserName 'name' -GitUserEmail 'email'" "warning"
+    exit 1
 }
 
 $currentBranch = Get-GitOutput "rev-parse --abbrev-ref HEAD"
