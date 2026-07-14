@@ -1,63 +1,87 @@
 /**
  * MinerU 代理部署方案指引块
  * -------------------------------------------------
- * 推荐使用国内 VPS 部署透传代理（无超时限制，到 OSS 内网快）。
- * Deno Deploy / Cloudflare Workers 因平台超时限制，不适合大 PDF 上传。
+ * 简化为 3 步：买 VPS → 一键脚本 → 填 URL
  */
 import { ExternalLink, Server } from 'lucide-react'
+import { useState } from 'react'
 
-const ALIYUN_URL = 'https://www.aliyun.com/product/ecs'
-const TENCENT_URL = 'https://cloud.tencent.com/product/lighthouse'
-const REPO_URL = 'https://github.com/Nikki-SU/AcademicFlow-Worker'
+const ALIYUN_URL = 'https://www.aliyun.com/daily-act/ecs/activity_selection'
+const TENCENT_URL = 'https://cloud.tencent.com/act/pro/lhsale'
+const INSTALL_CMD =
+  'curl -fsSL https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/install.sh | bash'
 
 export default function MineruDeployGuide() {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(INSTALL_CMD)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
         <Server className="w-4 h-4 text-indigo-600" />
-        推荐方案：国内 VPS 部署
+        3 步搞定代理部署
       </div>
 
-      <div className="flex gap-2">
-        <a
-          href={ALIYUN_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-orange-500 to-amber-500
-                     hover:from-orange-600 hover:to-amber-600 text-white text-xs font-medium
-                     rounded-lg shadow-sm transition-all"
-        >
-          阿里云 ECS
-          <ExternalLink className="w-3 h-3 opacity-80" />
-        </a>
-        <a
-          href={TENCENT_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-500 to-sky-500
-                     hover:from-blue-600 hover:to-sky-600 text-white text-xs font-medium
-                     rounded-lg shadow-sm transition-all"
-        >
-          腾讯云轻量
-          <ExternalLink className="w-3 h-3 opacity-80" />
-        </a>
-      </div>
-
-      <ol className="text-xs text-slate-600 space-y-1.5 pl-4 list-decimal">
+      <ol className="text-xs text-slate-600 space-y-2.5 pl-4 list-decimal">
         <li>
-          购买一台国内 VPS（阿里云 ¥38/年起 或 腾讯云 ¥109/年起，选<span className="font-semibold">上海</span>地域最佳，
-          和 MinerU OSS 同机房）
+          <span className="font-semibold">买一台 VPS</span>
+          <div className="flex gap-1.5 mt-1">
+            <a
+              href={ALIYUN_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-1 bg-orange-50 border border-orange-200
+                         hover:bg-orange-100 text-orange-700 text-[11px] font-medium rounded transition-colors"
+            >
+              阿里云 ¥99/年起 <ExternalLink className="w-2.5 h-2.5" />
+            </a>
+            <a
+              href={TENCENT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200
+                         hover:bg-blue-100 text-blue-700 text-[11px] font-medium rounded transition-colors"
+            >
+              腾讯云 ¥109/年起 <ExternalLink className="w-2.5 h-2.5" />
+            </a>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">地域选上海最佳（和 MinerU 服务器同机房）</p>
         </li>
-        <li>SSH 登录 VPS，安装 Deno： <code className="px-1 py-0.5 bg-slate-100 rounded text-[11px]">curl -fsSL https://deno.land/install.sh | sh</code></li>
-        <li>克隆代理仓库： <code className="px-1 py-0.5 bg-slate-100 rounded text-[11px]">git clone {REPO_URL}</code></li>
-        <li>启动代理： <code className="px-1 py-0.5 bg-slate-100 rounded text-[11px]">cd AcademicFlow-Worker && deno run --allow-net src/deno.js</code></li>
-        <li>开放防火墙 8000 端口（或用 nginx 反代到 443）</li>
-        <li>把 <code className="px-1 py-0.5 bg-slate-100 rounded text-[11px]">http://你的VPS公网IP:8000</code> 填到下面输入框</li>
+
+        <li>
+          <span className="font-semibold">SSH 登录后粘贴执行</span>
+          <div className="mt-1 relative">
+            <pre className="px-2.5 py-1.5 bg-slate-900 text-green-400 text-[11px] font-mono rounded
+                            overflow-x-auto whitespace-pre-wrap break-all">
+              {INSTALL_CMD}
+            </pre>
+            <button
+              onClick={handleCopy}
+              className="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] bg-slate-700
+                         hover:bg-slate-600 text-slate-200 rounded transition-colors"
+            >
+              {copied ? '✓ 已复制' : '复制'}
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">自动装 Deno + 启动代理 + 开机自启</p>
+        </li>
+
+        <li>
+          <span className="font-semibold">把输出的地址填到下面</span>
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            脚本会打印 <code className="px-1 py-0.5 bg-slate-100 rounded text-[10px]">http://你的IP:8000</code>，
+            复制粘贴即可
+          </p>
+        </li>
       </ol>
 
       <p className="text-[11px] text-amber-600 leading-relaxed">
-        ⚠️ Deno Deploy / Cloudflare Workers 有 50s / 30s 超时限制，8MB 以上 PDF 上传会失败。
-        国内 VPS 到 OSS 走内网，无超时限制，8MB 文件仅需 1-2 秒。
+        ⚠️ 记得在云控制台开放 8000 端口（安全组 → 添加 TCP 8000 入方向规则）
       </p>
     </div>
   )
