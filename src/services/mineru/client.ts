@@ -362,6 +362,29 @@ export async function uploadFile(
     status: res.status,
     durationMs: Date.now() - t0,
   })
+  // v7 增强（M3.7-a）：把 worker 端 4 个 X-AF-Worker-* header 直接打到 Debug Console，
+  // 不用 Rosa 去 F12 Network 找。Access-Control-Expose-Headers: * 已设（worker corsHeaders），
+  // 浏览器允许前端 JS 读。这层不依赖 fetch 默认行为（v6 推的时候**应该**做这个，漏了）。
+  emitDebug(onDebug, {
+    kind: 'info',
+    phase: 'uploading',
+    detail: `af-worker-url-in=${res.headers.get('x-af-worker-url-in') ?? '(missing)'}`,
+  })
+  emitDebug(onDebug, {
+    kind: 'info',
+    phase: 'uploading',
+    detail: `af-worker-url-out=${res.headers.get('x-af-worker-url-out') ?? '(missing)'}`,
+  })
+  emitDebug(onDebug, {
+    kind: 'info',
+    phase: 'uploading',
+    detail: `af-worker-status=${res.headers.get('x-af-worker-status') ?? '(missing)'}`,
+  })
+  emitDebug(onDebug, {
+    kind: 'info',
+    phase: 'uploading',
+    detail: `af-worker-content-type=${res.headers.get('x-af-worker-content-type') ?? '(missing)'}`,
+  })
 
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
