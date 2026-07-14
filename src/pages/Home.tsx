@@ -212,21 +212,24 @@ function Home() {
               </div>
             </Link>
 
-            <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl opacity-60">
+            <Link
+              to="/journal-templates"
+              className="group p-5 bg-white border border-slate-200 rounded-xl hover:shadow-lg hover:border-indigo-200 transition-all"
+            >
               <div className="flex items-start gap-3">
-                <div className="p-2 bg-slate-200 rounded-lg">
-                  <Sparkles className="w-6 h-6 text-slate-500" />
+                <div className="p-2 bg-slate-100 rounded-lg group-hover:bg-indigo-100 transition">
+                  <BookMarked className="w-6 h-6 text-slate-600 group-hover:text-indigo-600 transition" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-700">
-                    更多功能
+                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                    期刊模板管理
                   </div>
                   <div className="text-xs text-slate-500 mt-1">
-                    词汇学习、文献追踪、笔记管理 — 开发中
+                    粘贴投稿须知，AI 自动提取格式规范，生成可复用模板
                   </div>
                 </div>
               </div>
-            </div>
+            </Link>
           </div>
 
           {/* 认证状态 */}

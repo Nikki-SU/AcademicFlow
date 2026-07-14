@@ -1,161 +1,19 @@
 /**
  * 期刊模板管理服务
  * -------------------------------------------------
- * 功能：
- * - 内置 6 个常用期刊模板（Elsevier / Springer / IEEE / Nature / Science / ACM）
- * - 自定义模板 CRUD
- * - 投稿须知版本管理
- * - 投稿须知变化检测（基于内容哈希）
+ * 设计原则：
+ * - 不内置任何硬编码期刊模板（避免不准确，用户不敢用）
+ * - 用户粘贴投稿须知（网页 / Word / PDF 转的文字）→ AI 提取格式规范 → 生成模板
+ * - 投稿须知版本管理（每次更新留历史记录）
+ * - 支持从 URL 检测变化（注意 CORS/反爬可能失败）
  */
 import { db } from './db'
 import type { JournalTemplate, GuidelineVersion } from '../types'
-
-/** 内置期刊模板列表 */
-const BUILTIN_TEMPLATES: JournalTemplate[] = [
-  {
-    id: 'elsevier',
-    name: 'Elsevier (通用)',
-    short_name: 'Elsevier',
-    publisher: 'Elsevier',
-    journal_url: 'https://www.elsevier.com',
-    document_class: 'elsarticle',
-    document_options: '3p,twocolumn,12pt',
-    packages: ['elsarticle', 'graphicx', 'amsmath', 'amssymb', 'booktabs', 'hyperref'],
-    bibtex_style: 'elsarticle-num',
-    two_column: true,
-    font_size: 12,
-    title_format_note: '标题使用 \\title{}，作者用 \\author{} 配合 \\address{}',
-    abstract_format_note: '摘要放在 \\begin{abstract}...\\end{abstract} 中，位于 \\maketitle 之前',
-    reference_format_note: '数字编号引用，按出现顺序排序',
-    notes: 'Elsevier 通用模板，使用 elsarticle 文档类。具体期刊可能有细微差异。',
-    created_at: 0,
-    updated_at: 0,
-  },
-  {
-    id: 'springer',
-    name: 'Springer Nature (通用)',
-    short_name: 'Springer',
-    publisher: 'Springer Nature',
-    journal_url: 'https://www.springer.com',
-    document_class: 'svjour3',
-    document_options: 'twocolumn,12pt',
-    packages: ['svjour3', 'graphicx', 'amsmath', 'amssymb', 'booktabs', 'hyperref'],
-    bibtex_style: 'spbasic',
-    two_column: true,
-    font_size: 12,
-    title_format_note: '\\title{} + \\author{} + \\institute{}',
-    abstract_format_note: '\\begin{abstract}...\\end{abstract}',
-    reference_format_note: 'Springer 基本格式',
-    notes: 'Springer svjour3 通用模板',
-    created_at: 0,
-    updated_at: 0,
-  },
-  {
-    id: 'ieee',
-    name: 'IEEE Transactions',
-    short_name: 'IEEE',
-    publisher: 'IEEE',
-    journal_url: 'https://www.ieee.org',
-    document_class: 'IEEEtran',
-    document_options: 'journal,twocolumn,10pt',
-    packages: ['IEEEtran', 'graphicx', 'amsmath', 'amssymb', 'booktabs', 'hyperref'],
-    bibtex_style: 'IEEEtran',
-    two_column: true,
-    font_size: 10,
-    title_format_note: '使用 \\title{}，作者块用 \\IEEEauthorblockN 和 \\IEEEauthorblockA',
-    abstract_format_note: '\\begin{abstract}...\\end{abstract}，\\begin{IEEEkeywords}...\\end{IEEEkeywords}',
-    reference_format_note: 'IEEE 数字编号格式，按出现顺序',
-    notes: 'IEEE 期刊模板，双栏 10pt。注意作者格式需使用 IEEEtran 专用命令。',
-    created_at: 0,
-    updated_at: 0,
-  },
-  {
-    id: 'nature',
-    name: 'Nature / Nature 子刊',
-    short_name: 'Nature',
-    publisher: 'Springer Nature',
-    journal_url: 'https://www.nature.com',
-    document_class: 'article',
-    document_options: 'twocolumn,12pt',
-    packages: ['nature', 'graphicx', 'amsmath', 'amssymb', 'booktabs', 'hyperref'],
-    bibtex_style: 'nature',
-    two_column: true,
-    font_size: 12,
-    title_format_note: '\\title{} + \\author{}',
-    abstract_format_note: '\\begin{abstract}...\\end{abstract}',
-    reference_format_note: 'Nature 引用格式，按出现顺序编号',
-    notes: 'Nature 系列通用模板。注意：Nature 官方模板需从官网下载 nature.cls。',
-    created_at: 0,
-    updated_at: 0,
-  },
-  {
-    id: 'science',
-    name: 'Science / AAAS',
-    short_name: 'Science',
-    publisher: 'AAAS',
-    journal_url: 'https://www.science.org',
-    document_class: 'article',
-    document_options: 'twocolumn,12pt',
-    packages: ['graphicx', 'amsmath', 'amssymb', 'booktabs', 'hyperref'],
-    bibtex_style: 'unsrt',
-    two_column: true,
-    font_size: 12,
-    title_format_note: '标准 article 类格式',
-    abstract_format_note: '\\begin{abstract}...\\end{abstract}',
-    reference_format_note: '按出现顺序编号',
-    notes: 'Science 通用参考模板。Science 投稿通常用 Word，但 LaTeX 模板可用于预印本。',
-    created_at: 0,
-    updated_at: 0,
-  },
-  {
-    id: 'acm',
-    name: 'ACM 期刊 / 会议',
-    short_name: 'ACM',
-    publisher: 'ACM',
-    journal_url: 'https://www.acm.org',
-    document_class: 'acmart',
-    document_options: 'twocolumn,10pt,sigconf',
-    packages: ['acmart', 'graphicx', 'amsmath', 'amssymb', 'booktabs', 'hyperref'],
-    bibtex_style: 'ACM-Reference-Format',
-    two_column: true,
-    font_size: 10,
-    title_format_note: '\\title{} + \\author{} + \\affiliation{}',
-    abstract_format_note: '\\begin{abstract}...\\end{abstract}',
-    reference_format_note: 'ACM 引用格式，按出现顺序编号',
-    notes: 'ACM 会议/期刊模板，使用 acmart 文档类。sigconf 是会议常用选项。',
-    created_at: 0,
-    updated_at: 0,
-  },
-]
-
-/** 已初始化标记（避免重复初始化） */
-let initialized = false
-
-/**
- * 初始化内置模板（首次使用时写入 DB）
- */
-export async function initBuiltinTemplates(): Promise<void> {
-  if (initialized) return
-
-  const existing = await db.journal_templates.count()
-  if (existing === 0) {
-    const now = Date.now()
-    const templatesWithTimestamps = BUILTIN_TEMPLATES.map((t) => ({
-      ...t,
-      created_at: now,
-      updated_at: now,
-    }))
-    await db.journal_templates.bulkPut(templatesWithTimestamps)
-  }
-
-  initialized = true
-}
 
 /**
  * 获取所有期刊模板
  */
 export async function getAllTemplates(): Promise<JournalTemplate[]> {
-  await initBuiltinTemplates()
   const templates = await db.journal_templates.orderBy('updated_at').reverse().toArray()
   return templates
 }
@@ -164,25 +22,71 @@ export async function getAllTemplates(): Promise<JournalTemplate[]> {
  * 根据 id 获取单个模板
  */
 export async function getTemplateById(id: string): Promise<JournalTemplate | undefined> {
-  await initBuiltinTemplates()
   return db.journal_templates.get(id)
 }
 
 /**
- * 新建/更新模板
+ * 新建模板
  */
-export async function upsertTemplate(template: Omit<JournalTemplate, 'created_at' | 'updated_at'> & { created_at?: number; updated_at?: number }): Promise<JournalTemplate> {
+export async function createTemplate(data: {
+  name: string
+  short_name?: string
+  publisher?: string
+  journal_url?: string
+  guidelines_url?: string
+  guidelines_content?: string
+}): Promise<JournalTemplate> {
   const now = Date.now()
-  const existing = await db.journal_templates.get(template.id)
+  const id = data.name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    + '-' + now.toString(36).slice(-4)
 
-  const toSave: JournalTemplate = {
-    ...template,
-    created_at: existing?.created_at ?? now,
+  const template: JournalTemplate = {
+    id,
+    name: data.name,
+    short_name: data.short_name,
+    publisher: data.publisher,
+    journal_url: data.journal_url,
+    guidelines_url: data.guidelines_url,
+    guidelines_content: data.guidelines_content,
+    guidelines_content_hash: data.guidelines_content ? hashContent(data.guidelines_content) : undefined,
+    guidelines_last_updated_at: data.guidelines_content ? now : undefined,
+    document_class: 'article',
+    document_options: '',
+    packages: [],
+    bibtex_style: 'unsrt',
+    two_column: false,
+    font_size: 12,
+    created_at: now,
     updated_at: now,
-  } as JournalTemplate
+  }
 
-  await db.journal_templates.put(toSave)
-  return toSave
+  await db.journal_templates.put(template)
+  return template
+}
+
+/**
+ * 更新模板
+ */
+export async function updateTemplate(
+  id: string,
+  updates: Partial<JournalTemplate>,
+): Promise<JournalTemplate | undefined> {
+  const existing = await db.journal_templates.get(id)
+  if (!existing) return undefined
+
+  const now = Date.now()
+  const updated: JournalTemplate = {
+    ...existing,
+    ...updates,
+    id: existing.id, // id 不可变
+    created_at: existing.created_at,
+    updated_at: now,
+  }
+
+  await db.journal_templates.put(updated)
+  return updated
 }
 
 /**
@@ -202,7 +106,7 @@ export function hashContent(content: string): string {
   for (let i = 0; i < content.length; i++) {
     const char = content.charCodeAt(i)
     hash = ((hash << 5) - hash) + char
-    hash = hash & hash // 转换为 32 位整数
+    hash = hash & hash
   }
   return String(hash)
 }
@@ -225,7 +129,6 @@ export async function updateGuidelines(
   const history = template.guidelines_history ? [...template.guidelines_history] : []
 
   if (hasChanged && template.guidelines_content) {
-    // 旧版本入历史
     const version: GuidelineVersion = {
       version: history.length + 1,
       updated_at: template.guidelines_last_updated_at ?? template.updated_at,
@@ -279,7 +182,6 @@ export async function checkGuidelinesChanged(url: string, currentHash: string): 
       content: text,
     }
   } catch (err) {
-    // 可能是 CORS 或网络问题
     return {
       changed: null,
       error: err instanceof Error ? err.message : String(err),
@@ -288,27 +190,29 @@ export async function checkGuidelinesChanged(url: string, currentHash: string): 
 }
 
 /**
- * 从模板创建一个副本（用于自定义修改）
+ * 从模板创建一个副本
  */
 export async function duplicateTemplate(sourceId: string, newName: string): Promise<JournalTemplate | undefined> {
   const source = await db.journal_templates.get(sourceId)
   if (!source) return undefined
 
   const now = Date.now()
-  const newId = `${sourceId}-copy-${now.toString(36)}`
+  const newId = newName.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    + '-' + now.toString(36).slice(-4)
 
   const copy: JournalTemplate = {
     ...source,
     id: newId,
     name: newName,
-    notes: (source.notes ? source.notes + '\n\n' : '') + `复制自 ${source.name} (${sourceId})`,
+    notes: (source.notes ? source.notes + '\n\n' : '') + `复制自 ${source.name} (${source.id})`,
     created_at: now,
     updated_at: now,
-    // 清空投稿须知历史
     guidelines_history: undefined,
     guidelines_last_checked_at: undefined,
     guidelines_last_updated_at: undefined,
-    guidelines_content_hash: undefined,
+    guidelines_content_hash: source.guidelines_content_hash,
   }
 
   await db.journal_templates.put(copy)

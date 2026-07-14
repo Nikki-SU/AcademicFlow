@@ -25,38 +25,14 @@ import {
 import { toast } from 'sonner'
 import { useSettingsStore } from '../stores/settings'
 import { convertMarkdownToLatex, type LatexConvertProgress } from '../services/latex-converter'
-import { getAllTemplates, initBuiltinTemplates } from '../services/journal-templates'
+import { getAllTemplates } from '../services/journal-templates'
 import type { JournalTemplate, LatexConversionResult } from '../types'
 import { SILICONFLOW_BASE_URL } from '../services/ai/models'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { DEMO_JACS_MARKDOWN } from '../data/demo-content'
 
-/** 示例 Markdown — 用于演示 */
-const SAMPLE_MARKDOWN = `# 钙钛矿太阳能电池的效率提升研究
-
-## 摘要
-本文研究了钙钛矿太阳能电池的效率提升机制，通过界面工程方法将光电转换效率提升至 25.6%。
-
-## 引言
-钙钛矿太阳能电池因其低成本和高效率而受到广泛关注 [@doi:10.1038/nature12345]。近年来，研究者们在材料合成和器件结构方面取得了显著进展 [@https://doi.org/10.1016/j.nanoen.2023.108765]。
-
-## 实验方法
-### 材料制备
-采用溶液法制备钙钛矿薄膜，使用旋涂工艺，转速为 4000 rpm。
-
-### 器件表征
-使用 Keithley 2400 源表测量 J-V 曲线，模拟光源为 AM 1.5G。
-
-## 结果与讨论
-### 光电性能
-最优器件的短路电流密度为 25.3 mA/cm²，开路电压为 1.15 V，填充因子为 0.81。
-
-### 稳定性分析
-未封装器件在空气中放置 1000 小时后，效率保持初始值的 85%。
-
-## 结论
-本研究通过界面工程有效提升了钙钛矿太阳能电池的效率和稳定性。
-
-## 参考文献
-`
+/** 示例 Markdown — JACS 2024 李志平课题组论文（演示用） */
+const SAMPLE_MARKDOWN = DEMO_JACS_MARKDOWN
 
 const CITATION_SORT_OPTIONS = [
   { value: 'appearance', label: '按出现顺序' },
@@ -66,9 +42,11 @@ const CITATION_SORT_OPTIONS = [
 
 function JournalFormatPage() {
   const { siliconflowApiKey, ai1Model, ai2Model } = useSettingsStore()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [templates, setTemplates] = useState<JournalTemplate[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('elsevier')
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
   const [markdown, setMarkdown] = useState(SAMPLE_MARKDOWN)
   const [result, setResult] = useState<LatexConversionResult | null>(null)
   const [isConverting, setIsConverting] = useState(false)
@@ -79,16 +57,29 @@ function JournalFormatPage() {
   const [sortMode, setSortMode] = useState<'appearance' | 'author-year' | 'alphabetical'>('appearance')
   const [showQuickSettings, setShowQuickSettings] = useState(false)
   const [tempApiKey, setTempApiKey] = useState('')
+  const [loadingTemplates, setLoadingTemplates] = useState(true)
 
   // 加载模板列表
   useEffect(() => {
     const load = async () => {
-      await initBuiltinTemplates()
-      const list = await getAllTemplates()
-      setTemplates(list)
+      setLoadingTemplates(true)
+      try {
+        const list = await getAllTemplates()
+        setTemplates(list)
+
+        // 从 URL 参数读取模板 ID
+        const tplId = searchParams.get('template')
+        if (tplId && list.find((t) => t.id === tplId)) {
+          setSelectedTemplateId(tplId)
+        } else if (list.length > 0) {
+          setSelectedTemplateId(list[0].id)
+        }
+      } finally {
+        setLoadingTemplates(false)
+      }
     }
     load()
-  }, [])
+  }, [searchParams])
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
 
@@ -311,23 +302,51 @@ function JournalFormatPage() {
 
                     {showTemplateDropdown && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 max-h-64 overflow-y-auto">
-                        {templates.map((t) => (
-                          <button
-                            key={t.id}
-                            onClick={() => {
-                              setSelectedTemplateId(t.id)
-                              setShowTemplateDropdown(false)
-                            }}
-                            className={`w-full px-3 py-2.5 text-left hover:bg-indigo-50 transition border-b border-slate-100 last:border-b-0 ${
-                              t.id === selectedTemplateId ? 'bg-indigo-50' : ''
-                            }`}
-                          >
-                            <div className="font-medium text-slate-800">{t.name}</div>
-                            <div className="text-xs text-slate-500">
-                              {t.document_class} · {t.two_column ? '双栏' : '单栏'} · {t.bibtex_style}
+                        {templates.length === 0 ? (
+                          <div className="px-3 py-4 text-center">
+                            <p className="text-sm text-slate-500">还没有期刊模板</p>
+                            <button
+                              onClick={() => {
+                                setShowTemplateDropdown(false)
+                                navigate('/journal-templates')
+                              }}
+                              className="mt-2 text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                            >
+                              去创建模板 →
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            {templates.map((t) => (
+                              <button
+                                key={t.id}
+                                onClick={() => {
+                                  setSelectedTemplateId(t.id)
+                                  setShowTemplateDropdown(false)
+                                }}
+                                className={`w-full px-3 py-2.5 text-left hover:bg-indigo-50 transition border-b border-slate-100 last:border-b-0 ${
+                                  t.id === selectedTemplateId ? 'bg-indigo-50' : ''
+                                }`}
+                              >
+                                <div className="font-medium text-slate-800">{t.name}</div>
+                                <div className="text-xs text-slate-500">
+                                  {t.document_class} · {t.two_column ? '双栏' : '单栏'} · {t.bibtex_style}
+                                </div>
+                              </button>
+                            ))}
+                            <div className="px-3 py-2 border-t border-slate-100 bg-slate-50">
+                              <button
+                                onClick={() => {
+                                  setShowTemplateDropdown(false)
+                                  navigate('/journal-templates')
+                                }}
+                                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium w-full text-left"
+                              >
+                                管理所有模板 →
+                              </button>
                             </div>
-                          </button>
-                        ))}
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
