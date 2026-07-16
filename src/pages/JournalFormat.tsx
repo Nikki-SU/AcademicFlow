@@ -30,7 +30,7 @@ import { convertMarkdownToLatex, type LatexConvertProgress } from '../services/l
 import { getAllTemplates } from '../services/journal-templates'
 import type { JournalTemplate, LatexConversionResult } from '../types'
 import { SILICONFLOW_BASE_URL } from '../services/ai/models'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DEMO_JACS_MARKDOWN } from '../data/demo-content'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
@@ -222,7 +222,7 @@ function JournalFormatPage() {
       .replace(/\\\\/g, '<br/>')
 
     // 兜底：所有剩余 \\command 变成普通文本
-    body = body.replace(/\\([a-zA-Z]+)(\{.*?\})?/g, (match, cmd, arg) => {
+    body = body.replace(/\\([a-zA-Z]+)(\{.*?\})?/g, (_match, _cmd, arg) => {
       if (arg) return arg.slice(1, -1)
       return ''
     })
@@ -312,12 +312,12 @@ function JournalFormatPage() {
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" title="未配置" />
               )}
             </button>
-            <a
-              href="/"
+            <Link
+              to="/"
               className="text-sm text-slate-600 hover:text-indigo-600 px-3 py-1.5 rounded-md hover:bg-indigo-50 transition"
             >
               返回首页
-            </a>
+            </Link>
           </div>
         </div>
       </header>

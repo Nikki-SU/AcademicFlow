@@ -9,6 +9,7 @@
  * - AI 从投稿须知提取格式规范
  */
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Plus,
   Edit3,
@@ -299,12 +300,12 @@ function JournalTemplatesPage() {
         <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm sticky top-0 z-20">
           <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <a
-                href="/"
+              <Link
+                to="/"
                 className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
               >
                 <ArrowLeft className="w-5 h-5" />
-              </a>
+              </Link>
               <div>
                 <span className="font-bold text-slate-800">期刊模板管理</span>
                 <p className="text-xs text-slate-500 hidden sm:block">

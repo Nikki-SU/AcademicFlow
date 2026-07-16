@@ -190,46 +190,84 @@ function Home() {
             </div>
           )}
 
-          {/* 功能入口 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            <Link
-              to="/journal-format"
-              className="group p-5 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl hover:shadow-lg hover:border-indigo-300 transition-all"
-            >
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-indigo-100 rounded-lg group-hover:bg-indigo-200 transition">
-                  <FileText className="w-6 h-6 text-indigo-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+          {/* 功能入口 - 横排布局 */}
+          <div className="mb-6">
+            <div className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-500" />
+              功能入口
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+              <Link
+                to="/journal-format"
+                className="group flex-shrink-0 w-56 p-4 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl hover:shadow-lg hover:border-indigo-300 transition-all"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 bg-indigo-100 rounded-lg group-hover:bg-indigo-200 transition">
+                    <FileText className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <span className="font-semibold text-slate-800 group-hover:text-indigo-700 transition text-sm">
                     AI 期刊排版
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Markdown → LaTeX，按期刊格式自动排版，DOI 引用一键解析
-                  </div>
+                  </span>
                 </div>
-                <BookMarked className="w-5 h-5 text-indigo-400 group-hover:text-indigo-600 transition flex-shrink-0" />
-              </div>
-            </Link>
+                <div className="text-xs text-slate-500 leading-relaxed">
+                  Markdown → LaTeX，按期刊格式自动排版
+                </div>
+              </Link>
 
-            <Link
-              to="/journal-templates"
-              className="group p-5 bg-white border border-slate-200 rounded-xl hover:shadow-lg hover:border-indigo-200 transition-all"
-            >
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-slate-100 rounded-lg group-hover:bg-indigo-100 transition">
-                  <BookMarked className="w-6 h-6 text-slate-600 group-hover:text-indigo-600 transition" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+              <Link
+                to="/journal-templates"
+                className="group flex-shrink-0 w-56 p-4 bg-white border border-slate-200 rounded-xl hover:shadow-lg hover:border-indigo-200 transition-all"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 bg-slate-100 rounded-lg group-hover:bg-indigo-100 transition">
+                    <BookMarked className="w-5 h-5 text-slate-600 group-hover:text-indigo-600 transition" />
+                  </div>
+                  <span className="font-semibold text-slate-800 group-hover:text-indigo-700 transition text-sm">
                     期刊模板管理
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    粘贴投稿须知，AI 自动提取格式规范，生成可复用模板
-                  </div>
+                  </span>
                 </div>
-              </div>
-            </Link>
+                <div className="text-xs text-slate-500 leading-relaxed">
+                  粘贴投稿须知，AI 提取格式规范
+                </div>
+              </Link>
+
+              <Link
+                to="/settings"
+                className="group flex-shrink-0 w-56 p-4 bg-white border border-slate-200 rounded-xl hover:shadow-lg hover:border-indigo-200 transition-all"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 bg-slate-100 rounded-lg group-hover:bg-indigo-100 transition">
+                    <SettingsIcon className="w-5 h-5 text-slate-600 group-hover:text-indigo-600 transition" />
+                  </div>
+                  <span className="font-semibold text-slate-800 group-hover:text-indigo-700 transition text-sm">
+                    设置 · AI 配置
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 leading-relaxed">
+                  硅基流动 API、MinerU、模型选择
+                </div>
+              </Link>
+
+              <a
+                href="https://github.com/Nikki-SU/AcademicFlow"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex-shrink-0 w-56 p-4 bg-white border border-slate-200 rounded-xl hover:shadow-lg hover:border-indigo-200 transition-all"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 bg-slate-100 rounded-lg group-hover:bg-indigo-100 transition">
+                    <Github className="w-5 h-5 text-slate-600 group-hover:text-indigo-600 transition" />
+                  </div>
+                  <span className="font-semibold text-slate-800 group-hover:text-indigo-700 transition text-sm">
+                    源码 / 文档
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 leading-relaxed flex items-center gap-1">
+                  查看 GitHub 仓库
+                  <ExternalLink className="w-3 h-3" />
+                </div>
+              </a>
+            </div>
           </div>
 
           {/* 认证状态 */}
