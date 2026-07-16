@@ -21,6 +21,12 @@ export interface AuthState {
   user: GitHubUser | null
   /** PAT 授权的 scope 列表（从 X-OAuth-Scopes 响应头解析） */
   scopes: string[]
+  /** 认证方式：device_flow / pat */
+  method: 'device_flow' | 'pat' | null
+  /** 登录时间 */
+  loginAt: number | null
+  /** PAT 过期时间（仅 PAT 方式有值） */
+  expiresAt: number | null
   /** 是否正在初始化 / 校验中 */
   isLoading: boolean
   /** 初始化时是否已尝试从 IndexedDB 读取过 token（用于避免首次渲染时误跳登录页） */

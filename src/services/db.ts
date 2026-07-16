@@ -4,12 +4,26 @@
  * 存储所有用户数据在浏览器 IndexedDB 中，不上传任何服务器。
  *
  * 表结构：
- * - settings: 键值对存储（PAT / 已登录用户缓存 / 用户偏好等）
+ * - auth: 认证信息（GitHub token / 用户 / scope / method / expires_at）
+ * - settings: 键值对存储（用户偏好等，不含敏感凭据）
  * - journal_templates: 期刊模板
  * - citation_cache: 引用元数据缓存（DOI 为 key）
  */
 import Dexie, { type Table } from 'dexie'
 import type { JournalTemplate, CitationEntry } from '../types'
+
+/** auth 表行结构（spec §1.12.2） */
+export interface AuthRow {
+  id: string
+  method: 'device_flow' | 'pat'
+  access_token: string
+  scope: string
+  login_at: number
+  expires_at: number | null
+  github_username: string
+  github_user_id: number
+  user_data: string
+}
 
 /** settings 表行结构 */
 export interface SettingRow {
@@ -25,10 +39,6 @@ export type CitationCacheRow = CitationEntry
 
 /** IndexedDB 已知 key 白名单（避免拼写错误） */
 export const SETTING_KEYS = {
-  // 认证（M1）
-  GITHUB_TOKEN: 'github_token',
-  GITHUB_USER_CACHE: 'github_user_cache',
-  GITHUB_SCOPES: 'github_scopes',
   // 设置（M3，SPEC v0.3 §7.3）
   ADVANCED_MODE: 'advanced_mode',
   AI_PROVIDER_MODE: 'ai_provider_mode',
@@ -53,6 +63,7 @@ export const SETTING_KEYS = {
 } as const
 
 class AcademicFlowDB extends Dexie {
+  auth!: Table<AuthRow, string>
   settings!: Table<SettingRow, string>
   journal_templates!: Table<JournalTemplateRow, string>
   citation_cache!: Table<CitationCacheRow, string>
@@ -63,6 +74,12 @@ class AcademicFlowDB extends Dexie {
       settings: 'key',
     })
     this.version(2).stores({
+      settings: 'key',
+      journal_templates: 'id, name, publisher, created_at, updated_at',
+      citation_cache: 'doi, title, year, journal, fetched_at',
+    })
+    this.version(3).stores({
+      auth: 'id, method, github_username, login_at, expires_at',
       settings: 'key',
       journal_templates: 'id, name, publisher, created_at, updated_at',
       citation_cache: 'doi, title, year, journal, fetched_at',
@@ -91,4 +108,23 @@ export async function deleteSetting(key: string): Promise<void> {
 /** 批量删除多个 setting（如登出时清 token + user cache + scopes） */
 export async function deleteSettings(keys: string[]): Promise<void> {
   await db.settings.bulkDelete(keys)
+}
+
+// ============================================================
+// auth 表操作（spec §1.12.2）
+// ============================================================
+
+const AUTH_RECORD_ID = 'github_auth'
+
+export async function getAuth(): Promise<AuthRow | null> {
+  const result = await db.auth.get(AUTH_RECORD_ID)
+  return result ?? null
+}
+
+export async function putAuth(row: Omit<AuthRow, 'id'>): Promise<void> {
+  await db.auth.put({ ...row, id: AUTH_RECORD_ID })
+}
+
+export async function deleteAuth(): Promise<void> {
+  await db.auth.delete(AUTH_RECORD_ID)
 }

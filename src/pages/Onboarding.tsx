@@ -228,11 +228,11 @@ function Onboarding() {
         {/* 其他功能入口（不初始化 workspace 也能用） */}
         <div className="mt-6">
           <p className="text-sm text-slate-500 text-center mb-3">
-            👀 想先看看？试试这些不需要工作区的功能：
+            👀 想先看看？试试这些功能：
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Link
-              to="/journal-format"
+              to="/writing"
               className="group p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all"
             >
               <div className="flex items-start gap-3">
@@ -250,7 +250,7 @@ function Onboarding() {
               </div>
             </Link>
             <Link
-              to="/journal-templates"
+              to="/management"
               className="group p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all"
             >
               <div className="flex items-start gap-3">

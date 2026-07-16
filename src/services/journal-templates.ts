@@ -6,7 +6,7 @@
  * 本地 IndexedDB 作为缓存（离线可用，同步后自动更新）
  */
 import { db } from './db'
-import { readRepoJsonFile, writeRepoJsonFile } from './github'
+import { readRepoTextFile, writeRepoTextFile } from './github'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { useAuthStore } from '../stores/auth'
 import type { JournalTemplate, GuidelineVersion } from '../types'
@@ -32,23 +32,22 @@ export async function getAllTemplates(): Promise<JournalTemplate[]> {
   const ctx = getUserContext()
   if (ctx) {
     try {
-      const templates = await readRepoJsonFile<JournalTemplate[]>(
+      const result = await readRepoTextFile(
         ctx.owner,
         ctx.repo,
         TEMPLATES_FILE_PATH,
         ctx.token,
       )
-      if (templates) {
-        // 同步到本地缓存
+      if (result) {
+        const templates = JSON.parse(result.content) as JournalTemplate[]
         await db.journal_templates.clear()
         await db.journal_templates.bulkPut(templates)
-        return templates.sort((a, b) => b.updated_at - a.updated_at)
+        return templates.sort((a: JournalTemplate, b: JournalTemplate) => b.updated_at - a.updated_at)
       }
     } catch (err) {
       console.warn('[journal-templates] 从 GitHub 读取失败，回退到本地缓存:', err)
     }
   }
-  // 回退到本地 IndexedDB
   return db.journal_templates.orderBy('updated_at').reverse().toArray()
 }
 
@@ -64,18 +63,17 @@ export async function getTemplateById(id: string): Promise<JournalTemplate | und
  * 向 GitHub 私库写入模板列表
  */
 async function saveTemplates(templates: JournalTemplate[]): Promise<void> {
-  // 始终更新本地缓存
   await db.journal_templates.clear()
   await db.journal_templates.bulkPut(templates)
 
-  // 如果已登录，同步到 GitHub 私库
   const ctx = getUserContext()
   if (ctx) {
-    await writeRepoJsonFile(
+    const content = JSON.stringify(templates, null, 2)
+    await writeRepoTextFile(
       ctx.owner,
       ctx.repo,
       TEMPLATES_FILE_PATH,
-      templates,
+      content,
       ctx.token,
       'Update journal templates',
     )

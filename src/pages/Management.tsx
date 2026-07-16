@@ -26,8 +26,8 @@ const subTabs = [
 ]
 
 const DEMO_PAPERS = [
-  { id: '1', title: '钙钛矿太阳能电池综述', authors: 'Smith et al.', year: '2024', journal: 'Nature Energy', tags: ['solar', 'perovskite'] },
-  { id: '2', title: 'CO2 还原电催化剂设计', authors: 'Zhang et al.', year: '2023', journal: 'JACS', tags: ['catalysis', 'CO2'] },
+  { id: '1', doi: '10.1038/s41560-024-01432-1', title: '钙钛矿太阳能电池综述', authors: 'Smith et al.', year: '2024', journal: 'Nature Energy', tags: ['solar', 'perovskite'], tier: 2, has_graphical_abstract: true },
+  { id: '2', doi: '10.1021/jacs.3c04567', title: 'CO2 还原电催化剂设计', authors: 'Zhang et al.', year: '2023', journal: 'JACS', tags: ['catalysis', 'CO2'], tier: 1, has_graphical_abstract: false },
 ]
 
 export default function ManagementPage() {
@@ -66,7 +66,7 @@ export default function ManagementPage() {
         })}
       </div>
 
-      {/* 文献库 */}
+      {/* 文献库（spec §5.2） */}
       {activeTab === 'library' && (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
@@ -87,32 +87,66 @@ export default function ManagementPage() {
               <span className="text-slate-300">|</span>
               <span className="text-slate-500">二级（有PDF）</span>
             </div>
-            <div className="divide-y divide-slate-100">
-              {DEMO_PAPERS.map((paper) => (
-                <div key={paper.id} className="p-4 hover:bg-slate-50 transition flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-slate-800">{paper.title}</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {paper.authors} · {paper.year} · {paper.journal}
-                    </div>
-                    <div className="flex gap-1 mt-2">
-                      {paper.tags.map((tag) => (
-                        <span key={tag} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full">
-                          {tag}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">类型</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">标题</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">期刊</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">关键词</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">DOI 链接</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {DEMO_PAPERS.map((paper) => (
+                    <tr key={paper.id} className="hover:bg-slate-50 transition">
+                      <td className="px-4 py-4">
+                        <span className={paper.tier === 2 ? 'text-green-600' : 'text-slate-400'}>
+                          {paper.tier === 2 ? '📖' : '📄'}
                         </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition">
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="text-sm font-medium text-slate-800">{paper.title}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{paper.authors} · {paper.year}</div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className="text-xs text-slate-600">{paper.journal}</span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {paper.tags.map((tag) => (
+                            <span key={tag} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <a
+                          href={`https://doi.org/${paper.doi}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          doi.org/{paper.doi.slice(0, 15)}...
+                        </a>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition">
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

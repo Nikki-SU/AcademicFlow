@@ -1,15 +1,14 @@
 /**
  * 认证状态管理 (Zustand)
  * -------------------------------------------------
- * 存储当前登录态：token / user / scopes / 加载中标志 / 错误信息。
- * 数据持久层：IndexedDB via ../services/db.ts。
+ * 存储当前登录态：token / user / scopes / method / loginAt / expiresAt / 加载中标志 / 错误信息。
+ * 数据持久层：IndexedDB auth object store via ../services/db.ts（spec §1.12.2）。
  */
 import { create } from 'zustand'
 import {
-  SETTING_KEYS,
-  deleteSettings,
-  getSetting,
-  putSetting,
+  deleteAuth,
+  getAuth,
+  putAuth,
 } from '../services/db'
 import { verifyPAT } from '../services/github'
 import type { AuthState, GitHubUser } from '../types'
@@ -18,8 +17,8 @@ import { useWorkspaceStore } from './workspace'
 interface AuthActions {
   /** 应用启动时调用：从 IndexedDB 恢复登录态 */
   init: () => Promise<void>
-  /** 用户提交 PAT 登录 */
-  login: (token: string) => Promise<void>
+  /** 用户登录（支持 Device Flow 和 PAT） */
+  login: (token: string, method: 'device_flow' | 'pat', expiresAt?: number) => Promise<void>
   /** 登出：清空 IndexedDB 中的凭据 + 内存态 */
   logout: () => Promise<void>
   /** 清错误提示 */
@@ -30,6 +29,9 @@ const initialState: AuthState = {
   token: null,
   user: null,
   scopes: [],
+  method: null,
+  loginAt: null,
+  expiresAt: null,
   isLoading: false,
   isInitialized: false,
   error: null,
@@ -41,57 +43,55 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
   init: async () => {
     set({ isLoading: true })
     try {
-      const token = await getSetting(SETTING_KEYS.GITHUB_TOKEN)
-      if (!token) {
+      const authRow = await getAuth()
+      if (!authRow) {
         set({ isInitialized: true, isLoading: false })
         return
       }
 
-      // 有缓存 token，直接展示缓存 user（避免闪烁），后台再重新校验
-      const userJson = await getSetting(SETTING_KEYS.GITHUB_USER_CACHE)
-      const scopesJson = await getSetting(SETTING_KEYS.GITHUB_SCOPES)
       let cachedUser: GitHubUser | null = null
       let cachedScopes: string[] = []
       try {
-        if (userJson) cachedUser = JSON.parse(userJson) as GitHubUser
-        if (scopesJson) cachedScopes = JSON.parse(scopesJson) as string[]
+        cachedUser = JSON.parse(authRow.user_data) as GitHubUser
+        cachedScopes = authRow.scope.split(',').map(s => s.trim()).filter(Boolean)
       } catch {
         // ignore parse error
       }
 
-      // 先用缓存点亮 UI
       set({
-        token,
+        token: authRow.access_token,
         user: cachedUser,
         scopes: cachedScopes,
+        method: authRow.method,
+        loginAt: authRow.login_at,
+        expiresAt: authRow.expires_at,
         isInitialized: true,
         isLoading: false,
       })
 
-      // 后台重新校验一次；若 token 已被 GitHub 吊销就清态
       try {
-        const { user, scopes } = await verifyPAT(token)
+        const { user, scopes } = await verifyPAT(authRow.access_token)
         set({ user, scopes })
-        await putSetting(
-          SETTING_KEYS.GITHUB_USER_CACHE,
-          JSON.stringify(user),
-        )
-        await putSetting(
-          SETTING_KEYS.GITHUB_SCOPES,
-          JSON.stringify(scopes),
-        )
+        await putAuth({
+          method: authRow.method,
+          access_token: authRow.access_token,
+          scope: scopes.join(','),
+          login_at: authRow.login_at,
+          expires_at: authRow.expires_at,
+          github_username: user.login,
+          github_user_id: user.id,
+          user_data: JSON.stringify(user),
+        })
       } catch (e) {
-        // token 已失效或网络不通 → 清态回登录页
         const msg = e instanceof Error ? e.message : String(e)
-        await deleteSettings([
-          SETTING_KEYS.GITHUB_TOKEN,
-          SETTING_KEYS.GITHUB_USER_CACHE,
-          SETTING_KEYS.GITHUB_SCOPES,
-        ])
+        await deleteAuth()
         set({
           token: null,
           user: null,
           scopes: [],
+          method: null,
+          loginAt: null,
+          expiresAt: null,
           error: `登录态已过期，请重新登录：${msg}`,
         })
       }
@@ -105,21 +105,32 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
     }
   },
 
-  login: async (token: string) => {
+  login: async (token: string, method: 'device_flow' | 'pat', expiresAt?: number) => {
     set({ isLoading: true, error: null })
     try {
       const { user, scopes } = await verifyPAT(token)
-      // 校验通过 → 持久化到 IndexedDB
-      await putSetting(SETTING_KEYS.GITHUB_TOKEN, token.trim())
-      await putSetting(SETTING_KEYS.GITHUB_USER_CACHE, JSON.stringify(user))
-      await putSetting(SETTING_KEYS.GITHUB_SCOPES, JSON.stringify(scopes))
+      const now = Date.now()
+      await putAuth({
+        method,
+        access_token: token.trim(),
+        scope: scopes.join(','),
+        login_at: now,
+        expires_at: expiresAt ?? null,
+        github_username: user.login,
+        github_user_id: user.id,
+        user_data: JSON.stringify(user),
+      })
       set({
         token: token.trim(),
         user,
         scopes,
+        method,
+        loginAt: now,
+        expiresAt: expiresAt ?? null,
         isLoading: false,
         error: null,
       })
+      useWorkspaceStore.getState().checkAndMaybeInit()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       set({ isLoading: false, error: msg })
@@ -128,12 +139,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
   },
 
   logout: async () => {
-    await deleteSettings([
-      SETTING_KEYS.GITHUB_TOKEN,
-      SETTING_KEYS.GITHUB_USER_CACHE,
-      SETTING_KEYS.GITHUB_SCOPES,
-    ])
-    // 同步清空 workspace store，避免下次登录看到上一账号的 repo
+    await deleteAuth()
     useWorkspaceStore.getState().reset()
     set({ ...initialState, isInitialized: true })
   },

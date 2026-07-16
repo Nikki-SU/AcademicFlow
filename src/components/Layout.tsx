@@ -2,6 +2,7 @@
  * 顶部 Tab 导航布局
  * 五个核心页面：追踪、阅读、学习、写作、管理
  */
+import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   Search,
@@ -12,6 +13,9 @@ import {
   Settings,
   LogOut,
   User,
+  ChevronDown,
+  ExternalLink,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/auth'
 
@@ -23,10 +27,107 @@ const tabs = [
   { path: '/management', label: '管理', icon: FolderCog },
 ]
 
+import type { GitHubUser } from '../types'
+
+function AuthDropdown({ user, method, expiresAt, logout, navigate }: {
+  user: GitHubUser | null
+  method: 'device_flow' | 'pat' | null
+  expiresAt: number | null
+  logout: () => Promise<void>
+  navigate: (to: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  const getDaysUntilExpire = () => {
+    if (!expiresAt) return null
+    const diff = expiresAt - Date.now()
+    return Math.ceil(diff / (1000 * 60 * 60 * 24))
+  }
+
+  const daysUntilExpire = getDaysUntilExpire()
+  const isExpiringSoon = daysUntilExpire !== null && daysUntilExpire <= 7
+
+  const handleLogout = () => {
+    if (confirm('登出后本设备的登录态将被清除。如需彻底撤销此设备对 GitHub 的访问权限，请到 GitHub → Settings → Applications 手动 revoke。')) {
+      logout()
+      navigate('/auth')
+    }
+  }
+
+  const handleReLogin = () => {
+    logout()
+    navigate('/auth')
+  }
+
+  const authUrl = method === 'device_flow'
+    ? 'https://github.com/settings/applications'
+    : 'https://github.com/settings/tokens'
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-2 py-1 rounded-md bg-slate-50 hover:bg-slate-100 transition"
+      >
+        <img
+          src={`https://avatars.githubusercontent.com/u/${user?.id}?s=32`}
+          alt={user?.login}
+          className="w-5 h-5 rounded-full"
+        />
+        <span className="text-xs text-slate-600 hidden lg:inline">@{user?.login}</span>
+        <div className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+          isExpiringSoon && daysUntilExpire !== null && daysUntilExpire >= 0
+            ? 'bg-red-100 text-red-700'
+            : daysUntilExpire !== null && daysUntilExpire < 0
+              ? 'bg-slate-200 text-slate-500'
+              : 'bg-indigo-100 text-indigo-700'
+        }`}>
+          {method === 'device_flow' ? 'Device Flow' : 'PAT'}
+        </div>
+        {daysUntilExpire !== null && (
+          <span className={`text-xs ${isExpiringSoon && daysUntilExpire >= 0 ? 'text-red-600' : 'text-slate-400'}`}>
+            {daysUntilExpire >= 0 ? `(${daysUntilExpire}天)` : '(已过期)'}
+          </span>
+        )}
+        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
+          <a
+            href={authUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <ExternalLink className="w-4 h-4" />
+            查看/管理 GitHub 授权
+          </a>
+          <button
+            onClick={handleReLogin}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <RefreshCw className="w-4 h-4" />
+            重新登录
+          </button>
+          <div className="border-t border-slate-100 my-1" />
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+          >
+            <LogOut className="w-4 h-4" />
+            登出
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, logout } = useAuthStore()
+  const { user, method, expiresAt, logout } = useAuthStore()
 
   const currentPath = location.pathname
 
@@ -82,29 +183,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
 
               {user ? (
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-50">
-                    <img
-                      src={`https://avatars.githubusercontent.com/u/${user.id}?s=32`}
-                      alt={user.login}
-                      className="w-5 h-5 rounded-full"
-                    />
-                    <span className="text-xs text-slate-600 hidden lg:inline">@{user.login}</span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      logout()
-                      navigate('/login')
-                    }}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                    title="登出"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
+                <AuthDropdown
+                  user={user}
+                  method={method}
+                  expiresAt={expiresAt}
+                  logout={logout}
+                  navigate={navigate}
+                />
               ) : (
                 <Link
-                  to="/login"
+                  to="/auth"
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-md transition"
                 >
                   <User className="w-3.5 h-3.5" />

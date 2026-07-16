@@ -125,6 +125,78 @@ export function buildPATCreateURL(): string {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// Device Flow 认证（主路径，无后端无密钥）
+// ═════════════════════════════════════════════════════════════════════════
+
+const GITHUB_CLIENT_ID = 'Ov23li6yK83u4S1YxNnP'
+
+export interface DeviceCodeResponse {
+  device_code: string
+  user_code: string
+  verification_uri: string
+  expires_in: number
+  interval: number
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  scope: string
+}
+
+export interface TokenError {
+  error: string
+  error_description?: string
+  error_uri?: string
+}
+
+/**
+ * 获取 Device Code
+ * POST https://github.com/login/device/code
+ */
+export async function getDeviceCode(): Promise<DeviceCodeResponse> {
+  const res = await fetch('https://github.com/login/device/code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: GITHUB_CLIENT_ID,
+      scope: 'repo',
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as TokenError
+    throw new Error(err.error_description || `Device Flow 失败: ${err.error}`)
+  }
+  return (await res.json()) as DeviceCodeResponse
+}
+
+/**
+ * 轮询获取 Access Token
+ * POST https://github.com/login/oauth/access_token
+ * @returns TokenResponse 成功时，null 表示等待用户授权中
+ */
+export async function pollDeviceToken(deviceCode: string): Promise<TokenResponse | null> {
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: GITHUB_CLIENT_ID,
+      device_code: deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+    }),
+  })
+  const data = (await res.json()) as TokenResponse | TokenError
+  if ('error' in data) {
+    if (data.error === 'authorization_pending') return null
+    if (data.error === 'slow_down') return null
+    if (data.error === 'expired_token') throw new Error('授权码已过期，请重新获取')
+    if (data.error === 'access_denied') throw new Error('你拒绝了授权')
+    throw new Error(data.error_description || `Token 获取失败: ${data.error}`)
+  }
+  return data
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // M2: workspace 私库操作
 // ═════════════════════════════════════════════════════════════════════════
 
@@ -421,19 +493,19 @@ export async function initEmptyRepoSkeleton(
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// JSON 文件读写（用于在私库存储应用数据）
+// md/csv 文件读写（spec §1.2：只允许 Markdown + CSV 落盘）
 // ═════════════════════════════════════════════════════════════════════════
 
 /**
- * 从仓库读取 JSON 文件
- * @returns 文件内容解析后的对象；文件不存在时返回 null
+ * 从仓库读取文本文件（md/csv）
+ * @returns 文件内容；文件不存在时返回 null
  */
-export async function readRepoJsonFile<T>(
+export async function readRepoTextFile(
   owner: string,
   repo: string,
   path: string,
   token: string,
-): Promise<T | null> {
+): Promise<{ content: string; sha: string } | null> {
   const res = await githubFetch(
     `/repos/${owner}/${repo}/contents/${encodeURI(path)}`,
     token,
@@ -445,25 +517,23 @@ export async function readRepoJsonFile<T>(
   }
   const data = (await res.json()) as { content: string; sha: string; encoding: string }
   const content = atob(data.content.replace(/\n/g, ''))
-  return JSON.parse(content) as T
+  return { content, sha: data.sha }
 }
 
 /**
- * 向仓库写入 JSON 文件（创建或覆盖）
+ * 向仓库写入文本文件（md/csv）
  * @returns 写入后的文件 sha
  */
-export async function writeRepoJsonFile<T>(
+export async function writeRepoTextFile(
   owner: string,
   repo: string,
   path: string,
-  data: T,
+  content: string,
   token: string,
   message?: string,
 ): Promise<string> {
-  const content = JSON.stringify(data, null, 2)
   const encoded = utf8ToBase64(content)
 
-  // 先尝试获取现有文件的 sha（用于更新）
   let existingSha: string | undefined
   try {
     const getRes = await githubFetch(

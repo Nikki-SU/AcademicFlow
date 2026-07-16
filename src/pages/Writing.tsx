@@ -46,7 +46,7 @@ const WORK_MODES: { value: WorkMode; label: string }[] = [
 export default function WritingPage() {
   const [projects, setProjects] = useState<Project[]>(DEMO_PROJECTS)
   const [activeProjectId, setActiveProjectId] = useState<string | null>('1')
-  const [mdContent, setMdContent] = useState(`# 引言\n\n近年来，钙钛矿太阳能电池（PSCs）取得了突破性进展[@doi:10.1038/nature12345]。\n\n## 结果与讨论\n\n我们制备了高效率的钙钛矿薄膜...`)
+  const [mdContent, setMdContent] = useState(`# 引言\n\n近年来，钙钛矿太阳能电池（PSCs）取得了突破性进展[[10.1038/nature12345]]。\n\n## 结果与讨论\n\n我们制备了高效率的钙钛矿薄膜...`)
   const [leftMode, setLeftMode] = useState<WorkMode>('md-editor')
   const [rightMode, setRightMode] = useState<WorkMode>('latex-preview')
   const [isConverting, setIsConverting] = useState(false)
