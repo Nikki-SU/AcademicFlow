@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   GraduationCap,
   Brain,
@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Check,
   X,
-  Image,
   BookOpen,
   SpellCheck,
   Volume2,
@@ -17,7 +16,6 @@ import {
   Sparkles,
   Loader2,
   Settings,
-  RefreshCw,
   CheckCircle,
   XCircle,
   PenTool,
@@ -27,14 +25,13 @@ import {
 import { toast } from 'sonner'
 
 type TabId = 'words' | 'sentences' | 'translation'
-type QuestionType = 'image' | 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
+type QuestionType = 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
 
 interface Word {
   id: string
   word: string
   phonetic: string
   meaning: string
-  imagePrompt: string
   exampleEn: string
   exampleZh: string
   root?: string
@@ -42,6 +39,7 @@ interface Word {
   proficiency?: number
   errorCount?: number
   lastStudyTime?: number
+  seenCount?: number
 }
 
 interface Sentence {
@@ -70,7 +68,6 @@ interface StudyStats {
 }
 
 const questionTypes: { id: QuestionType; label: string; icon: typeof Brain }[] = [
-  { id: 'image', label: '图片选择', icon: Image },
   { id: 'word', label: '单词选择', icon: BookOpen },
   { id: 'spelling', label: '拼写练习', icon: SpellCheck },
   { id: 'listening', label: '听音辨词', icon: Volume2 },
@@ -90,50 +87,50 @@ const DEFAULT_WORDS: Word[] = [
     word: 'perovskite',
     phonetic: '/pəˈrɒvskaɪt/',
     meaning: '钙钛矿',
-    imagePrompt: 'perovskite crystal structure scientific illustration',
     exampleEn: 'Perovskite solar cells have achieved remarkable efficiency improvements in recent years.',
     exampleZh: '钙钛矿太阳能电池近年来在效率上取得了显著的提升。',
     root: 'perov- (钙钛矿结构) + -skite (矿)',
+    seenCount: 0,
   },
   {
     id: 'w2',
     word: 'catalysis',
     phonetic: '/kəˈtælɪsɪs/',
     meaning: '催化',
-    imagePrompt: 'catalysis chemical reaction laboratory illustration',
     exampleEn: 'Heterogeneous catalysis plays a vital role in industrial chemical processes.',
     exampleZh: '多相催化在工业化学过程中起着至关重要的作用。',
     root: 'cata- (完全) + lysis (分解)',
+    seenCount: 0,
   },
   {
     id: 'w3',
     word: 'electrolyte',
     phonetic: '/ɪˈlektrəlaɪt/',
     meaning: '电解质',
-    imagePrompt: 'electrolyte solution battery chemistry illustration',
     exampleEn: 'Solid-state electrolytes offer improved safety compared to liquid electrolytes.',
     exampleZh: '与液态电解质相比，固态电解质具有更高的安全性。',
     root: 'electro- (电) + -lyte (溶解物)',
+    seenCount: 0,
   },
   {
     id: 'w4',
     word: 'photovoltaic',
     phonetic: '/ˌfəʊtəʊvɒlˈteɪɪk/',
     meaning: '光伏的',
-    imagePrompt: 'photovoltaic solar panel energy illustration',
     exampleEn: 'Photovoltaic technology converts sunlight directly into electricity.',
     exampleZh: '光伏技术将太阳光直接转化为电能。',
     root: 'photo- (光) + voltaic (电流的)',
+    seenCount: 0,
   },
   {
     id: 'w5',
     word: 'semiconductor',
     phonetic: '/ˌsemikənˈdʌktə/',
     meaning: '半导体',
-    imagePrompt: 'semiconductor wafer chip technology illustration',
     exampleEn: 'Silicon is the most widely used semiconductor material in electronic devices.',
     exampleZh: '硅是电子设备中使用最广泛的半导体材料。',
     root: 'semi- (半) + conductor (导体)',
+    seenCount: 0,
   },
 ]
 
@@ -195,6 +192,7 @@ const STORAGE_KEYS = {
   stats: 'learn_stats',
   currentType: 'learn_current_type',
   randomMode: 'learn_random_mode',
+  enabledTypes: 'learn_enabled_types',
 }
 
 const AI_GENERATE_OPTIONS = [
@@ -231,11 +229,6 @@ function shuffleArray<T>(arr: T[]): T[] {
   return result
 }
 
-function generateImageUrl(prompt: string): string {
-  const encoded = encodeURIComponent(prompt)
-  return `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encoded}&image_size=square_hd`
-}
-
 function getTodayString(): string {
   return new Date().toISOString().split('T')[0]
 }
@@ -244,6 +237,22 @@ function getBlankPosition(sentence: string, word: string): number {
   const lowerSentence = sentence.toLowerCase()
   const lowerWord = word.toLowerCase()
   return lowerSentence.indexOf(lowerWord)
+}
+
+function formatTime(timestamp?: number): string {
+  if (!timestamp) return '从未学习'
+  const date = new Date(timestamp)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+  
+  if (diffMins < 1) return '刚刚'
+  if (diffMins < 60) return `${diffMins}分钟前`
+  if (diffHours < 24) return `${diffHours}小时前`
+  if (diffDays < 7) return `${diffDays}天前`
+  return date.toLocaleDateString('zh-CN')
 }
 
 export default function LearnPage() {
@@ -307,6 +316,7 @@ export default function LearnPage() {
               ...w,
               proficiency: Math.min((w.proficiency || 0) + 1, 5),
               lastStudyTime: Date.now(),
+              seenCount: (w.seenCount || 0) + 1,
             }
           : w
       )
@@ -321,6 +331,7 @@ export default function LearnPage() {
               ...w,
               errorCount: (w.errorCount || 0) + 1,
               lastStudyTime: Date.now(),
+              seenCount: (w.seenCount || 0) + 1,
             }
           : w
       )
@@ -341,8 +352,8 @@ export default function LearnPage() {
       await new Promise((r) => setTimeout(r, 2000))
       if (genTypes.words) {
         const newWords: Word[] = [
-          { id: `ai-${Date.now()}-1`, word: 'photovoltaic', phonetic: '/ˌfəʊtəʊvɒlˈteɪɪk/', meaning: '光伏的', imagePrompt: 'solar panel photovoltaic cell blue technology', exampleEn: 'Photovoltaic technology converts sunlight directly into electricity.', exampleZh: '光伏技术将阳光直接转化为电能。', root: 'photo-光 + voltaic-电的' },
-          { id: `ai-${Date.now()}-2`, word: 'efficiency', phonetic: '/ɪˈfɪʃənsi/', meaning: '效率', imagePrompt: 'energy efficiency chart graph green', exampleEn: 'The power conversion efficiency reached a record 26%.', exampleZh: '功率转换效率达到了创纪录的26%。', root: 'ef-出 + fic-做 + -iency' },
+          { id: `ai-${Date.now()}-1`, word: 'photovoltaic', phonetic: '/ˌfəʊtəʊvɒlˈteɪɪk/', meaning: '光伏的', exampleEn: 'Photovoltaic technology converts sunlight directly into electricity.', exampleZh: '光伏技术将阳光直接转化为电能。', root: 'photo-光 + voltaic-电的', seenCount: 0 },
+          { id: `ai-${Date.now()}-2`, word: 'efficiency', phonetic: '/ɪˈfɪʃənsi/', meaning: '效率', exampleEn: 'The power conversion efficiency reached a record 26%.', exampleZh: '功率转换效率达到了创纪录的26%。', root: 'ef-出 + fic-做 + -iency', seenCount: 0 },
         ]
         setWords((prev) => [...newWords, ...prev])
       }
@@ -511,14 +522,20 @@ interface WordSectionProps {
 function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }: WordSectionProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [currentType, setCurrentType] = useState<QuestionType>(() =>
-    loadFromStorage<QuestionType>(STORAGE_KEYS.currentType, 'image')
+    loadFromStorage<QuestionType>(STORAGE_KEYS.currentType, 'word')
   )
   const [randomMode, setRandomMode] = useState<boolean>(() =>
     loadFromStorage<boolean>(STORAGE_KEYS.randomMode, false)
   )
+  const [enabledTypes, setEnabledTypes] = useState<QuestionType[]>(() =>
+    loadFromStorage<QuestionType[]>(STORAGE_KEYS.enabledTypes, ['word', 'spelling', 'listening', 'zhToEn', 'enToZh'])
+  )
+  const [randomQuestionMode, setRandomQuestionMode] = useState<boolean>(false)
+  const [questionTypeForWord, setQuestionTypeForWord] = useState<QuestionType>('word')
   const [showSettings, setShowSettings] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDetail, setShowDetail] = useState(false)
+  const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const currentWord = words[currentIndex % words.length]
 
@@ -530,13 +547,33 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
     saveToStorage(STORAGE_KEYS.randomMode, randomMode)
   }, [randomMode])
 
-  const handlePrev = () => {
-    setShowDetail(false)
-    setCurrentIndex((i) => (i - 1 + words.length) % words.length)
-  }
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.enabledTypes, enabledTypes)
+  }, [enabledTypes])
 
-  const handleNext = () => {
+  useEffect(() => {
+    if (randomQuestionMode && enabledTypes.length > 0) {
+      const randomType = enabledTypes[Math.floor(Math.random() * enabledTypes.length)]
+      setQuestionTypeForWord(randomType)
+    } else {
+      setQuestionTypeForWord(enabledTypes.includes(currentType) ? currentType : (enabledTypes[0] || 'word'))
+    }
+  }, [currentIndex, randomQuestionMode, enabledTypes, currentType])
+
+  useEffect(() => {
+    return () => {
+      if (autoNextTimerRef.current) {
+        clearTimeout(autoNextTimerRef.current)
+      }
+    }
+  }, [])
+
+  const goToNext = useCallback(() => {
     setShowDetail(false)
+    if (autoNextTimerRef.current) {
+      clearTimeout(autoNextTimerRef.current)
+      autoNextTimerRef.current = null
+    }
     if (randomMode) {
       let nextIndex = Math.floor(Math.random() * words.length)
       while (nextIndex === currentIndex && words.length > 1) {
@@ -546,6 +583,15 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
     } else {
       setCurrentIndex((i) => (i + 1) % words.length)
     }
+  }, [randomMode, words.length, currentIndex])
+
+  const handlePrev = () => {
+    setShowDetail(false)
+    if (autoNextTimerRef.current) {
+      clearTimeout(autoNextTimerRef.current)
+      autoNextTimerRef.current = null
+    }
+    setCurrentIndex((i) => (i - 1 + words.length) % words.length)
   }
 
   const handleMastered = () => {
@@ -566,14 +612,46 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
   const handleCorrect = useCallback(() => {
     if (currentWord) {
       onMarkLearned(currentWord.id)
+      
+      const newSeenCount = (currentWord.seenCount || 0) + 1
+      const isFirstTimeAfter = newSeenCount === 1
+      
+      if (isFirstTimeAfter) {
+        setTimeout(() => {
+          setShowDetail(true)
+        }, 500)
+      } else {
+        autoNextTimerRef.current = setTimeout(() => {
+          goToNext()
+        }, 800)
+      }
     }
-  }, [currentWord, onMarkLearned])
+  }, [currentWord, onMarkLearned, goToNext])
 
   const handleWrong = useCallback(() => {
     if (currentWord) {
       onMarkError(currentWord.id)
+      
+      setTimeout(() => {
+        setShowDetail(true)
+      }, 800)
     }
   }, [currentWord, onMarkError])
+
+  const toggleType = (type: QuestionType) => {
+    setEnabledTypes((prev) => {
+      if (prev.includes(type)) {
+        if (prev.length === 1) return prev
+        return prev.filter((t) => t !== type)
+      }
+      return [...prev, type]
+    })
+  }
+
+  const activeQuestionType = useMemo(() => {
+    if (showDetail) return 'detail'
+    return questionTypeForWord
+  }, [showDetail, questionTypeForWord])
 
   if (words.length === 0) {
     return (
@@ -640,19 +718,26 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
 
       {showSettings && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-          <div className="text-sm font-medium text-slate-700 mb-3">题型选择</div>
+          <div className="text-sm font-medium text-slate-700 mb-3">当前题型</div>
           <div className="flex flex-wrap gap-2 mb-4">
             {questionTypes.map((qt) => {
               const Icon = qt.icon
               const isActive = currentType === qt.id
+              const isEnabled = enabledTypes.includes(qt.id)
               return (
                 <button
                   key={qt.id}
-                  onClick={() => setCurrentType(qt.id)}
+                  onClick={() => {
+                    if (isEnabled) {
+                      setCurrentType(qt.id)
+                    }
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                     isActive
-                      ? 'bg-indigo-100 text-indigo-700'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                      : isEnabled
+                      ? 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      : 'bg-slate-50 text-slate-300 border border-slate-100 cursor-not-allowed'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -661,75 +746,107 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
               )
             })}
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-slate-600">随机模式</span>
-            <button
-              onClick={() => setRandomMode(!randomMode)}
-              className={`relative w-11 h-6 rounded-full transition ${
-                randomMode ? 'bg-indigo-600' : 'bg-slate-300'
-              }`}
-            >
-              <div
-                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                  randomMode ? 'translate-x-5' : 'translate-x-0.5'
+          
+          <div className="text-sm font-medium text-slate-700 mb-2">启用题型</div>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {questionTypes.map((qt) => {
+              const Icon = qt.icon
+              const isEnabled = enabledTypes.includes(qt.id)
+              return (
+                <button
+                  key={qt.id}
+                  onClick={() => toggleType(qt.id)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                    isEnabled
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : 'bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {isEnabled ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                  <Icon className="w-3 h-3" />
+                  {qt.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="space-y-3 pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-600">随机题型</span>
+              <button
+                onClick={() => setRandomQuestionMode(!randomQuestionMode)}
+                className={`relative w-11 h-6 rounded-full transition ${
+                  randomQuestionMode ? 'bg-indigo-600' : 'bg-slate-300'
                 }`}
-              />
-            </button>
+              >
+                <div
+                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    randomQuestionMode ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-600">随机单词顺序</span>
+              <button
+                onClick={() => setRandomMode(!randomMode)}
+                className={`relative w-11 h-6 rounded-full transition ${
+                  randomMode ? 'bg-indigo-600' : 'bg-slate-300'
+                }`}
+              >
+                <div
+                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    randomMode ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {!showDetail && currentWord && (
         <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-4">
-          {currentType === 'image' && (
-            <ImageQuestion
-              word={currentWord}
-              words={words}
-              onCorrect={handleCorrect}
-              onWrong={handleWrong}
-              onShowDetail={() => setShowDetail(true)}
-            />
-          )}
-          {currentType === 'word' && (
+          {activeQuestionType === 'word' && (
             <WordQuestion
+              key={currentWord.id + '-word'}
               word={currentWord}
               words={words}
               onCorrect={handleCorrect}
               onWrong={handleWrong}
-              onShowDetail={() => setShowDetail(true)}
             />
           )}
-          {currentType === 'spelling' && (
+          {activeQuestionType === 'spelling' && (
             <SpellingQuestion
+              key={currentWord.id + '-spelling'}
               word={currentWord}
               onCorrect={handleCorrect}
               onWrong={handleWrong}
-              onShowDetail={() => setShowDetail(true)}
             />
           )}
-          {currentType === 'listening' && (
+          {activeQuestionType === 'listening' && (
             <ListeningQuestion
+              key={currentWord.id + '-listening'}
               word={currentWord}
               words={words}
               onCorrect={handleCorrect}
               onWrong={handleWrong}
-              onShowDetail={() => setShowDetail(true)}
             />
           )}
-          {currentType === 'zhToEn' && (
+          {activeQuestionType === 'zhToEn' && (
             <ZhToEnQuestion
+              key={currentWord.id + '-zhtoen'}
               word={currentWord}
               onCorrect={handleCorrect}
               onWrong={handleWrong}
-              onShowDetail={() => setShowDetail(true)}
             />
           )}
-          {currentType === 'enToZh' && (
+          {activeQuestionType === 'enToZh' && (
             <EnToZhQuestion
+              key={currentWord.id + 'entozh'}
               word={currentWord}
               onCorrect={handleCorrect}
               onWrong={handleWrong}
-              onShowDetail={() => setShowDetail(true)}
             />
           )}
         </div>
@@ -738,7 +855,7 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
       {showDetail && currentWord && (
         <WordDetail
           word={currentWord}
-          onBack={() => setShowDetail(false)}
+          onNext={goToNext}
           onMastered={handleMastered}
         />
       )}
@@ -763,7 +880,7 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
           {currentWord?.mastered ? '已掌握' : '掌握'}
         </button>
         <button
-          onClick={handleNext}
+          onClick={goToNext}
           className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
         >
           下一题
@@ -781,10 +898,9 @@ interface QuestionProps {
   words: Word[]
   onCorrect: () => void
   onWrong: () => void
-  onShowDetail: () => void
 }
 
-function ImageQuestion({ word, words, onCorrect, onWrong, onShowDetail }: QuestionProps) {
+function WordQuestion({ word, words, onCorrect, onWrong }: QuestionProps) {
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const [showResult, setShowResult] = useState(false)
 
@@ -795,111 +911,6 @@ function ImageQuestion({ word, words, onCorrect, onWrong, onShowDetail }: Questi
     const shuffledOthers = shuffleArray(otherMeanings).slice(0, 3)
     return shuffleArray([word.meaning, ...shuffledOthers])
   }, [word, words])
-
-  useEffect(() => {
-    setSelectedOption(null)
-    setShowResult(false)
-  }, [word.id])
-
-  const handleSelect = (option: string) => {
-    if (showResult) return
-    setSelectedOption(option)
-    setShowResult(true)
-    if (option === word.meaning) {
-      onCorrect()
-      toast.success('回答正确！')
-    } else {
-      onWrong()
-      toast.error('回答错误')
-    }
-  }
-
-  const isCorrect = selectedOption === word.meaning
-
-  return (
-    <div className="p-6">
-      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
-        <Image className="w-3.5 h-3.5" />
-        图片选择题
-      </div>
-
-      <div className="aspect-square w-full max-w-sm mx-auto rounded-xl overflow-hidden bg-slate-100 mb-6">
-        <img
-          src={generateImageUrl(word.imagePrompt)}
-          alt={word.word}
-          className="w-full h-full object-cover"
-        />
-      </div>
-
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-slate-800 mb-1">{word.word}</h2>
-        <p className="text-sm text-slate-400">{word.phonetic}</p>
-      </div>
-
-      <p className="text-center text-sm text-slate-600 mb-4">请选择正确的中文释义</p>
-
-      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
-        {options.map((option) => {
-          const isSelected = selectedOption === option
-          const isCorrectAnswer = option === word.meaning
-          let btnClass = 'bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
-          if (showResult) {
-            if (isCorrectAnswer) {
-              btnClass = 'bg-green-50 border-green-500 text-green-700'
-            } else if (isSelected) {
-              btnClass = 'bg-red-50 border-red-500 text-red-700'
-            } else {
-              btnClass = 'bg-slate-50 border-slate-200 text-slate-400'
-            }
-          }
-          return (
-            <button
-              key={option}
-              onClick={() => handleSelect(option)}
-              disabled={showResult}
-              className={`p-4 rounded-xl border-2 text-sm font-medium transition ${btnClass}`}
-            >
-              {option}
-            </button>
-          )
-        })}
-      </div>
-
-      {showResult && (
-        <div className="mt-6 flex flex-col items-center gap-3">
-          <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
-            {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-            <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
-          </div>
-          <button
-            onClick={onShowDetail}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-          >
-            <BookOpen className="w-4 h-4" />
-            查看单词详解
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function WordQuestion({ word, words, onCorrect, onWrong, onShowDetail }: QuestionProps) {
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const [showResult, setShowResult] = useState(false)
-
-  const options = useMemo(() => {
-    const otherMeanings = words
-      .filter((w) => w.id !== word.id)
-      .map((w) => w.meaning)
-    const shuffledOthers = shuffleArray(otherMeanings).slice(0, 3)
-    return shuffleArray([word.meaning, ...shuffledOthers])
-  }, [word, words])
-
-  useEffect(() => {
-    setSelectedOption(null)
-    setShowResult(false)
-  }, [word.id])
 
   const handleSelect = (option: string) => {
     if (showResult) return
@@ -958,18 +969,16 @@ function WordQuestion({ word, words, onCorrect, onWrong, onShowDetail }: Questio
       </div>
 
       {showResult && (
-        <div className="mt-6 flex flex-col items-center gap-3">
+        <div className="mt-6 flex flex-col items-center gap-2">
           <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
             {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
             <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
           </div>
-          <button
-            onClick={onShowDetail}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-          >
-            <BookOpen className="w-4 h-4" />
-            查看单词详解
-          </button>
+          {!isCorrect && (
+            <p className="text-sm text-slate-500">
+              正确答案：<span className="font-semibold text-indigo-600">{word.meaning}</span>
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -980,10 +989,9 @@ interface SpellingProps {
   word: Word
   onCorrect: () => void
   onWrong: () => void
-  onShowDetail: () => void
 }
 
-function SpellingQuestion({ word, onCorrect, onWrong, onShowDetail }: SpellingProps) {
+function SpellingQuestion({ word, onCorrect, onWrong }: SpellingProps) {
   const [spelledLetters, setSpelledLetters] = useState<string[]>([])
   const [shuffledLetters, setShuffledLetters] = useState<string[]>([])
   const [spellingCorrect, setSpellingCorrect] = useState<boolean | null>(null)
@@ -1102,27 +1110,20 @@ function SpellingQuestion({ word, onCorrect, onWrong, onShowDetail }: SpellingPr
       </div>
 
       {hasAnswered && (
-        <div className="mt-4 flex flex-col items-center gap-3">
+        <div className="mt-4 flex flex-col items-center gap-2">
           <div className={`flex items-center gap-2 ${spellingCorrect ? 'text-green-600' : 'text-red-500'}`}>
             {spellingCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
             <span className="font-medium">
               {spellingCorrect ? '拼写正确！' : `正确答案：${word.word}`}
             </span>
           </div>
-          <button
-            onClick={onShowDetail}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-          >
-            <BookOpen className="w-4 h-4" />
-            查看单词详解
-          </button>
         </div>
       )}
     </div>
   )
 }
 
-function ListeningQuestion({ word, words, onCorrect, onWrong, onShowDetail }: QuestionProps) {
+function ListeningQuestion({ word, words, onCorrect, onWrong }: QuestionProps) {
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const [showResult, setShowResult] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -1134,11 +1135,6 @@ function ListeningQuestion({ word, words, onCorrect, onWrong, onShowDetail }: Qu
     const shuffledOthers = shuffleArray(otherWords).slice(0, 3)
     return shuffleArray([word.word, ...shuffledOthers])
   }, [word, words])
-
-  useEffect(() => {
-    setSelectedOption(null)
-    setShowResult(false)
-  }, [word.id])
 
   const playPronunciation = () => {
     setIsPlaying(true)
@@ -1216,29 +1212,24 @@ function ListeningQuestion({ word, words, onCorrect, onWrong, onShowDetail }: Qu
       </div>
 
       {showResult && (
-        <div className="mt-6 flex flex-col items-center gap-3">
+        <div className="mt-6 flex flex-col items-center gap-2">
           <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
             {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
             <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
           </div>
-          <p className="text-sm text-slate-500">
-            正确答案：<span className="font-semibold text-indigo-600">{word.word}</span>
-            <span className="text-slate-400 ml-2">{word.meaning}</span>
-          </p>
-          <button
-            onClick={onShowDetail}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-          >
-            <BookOpen className="w-4 h-4" />
-            查看单词详解
-          </button>
+          {!isCorrect && (
+            <p className="text-sm text-slate-500">
+              正确答案：<span className="font-semibold text-indigo-600">{word.word}</span>
+              <span className="text-slate-400 ml-2">{word.meaning}</span>
+            </p>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function ZhToEnQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<QuestionProps, 'words'>) {
+function ZhToEnQuestion({ word, onCorrect, onWrong }: Omit<QuestionProps, 'words'>) {
   const [inputValue, setInputValue] = useState('')
   const [showResult, setShowResult] = useState(false)
   const [isCorrect, setIsCorrect] = useState(false)
@@ -1253,12 +1244,6 @@ function ZhToEnQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<Questio
       after: word.exampleZh.slice(blankPos + word.meaning.length),
     }
   }, [word, blankPos])
-
-  useEffect(() => {
-    setInputValue('')
-    setShowResult(false)
-    setIsCorrect(false)
-  }, [word.id])
 
   const handleSubmit = () => {
     if (!inputValue.trim()) {
@@ -1320,14 +1305,7 @@ function ZhToEnQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<Questio
             >
               提交
             </button>
-          ) : (
-            <button
-              onClick={onShowDetail}
-              className="px-6 py-3 bg-white border border-slate-200 text-indigo-600 rounded-xl font-medium hover:bg-indigo-50 transition"
-            >
-              详解
-            </button>
-          )}
+          ) : null}
         </div>
 
         {showResult && (
@@ -1348,7 +1326,7 @@ function ZhToEnQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<Questio
   )
 }
 
-function EnToZhQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<QuestionProps, 'words'>) {
+function EnToZhQuestion({ word, onCorrect, onWrong }: Omit<QuestionProps, 'words'>) {
   const [inputValue, setInputValue] = useState('')
   const [showResult, setShowResult] = useState(false)
   const [isCorrect, setIsCorrect] = useState(false)
@@ -1363,12 +1341,6 @@ function EnToZhQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<Questio
       after: word.exampleEn.slice(blankPos + word.word.length),
     }
   }, [word, blankPos])
-
-  useEffect(() => {
-    setInputValue('')
-    setShowResult(false)
-    setIsCorrect(false)
-  }, [word.id])
 
   const handleSubmit = () => {
     if (!inputValue.trim()) {
@@ -1430,14 +1402,7 @@ function EnToZhQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<Questio
             >
               提交
             </button>
-          ) : (
-            <button
-              onClick={onShowDetail}
-              className="px-6 py-3 bg-white border border-slate-200 text-indigo-600 rounded-xl font-medium hover:bg-indigo-50 transition"
-            >
-              详解
-            </button>
-          )}
+          ) : null}
         </div>
 
         {showResult && (
@@ -1460,21 +1425,11 @@ function EnToZhQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<Questio
 
 interface WordDetailProps {
   word: Word
-  onBack: () => void
+  onNext: () => void
   onMastered: () => void
 }
 
-function WordDetail({ word, onBack, onMastered }: WordDetailProps) {
-  const [spelledLetters, setSpelledLetters] = useState<string[]>([])
-  const [shuffledLetters, setShuffledLetters] = useState<string[]>([])
-  const [spellingCorrect, setSpellingCorrect] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    setSpelledLetters([])
-    setSpellingCorrect(null)
-    setShuffledLetters(shuffleArray(word.word.split('')))
-  }, [word.id, word.word])
-
+function WordDetail({ word, onNext, onMastered }: WordDetailProps) {
   const playPronunciation = () => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(word.word)
@@ -1484,50 +1439,14 @@ function WordDetail({ word, onBack, onMastered }: WordDetailProps) {
     }
   }
 
-  const handleLetterClick = (letter: string, index: number) => {
-    if (spellingCorrect !== null) return
-    const newSpelled = [...spelledLetters, letter]
-    setSpelledLetters(newSpelled)
-    const newShuffled = [...shuffledLetters]
-    newShuffled.splice(index, 1)
-    setShuffledLetters(newShuffled)
-
-    if (newSpelled.length === word.word.length) {
-      const isCorrect = newSpelled.join('').toLowerCase() === word.word.toLowerCase()
-      setSpellingCorrect(isCorrect)
-      if (isCorrect) {
-        toast.success('拼写正确！')
-      } else {
-        toast.error('拼写错误')
-      }
-    }
-  }
-
-  const handleUndoLetter = () => {
-    if (spelledLetters.length === 0 || spellingCorrect !== null) return
-    const lastLetter = spelledLetters[spelledLetters.length - 1]
-    setSpelledLetters(spelledLetters.slice(0, -1))
-    setShuffledLetters([...shuffledLetters, lastLetter])
-    setSpellingCorrect(null)
-  }
-
-  const handleResetSpelling = () => {
-    setSpelledLetters([])
-    setShuffledLetters(shuffleArray(word.word.split('')))
-    setSpellingCorrect(null)
-  }
-
   return (
     <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-4">
       <div className="p-6">
         <div className="flex items-center justify-between mb-6">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            返回练习
-          </button>
+          <div className="text-xs font-medium text-indigo-500 flex items-center gap-1.5">
+            <BookOpen className="w-3.5 h-3.5" />
+            单词详解
+          </div>
           <button
             onClick={onMastered}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
@@ -1572,99 +1491,40 @@ function WordDetail({ word, onBack, onMastered }: WordDetailProps) {
             </div>
           )}
 
-          {(word.proficiency !== undefined || word.errorCount !== undefined) && (
-            <div className="bg-blue-50 rounded-xl p-4">
-              <div className="text-xs font-medium text-blue-600 mb-2">学习记录</div>
-              <div className="flex gap-4 text-sm">
-                {word.proficiency !== undefined && (
-                  <div>
-                    <span className="text-blue-500">熟练度：</span>
-                    <span className="text-blue-700 font-medium">{word.proficiency}/5</span>
-                  </div>
-                )}
-                {word.errorCount !== undefined && (
-                  <div>
-                    <span className="text-blue-500">错误次数：</span>
-                    <span className="text-blue-700 font-medium">{word.errorCount}</span>
-                  </div>
-                )}
+          <div className="bg-blue-50 rounded-xl p-4">
+            <div className="text-xs font-medium text-blue-600 mb-2">学习记录</div>
+            <div className="flex flex-wrap gap-4 text-sm">
+              {word.proficiency !== undefined && (
+                <div>
+                  <span className="text-blue-500">熟练度：</span>
+                  <span className="text-blue-700 font-medium">{word.proficiency}/5</span>
+                </div>
+              )}
+              {word.errorCount !== undefined && (
+                <div>
+                  <span className="text-blue-500">错误次数：</span>
+                  <span className="text-blue-700 font-medium">{word.errorCount}</span>
+                </div>
+              )}
+              <div>
+                <span className="text-blue-500">上次学习：</span>
+                <span className="text-blue-700 font-medium">{formatTime(word.lastStudyTime)}</span>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
       <div className="border-t border-slate-100 p-6">
-        <div className="text-sm font-medium text-slate-700 mb-4 flex items-center gap-1.5">
-          <SpellCheck className="w-4 h-4 text-indigo-600" />
-          拼写练习
-        </div>
-
-        <div className="flex justify-center gap-2 mb-4 min-h-[52px]">
-          {word.word.split('').map((_, i) => {
-            const letter = spelledLetters[i] || ''
-            const isCorrectLetter = spellingCorrect === true
-            const isWrongLetter = spellingCorrect === false && letter && letter.toLowerCase() !== word.word[i].toLowerCase()
-            return (
-              <div
-                key={i}
-                className={`w-10 h-12 flex items-center justify-center text-lg font-bold rounded-lg border-2 transition ${
-                  letter
-                    ? isCorrectLetter
-                      ? 'bg-green-50 border-green-400 text-green-700'
-                      : isWrongLetter
-                      ? 'bg-red-50 border-red-400 text-red-700'
-                      : 'bg-indigo-50 border-indigo-400 text-indigo-700'
-                    : 'bg-white border-slate-200'
-                }`}
-              >
-                {letter}
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="flex justify-center flex-wrap gap-2 mb-4 max-w-md mx-auto">
-          {shuffledLetters.map((letter, i) => (
-            <button
-              key={`${letter}-${i}`}
-              onClick={() => handleLetterClick(letter, i)}
-              disabled={spellingCorrect !== null}
-              className="w-10 h-10 flex items-center justify-center text-base font-semibold bg-white border-2 border-slate-200 rounded-lg text-slate-700 hover:border-indigo-400 hover:bg-indigo-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {letter}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex justify-center gap-3">
+        <div className="flex items-center justify-center gap-3">
           <button
-            onClick={handleUndoLetter}
-            disabled={spelledLetters.length === 0 || spellingCorrect !== null}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={onNext}
+            className="flex items-center gap-1.5 px-8 py-3 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition shadow-sm"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
-            撤销
-          </button>
-          <button
-            onClick={handleResetSpelling}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            重置
+            下一题
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
-
-        {spellingCorrect !== null && (
-          <div className="mt-4 text-center">
-            <div className={`flex items-center justify-center gap-2 ${spellingCorrect ? 'text-green-600' : 'text-red-500'}`}>
-              {spellingCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-              <span className="font-medium">
-                {spellingCorrect ? '拼写正确！' : `正确答案：${word.word}`}
-              </span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -2002,10 +1862,10 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
       word: word.trim(),
       phonetic: phonetic.trim() || '',
       meaning: meaning.trim(),
-      imagePrompt: word.trim(),
       exampleEn: exampleEn.trim() || '',
       exampleZh: exampleZh.trim() || '',
       root: root.trim() || undefined,
+      seenCount: 0,
     }
     onAdd(newWord)
   }

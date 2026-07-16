@@ -13,9 +13,7 @@ import {
   Filter,
   Save,
   Clock,
-  Palette,
   X,
-  Check,
   ChevronRight,
   Bold,
   Italic,
@@ -24,14 +22,16 @@ import {
   Quote,
   Code,
   Link,
-  Eye,
+  Image,
+  Heading1,
+  Heading2,
+  Heading3,
   Edit3,
-  Columns,
+  Check,
 } from 'lucide-react'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 type SideTab = 'notes' | 'annotations'
-type NoteEditorMode = 'edit' | 'preview' | 'split'
 type FilterType = 'all' | 'has-md' | 'no-md'
 
 interface Annotation {
@@ -64,12 +64,12 @@ interface SaveState {
   lastSaved: number | null
 }
 
-const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; border: string; text: string; dot: string }[] = [
-  { value: 'yellow', label: '黄色', bg: 'bg-yellow-200/60', border: 'border-l-yellow-400 bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400' },
-  { value: 'green', label: '绿色', bg: 'bg-green-200/60', border: 'border-l-green-400 bg-green-50', text: 'text-green-700', dot: 'bg-green-400' },
-  { value: 'blue', label: '蓝色', bg: 'bg-blue-200/60', border: 'border-l-blue-400 bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' },
-  { value: 'purple', label: '紫色', bg: 'bg-purple-200/60', border: 'border-l-purple-400 bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-400' },
-  { value: 'red', label: '红色', bg: 'bg-red-200/60', border: 'border-l-red-400 bg-red-50', text: 'text-red-700', dot: 'bg-red-400' },
+const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; border: string; text: string; dot: string; ring: string }[] = [
+  { value: 'yellow', label: '黄色', bg: 'bg-yellow-200/70', border: 'border-l-yellow-400 bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400', ring: 'ring-yellow-400' },
+  { value: 'green', label: '绿色', bg: 'bg-green-200/70', border: 'border-l-green-400 bg-green-50', text: 'text-green-700', dot: 'bg-green-400', ring: 'ring-green-400' },
+  { value: 'blue', label: '蓝色', bg: 'bg-blue-200/70', border: 'border-l-blue-400 bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400', ring: 'ring-blue-400' },
+  { value: 'purple', label: '紫色', bg: 'bg-purple-200/70', border: 'border-l-purple-400 bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-400', ring: 'ring-purple-400' },
+  { value: 'red', label: '红色', bg: 'bg-red-200/70', border: 'border-l-red-400 bg-red-50', text: 'text-red-700', dot: 'bg-red-400', ring: 'ring-red-400' },
 ]
 
 const DEMO_PAPERS: Paper[] = [
@@ -226,9 +226,9 @@ const DEMO_ANNOTATIONS: Annotation[] = [
   },
 ]
 
-const DEMO_NOTES: PaperNotes = {
-  '1': '# 阅读笔记：钙钛矿太阳能电池\n\n## 核心要点\n\n钙钛矿太阳能电池是下一代光伏技术的有力竞争者，具有高效率、低成本的优势。\n\n## 关键数据\n\n- 效率：26.1%（单结）\n- 稳定性：>10000小时（实验室）\n- 带隙：~1.5 eV\n\n## 待深入研究\n\n1. 界面工程的具体方法\n2. 封装技术的最新进展\n3. 量产成本分析\n\n## 相关文献\n\n- [[10.1038/s41560-024-01234-5]] 本文\n- 待补充...',
-  '3': '# 阅读笔记：MOF衍生电催化材料\n\n## 重点\n\nMOF衍生材料在电催化中应用广泛，特别是单原子催化剂。\n\n## 三种主要应用\n\n1. ORR - 氧还原反应\n2. HER - 析氢反应  \n3. CO2RR - CO2还原',
+const DEMO_NOTES_INITIAL: PaperNotes = {
+  '1': '<h1>阅读笔记：钙钛矿太阳能电池</h1><h2>核心要点</h2><p>钙钛矿太阳能电池是下一代光伏技术的有力竞争者，具有高效率、低成本的优势。</p><h2>关键数据</h2><ul><li>效率：26.1%（单结）</li><li>稳定性：&gt;10000小时（实验室）</li><li>带隙：~1.5 eV</li></ul><h2>待深入研究</h2><ol><li>界面工程的具体方法</li><li>封装技术的最新进展</li><li>量产成本分析</li></ol><h2>相关文献</h2><p>- [[10.1038/s41560-024-01234-5]] 本文</p><p>- 待补充...</p>',
+  '3': '<h1>阅读笔记：MOF衍生电催化材料</h1><h2>重点</h2><p>MOF衍生材料在电催化中应用广泛，特别是单原子催化剂。</p><h2>三种主要应用</h2><ol><li>ORR - 氧还原反应</li><li>HER - 析氢反应</li><li>CO2RR - CO2还原</li></ol>',
 }
 
 function formatDate(timestamp: number): string {
@@ -362,6 +362,66 @@ function getColorInfo(color: HighlightColor) {
   return HIGHLIGHT_COLORS.find((c) => c.value === color) || HIGHLIGHT_COLORS[0]
 }
 
+function htmlToMarkdown(html: string): string {
+  let md = html
+
+  md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n')
+  md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n')
+  md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n')
+  md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n')
+  md = md.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '##### $1\n\n')
+  md = md.replace(/<h6[^>]*>(.*?)<\/h6>/gi, '###### $1\n\n')
+
+  md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
+  md = md.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
+  md = md.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
+  md = md.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
+
+  md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, content) => {
+    return content.trim().split('\n').map((line: string) => '> ' + line.trim()).join('\n') + '\n\n'
+  })
+
+  md = md.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
+  md = md.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '```\n$1\n```\n\n')
+
+  md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, content) => {
+    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n') + '\n'
+  })
+
+  md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, content) => {
+    let i = 1
+    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, () => {
+      return `${i++}. $1\n`
+    }) + '\n'
+  })
+
+  md = md.replace(/<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
+
+  md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n')
+  md = md.replace(/<br\s*\/?>/gi, '\n')
+  md = md.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '$1\n')
+
+  md = md.replace(/<[^>]+>/g, '')
+
+  md = md.replace(/&nbsp;/g, ' ')
+  md = md.replace(/&amp;/g, '&')
+  md = md.replace(/&lt;/g, '<')
+  md = md.replace(/&gt;/g, '>')
+  md = md.replace(/&quot;/g, '"')
+
+  md = md.replace(/\n{3,}/g, '\n\n')
+  md = md.trim()
+
+  return md
+}
+
+function getWordCountFromHtml(html: string): number {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  const text = tmp.textContent || tmp.innerText || ''
+  return text.replace(/\s/g, '').length
+}
+
 export default function ReadingPage() {
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>('1')
   const [activeSideTab, setActiveSideTab] = useState<SideTab>('notes')
@@ -369,28 +429,24 @@ export default function ReadingPage() {
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [fontSize, setFontSize] = useState(16)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
-  const [notes, setNotes] = useState<PaperNotes>({})
+  const [notesHtml, setNotesHtml] = useState<PaperNotes>({})
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null)
   const [showToolbar, setShowToolbar] = useState(false)
   const [toolbarPosition, setToolbarPosition] = useState({ top: 0, left: 0 })
   const [selectedText, setSelectedText] = useState('')
-  const [newAnnotationText, setNewAnnotationText] = useState('')
-  const [showAnnotationInput, setShowAnnotationInput] = useState(false)
-  const [pendingColor, setPendingColor] = useState<HighlightColor>('yellow')
   const [noteSaveState, setNoteSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
   const [annotationSaveState, setAnnotationSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
-  const [noteEditorMode, setNoteEditorMode] = useState<NoteEditorMode>('split')
-  const [hoverAnnotationId, setHoverAnnotationId] = useState<string | null>(null)
 
   const readerRef = useRef<HTMLDivElement>(null)
-  const annotationInputRef = useRef<HTMLTextAreaElement>(null)
-  const noteTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const noteEditorRef = useRef<HTMLDivElement>(null)
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
 
   useEffect(() => {
     const savedAnnotations = localStorage.getItem('reading-annotations')
-    const savedNotes = localStorage.getItem('reading-notes')
+    const savedNotes = localStorage.getItem('reading-notes-html')
 
     if (savedAnnotations) {
       setAnnotations(JSON.parse(savedAnnotations))
@@ -400,10 +456,10 @@ export default function ReadingPage() {
     }
 
     if (savedNotes) {
-      setNotes(JSON.parse(savedNotes))
+      setNotesHtml(JSON.parse(savedNotes))
     } else {
-      setNotes(DEMO_NOTES)
-      localStorage.setItem('reading-notes', JSON.stringify(DEMO_NOTES))
+      setNotesHtml(DEMO_NOTES_INITIAL)
+      localStorage.setItem('reading-notes-html', JSON.stringify(DEMO_NOTES_INITIAL))
     }
   }, [])
 
@@ -421,21 +477,21 @@ export default function ReadingPage() {
     }, 500)
   }, [])
 
-  const saveNoteToStorage = useCallback((paperId: string, content: string) => {
+  const saveNoteToStorage = useCallback((paperId: string, html: string) => {
     if (noteSaveTimerRef.current) {
       clearTimeout(noteSaveTimerRef.current)
     }
     setNoteSaveState({ status: 'saving', lastSaved: null })
     noteSaveTimerRef.current = setTimeout(() => {
-      const newNotes = { ...notes, [paperId]: content }
-      setNotes(newNotes)
-      localStorage.setItem('reading-notes', JSON.stringify(newNotes))
+      const newNotes = { ...notesHtml, [paperId]: html }
+      setNotesHtml(newNotes)
+      localStorage.setItem('reading-notes-html', JSON.stringify(newNotes))
       setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setNoteSaveState((prev) => ({ ...prev, status: 'idle' }))
       }, 2000)
     }, 800)
-  }, [notes])
+  }, [notesHtml])
 
   const filteredPapers = DEMO_PAPERS.filter((paper) => {
     const matchesFilter =
@@ -460,7 +516,7 @@ export default function ReadingPage() {
 
   const selectedPaper = DEMO_PAPERS.find((p) => p.id === selectedPaperId)
   const paperAnnotations = annotations.filter((a) => a.paperId === selectedPaperId)
-  const currentNote = selectedPaperId ? (notes[selectedPaperId] || '') : ''
+  const currentNoteHtml = selectedPaperId ? (notesHtml[selectedPaperId] || '') : ''
 
   const handleTextSelection = useCallback(() => {
     const selection = window.getSelection()
@@ -480,30 +536,29 @@ export default function ReadingPage() {
     const rect = range.getBoundingClientRect()
 
     setSelectedText(text)
-    setToolbarPosition({
-      top: rect.top - readerRect.top - 45,
-      left: rect.left - readerRect.left + rect.width / 2 - 120,
-    })
+    
+    const toolbarWidth = 200
+    let left = rect.left - readerRect.left + rect.width / 2 - toolbarWidth / 2
+    left = Math.max(10, Math.min(left, readerRect.width - toolbarWidth - 10))
+    
+    let top = rect.top - readerRect.top - 48
+    if (top < 10) {
+      top = rect.bottom - readerRect.top + 8
+    }
+
+    setToolbarPosition({ top, left })
     setShowToolbar(true)
-    setShowAnnotationInput(false)
   }, [])
 
   const handleHighlight = (color: HighlightColor) => {
-    if (!selectedPaperId || !selectedText) return
-    setPendingColor(color)
-    setShowAnnotationInput(true)
-    setNewAnnotationText('')
-  }
-
-  const confirmAnnotation = () => {
     if (!selectedPaperId || !selectedText) return
 
     const newAnnotation: Annotation = {
       id: `anno-${Date.now()}`,
       paperId: selectedPaperId,
       text: selectedText,
-      color: pendingColor,
-      note: newAnnotationText,
+      color,
+      note: '',
       createdAt: Date.now(),
     }
 
@@ -511,16 +566,11 @@ export default function ReadingPage() {
     setAnnotations(newAnnotations)
     saveAnnotationsToStorage(newAnnotations)
     setShowToolbar(false)
-    setShowAnnotationInput(false)
     setSelectedText('')
-    setNewAnnotationText('')
     window.getSelection()?.removeAllRanges()
     setActiveSideTab('annotations')
-  }
-
-  const cancelAnnotation = () => {
-    setShowAnnotationInput(false)
-    setNewAnnotationText('')
+    setSelectedAnnotationId(newAnnotation.id)
+    setEditingAnnotationId(newAnnotation.id)
   }
 
   const deleteAnnotation = (id: string) => {
@@ -530,52 +580,87 @@ export default function ReadingPage() {
     if (selectedAnnotationId === id) {
       setSelectedAnnotationId(null)
     }
+    if (editingAnnotationId === id) {
+      setEditingAnnotationId(null)
+    }
   }
 
-  const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (!selectedPaperId) return
-    const value = e.target.value
-    setNotes((prev) => ({ ...prev, [selectedPaperId!]: value }))
-    saveNoteToStorage(selectedPaperId, value)
+  const updateAnnotationNote = (id: string, note: string) => {
+    const newAnnotations = annotations.map((a) =>
+      a.id === id ? { ...a, note } : a
+    )
+    setAnnotations(newAnnotations)
+    saveAnnotationsToStorage(newAnnotations)
   }
 
-  const insertMarkdown = (prefix: string, suffix: string = '', placeholder: string = '') => {
-    if (!noteTextareaRef.current || !selectedPaperId) return
-    const textarea = noteTextareaRef.current
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selected = currentNote.substring(start, end) || placeholder
-    const newText = currentNote.substring(0, start) + prefix + selected + suffix + currentNote.substring(end)
-    setNotes((prev) => ({ ...prev, [selectedPaperId!]: newText }))
-    saveNoteToStorage(selectedPaperId, newText)
-    setTimeout(() => {
-      textarea.focus()
-      textarea.selectionStart = start + prefix.length
-      textarea.selectionEnd = start + prefix.length + selected.length
-    }, 0)
+  const handleNoteInput = () => {
+    if (!noteEditorRef.current || !selectedPaperId) return
+    const html = noteEditorRef.current.innerHTML
+    saveNoteToStorage(selectedPaperId, html)
+  }
+
+  const execCommand = (command: string, value?: string) => {
+    document.execCommand(command, false, value)
+    noteEditorRef.current?.focus()
+    handleNoteInput()
+  }
+
+  const insertHeading = (level: number) => {
+    execCommand('formatBlock', `h${level}`)
   }
 
   const insertLink = () => {
-    if (!selectedPaperId) return
     const url = prompt('请输入链接地址：', 'https://')
     if (!url) return
-    insertMarkdown('[', `](${url})`, '链接文字')
+    execCommand('createLink', url)
+  }
+
+  const insertImage = () => {
+    const url = prompt('请输入图片地址：', 'https://')
+    if (!url) return
+    execCommand('insertImage', url)
   }
 
   const insertCodeBlock = () => {
-    if (!noteTextareaRef.current || !selectedPaperId) return
-    const textarea = noteTextareaRef.current
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selected = currentNote.substring(start, end) || '代码'
-    const newText = currentNote.substring(0, start) + '```\n' + selected + '\n```' + currentNote.substring(end)
-    setNotes((prev) => ({ ...prev, [selectedPaperId!]: newText }))
-    saveNoteToStorage(selectedPaperId, newText)
+    if (!noteEditorRef.current || !selectedPaperId) return
+    
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    
+    const range = selection.getRangeAt(0)
+    const selectedText = range.toString() || '代码'
+    
+    const pre = document.createElement('pre')
+    pre.style.cssText = 'margin: 12px 0; padding: 12px; background: #0f172a; color: #f1f5f9; border-radius: 8px; overflow-x: auto; font-family: monospace; font-size: 14px; line-height: 1.5;'
+    const code = document.createElement('code')
+    code.textContent = selectedText
+    pre.appendChild(code)
+    
+    range.deleteContents()
+    range.insertNode(pre)
+    
+    const br = document.createElement('br')
+    pre.parentNode?.insertBefore(br, pre.nextSibling)
+    
+    handleNoteInput()
+  }
+
+  const insertUnorderedList = () => {
+    execCommand('insertUnorderedList')
+  }
+
+  const insertOrderedList = () => {
+    execCommand('insertOrderedList')
+  }
+
+  const insertBlockquote = () => {
+    execCommand('formatBlock', 'blockquote')
   }
 
   const exportNote = () => {
-    if (!selectedPaper || !currentNote) return
-    exportMarkdown(currentNote, `${selectedPaper.title}-笔记.md`)
+    if (!selectedPaper || !currentNoteHtml) return
+    const markdown = htmlToMarkdown(currentNoteHtml)
+    exportMarkdown(markdown, `${selectedPaper.title}-笔记.md`)
   }
 
   const exportAllAnnotations = () => {
@@ -599,14 +684,9 @@ export default function ReadingPage() {
     exportMarkdown(content, `${selectedPaper.title}-全部批注.md`)
   }
 
-  const exportSingleAnnotation = (anno: Annotation) => {
-    if (!selectedPaper) return
-    const content = `# 批注\n\n**文献**：${selectedPaper.title}\n\n**高亮文字**：\n\n> ${anno.text}\n\n**颜色**：${getColorInfo(anno.color).label}\n\n**时间**：${formatDate(anno.createdAt)}\n\n**批注内容**：\n\n${anno.note || '（无）'}\n`
-    exportMarkdown(content, `批注-${anno.text.slice(0, 20)}.md`)
-  }
-
   const scrollToAnnotation = (anno: Annotation) => {
     setSelectedAnnotationId(anno.id)
+    setEditingAnnotationId(null)
     if (!readerRef.current) return
 
     const element = readerRef.current.querySelector(`[data-annotation-id="${anno.id}"]`)
@@ -644,9 +724,9 @@ export default function ReadingPage() {
 
           const span = document.createElement('span')
           span.setAttribute('data-annotation-id', annotation.id)
-          span.className = `annotation-highlight ${getColorInfo(annotation.color).bg} cursor-pointer rounded-sm transition-colors hover:opacity-80`
+          span.className = `annotation-highlight ${getColorInfo(annotation.color).bg} cursor-pointer rounded-sm transition-all hover:opacity-80`
           if (selectedAnnotationId === annotation.id) {
-            span.classList.add('ring-2', 'ring-indigo-400', 'ring-offset-1')
+            span.classList.add('ring-2', getColorInfo(annotation.color).ring, 'ring-offset-1')
           }
 
           try {
@@ -679,47 +759,30 @@ export default function ReadingPage() {
         if (id) {
           setSelectedAnnotationId(id)
           setActiveSideTab('annotations')
+          setEditingAnnotationId(null)
         }
-      }
-    }
-
-    const handleMouseEnter = (e: Event) => {
-      const target = e.target as HTMLElement
-      const annotationSpan = target.closest('.annotation-highlight')
-      if (annotationSpan) {
-        const id = annotationSpan.getAttribute('data-annotation-id')
-        if (id) {
-          setHoverAnnotationId(id)
-        }
-      }
-    }
-
-    const handleMouseLeave = (e: Event) => {
-      const target = e.target as HTMLElement
-      const annotationSpan = target.closest('.annotation-highlight')
-      if (annotationSpan) {
-        setHoverAnnotationId(null)
       }
     }
 
     readerRef.current.addEventListener('click', handleClick)
-    readerRef.current.addEventListener('mouseover', handleMouseEnter)
-    readerRef.current.addEventListener('mouseout', handleMouseLeave)
 
     return () => {
       if (readerRef.current) {
         readerRef.current.removeEventListener('click', handleClick)
-        readerRef.current.removeEventListener('mouseover', handleMouseEnter)
-        readerRef.current.removeEventListener('mouseout', handleMouseLeave)
       }
     }
   }, [paperAnnotations, selectedAnnotationId])
 
-  const hoverAnnotation = hoverAnnotationId
-    ? annotations.find((a) => a.id === hoverAnnotationId)
-    : null
+  useEffect(() => {
+    if (selectedAnnotationId && activeSideTab === 'annotations') {
+      const element = document.getElementById(`annotation-item-${selectedAnnotationId}`)
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+  }, [selectedAnnotationId, activeSideTab])
 
-  const wordCount = currentNote.replace(/\s/g, '').length
+  const wordCount = currentNoteHtml ? getWordCountFromHtml(currentNoteHtml) : 0
 
   return (
     <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
@@ -786,6 +849,7 @@ export default function ReadingPage() {
                 onClick={() => {
                   setSelectedPaperId(p.id)
                   setSelectedAnnotationId(null)
+                  setEditingAnnotationId(null)
                 }}
                 className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
                   selectedPaperId === p.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
@@ -872,7 +936,7 @@ export default function ReadingPage() {
                 </button>
                 <button
                   onClick={exportNote}
-                  disabled={!currentNote}
+                  disabled={!currentNoteHtml}
                   className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                   title="导出笔记"
                 >
@@ -886,7 +950,7 @@ export default function ReadingPage() {
               {selectedPaper.hasMarkdown && selectedPaper.markdownContent ? (
                 <div className="max-w-3xl mx-auto px-8 py-8">
                   <div
-                    className="bg-white rounded-xl shadow-sm border border-slate-200 p-8"
+                    className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 relative"
                     style={{ fontSize: `${fontSize}px` }}
                   >
                     <div
@@ -900,80 +964,21 @@ export default function ReadingPage() {
                     />
                     {showToolbar && (
                       <div
-                        className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-2 flex items-center gap-1"
+                        className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 px-2 py-1.5 flex items-center gap-1"
                         style={{
                           top: toolbarPosition.top,
-                          left: toolbarPosition.left + 120,
-                          transform: 'translateX(-50%)',
+                          left: toolbarPosition.left,
                         }}
                       >
-                        {showAnnotationInput ? (
-                          <div className="w-72">
-                            <div className="text-xs text-slate-500 mb-2 flex items-center gap-2 font-medium">
-                              <Palette className="w-3.5 h-3.5" />
-                              添加批注
-                            </div>
-                            <div className="flex gap-1 mb-2">
-                              {HIGHLIGHT_COLORS.map((c) => (
-                                <button
-                                  key={c.value}
-                                  onClick={() => setPendingColor(c.value)}
-                                  className={`w-6 h-6 rounded-full ${c.bg} border-2 ${
-                                    pendingColor === c.value ? 'border-slate-600 scale-110' : 'border-transparent'
-                                  } transition`}
-                                  title={c.label}
-                                />
-                              ))}
-                            </div>
-                            <textarea
-                              ref={annotationInputRef}
-                              value={newAnnotationText}
-                              onChange={(e) => setNewAnnotationText(e.target.value)}
-                              placeholder="输入批注内容（支持Markdown）..."
-                              className="w-full h-24 p-2 text-xs border border-slate-200 rounded resize-none focus:outline-none focus:border-indigo-400"
-                              autoFocus
-                            />
-                            <div className="flex items-center justify-end mt-2 gap-1">
-                              <button
-                                onClick={cancelAnnotation}
-                                className="px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 rounded transition"
-                              >
-                                取消
-                              </button>
-                              <button
-                                onClick={confirmAnnotation}
-                                className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition flex items-center gap-1"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                                保存
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            {HIGHLIGHT_COLORS.map((c) => (
-                              <button
-                                key={c.value}
-                                onClick={() => handleHighlight(c.value)}
-                                className={`w-7 h-7 rounded-md ${c.bg} hover:scale-110 transition flex items-center justify-center`}
-                                title={`${c.label}高亮`}
-                              >
-                                <Highlighter className="w-3.5 h-3.5 text-slate-700" />
-                              </button>
-                            ))}
-                            <div className="w-px h-5 bg-slate-200 mx-1" />
-                            <button
-                              onClick={() => {
-                                setPendingColor('yellow')
-                                setShowAnnotationInput(true)
-                              }}
-                              className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              批注
-                            </button>
-                          </>
-                        )}
+                        <span className="text-xs text-slate-400 px-1.5 font-medium">高亮颜色</span>
+                        {HIGHLIGHT_COLORS.map((c) => (
+                          <button
+                            key={c.value}
+                            onClick={() => handleHighlight(c.value)}
+                            className={`w-6 h-6 rounded-full ${c.dot} hover:scale-110 transition-transform border-2 border-white shadow-sm hover:shadow-md`}
+                            title={`${c.label}高亮并添加批注`}
+                          />
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1033,56 +1038,35 @@ export default function ReadingPage() {
         <div className="flex-1 overflow-hidden flex flex-col">
           {activeSideTab === 'notes' ? (
             <div className="flex-1 flex flex-col">
-              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-1">
+              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-slate-50/50">
+                <div className="flex items-center gap-0.5">
                   <button
-                    onClick={() => setNoteEditorMode('edit')}
-                    className={`p-1.5 rounded transition ${
-                      noteEditorMode === 'edit'
-                        ? 'bg-indigo-100 text-indigo-600'
-                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                    }`}
-                    title="编辑模式"
+                    onClick={() => insertHeading(1)}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="标题1"
+                    disabled={!selectedPaper}
                   >
-                    <Edit3 className="w-3.5 h-3.5" />
+                    <Heading1 className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => setNoteEditorMode('split')}
-                    className={`p-1.5 rounded transition ${
-                      noteEditorMode === 'split'
-                        ? 'bg-indigo-100 text-indigo-600'
-                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                    }`}
-                    title="分屏模式"
+                    onClick={() => insertHeading(2)}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="标题2"
+                    disabled={!selectedPaper}
                   >
-                    <Columns className="w-3.5 h-3.5" />
+                    <Heading2 className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => setNoteEditorMode('preview')}
-                    className={`p-1.5 rounded transition ${
-                      noteEditorMode === 'preview'
-                        ? 'bg-indigo-100 text-indigo-600'
-                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                    }`}
-                    title="预览模式"
+                    onClick={() => insertHeading(3)}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="标题3"
+                    disabled={!selectedPaper}
                   >
-                    <Eye className="w-3.5 h-3.5" />
+                    <Heading3 className="w-3.5 h-3.5" />
                   </button>
-                </div>
-                <button
-                  onClick={exportNote}
-                  disabled={!selectedPaper || !currentNote}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  导出
-                </button>
-              </div>
-
-              {noteEditorMode !== 'preview' && (
-                <div className="px-3 py-1.5 border-b border-slate-100 flex items-center gap-0.5 flex-shrink-0 bg-slate-50/50">
+                  <div className="w-px h-4 bg-slate-200 mx-0.5" />
                   <button
-                    onClick={() => insertMarkdown('**', '**', '粗体文字')}
+                    onClick={() => execCommand('bold')}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
                     title="加粗"
                     disabled={!selectedPaper}
@@ -1090,7 +1074,7 @@ export default function ReadingPage() {
                     <Bold className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => insertMarkdown('*', '*', '斜体文字')}
+                    onClick={() => execCommand('italic')}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
                     title="斜体"
                     disabled={!selectedPaper}
@@ -1099,7 +1083,7 @@ export default function ReadingPage() {
                   </button>
                   <div className="w-px h-4 bg-slate-200 mx-0.5" />
                   <button
-                    onClick={() => insertMarkdown('- ', '', '列表项')}
+                    onClick={insertUnorderedList}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
                     title="无序列表"
                     disabled={!selectedPaper}
@@ -1107,7 +1091,7 @@ export default function ReadingPage() {
                     <List className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => insertMarkdown('1. ', '', '列表项')}
+                    onClick={insertOrderedList}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
                     title="有序列表"
                     disabled={!selectedPaper}
@@ -1116,7 +1100,7 @@ export default function ReadingPage() {
                   </button>
                   <div className="w-px h-4 bg-slate-200 mx-0.5" />
                   <button
-                    onClick={() => insertMarkdown('> ', '', '引用文字')}
+                    onClick={insertBlockquote}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
                     title="引用"
                     disabled={!selectedPaper}
@@ -1139,60 +1123,39 @@ export default function ReadingPage() {
                   >
                     <Link className="w-3.5 h-3.5" />
                   </button>
-                </div>
-              )}
-
-              <div className="flex-1 overflow-hidden">
-                {noteEditorMode === 'edit' ? (
-                  <textarea
-                    ref={noteTextareaRef}
-                    value={currentNote}
-                    onChange={handleNoteChange}
-                    placeholder={selectedPaper ? '在此记录阅读笔记...\n\n支持 Markdown 格式' : '选择文献后开始记笔记'}
+                  <button
+                    onClick={insertImage}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="图片"
                     disabled={!selectedPaper}
-                    className="w-full h-full p-3 text-sm border-0 resize-none focus:outline-none disabled:bg-slate-50 font-mono leading-relaxed text-slate-700"
+                  >
+                    <Image className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <button
+                  onClick={exportNote}
+                  disabled={!selectedPaper || !currentNoteHtml}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  导出
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {selectedPaper ? (
+                  <div
+                    ref={noteEditorRef}
+                    contentEditable
+                    onInput={handleNoteInput}
+                    suppressContentEditableWarning
+                    className="w-full h-full p-3 text-sm focus:outline-none prose-sm max-w-none note-editor"
+                    dangerouslySetInnerHTML={{ __html: currentNoteHtml }}
                   />
-                ) : noteEditorMode === 'preview' ? (
-                  <div className="h-full overflow-y-auto p-3">
-                    {currentNote ? (
-                      <div
-                        className="prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(currentNote) }}
-                      />
-                    ) : (
-                      <div className="text-center text-slate-400 py-8">
-                        <StickyNote className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">{selectedPaper ? '暂无笔记' : '选择文献后开始记笔记'}</p>
-                      </div>
-                    )}
-                  </div>
                 ) : (
-                  <div className="h-full flex">
-                    <div className="flex-1 border-r border-slate-200">
-                      <textarea
-                        ref={noteTextareaRef}
-                        value={currentNote}
-                        onChange={handleNoteChange}
-                        placeholder={selectedPaper ? '在此记录阅读笔记...' : '选择文献后开始记笔记'}
-                        disabled={!selectedPaper}
-                        className="w-full h-full p-3 text-xs border-0 resize-none focus:outline-none disabled:bg-slate-50 font-mono leading-relaxed text-slate-700"
-                      />
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                      <div className="p-3">
-                        {currentNote ? (
-                          <div
-                            className="prose-sm max-w-none text-xs"
-                            dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(currentNote) }}
-                          />
-                        ) : (
-                          <div className="text-center text-slate-400 py-8">
-                            <Eye className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                            <p className="text-xs">预览区域</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  <div className="text-center text-slate-400 py-8">
+                    <StickyNote className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">选择文献后开始记笔记</p>
                   </div>
                 )}
               </div>
@@ -1256,17 +1219,22 @@ export default function ReadingPage() {
                       .sort((a, b) => b.createdAt - a.createdAt)
                       .map((anno) => {
                         const colorInfo = getColorInfo(anno.color)
+                        const isSelected = selectedAnnotationId === anno.id
+                        const isEditing = editingAnnotationId === anno.id
                         return (
                           <div
                             key={anno.id}
-                            onClick={() => scrollToAnnotation(anno)}
-                            className={`p-3 rounded-lg border-l-4 cursor-pointer transition-all hover:shadow-md ${
+                            id={`annotation-item-${anno.id}`}
+                            className={`p-3 rounded-lg border-l-4 cursor-pointer transition-all ${
                               colorInfo.border
                             } ${
-                              selectedAnnotationId === anno.id
+                              isSelected
                                 ? 'ring-2 ring-indigo-300 shadow-md'
-                                : ''
+                                : 'hover:shadow-md'
                             }`}
+                            onClick={() => {
+                              scrollToAnnotation(anno)
+                            }}
                           >
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div className="flex items-center gap-2">
@@ -1279,12 +1247,23 @@ export default function ReadingPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    exportSingleAnnotation(anno)
+                                    if (isEditing) {
+                                      setEditingAnnotationId(null)
+                                    } else {
+                                      setEditingAnnotationId(anno.id)
+                                      setTimeout(() => {
+                                        annotationEditRefs.current[anno.id]?.focus()
+                                      }, 0)
+                                    }
                                   }}
                                   className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white/60 rounded transition"
-                                  title="导出此批注"
+                                  title={isEditing ? '完成编辑' : '编辑批注'}
                                 >
-                                  <Download className="w-3 h-3" />
+                                  {isEditing ? (
+                                    <Check className="w-3 h-3" />
+                                  ) : (
+                                    <Edit3 className="w-3 h-3" />
+                                  )}
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -1303,13 +1282,42 @@ export default function ReadingPage() {
                             <div className="text-sm text-slate-600 bg-white/70 rounded px-2.5 py-2 border border-slate-200/50 italic line-clamp-2 mb-2">
                               "{anno.text}"
                             </div>
-                            {anno.note && (
-                              <div className="text-sm text-slate-700">
-                                <div
-                                  className="prose-sm max-w-none"
-                                  dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
+                            {isEditing ? (
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <textarea
+                                  ref={(el) => {
+                                    annotationEditRefs.current[anno.id] = el
+                                  }}
+                                  value={anno.note}
+                                  onChange={(e) => updateAnnotationNote(anno.id, e.target.value)}
+                                  placeholder="输入批注内容（支持Markdown）..."
+                                  className="w-full h-28 p-2 text-xs border border-slate-200 rounded resize-none focus:outline-none focus:border-indigo-400 bg-white"
                                 />
+                                <div className="text-xs text-slate-400 mt-1">支持 Markdown 格式 · 自动保存</div>
                               </div>
+                            ) : (
+                              anno.note && (
+                                <div className="text-sm text-slate-700">
+                                  <div
+                                    className="prose-sm max-w-none"
+                                    dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
+                                  />
+                                </div>
+                              )
+                            )}
+                            {!isEditing && !anno.note && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingAnnotationId(anno.id)
+                                  setTimeout(() => {
+                                    annotationEditRefs.current[anno.id]?.focus()
+                                  }, 0)
+                                }}
+                                className="text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+                              >
+                                + 添加批注内容
+                              </button>
                             )}
                             <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
                               <Clock className="w-3 h-3" />
@@ -1353,25 +1361,146 @@ export default function ReadingPage() {
         </div>
       </aside>
 
-      {hoverAnnotation && (
-        <div className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 max-w-xs">
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${getColorInfo(hoverAnnotation.color).dot}`} />
-            <span className="text-xs font-medium text-slate-600">
-              {getColorInfo(hoverAnnotation.color).label}批注
-            </span>
-          </div>
-          <div className="text-xs text-slate-500 border-l-2 border-slate-200 pl-2 italic line-clamp-2 mb-2 bg-slate-50 py-1 rounded-r">
-            "{hoverAnnotation.text}"
-          </div>
-          {hoverAnnotation.note && (
-            <div
-              className="text-sm text-slate-700 max-h-32 overflow-y-auto"
-              dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(hoverAnnotation.note) }}
-            />
-          )}
-        </div>
-      )}
+      <style>{`
+        .note-editor h1 {
+          font-size: 1.5rem;
+          font-weight: 700;
+          color: #0f172a;
+          margin-top: 0.5rem;
+          margin-bottom: 0.75rem;
+          padding-bottom: 0.5rem;
+          border-bottom: 2px solid #c7d2fe;
+        }
+        .note-editor h2 {
+          font-size: 1.25rem;
+          font-weight: 700;
+          color: #1e293b;
+          margin-top: 1.25rem;
+          margin-bottom: 0.5rem;
+          padding-bottom: 0.25rem;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .note-editor h3 {
+          font-size: 1.125rem;
+          font-weight: 600;
+          color: #1e293b;
+          margin-top: 1rem;
+          margin-bottom: 0.5rem;
+        }
+        .note-editor p {
+          margin: 0.5rem 0;
+          color: #334155;
+          line-height: 1.625;
+        }
+        .note-editor strong {
+          font-weight: 600;
+          color: #1e293b;
+        }
+        .note-editor em {
+          font-style: italic;
+          color: #475569;
+        }
+        .note-editor ul {
+          list-style-type: disc;
+          padding-left: 1.5rem;
+          margin: 0.5rem 0;
+          color: #334155;
+        }
+        .note-editor ol {
+          list-style-type: decimal;
+          padding-left: 1.5rem;
+          margin: 0.5rem 0;
+          color: #334155;
+        }
+        .note-editor li {
+          margin: 0.25rem 0;
+        }
+        .note-editor blockquote {
+          border-left: 4px solid #a5b4fc;
+          padding-left: 1rem;
+          padding-top: 0.25rem;
+          padding-bottom: 0.25rem;
+          margin: 0.75rem 0;
+          background-color: #eef2ff;
+          color: #475569;
+          font-style: italic;
+          border-radius: 0 0.375rem 0.375rem 0;
+        }
+        .note-editor code {
+          background-color: #f1f5f9;
+          padding: 0.125rem 0.375rem;
+          border-radius: 0.25rem;
+          font-family: monospace;
+          font-size: 0.875rem;
+          color: #4f46e5;
+        }
+        .note-editor a {
+          color: #4f46e5;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        .note-editor a:hover {
+          color: #3730a3;
+        }
+        .note-editor img {
+          max-width: 100%;
+          border-radius: 0.5rem;
+          margin: 0.75rem 0;
+        }
+        .note-editor:empty:before {
+          content: attr(data-placeholder);
+          color: #94a3b8;
+          pointer-events: none;
+        }
+        .prose-reader h1 {
+          font-size: 1.875rem;
+          font-weight: 700;
+          color: #0f172a;
+          margin-top: 0.5rem;
+          margin-bottom: 1rem;
+          padding-bottom: 0.75rem;
+          border-bottom: 2px solid #c7d2fe;
+        }
+        .prose-reader h2 {
+          font-size: 1.5rem;
+          font-weight: 700;
+          color: #1e293b;
+          margin-top: 1.5rem;
+          margin-bottom: 0.75rem;
+          padding-bottom: 0.5rem;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .prose-reader h3 {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: #1e293b;
+          margin-top: 1.25rem;
+          margin-bottom: 0.5rem;
+        }
+        .prose-reader p {
+          margin: 0.75rem 0;
+          color: #334155;
+          line-height: 1.75;
+        }
+        .prose-reader ul, .prose-reader ol {
+          margin: 0.75rem 0;
+          padding-left: 1.5rem;
+          color: #334155;
+        }
+        .prose-reader li {
+          margin: 0.375rem 0;
+          line-height: 1.625;
+        }
+        .prose-reader blockquote {
+          margin: 1rem 0;
+        }
+        .prose-reader code {
+          font-size: 0.875em;
+        }
+        .prose-reader pre {
+          margin: 1rem 0;
+        }
+      `}</style>
     </div>
   )
 }

@@ -1,26 +1,12 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import {
   PenTool,
   Sparkles,
   Plus,
   Send,
-  Eye,
-  Edit3,
-  Columns,
-  Save,
-  BookOpen,
-  Quote,
-  Wand2,
-  Languages,
-  Search,
-  FileCode,
-  ExternalLink,
-  CheckCircle2,
-  Clock,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Settings,
   Download,
   Bold,
   Italic,
@@ -29,19 +15,39 @@ import {
   Heading3,
   List,
   ListOrdered,
+  Quote,
   Code,
   Link,
   Image,
   Table,
-  AlignLeft,
-  BarChart3,
   FileText,
+  BookOpen,
   Library,
   BookMarked,
   ToggleLeft,
   ToggleRight,
   Bot,
   Zap,
+  CheckCircle2,
+  Clock,
+  Save,
+  Search,
+  Wand2,
+  Languages,
+  FileCode,
+  ExternalLink,
+  AlignLeft,
+  X,
+  BookText,
+  LayoutTemplate,
+  FileOutput,
+  Loader2,
+  Check,
+  Minus,
+  ListTree,
+  BookCopy,
+  GraduationCap,
+  Newspaper,
 } from 'lucide-react'
 
 const STAGES = [
@@ -57,10 +63,44 @@ const AI_MODELS = [
   { value: 'model-b', label: '深度研究模型', desc: '擅长文献分析与综述' },
 ]
 
-const KNOWLEDGE_SCOPES = [
-  { value: 'all', label: '全部文献', icon: Library },
-  { value: 'project', label: '当前项目关联', icon: BookMarked },
-  { value: 'books', label: '仅图书', icon: BookOpen },
+const LEFT_PANEL_MODES = [
+  { value: 'projects', label: '项目导航', icon: FileText },
+  { value: 'outline', label: '大纲视图', icon: ListTree },
+  { value: 'references', label: '文献列表', icon: BookCopy },
+]
+
+const RIGHT_PANEL_MODES = [
+  { value: 'ai', label: 'AI 助手', icon: Sparkles },
+  { value: 'library', label: '文献库', icon: Library },
+  { value: 'knowledge', label: '知识库', icon: GraduationCap },
+  { value: 'typesetting', label: '期刊排版', icon: LayoutTemplate },
+]
+
+const CITATION_SCOPES = [
+  { value: 'all', label: '全部文献' },
+  { value: 'project', label: '当前项目文献' },
+  { value: 'selected', label: '指定文献' },
+  { value: 'books', label: '指定图书' },
+  { value: 'chapters', label: '指定章节' },
+]
+
+const JOURNALS = [
+  { value: 'jacs', label: 'JACS', name: 'Journal of the American Chemical Society' },
+  { value: 'angew', label: 'Angew. Chem.', name: 'Angewandte Chemie International Edition' },
+  { value: 'nature', label: 'Nature', name: 'Nature' },
+  { value: 'science', label: 'Science', name: 'Science' },
+  { value: 'nano-lett', label: 'Nano Lett.', name: 'Nano Letters' },
+  { value: 'acs-nano', label: 'ACS Nano', name: 'ACS Nano' },
+]
+
+const QUICK_ACTIONS = [
+  { key: 'continue', label: '继续写作', icon: PenTool },
+  { key: 'polish', label: '润色', icon: Wand2 },
+  { key: 'translate', label: '翻译', icon: Languages },
+  { key: 'expand', label: '扩写', icon: Plus },
+  { key: 'shorten', label: '缩写', icon: Minus },
+  { key: 'search', label: '找文献', icon: Search },
+  { key: 'summarize', label: '总结', icon: FileText },
 ]
 
 interface Project {
@@ -85,7 +125,14 @@ interface AIMessage {
   citations?: CitationRef[]
 }
 
-type EditorMode = 'edit' | 'split' | 'preview'
+interface OutlineItem {
+  level: number
+  text: string
+  id: string
+}
+
+type LeftPanelMode = 'projects' | 'outline' | 'references'
+type RightPanelMode = 'ai' | 'library' | 'knowledge' | 'typesetting'
 
 const DEMO_PROJECTS: Project[] = [
   { id: '1', name: '钙钛矿太阳能电池', stage: 'writing', litCount: 24 },
@@ -175,8 +222,12 @@ const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRe
     content: '**段落总结：**\n\n本段主要介绍了钙钛矿太阳能电池的研究背景和优异特性，核心要点如下：\n\n1. **效率突破**：从 2009 年的 3.8% 提升至 2024 年的 26.1%，发展迅速\n2. **材料优势**：\n   - 高吸收系数：可见光范围内几乎完全吸收\n   - 长载流子扩散长度：可达微米级\n   - 可调节带隙：通过卤素组分调控\n3. **学术地位**：被誉为"下一代光伏技术的希望之星"\n\n这些特性使得钙钛矿太阳能电池成为光伏领域最具潜力的研究方向之一[[10.1038/s41560-024-01234-5]]。',
     citations: [DEMO_CITATIONS[0]],
   },
-  figure: {
-    content: '**图表描述建议：**\n\n基于你文中的性能对比表格，我建议为其撰写如下图表描述：\n\n> **表 1 不同光伏材料体系的性能对比**\n> \n> 表 1 对比了四种主流光伏技术的关键性能指标。可以看出，单晶硅电池以 26.7% 的效率和超过 25000 小时的稳定性占据主导地位，但其成本相对较高。钙钛矿电池以 26.1% 的效率紧随其后，且成本仅为单晶硅的一半左右，展现出巨大的商业化潜力。然而，钙钛矿电池的稳定性仍需进一步提升。碲化镉和 CIGS 薄膜电池在效率和成本方面处于中间位置，适合特定应用场景。\n\n**撰写要点：**\n- 先概述表格内容，再突出关键发现\n- 对比分析不同技术的优劣势\n- 重点强调钙钛矿的潜力与挑战\n- 引用相关文献支撑观点[[10.1038/s41560-024-01234-5]]',
+  expand: {
+    content: '**扩写后的内容：**\n\n近年来，钙钛矿太阳能电池（PSCs）作为第三代光伏技术的典型代表，在全球范围内掀起了研究热潮并取得了突破性进展[[10.1038/s41560-024-01234-5]]。自 2009 年日本科学家 Miyasaka 等人首次将钙钛矿材料应用于染料敏化太阳能电池并获得 3.8% 的光电转换效率以来，PSCs 的效率在短短十余年间实现了跨越式发展，截至 2024 年已达到 26.1% 的认证效率，逼近单晶硅电池的理论极限。这一前所未有的发展速度，使得钙钛矿太阳能电池成为光伏领域最受关注的研究方向之一。',
+    citations: [DEMO_CITATIONS[0]],
+  },
+  shorten: {
+    content: '**缩写后的内容：**\n\n钙钛矿太阳能电池（PSCs）近年来进展迅速[[10.1038/s41560-024-01234-5]]，效率从 2009 年的 3.8% 提升至 2024 年的 26.1%，被誉为下一代光伏技术的希望之星。其高吸收系数、长载流子扩散长度和可调节带隙等特性使其具有巨大的应用潜力。',
     citations: [DEMO_CITATIONS[0]],
   },
 }
@@ -354,6 +405,21 @@ function renderMarkdown(text: string): string {
   return result.join('\n')
 }
 
+function extractOutline(md: string): OutlineItem[] {
+  const lines = md.split('\n')
+  const outline: OutlineItem[] = []
+  for (const line of lines) {
+    const match = line.match(/^(#{1,6})\s+(.+)$/)
+    if (match) {
+      const level = match[1].length
+      const text = match[2].trim()
+      const id = text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '')
+      outline.push({ level, text, id })
+    }
+  }
+  return outline
+}
+
 function formatTime(timestamp: number): string {
   const d = new Date(timestamp)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -363,46 +429,78 @@ export default function WritingPage() {
   const [projects, setProjects] = useState<Project[]>(DEMO_PROJECTS)
   const [activeProjectId, setActiveProjectId] = useState<string | null>('1')
   const [mdContent, setMdContent] = useState(DEMO_MD)
-  const [editorMode, setEditorMode] = useState<EditorMode>('split')
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [lastSaved, setLastSaved] = useState<number | null>(null)
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isAiLoading, setIsAiLoading] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
+  const [leftPanelMode, setLeftPanelMode] = useState<LeftPanelMode>('projects')
+  const [showLeftDropdown, setShowLeftDropdown] = useState(false)
+
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
+  const [showRightDropdown, setShowRightDropdown] = useState(false)
+
   const [selectedModel, setSelectedModel] = useState(AI_MODELS[0].value)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [trustedSearch, setTrustedSearch] = useState(true)
-  const [knowledgeScope, setKnowledgeScope] = useState('all')
-  const [showSettings, setShowSettings] = useState(false)
+  const [citationScope, setCitationScope] = useState('all')
+  const [showCitationScopeDropdown, setShowCitationScopeDropdown] = useState(false)
 
+  const [showCitationModal, setShowCitationModal] = useState(false)
+  const [citationSearch, setCitationSearch] = useState('')
+  const [selectedCitations, setSelectedCitations] = useState<string[]>([])
+
+  const [selectedJournal, setSelectedJournal] = useState(JOURNALS[0].value)
+  const [typesettingProgress, setTypesettingProgress] = useState(0)
+  const [isTypesetting, setIsTypesetting] = useState(false)
+  const [typesetDone, setTypesetDone] = useState(false)
+
+  const editorRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const leftDropdownRef = useRef<HTMLDivElement>(null)
+  const rightDropdownRef = useRef<HTMLDivElement>(null)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
+  const citationScopeRef = useRef<HTMLDivElement>(null)
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
+  const renderedHtml = renderMarkdown(mdContent)
+  const wordCount = mdContent.replace(/\s/g, '').length
+  const currentModel = AI_MODELS.find((m) => m.value === selectedModel) || AI_MODELS[0]
+  const outline = useMemo(() => extractOutline(mdContent), [mdContent])
+  const currentJournal = JOURNALS.find((j) => j.value === selectedJournal) || JOURNALS[0]
+
+  const filteredCitations = useMemo(() => {
+    if (!citationSearch.trim()) return DEMO_CITATIONS
+    const q = citationSearch.toLowerCase()
+    return DEMO_CITATIONS.filter(
+      (c) =>
+        c.title.toLowerCase().includes(q) ||
+        c.authors.toLowerCase().includes(q) ||
+        c.journal.toLowerCase().includes(q) ||
+        c.doi.toLowerCase().includes(q)
+    )
+  }, [citationSearch])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      if (leftDropdownRef.current && !leftDropdownRef.current.contains(e.target as Node)) {
+        setShowLeftDropdown(false)
+      }
+      if (rightDropdownRef.current && !rightDropdownRef.current.contains(e.target as Node)) {
+        setShowRightDropdown(false)
+      }
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
         setShowModelDropdown(false)
+      }
+      if (citationScopeRef.current && !citationScopeRef.current.contains(e.target as Node)) {
+        setShowCitationScopeDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
-
-  const handleStageChange = useCallback((stage: string) => {
-    if (!activeProjectId) return
-    setProjects((prev) =>
-      prev.map((p) => (p.id === activeProjectId ? { ...p, stage } : p))
-    )
-  }, [activeProjectId])
-
-  const handleMdChange = (value: string) => {
-    setMdContent(value)
-    setSaveStatus('unsaved')
-  }
 
   useEffect(() => {
     if (saveStatus !== 'unsaved') return
@@ -419,6 +517,103 @@ export default function WritingPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isAiLoading])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'K') {
+        e.preventDefault()
+        setShowCitationModal(true)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const handleStageChange = useCallback((stage: string) => {
+    if (!activeProjectId) return
+    setProjects((prev) =>
+      prev.map((p) => (p.id === activeProjectId ? { ...p, stage } : p))
+    )
+  }, [activeProjectId])
+
+  const handleMdChange = (value: string) => {
+    setMdContent(value)
+    setSaveStatus('unsaved')
+  }
+
+  const handleEditorInput = () => {
+    if (!editorRef.current) return
+    const text = editorRef.current.innerText
+    handleMdChange(text)
+  }
+
+  const insertMarkdown = (prefix: string, suffix: string = '', placeholder: string = '') => {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+
+    const range = selection.getRangeAt(0)
+    const selectedText = range.toString() || placeholder
+
+    const newText = prefix + selectedText + suffix
+    const textNode = document.createTextNode(newText)
+    range.deleteContents()
+    range.insertNode(textNode)
+
+    range.setStart(textNode, prefix.length)
+    range.setEnd(textNode, prefix.length + selectedText.length)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    handleEditorInput()
+  }
+
+  const insertTable = () => {
+    const tableTemplate = `\n| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| 内容 | 内容 | 内容 |\n| 内容 | 内容 | 内容 |\n`
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    const range = selection.getRangeAt(0)
+    const textNode = document.createTextNode(tableTemplate)
+    range.deleteContents()
+    range.insertNode(textNode)
+    handleEditorInput()
+  }
+
+  const insertLink = () => {
+    const url = prompt('请输入链接地址：', 'https://')
+    if (!url) return
+    insertMarkdown('[', `](${url})`, '链接文字')
+  }
+
+  const insertImage = () => {
+    const url = prompt('请输入图片地址：', 'https://')
+    if (!url) return
+    insertMarkdown('![', `](${url})`, '图片描述')
+  }
+
+  const insertCitation = (doi: string) => {
+    insertMarkdown(`[[${doi}]]`, '', '')
+    setShowCitationModal(false)
+  }
+
+  const insertSelectedCitations = () => {
+    if (selectedCitations.length === 0) return
+    const text = selectedCitations.map((d) => `[[${d}]]`).join('')
+    insertMarkdown(text, '', '')
+    setSelectedCitations([])
+    setShowCitationModal(false)
+  }
+
+  const exportMarkdown = () => {
+    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${activeProject?.name || 'document'}.md`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
   const handleSendMessage = (prompt?: string) => {
     const text = prompt || inputValue.trim()
@@ -440,13 +635,16 @@ export default function WritingPage() {
         else if (prompt.includes('polish') || prompt.includes('润色')) response = DEMO_AI_RESPONSES.polish
         else if (prompt.includes('translate') || prompt.includes('翻译')) response = DEMO_AI_RESPONSES.translate
         else if (prompt.includes('summarize') || prompt.includes('总结')) response = DEMO_AI_RESPONSES.summarize
-        else if (prompt.includes('figure') || prompt.includes('图表') || prompt.includes('figure_desc')) response = DEMO_AI_RESPONSES.figure
+        else if (prompt.includes('expand') || prompt.includes('扩写')) response = DEMO_AI_RESPONSES.expand
+        else if (prompt.includes('shorten') || prompt.includes('缩写')) response = DEMO_AI_RESPONSES.shorten
       } else {
         const lower = text.toLowerCase()
         if (lower.includes('继续') || lower.includes('续写')) response = DEMO_AI_RESPONSES.continue
         else if (lower.includes('润色') || lower.includes('优化') || lower.includes('polish')) response = DEMO_AI_RESPONSES.polish
         else if (lower.includes('翻译') || lower.includes('translate')) response = DEMO_AI_RESPONSES.translate
         else if (lower.includes('总结') || lower.includes('摘要') || lower.includes('summarize')) response = DEMO_AI_RESPONSES.summarize
+        else if (lower.includes('扩写') || lower.includes('expand')) response = DEMO_AI_RESPONSES.expand
+        else if (lower.includes('缩写') || lower.includes('shorten')) response = DEMO_AI_RESPONSES.shorten
       }
 
       const aiMsg: AIMessage = {
@@ -465,159 +663,244 @@ export default function WritingPage() {
       continue: '请基于当前上下文继续写作',
       polish: '请润色当前段落，优化语言表达',
       translate: '请将选中内容进行中英文互译',
+      expand: '请扩写当前段落，丰富内容',
+      shorten: '请缩写当前段落，精简内容',
       search: '请推荐与钙钛矿太阳能电池相关的文献',
       summarize: '请总结当前段落的核心要点',
-      figure_desc: '请为图/表生成专业的描述文字',
     }
     handleSendMessage(prompts[action] || action)
   }
 
-  const insertMarkdown = (prefix: string, suffix: string = '', placeholder: string = '') => {
-    if (!textareaRef.current) return
-    const textarea = textareaRef.current
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selected = mdContent.substring(start, end) || placeholder
-    const newText = mdContent.substring(0, start) + prefix + selected + suffix + mdContent.substring(end)
-    setMdContent(newText)
-    setSaveStatus('unsaved')
-    setTimeout(() => {
-      textarea.focus()
-      textarea.selectionStart = start + prefix.length
-      textarea.selectionEnd = start + prefix.length + selected.length
-    }, 0)
+  const startTypesetting = () => {
+    setIsTypesetting(true)
+    setTypesettingProgress(0)
+    setTypesetDone(false)
+    const interval = setInterval(() => {
+      setTypesettingProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval)
+          setIsTypesetting(false)
+          setTypesetDone(true)
+          return 100
+        }
+        return prev + 10
+      })
+    }, 300)
   }
 
-  const insertTable = () => {
-    const tableTemplate = `\n| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| 内容 | 内容 | 内容 |\n| 内容 | 内容 | 内容 |\n`
-    insertMarkdown(tableTemplate, '', '')
-  }
-
-  const insertLink = () => {
-    const url = prompt('请输入链接地址：', 'https://')
-    if (!url) return
-    insertMarkdown('[', `](${url})`, '链接文字')
-  }
-
-  const insertImage = () => {
-    const url = prompt('请输入图片地址：', 'https://')
-    if (!url) return
-    insertMarkdown('![', `](${url})`, '图片描述')
-  }
-
-  const exportMarkdown = () => {
-    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${activeProject?.name || 'document'}.md`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
-
-  const renderedHtml = renderMarkdown(mdContent)
-  const wordCount = mdContent.replace(/\s/g, '').length
-  const currentModel = AI_MODELS.find((m) => m.value === selectedModel) || AI_MODELS[0]
+  const LeftPanelIcon = LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || FileText
+  const RightPanelIcon = RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
 
   return (
-    <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
+    <div className="h-[calc(100vh-3rem)] flex bg-slate-50 relative">
       <aside
         className={`bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300 ${
-          sidebarCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-60 opacity-100'
+          leftCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-64 opacity-100'
         }`}
       >
-        <div className="p-3 border-b border-slate-200">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
-              <FileText className="w-4 h-4 text-indigo-600" />
-              项目列表
-            </h2>
+        <div className="p-3 border-b border-slate-200 bg-slate-50/50">
+          <div className="relative" ref={leftDropdownRef}>
             <button
-              onClick={() => {
-                const name = prompt('项目名称')
-                if (name) {
-                  setProjects((prev) => [...prev, { id: String(Date.now()), name, stage: 'topic', litCount: 0 }])
-                }
-              }}
-              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-              title="新建项目"
+              onClick={() => setShowLeftDropdown(!showLeftDropdown)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
             >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          {projects.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setActiveProjectId(p.id)}
-              className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
-                activeProjectId === p.id ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
-              }`}
-            >
-              <div className="text-sm font-medium text-slate-700 truncate">{p.name}</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">
-                  {STAGES.find((s) => s.value === p.stage)?.label}
-                </span>
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <BookOpen className="w-3 h-3" />
-                  {p.litCount}篇
+              <div className="flex items-center gap-2">
+                <LeftPanelIcon className="w-4 h-4 text-indigo-600" />
+                <span className="text-sm font-medium text-slate-700">
+                  {LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.label}
                 </span>
               </div>
+              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showLeftDropdown ? 'rotate-180' : ''}`} />
             </button>
-          ))}
-        </div>
-        <div className="border-t border-slate-200 p-3 bg-slate-50/50">
-          <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-            <AlignLeft className="w-3.5 h-3.5" />
-            阶段导航
+            {showLeftDropdown && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+                {LEFT_PANEL_MODES.map((mode) => {
+                  const Icon = mode.icon
+                  return (
+                    <button
+                      key={mode.value}
+                      onClick={() => {
+                        setLeftPanelMode(mode.value as LeftPanelMode)
+                        setShowLeftDropdown(false)
+                      }}
+                      className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
+                        leftPanelMode === mode.value ? 'bg-indigo-50/50' : ''
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 ${leftPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
+                      <span className={`text-sm ${leftPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                        {mode.label}
+                      </span>
+                      {leftPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
-          <div className="space-y-1">
-            {STAGES.map((s, idx) => {
-              const cur = activeProject?.stage === s.value
-              const isPast = STAGES.findIndex((st) => st.value === activeProject?.stage) > idx
-              return (
+        </div>
+
+        {leftPanelMode === 'projects' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-slate-200">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-indigo-600" />
+                  项目列表
+                </h2>
                 <button
-                  key={s.value}
-                  disabled={!activeProject}
-                  onClick={() => handleStageChange(s.value)}
-                  className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition flex items-center gap-2 ${
-                    cur
-                      ? 'bg-indigo-600 text-white font-medium shadow-sm'
-                      : isPast
-                      ? 'text-slate-500 hover:bg-slate-200/60 disabled:opacity-40 disabled:cursor-not-allowed'
-                      : 'text-slate-400 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed'
+                  onClick={() => {
+                    const name = prompt('项目名称')
+                    if (name) {
+                      setProjects((prev) => [...prev, { id: String(Date.now()), name, stage: 'topic', litCount: 0 }])
+                    }
+                  }}
+                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                  title="新建项目"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setActiveProjectId(p.id)}
+                  className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
+                    activeProjectId === p.id ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
                   }`}
                 >
-                  <span
-                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                      cur
-                        ? 'bg-white/20 text-white'
-                        : isPast
-                        ? 'bg-green-100 text-green-600'
-                        : 'bg-slate-200 text-slate-400'
-                    }`}
-                  >
-                    {idx + 1}
-                  </span>
-                  {s.label}
+                  <div className="text-sm font-medium text-slate-700 truncate">{p.name}</div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">
+                      {STAGES.find((s) => s.value === p.stage)?.label}
+                    </span>
+                    <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <BookOpen className="w-3 h-3" />
+                      {p.litCount}篇
+                    </span>
+                  </div>
                 </button>
-              )
-            })}
+              ))}
+            </div>
+            <div className="border-t border-slate-200 p-3 bg-slate-50/50">
+              <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                <AlignLeft className="w-3.5 h-3.5" />
+                阶段导航
+              </div>
+              <div className="space-y-1">
+                {STAGES.map((s, idx) => {
+                  const cur = activeProject?.stage === s.value
+                  const isPast = STAGES.findIndex((st) => st.value === activeProject?.stage) > idx
+                  return (
+                    <button
+                      key={s.value}
+                      disabled={!activeProject}
+                      onClick={() => handleStageChange(s.value)}
+                      className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition flex items-center gap-2 ${
+                        cur
+                          ? 'bg-indigo-600 text-white font-medium shadow-sm'
+                          : isPast
+                          ? 'text-slate-500 hover:bg-slate-200/60 disabled:opacity-40 disabled:cursor-not-allowed'
+                          : 'text-slate-400 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                          cur
+                            ? 'bg-white/20 text-white'
+                            : isPast
+                            ? 'bg-green-100 text-green-600'
+                            : 'bg-slate-200 text-slate-400'
+                        }`}
+                      >
+                        {idx + 1}
+                      </span>
+                      {s.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {leftPanelMode === 'outline' && (
+          <div className="flex-1 overflow-y-auto p-3">
+            <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+              <ListTree className="w-3.5 h-3.5" />
+              文档大纲
+            </div>
+            <div className="space-y-0.5">
+              {outline.length === 0 && (
+                <div className="text-sm text-slate-400 text-center py-8">暂无大纲</div>
+              )}
+              {outline.map((item, idx) => (
+                <button
+                  key={idx}
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-slate-100 transition truncate ${
+                    item.level === 1
+                      ? 'font-semibold text-slate-700'
+                      : item.level === 2
+                      ? 'font-medium text-slate-600 pl-4'
+                      : item.level === 3
+                      ? 'text-slate-500 pl-6'
+                      : 'text-slate-400 pl-8'
+                  }`}
+                >
+                  {item.text}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {leftPanelMode === 'references' && (
+          <div className="flex-1 overflow-y-auto p-3">
+            <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+              <BookCopy className="w-3.5 h-3.5" />
+              文献列表
+            </div>
+            <div className="space-y-2">
+              {DEMO_CITATIONS.map((cit, idx) => (
+                <div
+                  key={idx}
+                  className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition cursor-pointer"
+                >
+                  <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                    {cit.title}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1 truncate">
+                    {cit.authors} ({cit.year})
+                  </div>
+                  <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                    {cit.journal}
+                  </div>
+                  <a
+                    href={`https://doi.org/${cit.doi}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 font-medium"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <FileCode className="w-3 h-3" />
+                    {cit.doi}
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </aside>
 
       <button
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onClick={() => setLeftCollapsed(!leftCollapsed)}
         className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-slate-200 rounded-r-lg p-1 shadow-md hover:bg-slate-50 transition text-slate-400 hover:text-indigo-600"
-        style={{ left: sidebarCollapsed ? '0' : '240px' }}
-        title={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+        style={{ left: leftCollapsed ? '0' : '256px' }}
+        title={leftCollapsed ? '展开左侧栏' : '折叠左侧栏'}
       >
-        {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        {leftCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
 
       <section className="flex-1 flex flex-col min-w-0">
@@ -636,46 +919,7 @@ export default function WritingPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
-            <button
-              onClick={() => setEditorMode('edit')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1.5 ${
-                editorMode === 'edit'
-                  ? 'bg-white text-slate-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-              title="仅编辑"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              编辑
-            </button>
-            <button
-              onClick={() => setEditorMode('split')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1.5 ${
-                editorMode === 'split'
-                  ? 'bg-white text-slate-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-              title="分屏预览"
-            >
-              <Columns className="w-3.5 h-3.5" />
-              分屏
-            </button>
-            <button
-              onClick={() => setEditorMode('preview')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1.5 ${
-                editorMode === 'preview'
-                  ? 'bg-white text-slate-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-              title="仅预览"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              预览
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 text-xs">
               {saveStatus === 'saved' && (
                 <span className="text-green-600 flex items-center gap-1 font-medium">
@@ -707,307 +951,314 @@ export default function WritingPage() {
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
-          <div
-            className={`flex flex-col bg-white border-r border-slate-200 ${
-              editorMode === 'preview' ? 'hidden' : 'flex-1 min-w-0'
-            }`}
+        <div className="flex items-center gap-0.5 px-3 py-1.5 bg-white border-b border-slate-200 flex-shrink-0">
+          <button
+            onClick={() => insertMarkdown('# ', '', '标题')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="一级标题"
           >
-            <div className="flex items-center gap-0.5 px-3 py-1.5 bg-slate-50/80 border-b border-slate-200">
-              <button
-                onClick={() => insertMarkdown('# ', '', '标题')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="一级标题"
-              >
-                <Heading1 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => insertMarkdown('## ', '', '标题')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="二级标题"
-              >
-                <Heading2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => insertMarkdown('### ', '', '标题')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="三级标题"
-              >
-                <Heading3 className="w-4 h-4" />
-              </button>
-              <div className="w-px h-4 bg-slate-200 mx-1" />
-              <button
-                onClick={() => insertMarkdown('**', '**', '粗体文字')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="加粗"
-              >
-                <Bold className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => insertMarkdown('*', '*', '斜体文字')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="斜体"
-              >
-                <Italic className="w-4 h-4" />
-              </button>
-              <div className="w-px h-4 bg-slate-200 mx-1" />
-              <button
-                onClick={() => insertMarkdown('- ', '', '列表项')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="无序列表"
-              >
-                <List className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => insertMarkdown('1. ', '', '列表项')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="有序列表"
-              >
-                <ListOrdered className="w-4 h-4" />
-              </button>
-              <div className="w-px h-4 bg-slate-200 mx-1" />
-              <button
-                onClick={() => insertMarkdown('> ', '', '引用文字')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="引用"
-              >
-                <Quote className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => insertMarkdown('```\n', '\n```', '代码')}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="代码块"
-              >
-                <Code className="w-4 h-4" />
-              </button>
-              <div className="w-px h-4 bg-slate-200 mx-1" />
-              <button
-                onClick={insertLink}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="链接"
-              >
-                <Link className="w-4 h-4" />
-              </button>
-              <button
-                onClick={insertImage}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="图片"
-              >
-                <Image className="w-4 h-4" />
-              </button>
-              <button
-                onClick={insertTable}
-                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
-                title="表格"
-              >
-                <Table className="w-4 h-4" />
-              </button>
-            </div>
-            <textarea
-              ref={textareaRef}
-              value={mdContent}
-              onChange={(e) => handleMdChange(e.target.value)}
-              className="flex-1 w-full p-4 font-mono text-sm text-slate-800 bg-white resize-none focus:outline-none leading-relaxed"
-              spellCheck={false}
-              placeholder="在此撰写 Markdown 格式的论文..."
-            />
-            <div className="px-3 py-1.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400">
-              <span>Markdown</span>
-              <span className="font-mono">{wordCount} 字</span>
-            </div>
-          </div>
+            <Heading1 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => insertMarkdown('## ', '', '标题')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="二级标题"
+          >
+            <Heading2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => insertMarkdown('### ', '', '标题')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="三级标题"
+          >
+            <Heading3 className="w-4 h-4" />
+          </button>
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <button
+            onClick={() => insertMarkdown('**', '**', '粗体文字')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="加粗"
+          >
+            <Bold className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => insertMarkdown('*', '*', '斜体文字')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="斜体"
+          >
+            <Italic className="w-4 h-4" />
+          </button>
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <button
+            onClick={() => insertMarkdown('- ', '', '列表项')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="无序列表"
+          >
+            <List className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => insertMarkdown('1. ', '', '列表项')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="有序列表"
+          >
+            <ListOrdered className="w-4 h-4" />
+          </button>
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <button
+            onClick={() => insertMarkdown('> ', '', '引用文字')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="引用"
+          >
+            <Quote className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => insertMarkdown('```\n', '\n```', '代码')}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="代码块"
+          >
+            <Code className="w-4 h-4" />
+          </button>
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <button
+            onClick={insertLink}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="链接"
+          >
+            <Link className="w-4 h-4" />
+          </button>
+          <button
+            onClick={insertImage}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="图片"
+          >
+            <Image className="w-4 h-4" />
+          </button>
+          <button
+            onClick={insertTable}
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+            title="表格"
+          >
+            <Table className="w-4 h-4" />
+          </button>
+          <div className="w-px h-4 bg-slate-200 mx-1" />
+          <button
+            onClick={() => setShowCitationModal(true)}
+            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition flex items-center gap-1"
+            title="插入引用 (Ctrl+Shift+K)"
+          >
+            <BookMarked className="w-4 h-4" />
+            <span className="text-xs font-medium">插入引用</span>
+          </button>
 
-          <div
-            className={`flex flex-col bg-white ${
-              editorMode === 'edit' ? 'hidden' : 'flex-1 min-w-0'
-            }`}
-          >
-            <div className="px-3 py-1.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-              <span className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
-                <Eye className="w-4 h-4" />
-                实时预览
-              </span>
-            </div>
+          <div className="flex-1" />
+
+          <div className="flex items-center gap-1 text-xs text-slate-400">
+            <span>左面板:</span>
+            <span className="font-medium text-slate-600">
+              {LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.label}
+            </span>
+            <span className="mx-1 text-slate-300">|</span>
+            <span>右面板:</span>
+            <span className="font-medium text-slate-600">
+              {RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.label}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto bg-white">
+          <div className="max-w-3xl mx-auto p-8">
             <div
-              className="flex-1 overflow-auto p-8"
-            >
-              <div
-                className="max-w-3xl mx-auto bg-white"
-                dangerouslySetInnerHTML={{ __html: renderedHtml }}
-              />
-            </div>
+              ref={editorRef}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={handleEditorInput}
+              className="min-h-full outline-none prose prose-slate max-w-none"
+              dangerouslySetInnerHTML={{ __html: renderedHtml }}
+            />
           </div>
+        </div>
 
-          <div className="w-80 flex flex-col border-l border-slate-200 bg-white flex-shrink-0">
-            <div className="px-3 py-2.5 border-b border-slate-200 bg-gradient-to-r from-indigo-50/50 to-white flex items-center justify-between">
+        <div className="px-4 py-1.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
+          <span>所见即所得 Markdown</span>
+          <span className="font-mono">{wordCount} 字</span>
+        </div>
+      </section>
+
+      <aside className="w-80 flex flex-col border-l border-slate-200 bg-white flex-shrink-0">
+        <div className="p-3 border-b border-slate-200 bg-slate-50/50">
+          <div className="relative" ref={rightDropdownRef}>
+            <button
+              onClick={() => setShowRightDropdown(!showRightDropdown)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
+            >
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-slate-700">AI 写作助手</div>
-                  <div className="text-[10px] text-slate-400">可信检索双引擎</div>
-                </div>
+                <RightPanelIcon className="w-4 h-4 text-indigo-600" />
+                <span className="text-sm font-medium text-slate-700">
+                  {RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.label}
+                </span>
               </div>
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className={`p-1.5 rounded-lg transition ${
-                  showSettings ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                }`}
-                title="设置"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-            </div>
-
-            {showSettings && (
-              <div className="p-3 border-b border-slate-100 bg-slate-50/50 space-y-3">
-                <div className="relative" ref={modelDropdownRef}>
-                  <div className="text-xs font-medium text-slate-600 mb-1.5">AI 模型</div>
-                  <button
-                    onClick={() => setShowModelDropdown(!showModelDropdown)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-indigo-100 rounded-md flex items-center justify-center">
-                        <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium text-slate-700">{currentModel.label}</div>
-                        <div className="text-[10px] text-slate-400">{currentModel.desc}</div>
-                      </div>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showModelDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-                  {showModelDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
-                      {AI_MODELS.map((model) => (
-                        <button
-                          key={model.value}
-                          onClick={() => {
-                            setSelectedModel(model.value)
-                            setShowModelDropdown(false)
-                          }}
-                          className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                            selectedModel === model.value ? 'bg-indigo-50/50' : ''
-                          }`}
-                        >
-                          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
-                            selectedModel === model.value ? 'bg-indigo-600' : 'bg-s-slate-100'
-                          }`}>
-                            <Bot className={`w-3.5 h-3.5 ${selectedModel === model.value ? 'text-white' : 'text-slate-500'}`} />
-                          </div>
-                          <div>
-                            <div className={`text-xs font-medium ${selectedModel === model.value ? 'text-indigo-700' : 'text-slate-700'}`}>
-                              {model.label}
-                            </div>
-                            <div className="text-[10px] text-slate-400">{model.desc}</div>
-                          </div>
-                          {selectedModel === model.value && (
-                            <CheckCircle2 className="w-4 h-4 text-indigo-600 ml-auto" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-amber-500" />
-                      可信检索
-                    </span>
+              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showRightDropdown ? 'rotate-180' : ''}`} />
+            </button>
+            {showRightDropdown && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+                {RIGHT_PANEL_MODES.map((mode) => {
+                  const Icon = mode.icon
+                  return (
                     <button
-                      onClick={() => setTrustedSearch(!trustedSearch)}
-                      className="text-indigo-600"
+                      key={mode.value}
+                      onClick={() => {
+                        setRightPanelMode(mode.value as RightPanelMode)
+                        setShowRightDropdown(false)
+                      }}
+                      className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
+                        rightPanelMode === mode.value ? 'bg-indigo-50/50' : ''
+                      }`}
                     >
-                      {trustedSearch ? (
-                        <ToggleRight className="w-9 h-5" />
-                      ) : (
-                        <ToggleLeft className="w-9 h-5 text-slate-300" />
-                      )}
+                      <Icon className={`w-4 h-4 ${rightPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
+                      <span className={`text-sm ${rightPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                        {mode.label}
+                      </span>
+                      {rightPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
                     </button>
-                  </div>
-                  <p className="text-[10px] text-slate-400 leading-relaxed">
-                    开启后 AI 回答必须引用知识库内容，确保回答的学术可信度
-                  </p>
-                </div>
-
-                <div>
-                  <div className="text-xs font-medium text-slate-600 mb-1.5">知识库范围</div>
-                  <div className="grid grid-cols-3 gap-1">
-                    {KNOWLEDGE_SCOPES.map((scope) => {
-                      const Icon = scope.icon
-                      const active = knowledgeScope === scope.value
-                      return (
-                        <button
-                          key={scope.value}
-                          onClick={() => setKnowledgeScope(scope.value)}
-                          disabled={!trustedSearch}
-                          className={`px-2 py-2 rounded-lg text-[10px] font-medium transition flex flex-col items-center gap-1 ${
-                            active
-                              ? 'bg-indigo-600 text-white shadow-sm'
-                              : trustedSearch
-                              ? 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300'
-                              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                          }`}
-                        >
-                          <Icon className="w-4 h-4" />
-                          {scope.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
+                  )
+                })}
               </div>
             )}
+          </div>
+        </div>
+
+        {rightPanelMode === 'ai' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-3 py-2 border-b border-slate-100 bg-white">
+              <div className="relative" ref={modelDropdownRef}>
+                <div className="text-xs font-medium text-slate-600 mb-1.5">AI 模型</div>
+                <button
+                  onClick={() => setShowModelDropdown(!showModelDropdown)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 bg-indigo-100 rounded-md flex items-center justify-center">
+                      <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-slate-700">{currentModel.label}</div>
+                      <div className="text-[10px] text-slate-400">{currentModel.desc}</div>
+                    </div>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showModelDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {showModelDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+                    {AI_MODELS.map((model) => (
+                      <button
+                        key={model.value}
+                        onClick={() => {
+                          setSelectedModel(model.value)
+                          setShowModelDropdown(false)
+                        }}
+                        className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
+                          selectedModel === model.value ? 'bg-indigo-50/50' : ''
+                        }`}
+                      >
+                        <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
+                          selectedModel === model.value ? 'bg-indigo-600' : 'bg-slate-100'
+                        }`}>
+                          <Bot className={`w-3.5 h-3.5 ${selectedModel === model.value ? 'text-white' : 'text-slate-500'}`} />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-medium ${selectedModel === model.value ? 'text-indigo-700' : 'text-slate-700'}`}>
+                            {model.label}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{model.desc}</div>
+                        </div>
+                        {selectedModel === model.value && (
+                          <Check className="w-4 h-4 text-indigo-600 ml-auto" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    可信检索
+                  </span>
+                  <button
+                    onClick={() => setTrustedSearch(!trustedSearch)}
+                    className="text-indigo-600"
+                  >
+                    {trustedSearch ? (
+                      <ToggleRight className="w-9 h-5" />
+                    ) : (
+                      <ToggleLeft className="w-9 h-5 text-slate-300" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  开启后 AI 回答必须引用知识库内容，确保回答的学术可信度
+                </p>
+              </div>
+
+              {trustedSearch && (
+                <div className="mt-3" ref={citationScopeRef}>
+                  <div className="text-xs font-medium text-slate-600 mb-1.5">引用范围</div>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowCitationScopeDropdown(!showCitationScopeDropdown)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
+                    >
+                      <span className="text-xs text-slate-700">
+                        {CITATION_SCOPES.find((s) => s.value === citationScope)?.label}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showCitationScopeDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+                    {showCitationScopeDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+                        {CITATION_SCOPES.map((scope) => (
+                          <button
+                            key={scope.value}
+                            onClick={() => {
+                              setCitationScope(scope.value)
+                              setShowCitationScopeDropdown(false)
+                            }}
+                            className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center justify-between ${
+                              citationScope === scope.value ? 'bg-indigo-50/50' : ''
+                            }`}
+                          >
+                            <span className={`text-xs ${citationScope === scope.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                              {scope.label}
+                            </span>
+                            {citationScope === scope.value && (
+                              <Check className="w-4 h-4 text-indigo-600" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="p-2.5 border-b border-slate-100 bg-white">
               <div className="text-[11px] font-medium text-slate-500 mb-2 px-1">快捷指令</div>
               <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() => handleQuickAction('continue')}
-                  className="px-2.5 py-1.5 text-xs bg-slate-50 border border-s-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                >
-                  <PenTool className="w-3 h-3" />
-                  继续写作
-                </button>
-                <button
-                  onClick={() => handleQuickAction('polish')}
-                  className="px-2.5 py-1.5 text-xs bg-slate-50 border border-s-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                >
-                  <Wand2 className="w-3 h-3" />
-                  润色
-                </button>
-                <button
-                  onClick={() => handleQuickAction('translate')}
-                  className="px-2.5 py-1.5 text-xs bg-slate-50 border border-s-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                >
-                  <Languages className="w-3 h-3" />
-                  翻译
-                </button>
-                <button
-                  onClick={() => handleQuickAction('search')}
-                  className="px-2.5 py-1.5 text-xs bg-slate-50 border border-s-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                >
-                  <Search className="w-3 h-3" />
-                  找文献
-                </button>
-                <button
-                  onClick={() => handleQuickAction('summarize')}
-                  className="px-2.5 py-1.5 text-xs bg-slate-50 border border-s-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                >
-                  <FileText className="w-3 h-3" />
-                  总结段落
-                </button>
-                <button
-                  onClick={() => handleQuickAction('figure_desc')}
-                  className="px-2.5 py-1.5 text-xs bg-slate-50 border border-s-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                >
-                  <BarChart3 className="w-3 h-3" />
-                  图表描述
-                </button>
+                {QUICK_ACTIONS.map((action) => {
+                  const Icon = action.icon
+                  return (
+                    <button
+                      key={action.key}
+                      onClick={() => handleQuickAction(action.key)}
+                      className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
+                    >
+                      <Icon className="w-3 h-3" />
+                      {action.label}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
@@ -1039,7 +1290,7 @@ export default function WritingPage() {
                     className={`max-w-[92%] rounded-2xl px-3 py-2.5 text-sm ${
                       msg.role === 'user'
                         ? 'bg-indigo-600 text-white rounded-br-md shadow-sm'
-                        : 'bg-white text-slate-700 rounded-bl-md border border-s-slate-200 shadow-sm'
+                        : 'bg-white text-slate-700 rounded-bl-md border border-slate-200 shadow-sm'
                     }`}
                   >
                     {msg.role === 'assistant' ? (
@@ -1049,7 +1300,7 @@ export default function WritingPage() {
                           dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                         />
                         {msg.citations && msg.citations.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-s-slate-100">
+                          <div className="mt-3 pt-3 border-t border-slate-100">
                             <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
                               <div className="w-4 h-4 bg-emerald-100 rounded-full flex items-center justify-center">
                                 <Quote className="w-2.5 h-2.5 text-emerald-600" />
@@ -1060,7 +1311,7 @@ export default function WritingPage() {
                               {msg.citations.map((cit, idx) => (
                                 <div
                                   key={idx}
-                                  className="p-2.5 bg-slate-50/80 rounded-lg border border-s-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition"
+                                  className="p-2.5 bg-slate-50/80 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition"
                                 >
                                   <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
                                     {cit.title}
@@ -1140,8 +1391,383 @@ export default function WritingPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {rightPanelMode === 'library' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-slate-100">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="搜索文献..."
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {DEMO_CITATIONS.map((cit, idx) => (
+                <div
+                  key={idx}
+                  className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer"
+                >
+                  <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug">
+                    {cit.title}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
+                      {cit.year}
+                    </span>
+                    <span className="truncate">{cit.journal}</span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1 truncate">
+                    {cit.authors}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <a
+                      href={`https://doi.org/${cit.doi}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                    >
+                      <FileCode className="w-3 h-3" />
+                      DOI
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      onClick={() => insertCitation(cit.doi)}
+                      className="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition font-medium"
+                    >
+                      插入引用
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {rightPanelMode === 'knowledge' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-slate-100">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="搜索知识库..."
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3">
+              <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+                <BookText className="w-3.5 h-3.5" />
+                图书
+              </div>
+              <div className="space-y-2 mb-4">
+                {[
+                  { title: '有机合成化学', author: 'Smith, M.B.', year: 2020 },
+                  { title: '高等物理化学', author: 'Atkins, P.', year: 2019 },
+                  { title: '材料科学基础', author: 'Callister, W.D.', year: 2021 },
+                ].map((book, idx) => (
+                  <div
+                    key={idx}
+                    className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-start gap-2"
+                  >
+                    <div className="w-8 h-10 bg-gradient-to-br from-amber-100 to-amber-200 rounded flex items-center justify-center flex-shrink-0">
+                      <BookText className="w-4 h-4 text-amber-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-slate-700 line-clamp-1">{book.title}</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">{book.author} ({book.year})</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+                <Newspaper className="w-3.5 h-3.5" />
+                综述文章
+              </div>
+              <div className="space-y-2">
+                {DEMO_CITATIONS.slice(0, 2).map((cit, idx) => (
+                  <div
+                    key={idx}
+                    className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer"
+                  >
+                    <div className="text-xs font-medium text-slate-700 line-clamp-2 leading-snug">
+                      {cit.title}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      {cit.journal} ({cit.year})
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {rightPanelMode === 'typesetting' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-slate-100">
+              <div className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">
+                <LayoutTemplate className="w-3.5 h-3.5 text-indigo-600" />
+                期刊排版
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                选择目标期刊，一键转换为对应格式的 LaTeX 模板
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              <div>
+                <div className="text-xs font-medium text-slate-600 mb-1.5">选择目标期刊</div>
+                <div className="relative">
+                  <select
+                    value={selectedJournal}
+                    onChange={(e) => setSelectedJournal(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none pr-8"
+                  >
+                    {JOURNALS.map((j) => (
+                      <option key={j.value} value={j.value}>
+                        {j.label} — {j.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-slate-600 mb-1.5">当前格式预览</div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-center">
+                    <div className="text-sm font-bold text-slate-800">{currentJournal.label}</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">{currentJournal.name}</div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-slate-200 space-y-1.5">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-slate-500">字号</span>
+                      <span className="text-slate-700 font-medium">10pt / 12pt</span>
+                    </div>
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-slate-500">栏数</span>
+                      <span className="text-slate-700 font-medium">双栏</span>
+                    </div>
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-slate-500">参考文献</span>
+                      <span className="text-slate-700 font-medium">编号制</span>
+                    </div>
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-slate-500">图表位置</span>
+                      <span className="text-slate-700 font-medium">文末</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={startTypesetting}
+                disabled={isTypesetting}
+                className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center justify-center gap-2"
+              >
+                {isTypesetting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    排版中...
+                  </>
+                ) : (
+                  <>
+                    <FileOutput className="w-4 h-4" />
+                    开始排版
+                  </>
+                )}
+              </button>
+
+              {(isTypesetting || typesetDone) && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600 font-medium">排版进度</span>
+                    <span className="text-indigo-600 font-mono">{typesettingProgress}%</span>
+                  </div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-300"
+                      style={{ width: `${typesettingProgress}%` }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {typesettingProgress < 30 && '解析 Markdown 内容...'}
+                    {typesettingProgress >= 30 && typesettingProgress < 60 && '转换 LaTeX 结构...'}
+                    {typesettingProgress >= 60 && typesettingProgress < 90 && '应用期刊模板...'}
+                    {typesettingProgress >= 90 && typesettingProgress < 100 && '生成最终文件...'}
+                    {typesettingProgress >= 100 && '排版完成！'}
+                  </div>
+                </div>
+              )}
+
+              {typesetDone && (
+                <div className="space-y-3">
+                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      <span className="text-sm font-medium text-emerald-700">排版完成</span>
+                    </div>
+                    <p className="text-xs text-emerald-600 mt-1">
+                      已成功转换为 {currentJournal.label} 格式
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-900 rounded-lg overflow-x-auto">
+                    <div className="text-[10px] text-slate-400 mb-2 font-mono">LaTeX 预览</div>
+                    <pre className="text-[11px] text-slate-300 font-mono leading-relaxed">
+{`\\documentclass[10pt]{article}
+\\usepackage{achemso}
+\\title{钙钛矿太阳能电池的研究进展}
+\\author{Author One}
+\\affiliation{University}
+\\begin{document}
+\\begin{abstract}
+...
+\\end{abstract}
+\\section{Introduction}
+...
+\\end{document}`}
+                    </pre>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1.5">
+                      <Download className="w-3.5 h-3.5" />
+                      下载 .zip
+                    </button>
+                    <button className="flex-1 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
+                      <FileCode className="w-3.5 h-3.5" />
+                      预览 PDF
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </aside>
+
+      {showCitationModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BookMarked className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-semibold text-slate-800">插入引用</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCitationModal(false)
+                  setSelectedCitations([])
+                  setCitationSearch('')
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-4 py-3 border-b border-slate-100">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={citationSearch}
+                  onChange={(e) => setCitationSearch(e.target.value)}
+                  placeholder="搜索文献标题、作者、期刊或 DOI..."
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  autoFocus
+                />
+              </div>
+              <div className="mt-2 text-[11px] text-slate-400">
+                快捷键：<kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono">Ctrl+Shift+K</kbd>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {filteredCitations.length === 0 && (
+                <div className="text-center py-8 text-sm text-slate-400">
+                  未找到匹配的文献
+                </div>
+              )}
+              {filteredCitations.map((cit) => {
+                const isSelected = selectedCitations.includes(cit.doi)
+                return (
+                  <div
+                    key={cit.doi}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedCitations((prev) => prev.filter((d) => d !== cit.doi))
+                      } else {
+                        setSelectedCitations((prev) => [...prev, cit.doi])
+                      }
+                    }}
+                    className={`p-3 rounded-lg border cursor-pointer transition ${
+                      isSelected
+                        ? 'border-indigo-400 bg-indigo-50/60'
+                        : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                      }`}>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                          {cit.title}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1.5 truncate">
+                          {cit.authors} ({cit.year})
+                        </div>
+                        <div className="text-xs text-slate-400 truncate mt-0.5">
+                          {cit.journal}
+                        </div>
+                        <div className="text-[11px] text-indigo-600 mt-1 font-mono">
+                          {cit.doi}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
+              <div className="text-xs text-slate-500">
+                已选择 <span className="font-semibold text-indigo-600">{selectedCitations.length}</span> 篇
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowCitationModal(false)
+                    setSelectedCitations([])
+                    setCitationSearch('')
+                  }}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={insertSelectedCitations}
+                  disabled={selectedCitations.length === 0}
+                  className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                >
+                  插入引用
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      </section>
+      )}
     </div>
   )
 }
