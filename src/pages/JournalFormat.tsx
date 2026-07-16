@@ -157,6 +157,120 @@ function JournalFormatPage() {
     URL.revokeObjectURL(url)
   }
 
+  // 用 KaTeX 渲染 LaTeX 公式为 HTML
+  const renderLatexPreview = (latex: string): string => {
+    // 移除 documentclass、usepackage 等 preamble
+    let body = latex
+      .replace(/\\documentclass(\[.*?\])?\{.*?\}/g, '')
+      .replace(/\\usepackage(\[.*?\])?\{.*?\}/g, '')
+      .replace(/\\begin\{document\}/g, '')
+      .replace(/\\end\{document\}/g, '')
+      .replace(/\\bibliographystyle\{.*?\}/g, '')
+      .replace(/\\bibliography\{.*?\}/g, '')
+
+    // 渲染行内公式 $...$
+    body = body.replace(/\$([^$\n]+?)\$/g, (_, formula) => {
+      try {
+        return katex.renderToString(formula, { throwOnError: false, displayMode: false })
+      } catch {
+        return `$${formula}$`
+      }
+    })
+
+    // 渲染块级公式 $$...$$
+    body = body.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
+      try {
+        return katex.renderToString(formula, { throwOnError: false, displayMode: true })
+      } catch {
+        return `$$${formula}$$`
+      }
+    })
+
+    // 渲染 \[...\] 块级公式
+    body = body.replace(/\\\[([\s\S]+?)\\\]/g, (_, formula) => {
+      try {
+        return katex.renderToString(formula, { throwOnError: false, displayMode: true })
+      } catch {
+        return `\\[${formula}\\]`
+      }
+    })
+
+    // 渲染 \\(...\\) 行内公式
+    body = body.replace(/\\\((.+?)\\\)/g, (_, formula) => {
+      try {
+        return katex.renderToString(formula, { throwOnError: false, displayMode: false })
+      } catch {
+        return `\\(${formula}\\)`
+      }
+    })
+
+    // 简单的文本格式化
+    body = body
+      .replace(/\\title\{(.+?)\}/g, '<h1 class="text-2xl font-bold text-center mb-4">$1</h1>')
+      .replace(/\\section\{(.+?)\}/g, '<h2 class="text-xl font-bold mt-6 mb-3">$1</h2>')
+      .replace(/\\subsection\{(.+?)\}/g, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
+      .replace(/\\textbf\{(.+?)\}/g, '<strong>$1</strong>')
+      .replace(/\\textit\{(.+?)\}/g, '<em>$1</em>')
+      .replace(/\\cite\{(.+?)\}/g, '<sup class="text-indigo-600">[$1]</sup>')
+      .replace(/\\begin\{abstract\}([\s\S]+?)\\end\{abstract\}/g, '<div class="bg-slate-50 p-4 rounded-lg mb-4 text-sm"><p class="font-semibold mb-2">Abstract</p>$1</div>')
+      .replace(/\\begin\{itemize\}([\s\S]+?)\\end\{itemize\}/g, '<ul class="list-disc pl-6 my-2">$1</ul>')
+      .replace(/\\begin\{enumerate\}([\s\S]+?)\\end\{enumerate\}/g, '<ol class="list-decimal pl-6 my-2">$1</ol>')
+      .replace(/\\item\s/g, '<li>')
+      .replace(/\\par/g, '</p><p>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/\\newline/g, '<br/>')
+      .replace(/\\\\/g, '<br/>')
+
+    // 兜底：所有剩余 \\command 变成普通文本
+    body = body.replace(/\\([a-zA-Z]+)(\{.*?\})?/g, (match, cmd, arg) => {
+      if (arg) return arg.slice(1, -1)
+      return ''
+    })
+
+    return `<div class="latex-preview"><p>${body}</p></div>`
+  }
+
+  // PDF 导出：打开打印对话框
+  const handleExportPDF = () => {
+    if (!result) return
+    const previewHtml = renderLatexPreview(result.latex)
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      toast.error('请允许弹出窗口以导出 PDF')
+      return
+    }
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>AcademicFlow - LaTeX Preview</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+        <style>
+          body { font-family: 'Times New Roman', serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+          h1 { text-align: center; font-size: 24px; margin-bottom: 20px; }
+          h2 { font-size: 18px; margin-top: 24px; margin-bottom: 12px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+          h3 { font-size: 16px; margin-top: 16px; margin-bottom: 8px; }
+          p { margin: 8px 0; text-align: justify; }
+          .katex { font-size: 1.1em; }
+          sup { color: #4f46e5; }
+          @media print { body { margin: 0; padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        ${previewHtml}
+        <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          <p><strong>References (BibTeX):</strong></p>
+          <pre style="white-space: pre-wrap; font-size: 10px; background: #f5f5f5; padding: 10px; border-radius: 4px;">${result.bibtex.replace(/</g, '&lt;')}</pre>
+        </div>
+        <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+      </body>
+      </html>
+    `)
+    printWindow.document.close()
+    toast.success('PDF 预览已打开，请使用浏览器的"另存为 PDF"功能下载')
+  }
+
   const stageLabels: Record<string, string> = {
     extracting_citations: '提取引用',
     fetching_citation_data: '获取文献元数据',
@@ -519,8 +633,29 @@ function JournalFormatPage() {
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => setActiveTab('preview')}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${
+                    activeTab === 'preview'
+                      ? 'text-indigo-600 bg-white border-b-2 border-indigo-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
+                  预览
+                </button>
 
                 <div className="flex items-center gap-1 pr-3">
+                  {activeTab === 'preview' && result && (
+                    <button
+                      onClick={handleExportPDF}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition"
+                      title="导出 PDF"
+                    >
+                      <FileDown className="w-3.5 h-3.5" />
+                      PDF
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       if (activeTab === 'latex' && result) {
@@ -529,7 +664,7 @@ function JournalFormatPage() {
                         handleCopy(result.bibtex, 'BibTeX')
                       }
                     }}
-                    disabled={!result}
+                    disabled={!result || activeTab === 'preview'}
                     className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-white rounded transition disabled:opacity-50"
                     title="复制"
                   >
@@ -543,7 +678,7 @@ function JournalFormatPage() {
                         handleDownload(result.bibtex, 'references.bib')
                       }
                     }}
-                    disabled={!result}
+                    disabled={!result || activeTab === 'preview'}
                     className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-white rounded transition disabled:opacity-50"
                     title="下载"
                   >
@@ -552,14 +687,21 @@ function JournalFormatPage() {
                 </div>
               </div>
 
-              {/* 代码预览 */}
-              <div className="h-[500px] overflow-auto bg-slate-900">
+              {/* 内容区 */}
+              <div className="h-[500px] overflow-auto">
                 {result ? (
-                  <pre className="p-4 text-sm font-mono text-slate-100 leading-relaxed">
-                    {activeTab === 'latex' ? result.latex : result.bibtex}
-                  </pre>
+                  activeTab === 'preview' ? (
+                    <div
+                      className="p-6 bg-white text-slate-800"
+                      dangerouslySetInnerHTML={{ __html: renderLatexPreview(result.latex) }}
+                    />
+                  ) : (
+                    <pre className="p-4 text-sm font-mono text-slate-100 leading-relaxed bg-slate-900">
+                      {activeTab === 'latex' ? result.latex : result.bibtex}
+                    </pre>
+                  )
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-500">
+                  <div className="h-full flex flex-col items-center justify-center text-slate-500 bg-slate-900">
                     <Sparkles className="w-12 h-12 mb-3 opacity-30" />
                     <p className="text-sm">点击「AI 转换为 LaTeX」按钮开始</p>
                     <p className="text-xs mt-1 text-slate-600">

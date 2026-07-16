@@ -419,3 +419,89 @@ export async function initEmptyRepoSkeleton(
   onProgress?.(`完成，骨架 commit：${newCommit.sha.slice(0, 8)}`)
   return newCommit.sha
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// JSON 文件读写（用于在私库存储应用数据）
+// ═════════════════════════════════════════════════════════════════════════
+
+/**
+ * 从仓库读取 JSON 文件
+ * @returns 文件内容解析后的对象；文件不存在时返回 null
+ */
+export async function readRepoJsonFile<T>(
+  owner: string,
+  repo: string,
+  path: string,
+  token: string,
+): Promise<T | null> {
+  const res = await githubFetch(
+    `/repos/${owner}/${repo}/contents/${encodeURI(path)}`,
+    token,
+  )
+  if (res.status === 404) return null
+  if (!res.ok) {
+    const err = await res.text().catch(() => '')
+    throw new GitHubAPIError(res.status, err, `读取文件失败：${err}`)
+  }
+  const data = (await res.json()) as { content: string; sha: string; encoding: string }
+  const content = atob(data.content.replace(/\n/g, ''))
+  return JSON.parse(content) as T
+}
+
+/**
+ * 向仓库写入 JSON 文件（创建或覆盖）
+ * @returns 写入后的文件 sha
+ */
+export async function writeRepoJsonFile<T>(
+  owner: string,
+  repo: string,
+  path: string,
+  data: T,
+  token: string,
+  message?: string,
+): Promise<string> {
+  const content = JSON.stringify(data, null, 2)
+  const encoded = utf8ToBase64(content)
+
+  // 先尝试获取现有文件的 sha（用于更新）
+  let existingSha: string | undefined
+  try {
+    const getRes = await githubFetch(
+      `/repos/${owner}/${repo}/contents/${encodeURI(path)}`,
+      token,
+    )
+    if (getRes.ok) {
+      const fileData = (await getRes.json()) as { sha: string }
+      existingSha = fileData.sha
+    }
+  } catch {
+    // 文件不存在，忽略
+  }
+
+  const body: Record<string, unknown> = {
+    message: message || `Update ${path}`,
+    content: encoded,
+    branch: 'main',
+  }
+  if (existingSha) {
+    body.sha = existingSha
+  }
+
+  const res = await githubFetch(
+    `/repos/${owner}/${repo}/contents/${encodeURI(path)}`,
+    token,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => '')
+    throw new GitHubAPIError(res.status, err, `写入文件失败：${err}`)
+  }
+
+  const result = (await res.json()) as { content: { sha: string } }
+  return result.content.sha
+}
