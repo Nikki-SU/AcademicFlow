@@ -17,9 +17,22 @@ import {
   X,
   Check,
   ChevronRight,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  Quote,
+  Code,
+  Link,
+  Eye,
+  Edit3,
+  Columns,
 } from 'lucide-react'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
+type SideTab = 'notes' | 'annotations'
+type NoteEditorMode = 'edit' | 'preview' | 'split'
+type FilterType = 'all' | 'has-md' | 'no-md'
 
 interface Annotation {
   id: string
@@ -46,12 +59,17 @@ interface PaperNotes {
   [paperId: string]: string
 }
 
-const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; border: string; text: string }[] = [
-  { value: 'yellow', label: '黄色', bg: 'bg-yellow-200', border: 'border-yellow-400', text: 'text-yellow-700' },
-  { value: 'green', label: '绿色', bg: 'bg-green-200', border: 'border-green-400', text: 'text-green-700' },
-  { value: 'blue', label: '蓝色', bg: 'bg-blue-200', border: 'border-blue-400', text: 'text-blue-700' },
-  { value: 'purple', label: '紫色', bg: 'bg-purple-200', border: 'border-purple-400', text: 'text-purple-700' },
-  { value: 'red', label: '红色', bg: 'bg-red-200', border: 'border-red-400', text: 'text-red-700' },
+interface SaveState {
+  status: 'saved' | 'saving' | 'idle'
+  lastSaved: number | null
+}
+
+const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; border: string; text: string; dot: string }[] = [
+  { value: 'yellow', label: '黄色', bg: 'bg-yellow-200/60', border: 'border-l-yellow-400 bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400' },
+  { value: 'green', label: '绿色', bg: 'bg-green-200/60', border: 'border-l-green-400 bg-green-50', text: 'text-green-700', dot: 'bg-green-400' },
+  { value: 'blue', label: '蓝色', bg: 'bg-blue-200/60', border: 'border-l-blue-400 bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' },
+  { value: 'purple', label: '紫色', bg: 'bg-purple-200/60', border: 'border-l-purple-400 bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-400' },
+  { value: 'red', label: '红色', bg: 'bg-red-200/60', border: 'border-l-red-400 bg-red-50', text: 'text-red-700', dot: 'bg-red-400' },
 ]
 
 const DEMO_PAPERS: Paper[] = [
@@ -131,6 +149,54 @@ const DEMO_PAPERS: Paper[] = [
     doi: '10.1021/jacs.3c04567',
     hasMarkdown: false,
   },
+  {
+    id: '3',
+    title: '金属有机框架衍生纳米材料在电催化中的应用',
+    authors: 'Liu X, Zhao Y, Sun M, Wang Q',
+    journal: 'Nano Energy',
+    year: '2023',
+    keywords: ['MOF', 'electrocatalysis', 'nanomaterial', 'energy'],
+    doi: '10.1016/j.nanoen.2023.108765',
+    hasMarkdown: true,
+    markdownContent: `# 金属有机框架衍生纳米材料在电催化中的应用
+
+## 摘要
+
+金属有机框架（MOFs）作为一类新型晶态多孔材料，在电催化领域展现出巨大的应用潜力。本文综述了MOF衍生纳米材料的制备方法及其在氧还原反应、析氢反应和CO2还原反应中的应用进展。
+
+## 1. 引言
+
+电催化是清洁能源转换与存储的核心技术之一。开发高效、稳定、廉价的电催化剂是实现这些技术大规模应用的关键。
+
+## 2. MOF衍生纳米材料的制备
+
+### 2.1 直接热解法
+
+通过在惰性气氛下高温热解MOF前驱体，可以获得掺杂碳材料、金属氧化物或金属/碳复合材料。
+
+### 2.2 模板法
+
+利用MOF的多孔结构作为模板，引入其他活性组分后再进行热解处理。
+
+## 3. 电催化应用
+
+### 3.1 氧还原反应（ORR）
+
+MOF衍生的氮掺杂碳材料在碱性条件下表现出优异的ORR催化性能，部分性能可与商业Pt/C催化剂媲美。
+
+### 3.2 析氢反应（HER）
+
+通过掺杂过渡金属磷化物或硫化物，可以显著提升MOF衍生材料的HER催化活性。
+
+### 3.3 CO2还原反应（CO2RR）
+
+MOF衍生的单原子催化剂在CO2RR中表现出高选择性和高活性，特别是铜单原子催化剂。
+
+## 4. 结论与展望
+
+MOF衍生纳米材料为电催化领域带来了新的机遇，但仍需在材料设计、性能优化和机理研究方面进一步深入。
+`,
+  },
 ]
 
 const DEMO_ANNOTATIONS: Annotation[] = [
@@ -162,44 +228,122 @@ const DEMO_ANNOTATIONS: Annotation[] = [
 
 const DEMO_NOTES: PaperNotes = {
   '1': '# 阅读笔记：钙钛矿太阳能电池\n\n## 核心要点\n\n钙钛矿太阳能电池是下一代光伏技术的有力竞争者，具有高效率、低成本的优势。\n\n## 关键数据\n\n- 效率：26.1%（单结）\n- 稳定性：>10000小时（实验室）\n- 带隙：~1.5 eV\n\n## 待深入研究\n\n1. 界面工程的具体方法\n2. 封装技术的最新进展\n3. 量产成本分析\n\n## 相关文献\n\n- [[10.1038/s41560-024-01234-5]] 本文\n- 待补充...',
-}
-
-function getHighlightClass(color: HighlightColor): string {
-  const colorMap: Record<HighlightColor, string> = {
-    yellow: 'bg-yellow-200/60',
-    green: 'bg-green-200/60',
-    blue: 'bg-blue-200/60',
-    purple: 'bg-purple-200/60',
-    red: 'bg-red-200/60',
-  }
-  return colorMap[color]
-}
-
-function getBorderClass(color: HighlightColor): string {
-  const colorMap: Record<HighlightColor, string> = {
-    yellow: 'border-l-yellow-400 bg-yellow-50',
-    green: 'border-l-green-400 bg-green-50',
-    blue: 'border-l-blue-400 bg-blue-50',
-    purple: 'border-l-purple-400 bg-purple-50',
-    red: 'border-l-red-400 bg-red-50',
-  }
-  return colorMap[color]
-}
-
-function getDotClass(color: HighlightColor): string {
-  const colorMap: Record<HighlightColor, string> = {
-    yellow: 'bg-yellow-400',
-    green: 'bg-green-400',
-    blue: 'bg-blue-400',
-    purple: 'bg-purple-400',
-    red: 'bg-red-400',
-  }
-  return colorMap[color]
+  '3': '# 阅读笔记：MOF衍生电催化材料\n\n## 重点\n\nMOF衍生材料在电催化中应用广泛，特别是单原子催化剂。\n\n## 三种主要应用\n\n1. ORR - 氧还原反应\n2. HER - 析氢反应  \n3. CO2RR - CO2还原',
 }
 
 function formatDate(timestamp: number): string {
   const d = new Date(timestamp)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function formatTime(timestamp: number): string {
+  const d = new Date(timestamp)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function renderMarkdownToHtml(text: string): string {
+  let html = text
+
+  const codeBlockRegex = /```([\s\S]*?)```/g
+  const codeBlocks: string[] = []
+  html = html.replace(codeBlockRegex, (_, code) => {
+    codeBlocks.push(code)
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`
+  })
+
+  html = html.replace(/^###### (.*)$/gm, '<h6 class="text-sm font-semibold text-slate-700 mt-3 mb-2">$1</h6>')
+  html = html.replace(/^##### (.*)$/gm, '<h5 class="text-base font-semibold text-slate-700 mt-3 mb-2">$1</h5>')
+  html = html.replace(/^#### (.*)$/gm, '<h4 class="text-lg font-semibold text-slate-800 mt-4 mb-2">$1</h4>')
+  html = html.replace(/^### (.*)$/gm, '<h3 class="text-xl font-semibold text-slate-800 mt-5 mb-3">$1</h3>')
+  html = html.replace(/^## (.*)$/gm, '<h2 class="text-2xl font-bold text-slate-800 mt-6 mb-3 pb-2 border-b border-slate-200">$1</h2>')
+  html = html.replace(/^# (.*)$/gm, '<h1 class="text-3xl font-bold text-slate-900 mt-2 mb-4 pb-3 border-b-2 border-indigo-200">$1</h1>')
+
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-800">$1</strong>')
+  html = html.replace(/\*(.+?)\*/g, '<em class="italic text-slate-700">$1</em>')
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm font-mono text-indigo-600">$1</code>')
+
+  html = html.replace(/^> (.*)$/gm, (_, content) => {
+    return `<blockquote class="border-l-4 border-indigo-300 pl-4 py-1 my-2 bg-indigo-50/50 text-slate-600 italic rounded-r">${content}</blockquote>`
+  })
+
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline underline-offset-2">${text}</a>`
+  })
+
+  const lines = html.split('\n')
+  const result: string[] = []
+  let inUl = false
+  let inOl = false
+  let paraBuffer: string[] = []
+
+  const flushPara = () => {
+    if (paraBuffer.length > 0) {
+      result.push(`<p class="my-2 text-slate-700 leading-relaxed">${paraBuffer.join(' ')}</p>`)
+      paraBuffer = []
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (trimmed.startsWith('__CODE_BLOCK_')) {
+      flushPara()
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      const idx = parseInt(trimmed.replace('__CODE_BLOCK_', '').replace('__', ''))
+      const code = codeBlocks[idx] || ''
+      result.push(`<pre class="my-3 p-3 bg-slate-900 text-slate-100 rounded-lg overflow-x-auto text-sm font-mono"><code>${escapeHtml(code.trim())}</code></pre>`)
+      continue
+    }
+
+    const ulMatch = trimmed.match(/^[-*+] (.*)$/)
+    if (ulMatch) {
+      flushPara()
+      if (inOl) { result.push('</ol>'); inOl = false }
+      if (!inUl) { result.push('<ul class="my-2 space-y-1 list-disc list-outside pl-6 text-slate-700">'); inUl = true }
+      result.push(`<li>${ulMatch[1]}</li>`)
+      continue
+    }
+
+    const olMatch = trimmed.match(/^\d+\. (.*)$/)
+    if (olMatch) {
+      flushPara()
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (!inOl) { result.push('<ol class="my-2 space-y-1 list-decimal list-outside pl-6 text-slate-700">'); inOl = true }
+      result.push(`<li>${olMatch[1]}</li>`)
+      continue
+    }
+
+    if (trimmed === '') {
+      flushPara()
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      continue
+    }
+
+    if (!trimmed.startsWith('<h') && !trimmed.startsWith('<blockquote') && !trimmed.startsWith('</')) {
+      paraBuffer.push(trimmed)
+    } else {
+      flushPara()
+      if (inUl) { result.push('</ul>'); inUl = false }
+      if (inOl) { result.push('</ol>'); inOl = false }
+      result.push(line)
+    }
+  }
+
+  flushPara()
+  if (inUl) result.push('</ul>')
+  if (inOl) result.push('</ol>')
+
+  return result.join('\n')
 }
 
 function exportMarkdown(content: string, filename: string) {
@@ -214,151 +358,15 @@ function exportMarkdown(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-function renderSimpleMarkdown(text: string): React.ReactNode {
-  const lines = text.split('\n')
-  const elements: React.ReactNode[] = []
-  let inList = false
-  let inQuote = false
-
-  lines.forEach((line, index) => {
-    if (line.startsWith('# ')) {
-      inList = false
-      inQuote = false
-      elements.push(
-        <h1 key={index} className="text-2xl font-bold text-slate-800 mb-4 mt-6 first:mt-0">
-          {line.slice(2)}
-        </h1>
-      )
-    } else if (line.startsWith('## ')) {
-      inList = false
-      inQuote = false
-      elements.push(
-        <h2 key={index} className="text-xl font-bold text-slate-800 mb-3 mt-5">
-          {line.slice(3)}
-        </h2>
-      )
-    } else if (line.startsWith('### ')) {
-      inList = false
-      inQuote = false
-      elements.push(
-        <h3 key={index} className="text-lg font-semibold text-slate-700 mb-2 mt-4">
-          {line.slice(4)}
-        </h3>
-      )
-    } else if (line.startsWith('> ')) {
-      if (!inQuote) {
-        inQuote = true
-        inList = false
-      }
-      elements.push(
-        <blockquote key={index} className="border-l-4 border-indigo-300 pl-4 py-1 text-slate-600 italic my-2 bg-indigo-50/50">
-          {line.slice(2)}
-        </blockquote>
-      )
-    } else if (line.startsWith('- ') || line.startsWith('* ')) {
-      if (!inList) {
-        inList = true
-        inQuote = false
-      }
-      elements.push(
-        <li key={index} className="ml-4 text-slate-700 leading-relaxed list-disc">
-          {renderInlineMarkdown(line.slice(2))}
-        </li>
-      )
-    } else if (/^\d+\.\s/.test(line)) {
-      if (!inList) {
-        inList = true
-        inQuote = false
-      }
-      elements.push(
-        <li key={index} className="ml-4 text-slate-700 leading-relaxed list-decimal">
-          {renderInlineMarkdown(line.replace(/^\d+\.\s/, ''))}
-        </li>
-      )
-    } else if (line.trim() === '') {
-      inList = false
-      inQuote = false
-      elements.push(<div key={index} className="h-2" />)
-    } else {
-      inList = false
-      inQuote = false
-      elements.push(
-        <p key={index} className="text-slate-700 leading-relaxed mb-2">
-          {renderInlineMarkdown(line)}
-        </p>
-      )
-    }
-  })
-
-  return elements
-}
-
-function renderInlineMarkdown(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = []
-  let remaining = text
-  let key = 0
-
-  const boldRegex = /\*\*(.+?)\*\*/
-  const italicRegex = /\*(.+?)\*/
-  const codeRegex = /`(.+?)`/
-
-  while (remaining.length > 0) {
-    const boldMatch = remaining.match(boldRegex)
-    const italicMatch = remaining.match(italicRegex)
-    const codeMatch = remaining.match(codeRegex)
-
-    let earliestMatch: RegExpMatchArray | null = null
-    let earliestIndex = Infinity
-    let matchType = ''
-
-    if (boldMatch && boldMatch.index !== undefined && boldMatch.index < earliestIndex) {
-      earliestMatch = boldMatch
-      earliestIndex = boldMatch.index
-      matchType = 'bold'
-    }
-    if (italicMatch && italicMatch.index !== undefined && italicMatch.index < earliestIndex) {
-      earliestMatch = italicMatch
-      earliestIndex = italicMatch.index
-      matchType = 'italic'
-    }
-    if (codeMatch && codeMatch.index !== undefined && codeMatch.index < earliestIndex) {
-      earliestMatch = codeMatch
-      earliestIndex = codeMatch.index
-      matchType = 'code'
-    }
-
-    if (!earliestMatch || earliestIndex === Infinity) {
-      parts.push(<span key={key++}>{remaining}</span>)
-      break
-    }
-
-    if (earliestIndex > 0) {
-      parts.push(<span key={key++}>{remaining.slice(0, earliestIndex)}</span>)
-    }
-
-    if (matchType === 'bold') {
-      parts.push(<strong key={key++} className="font-bold">{earliestMatch[1]}</strong>)
-    } else if (matchType === 'italic') {
-      parts.push(<em key={key++} className="italic">{earliestMatch[1]}</em>)
-    } else if (matchType === 'code') {
-      parts.push(
-        <code key={key++} className="bg-slate-100 px-1.5 py-0.5 rounded text-sm font-mono text-indigo-600">
-          {earliestMatch[1]}
-        </code>
-      )
-    }
-
-    remaining = remaining.slice(earliestIndex + earliestMatch[0].length)
-  }
-
-  return parts
+function getColorInfo(color: HighlightColor) {
+  return HIGHLIGHT_COLORS.find((c) => c.value === color) || HIGHLIGHT_COLORS[0]
 }
 
 export default function ReadingPage() {
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>('1')
-  const [activeSideTab, setActiveSideTab] = useState<'notes' | 'annotations'>('notes')
+  const [activeSideTab, setActiveSideTab] = useState<SideTab>('notes')
   const [searchQuery, setSearchQuery] = useState('')
-  const [filterType, setFilterType] = useState<'all' | 'has-md' | 'no-md'>('all')
+  const [filterType, setFilterType] = useState<FilterType>('all')
   const [fontSize, setFontSize] = useState(16)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [notes, setNotes] = useState<PaperNotes>({})
@@ -369,11 +377,16 @@ export default function ReadingPage() {
   const [newAnnotationText, setNewAnnotationText] = useState('')
   const [showAnnotationInput, setShowAnnotationInput] = useState(false)
   const [pendingColor, setPendingColor] = useState<HighlightColor>('yellow')
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null)
-  const [hoverAnnotation, setHoverAnnotation] = useState<Annotation | null>(null)
+  const [noteSaveState, setNoteSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
+  const [annotationSaveState, setAnnotationSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
+  const [noteEditorMode, setNoteEditorMode] = useState<NoteEditorMode>('split')
+  const [hoverAnnotationId, setHoverAnnotationId] = useState<string | null>(null)
 
   const readerRef = useRef<HTMLDivElement>(null)
   const annotationInputRef = useRef<HTMLTextAreaElement>(null)
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const savedAnnotations = localStorage.getItem('reading-annotations')
@@ -394,18 +407,34 @@ export default function ReadingPage() {
     }
   }, [])
 
-  const saveAnnotations = useCallback((newAnnotations: Annotation[]) => {
-    setAnnotations(newAnnotations)
-    localStorage.setItem('reading-annotations', JSON.stringify(newAnnotations))
+  const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
+    if (annotationSaveTimerRef.current) {
+      clearTimeout(annotationSaveTimerRef.current)
+    }
+    setAnnotationSaveState({ status: 'saving', lastSaved: null })
+    annotationSaveTimerRef.current = setTimeout(() => {
+      localStorage.setItem('reading-annotations', JSON.stringify(newAnnotations))
+      setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
+      setTimeout(() => {
+        setAnnotationSaveState((prev) => ({ ...prev, status: 'idle' }))
+      }, 2000)
+    }, 500)
   }, [])
 
-  const saveNotes = useCallback((paperId: string, content: string) => {
-    const newNotes = { ...notes, [paperId]: content }
-    setNotes(newNotes)
-    localStorage.setItem('reading-notes', JSON.stringify(newNotes))
-    setSaveStatus('saving')
-    setTimeout(() => setSaveStatus('saved'), 500)
-    setTimeout(() => setSaveStatus(null), 2000)
+  const saveNoteToStorage = useCallback((paperId: string, content: string) => {
+    if (noteSaveTimerRef.current) {
+      clearTimeout(noteSaveTimerRef.current)
+    }
+    setNoteSaveState({ status: 'saving', lastSaved: null })
+    noteSaveTimerRef.current = setTimeout(() => {
+      const newNotes = { ...notes, [paperId]: content }
+      setNotes(newNotes)
+      localStorage.setItem('reading-notes', JSON.stringify(newNotes))
+      setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
+      setTimeout(() => {
+        setNoteSaveState((prev) => ({ ...prev, status: 'idle' }))
+      }, 2000)
+    }, 800)
   }, [notes])
 
   const filteredPapers = DEMO_PAPERS.filter((paper) => {
@@ -478,7 +507,9 @@ export default function ReadingPage() {
       createdAt: Date.now(),
     }
 
-    saveAnnotations([...annotations, newAnnotation])
+    const newAnnotations = [...annotations, newAnnotation]
+    setAnnotations(newAnnotations)
+    saveAnnotationsToStorage(newAnnotations)
     setShowToolbar(false)
     setShowAnnotationInput(false)
     setSelectedText('')
@@ -493,7 +524,9 @@ export default function ReadingPage() {
   }
 
   const deleteAnnotation = (id: string) => {
-    saveAnnotations(annotations.filter((a) => a.id !== id))
+    const newAnnotations = annotations.filter((a) => a.id !== id)
+    setAnnotations(newAnnotations)
+    saveAnnotationsToStorage(newAnnotations)
     if (selectedAnnotationId === id) {
       setSelectedAnnotationId(null)
     }
@@ -501,7 +534,43 @@ export default function ReadingPage() {
 
   const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!selectedPaperId) return
-    saveNotes(selectedPaperId, e.target.value)
+    const value = e.target.value
+    setNotes((prev) => ({ ...prev, [selectedPaperId!]: value }))
+    saveNoteToStorage(selectedPaperId, value)
+  }
+
+  const insertMarkdown = (prefix: string, suffix: string = '', placeholder: string = '') => {
+    if (!noteTextareaRef.current || !selectedPaperId) return
+    const textarea = noteTextareaRef.current
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const selected = currentNote.substring(start, end) || placeholder
+    const newText = currentNote.substring(0, start) + prefix + selected + suffix + currentNote.substring(end)
+    setNotes((prev) => ({ ...prev, [selectedPaperId!]: newText }))
+    saveNoteToStorage(selectedPaperId, newText)
+    setTimeout(() => {
+      textarea.focus()
+      textarea.selectionStart = start + prefix.length
+      textarea.selectionEnd = start + prefix.length + selected.length
+    }, 0)
+  }
+
+  const insertLink = () => {
+    if (!selectedPaperId) return
+    const url = prompt('请输入链接地址：', 'https://')
+    if (!url) return
+    insertMarkdown('[', `](${url})`, '链接文字')
+  }
+
+  const insertCodeBlock = () => {
+    if (!noteTextareaRef.current || !selectedPaperId) return
+    const textarea = noteTextareaRef.current
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const selected = currentNote.substring(start, end) || '代码'
+    const newText = currentNote.substring(0, start) + '```\n' + selected + '\n```' + currentNote.substring(end)
+    setNotes((prev) => ({ ...prev, [selectedPaperId!]: newText }))
+    saveNoteToStorage(selectedPaperId, newText)
   }
 
   const exportNote = () => {
@@ -516,20 +585,23 @@ export default function ReadingPage() {
     content += `导出时间：${formatDate(Date.now())}\n\n`
     content += `批注总数：${paperAnnotations.length}\n\n---\n\n`
 
-    paperAnnotations.forEach((anno, idx) => {
-      content += `## 批注 ${idx + 1}\n\n`
-      content += `> ${anno.text}\n\n`
-      content += `**颜色**：${HIGHLIGHT_COLORS.find((c) => c.value === anno.color)?.label}\n\n`
-      content += `**时间**：${formatDate(anno.createdAt)}\n\n`
-      content += `**批注内容**：\n\n${anno.note}\n\n---\n\n`
-    })
+    paperAnnotations
+      .slice()
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .forEach((anno, idx) => {
+        content += `## 批注 ${idx + 1}\n\n`
+        content += `> ${anno.text}\n\n`
+        content += `**颜色**：${getColorInfo(anno.color).label}\n\n`
+        content += `**时间**：${formatDate(anno.createdAt)}\n\n`
+        content += `**批注内容**：\n\n${anno.note || '（无）'}\n\n---\n\n`
+      })
 
     exportMarkdown(content, `${selectedPaper.title}-全部批注.md`)
   }
 
   const exportSingleAnnotation = (anno: Annotation) => {
     if (!selectedPaper) return
-    const content = `# 批注\n\n**文献**：${selectedPaper.title}\n\n**高亮文字**：\n\n> ${anno.text}\n\n**颜色**：${HIGHLIGHT_COLORS.find((c) => c.value === anno.color)?.label}\n\n**时间**：${formatDate(anno.createdAt)}\n\n**批注内容**：\n\n${anno.note}\n`
+    const content = `# 批注\n\n**文献**：${selectedPaper.title}\n\n**高亮文字**：\n\n> ${anno.text}\n\n**颜色**：${getColorInfo(anno.color).label}\n\n**时间**：${formatDate(anno.createdAt)}\n\n**批注内容**：\n\n${anno.note || '（无）'}\n`
     exportMarkdown(content, `批注-${anno.text.slice(0, 20)}.md`)
   }
 
@@ -537,13 +609,9 @@ export default function ReadingPage() {
     setSelectedAnnotationId(anno.id)
     if (!readerRef.current) return
 
-    const readerContent = readerRef.current.innerText
-    const index = readerContent.indexOf(anno.text)
-    if (index !== -1) {
-      const element = readerRef.current.querySelector(`[data-annotation-id="${anno.id}"]`)
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
+    const element = readerRef.current.querySelector(`[data-annotation-id="${anno.id}"]`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }
 
@@ -576,7 +644,7 @@ export default function ReadingPage() {
 
           const span = document.createElement('span')
           span.setAttribute('data-annotation-id', annotation.id)
-          span.className = `annotation-highlight ${getHighlightClass(annotation.color)} cursor-pointer rounded-sm transition-colors hover:opacity-80`
+          span.className = `annotation-highlight ${getColorInfo(annotation.color).bg} cursor-pointer rounded-sm transition-colors hover:opacity-80`
           if (selectedAnnotationId === annotation.id) {
             span.classList.add('ring-2', 'ring-indigo-400', 'ring-offset-1')
           }
@@ -597,6 +665,7 @@ export default function ReadingPage() {
       if (parent) {
         const text = document.createTextNode(span.textContent || '')
         parent.replaceChild(text, span)
+        parent.normalize()
       }
     })
 
@@ -619,14 +688,8 @@ export default function ReadingPage() {
       const annotationSpan = target.closest('.annotation-highlight')
       if (annotationSpan) {
         const id = annotationSpan.getAttribute('data-annotation-id')
-        const anno = annotations.find((a) => a.id === id)
-        if (anno) {
-          setHoverAnnotation(anno)
-          const rect = annotationSpan.getBoundingClientRect()
-          setToolbarPosition({
-            top: rect.top,
-            left: rect.left + rect.width / 2,
-          })
+        if (id) {
+          setHoverAnnotationId(id)
         }
       }
     }
@@ -635,7 +698,7 @@ export default function ReadingPage() {
       const target = e.target as HTMLElement
       const annotationSpan = target.closest('.annotation-highlight')
       if (annotationSpan) {
-        setHoverAnnotation(null)
+        setHoverAnnotationId(null)
       }
     }
 
@@ -650,106 +713,17 @@ export default function ReadingPage() {
         readerRef.current.removeEventListener('mouseout', handleMouseLeave)
       }
     }
-  }, [paperAnnotations, selectedAnnotationId, annotations])
+  }, [paperAnnotations, selectedAnnotationId])
 
-  const renderContentWithHighlights = (content: string) => {
-    return (
-      <div
-        ref={readerRef}
-        onMouseUp={handleTextSelection}
-        onMouseDown={() => {
-          setShowToolbar(false)
-        }}
-        className="relative"
-      >
-        {renderSimpleMarkdown(content)}
-        {showToolbar && (
-          <div
-            className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-2 flex items-center gap-1"
-            style={{
-              top: toolbarPosition.top + (readerRef.current?.getBoundingClientRect().top || 0) + 45,
-              left: toolbarPosition.left + (readerRef.current?.getBoundingClientRect().left || 0) + 120,
-            }}
-          >
-            {showAnnotationInput ? (
-              <div className="w-64">
-                <div className="text-xs text-slate-500 mb-2 flex items-center gap-2">
-                  <Palette className="w-3.5 h-3.5" />
-                  添加批注
-                </div>
-                <textarea
-                  ref={annotationInputRef}
-                  value={newAnnotationText}
-                  onChange={(e) => setNewAnnotationText(e.target.value)}
-                  placeholder="输入批注内容（支持Markdown）..."
-                  className="w-full h-24 p-2 text-xs border border-slate-200 rounded resize-none focus:outline-none focus:border-indigo-400"
-                  autoFocus
-                />
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex gap-1">
-                    {HIGHLIGHT_COLORS.map((c) => (
-                      <button
-                        key={c.value}
-                        onClick={() => setPendingColor(c.value)}
-                        className={`w-5 h-5 rounded-full ${c.bg} border-2 ${
-                          pendingColor === c.value ? 'border-slate-600 scale-110' : 'border-transparent'
-                        } transition`}
-                        title={c.label}
-                      />
-                    ))}
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={cancelAnnotation}
-                      className="px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 rounded transition"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={confirmAnnotation}
-                      className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition flex items-center gap-1"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      保存
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <>
-                {HIGHLIGHT_COLORS.map((c) => (
-                  <button
-                    key={c.value}
-                    onClick={() => handleHighlight(c.value)}
-                    className={`w-7 h-7 rounded-md ${c.bg} hover:scale-110 transition flex items-center justify-center`}
-                    title={`${c.label}高亮`}
-                  >
-                    <Highlighter className="w-3.5 h-3.5 text-slate-700" />
-                  </button>
-                ))}
-                <div className="w-px h-5 bg-slate-200 mx-1" />
-                <button
-                  onClick={() => {
-                    setPendingColor('yellow')
-                    setShowAnnotationInput(true)
-                  }}
-                  className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  批注
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
+  const hoverAnnotation = hoverAnnotationId
+    ? annotations.find((a) => a.id === hoverAnnotationId)
+    : null
+
+  const wordCount = currentNote.replace(/\s/g, '').length
 
   return (
-    <div className="h-[calc(100vh-3rem)] flex">
-      {/* 左栏：文献列表 */}
-      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col">
+    <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
+      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
         <div className="p-3 border-b border-slate-200">
           <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
             <BookOpen className="w-4 h-4 text-indigo-600" />
@@ -770,7 +744,7 @@ export default function ReadingPage() {
               onClick={() => setFilterType('all')}
               className={`px-2 py-1 text-xs rounded transition flex items-center gap-1 ${
                 filterType === 'all'
-                  ? 'bg-indigo-100 text-indigo-700'
+                  ? 'bg-indigo-100 text-indigo-700 font-medium'
                   : 'text-slate-500 hover:bg-slate-100'
               }`}
             >
@@ -781,7 +755,7 @@ export default function ReadingPage() {
               onClick={() => setFilterType('has-md')}
               className={`px-2 py-1 text-xs rounded transition ${
                 filterType === 'has-md'
-                  ? 'bg-green-100 text-green-700'
+                  ? 'bg-green-100 text-green-700 font-medium'
                   : 'text-slate-500 hover:bg-slate-100'
               }`}
             >
@@ -791,7 +765,7 @@ export default function ReadingPage() {
               onClick={() => setFilterType('no-md')}
               className={`px-2 py-1 text-xs rounded transition ${
                 filterType === 'no-md'
-                  ? 'bg-amber-100 text-amber-700'
+                  ? 'bg-amber-100 text-amber-700 font-medium'
                   : 'text-slate-500 hover:bg-slate-100'
               }`}
             >
@@ -849,11 +823,9 @@ export default function ReadingPage() {
         </div>
       </aside>
 
-      {/* 中栏：Markdown 阅读区 */}
       <section className="flex-1 bg-slate-50 flex flex-col min-w-0">
         {selectedPaper ? (
           <>
-            {/* 顶部工具栏 */}
             <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <button
@@ -892,16 +864,24 @@ export default function ReadingPage() {
                 <button
                   onClick={exportAllAnnotations}
                   disabled={paperAnnotations.length === 0}
-                  className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-                  title="导出批注"
+                  className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                  title="导出全部批注"
                 >
-                  <Download className="w-4 h-4" />
-                  <span className="text-xs hidden sm:inline">导出批注</span>
+                  <Download className="w-3.5 h-3.5" />
+                  导出批注
+                </button>
+                <button
+                  onClick={exportNote}
+                  disabled={!currentNote}
+                  className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                  title="导出笔记"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  导出笔记
                 </button>
               </div>
             </div>
 
-            {/* Markdown 内容区域 */}
             <div className="flex-1 overflow-y-auto">
               {selectedPaper.hasMarkdown && selectedPaper.markdownContent ? (
                 <div className="max-w-3xl mx-auto px-8 py-8">
@@ -909,7 +889,93 @@ export default function ReadingPage() {
                     className="bg-white rounded-xl shadow-sm border border-slate-200 p-8"
                     style={{ fontSize: `${fontSize}px` }}
                   >
-                    {renderContentWithHighlights(selectedPaper.markdownContent)}
+                    <div
+                      ref={readerRef}
+                      onMouseUp={handleTextSelection}
+                      onMouseDown={() => {
+                        setShowToolbar(false)
+                      }}
+                      className="relative prose-reader"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(selectedPaper.markdownContent) }}
+                    />
+                    {showToolbar && (
+                      <div
+                        className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-2 flex items-center gap-1"
+                        style={{
+                          top: toolbarPosition.top,
+                          left: toolbarPosition.left + 120,
+                          transform: 'translateX(-50%)',
+                        }}
+                      >
+                        {showAnnotationInput ? (
+                          <div className="w-72">
+                            <div className="text-xs text-slate-500 mb-2 flex items-center gap-2 font-medium">
+                              <Palette className="w-3.5 h-3.5" />
+                              添加批注
+                            </div>
+                            <div className="flex gap-1 mb-2">
+                              {HIGHLIGHT_COLORS.map((c) => (
+                                <button
+                                  key={c.value}
+                                  onClick={() => setPendingColor(c.value)}
+                                  className={`w-6 h-6 rounded-full ${c.bg} border-2 ${
+                                    pendingColor === c.value ? 'border-slate-600 scale-110' : 'border-transparent'
+                                  } transition`}
+                                  title={c.label}
+                                />
+                              ))}
+                            </div>
+                            <textarea
+                              ref={annotationInputRef}
+                              value={newAnnotationText}
+                              onChange={(e) => setNewAnnotationText(e.target.value)}
+                              placeholder="输入批注内容（支持Markdown）..."
+                              className="w-full h-24 p-2 text-xs border border-slate-200 rounded resize-none focus:outline-none focus:border-indigo-400"
+                              autoFocus
+                            />
+                            <div className="flex items-center justify-end mt-2 gap-1">
+                              <button
+                                onClick={cancelAnnotation}
+                                className="px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 rounded transition"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={confirmAnnotation}
+                                className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition flex items-center gap-1"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                保存
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {HIGHLIGHT_COLORS.map((c) => (
+                              <button
+                                key={c.value}
+                                onClick={() => handleHighlight(c.value)}
+                                className={`w-7 h-7 rounded-md ${c.bg} hover:scale-110 transition flex items-center justify-center`}
+                                title={`${c.label}高亮`}
+                              >
+                                <Highlighter className="w-3.5 h-3.5 text-slate-700" />
+                              </button>
+                            ))}
+                            <div className="w-px h-5 bg-slate-200 mx-1" />
+                            <button
+                              onClick={() => {
+                                setPendingColor('yellow')
+                                setShowAnnotationInput(true)
+                              }}
+                              className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              批注
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -933,32 +999,31 @@ export default function ReadingPage() {
         )}
       </section>
 
-      {/* 右栏：笔记 / 批注 */}
       <aside className="w-80 bg-white border-l border-slate-200 flex flex-col flex-shrink-0">
         <div className="flex border-b border-slate-200 flex-shrink-0">
           <button
             onClick={() => setActiveSideTab('notes')}
-            className={`flex-1 px-3 py-2.5 text-sm font-medium transition ${
+            className={`flex-1 px-3 py-2.5 text-sm font-medium transition flex items-center justify-center gap-1.5 ${
               activeSideTab === 'notes'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
             }`}
           >
-            <StickyNote className="w-3.5 h-3.5 inline mr-1" />
+            <StickyNote className="w-4 h-4" />
             笔记
           </button>
           <button
             onClick={() => setActiveSideTab('annotations')}
-            className={`flex-1 px-3 py-2.5 text-sm font-medium transition ${
+            className={`flex-1 px-3 py-2.5 text-sm font-medium transition flex items-center justify-center gap-1.5 ${
               activeSideTab === 'annotations'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
             }`}
           >
-            <Highlighter className="w-3.5 h-3.5 inline mr-1" />
+            <Highlighter className="w-4 h-4" />
             批注
             {paperAnnotations.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-indigo-100 text-indigo-600 rounded-full">
+              <span className="px-1.5 py-0.5 text-[10px] bg-indigo-100 text-indigo-600 rounded-full font-medium">
                 {paperAnnotations.length}
               </span>
             )}
@@ -969,48 +1034,195 @@ export default function ReadingPage() {
           {activeSideTab === 'notes' ? (
             <div className="flex-1 flex flex-col">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-                <span className="text-xs text-slate-500">整体笔记</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setNoteEditorMode('edit')}
+                    className={`p-1.5 rounded transition ${
+                      noteEditorMode === 'edit'
+                        ? 'bg-indigo-100 text-indigo-600'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="编辑模式"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setNoteEditorMode('split')}
+                    className={`p-1.5 rounded transition ${
+                      noteEditorMode === 'split'
+                        ? 'bg-indigo-100 text-indigo-600'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="分屏模式"
+                  >
+                    <Columns className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setNoteEditorMode('preview')}
+                    className={`p-1.5 rounded transition ${
+                      noteEditorMode === 'preview'
+                        ? 'bg-indigo-100 text-indigo-600'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="预览模式"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 <button
                   onClick={exportNote}
                   disabled={!selectedPaper || !currentNote}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  导出笔记
+                  导出
                 </button>
               </div>
-              <div className="flex-1 p-3 overflow-hidden">
-                <textarea
-                  value={currentNote}
-                  onChange={handleNoteChange}
-                  placeholder={selectedPaper ? '在此记录阅读笔记...\n\n支持 Markdown 格式' : '选择文献后开始记笔记'}
-                  disabled={!selectedPaper}
-                  className="w-full h-full p-3 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:border-indigo-400 disabled:bg-slate-50 font-mono leading-relaxed"
-                />
+
+              {noteEditorMode !== 'preview' && (
+                <div className="px-3 py-1.5 border-b border-slate-100 flex items-center gap-0.5 flex-shrink-0 bg-slate-50/50">
+                  <button
+                    onClick={() => insertMarkdown('**', '**', '粗体文字')}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="加粗"
+                    disabled={!selectedPaper}
+                  >
+                    <Bold className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => insertMarkdown('*', '*', '斜体文字')}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="斜体"
+                    disabled={!selectedPaper}
+                  >
+                    <Italic className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-slate-200 mx-0.5" />
+                  <button
+                    onClick={() => insertMarkdown('- ', '', '列表项')}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="无序列表"
+                    disabled={!selectedPaper}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => insertMarkdown('1. ', '', '列表项')}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="有序列表"
+                    disabled={!selectedPaper}
+                  >
+                    <ListOrdered className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-slate-200 mx-0.5" />
+                  <button
+                    onClick={() => insertMarkdown('> ', '', '引用文字')}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="引用"
+                    disabled={!selectedPaper}
+                  >
+                    <Quote className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={insertCodeBlock}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="代码块"
+                    disabled={!selectedPaper}
+                  >
+                    <Code className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={insertLink}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition"
+                    title="链接"
+                    disabled={!selectedPaper}
+                  >
+                    <Link className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-hidden">
+                {noteEditorMode === 'edit' ? (
+                  <textarea
+                    ref={noteTextareaRef}
+                    value={currentNote}
+                    onChange={handleNoteChange}
+                    placeholder={selectedPaper ? '在此记录阅读笔记...\n\n支持 Markdown 格式' : '选择文献后开始记笔记'}
+                    disabled={!selectedPaper}
+                    className="w-full h-full p-3 text-sm border-0 resize-none focus:outline-none disabled:bg-slate-50 font-mono leading-relaxed text-slate-700"
+                  />
+                ) : noteEditorMode === 'preview' ? (
+                  <div className="h-full overflow-y-auto p-3">
+                    {currentNote ? (
+                      <div
+                        className="prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(currentNote) }}
+                      />
+                    ) : (
+                      <div className="text-center text-slate-400 py-8">
+                        <StickyNote className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">{selectedPaper ? '暂无笔记' : '选择文献后开始记笔记'}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-full flex">
+                    <div className="flex-1 border-r border-slate-200">
+                      <textarea
+                        ref={noteTextareaRef}
+                        value={currentNote}
+                        onChange={handleNoteChange}
+                        placeholder={selectedPaper ? '在此记录阅读笔记...' : '选择文献后开始记笔记'}
+                        disabled={!selectedPaper}
+                        className="w-full h-full p-3 text-xs border-0 resize-none focus:outline-none disabled:bg-slate-50 font-mono leading-relaxed text-slate-700"
+                      />
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                      <div className="p-3">
+                        {currentNote ? (
+                          <div
+                            className="prose-sm max-w-none text-xs"
+                            dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(currentNote) }}
+                          />
+                        ) : (
+                          <div className="text-center text-slate-400 py-8">
+                            <Eye className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                            <p className="text-xs">预览区域</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-1 text-xs text-slate-400">
-                  {saveStatus === 'saving' && (
+
+              <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between flex-shrink-0 bg-slate-50/50">
+                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                  {noteSaveState.status === 'saving' && (
                     <>
-                      <span className="w-2 h-2 border border-slate-300 border-t-slate-500 rounded-full animate-spin" />
-                      保存中...
+                      <span className="w-2.5 h-2.5 border border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
+                      <span className="text-indigo-600">保存中...</span>
                     </>
                   )}
-                  {saveStatus === 'saved' && (
+                  {noteSaveState.status === 'saved' && (
                     <>
-                      <Save className="w-3 h-3 text-green-500" />
-                      <span className="text-green-600">已保存</span>
+                      <Save className="w-3.5 h-3.5 text-green-500" />
+                      <span className="text-green-600 font-medium">
+                        已自动保存
+                        {noteSaveState.lastSaved && ` ${formatTime(noteSaveState.lastSaved)}`}
+                      </span>
                     </>
                   )}
-                  {saveStatus === null && (
+                  {noteSaveState.status === 'idle' && (
                     <>
-                      <Save className="w-3 h-3" />
-                      自动保存
+                      <Save className="w-3.5 h-3.5" />
+                      <span>自动保存</span>
                     </>
                   )}
                 </div>
-                <span className="text-xs text-slate-400">
-                  {currentNote.length} 字
+                <span className="text-xs text-slate-400 font-mono">
+                  {wordCount} 字
                 </span>
               </div>
             </div>
@@ -1018,17 +1230,18 @@ export default function ReadingPage() {
             <div className="flex-1 flex flex-col">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
                 <span className="text-xs text-slate-500">
-                  共 {paperAnnotations.length} 条批注
+                  共 <span className="font-medium text-slate-700">{paperAnnotations.length}</span> 条批注
                 </span>
                 <button
                   onClick={exportAllAnnotations}
                   disabled={paperAnnotations.length === 0}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                 >
                   <Download className="w-3.5 h-3.5" />
                   导出全部
                 </button>
               </div>
+
               <div className="flex-1 overflow-y-auto">
                 {paperAnnotations.length === 0 ? (
                   <div className="text-center py-12 text-slate-400 text-sm">
@@ -1041,95 +1254,124 @@ export default function ReadingPage() {
                     {paperAnnotations
                       .slice()
                       .sort((a, b) => b.createdAt - a.createdAt)
-                      .map((anno) => (
-                        <div
-                          key={anno.id}
-                          onClick={() => scrollToAnnotation(anno)}
-                          className={`p-3 rounded-lg border-l-4 cursor-pointer transition hover:shadow-sm ${
-                            getBorderClass(anno.color)
-                          } ${
-                            selectedAnnotationId === anno.id
-                              ? 'ring-2 ring-indigo-300'
-                              : ''
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getDotClass(anno.color)}`} />
-                              <span className="text-xs text-slate-500 font-medium flex-shrink-0">
-                                {HIGHLIGHT_COLORS.find((c) => c.value === anno.color)?.label}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  exportSingleAnnotation(anno)
-                                }}
-                                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white/50 rounded transition"
-                                title="导出此批注"
-                              >
-                                <Download className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (confirm('确定删除这条批注吗？')) {
-                                    deleteAnnotation(anno.id)
-                                  }
-                                }}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-white/50 rounded transition"
-                                title="删除批注"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                          <blockquote className="mt-2 text-sm text-slate-600 bg-white/60 rounded px-2 py-1.5 border-l-2 border-slate-200 italic line-clamp-2">
-                            "{anno.text}"
-                          </blockquote>
-                          {anno.note && (
-                            <div className="mt-2 text-sm text-slate-700">
-                              <div className="prose-sm max-w-none">
-                                {renderSimpleMarkdown(anno.note)}
+                      .map((anno) => {
+                        const colorInfo = getColorInfo(anno.color)
+                        return (
+                          <div
+                            key={anno.id}
+                            onClick={() => scrollToAnnotation(anno)}
+                            className={`p-3 rounded-lg border-l-4 cursor-pointer transition-all hover:shadow-md ${
+                              colorInfo.border
+                            } ${
+                              selectedAnnotationId === anno.id
+                                ? 'ring-2 ring-indigo-300 shadow-md'
+                                : ''
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colorInfo.dot}`} />
+                                <span className={`text-xs font-medium ${colorInfo.text}`}>
+                                  {colorInfo.label}批注
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    exportSingleAnnotation(anno)
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white/60 rounded transition"
+                                  title="导出此批注"
+                                >
+                                  <Download className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (confirm('确定删除这条批注吗？')) {
+                                      deleteAnnotation(anno.id)
+                                    }
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-white/60 rounded transition"
+                                  title="删除批注"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
                               </div>
                             </div>
-                          )}
-                          <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
-                            <Clock className="w-3 h-3" />
-                            {formatDate(anno.createdAt)}
-                            <ChevronRight className="w-3 h-3 ml-auto" />
+                            <div className="text-sm text-slate-600 bg-white/70 rounded px-2.5 py-2 border border-slate-200/50 italic line-clamp-2 mb-2">
+                              "{anno.text}"
+                            </div>
+                            {anno.note && (
+                              <div className="text-sm text-slate-700">
+                                <div
+                                  className="prose-sm max-w-none"
+                                  dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
+                                />
+                              </div>
+                            )}
+                            <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
+                              <Clock className="w-3 h-3" />
+                              {formatDate(anno.createdAt)}
+                              <ChevronRight className="w-3 h-3 ml-auto" />
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                   </div>
                 )}
+              </div>
+
+              <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between flex-shrink-0 bg-slate-50/50">
+                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                  {annotationSaveState.status === 'saving' && (
+                    <>
+                      <span className="w-2.5 h-2.5 border border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
+                      <span className="text-indigo-600">保存中...</span>
+                    </>
+                  )}
+                  {annotationSaveState.status === 'saved' && (
+                    <>
+                      <Save className="w-3.5 h-3.5 text-green-500" />
+                      <span className="text-green-600 font-medium">
+                        已自动保存
+                        {annotationSaveState.lastSaved && ` ${formatTime(annotationSaveState.lastSaved)}`}
+                      </span>
+                    </>
+                  )}
+                  {annotationSaveState.status === 'idle' && (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>自动保存</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}
         </div>
       </aside>
 
-      {/* 悬停批注预览 */}
       {hoverAnnotation && (
         <div className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 max-w-xs">
           <div className="flex items-center gap-2 mb-2">
-            <span className={`w-2 h-2 rounded-full ${getDotClass(hoverAnnotation.color)}`} />
+            <span className={`w-2.5 h-2.5 rounded-full ${getColorInfo(hoverAnnotation.color).dot}`} />
             <span className="text-xs font-medium text-slate-600">
-              {HIGHLIGHT_COLORS.find((c) => c.value === hoverAnnotation.color)?.label}批注
+              {getColorInfo(hoverAnnotation.color).label}批注
             </span>
           </div>
-          <div className="text-xs text-slate-500 border-l-2 border-slate-200 pl-2 italic line-clamp-2 mb-2">
+          <div className="text-xs text-slate-500 border-l-2 border-slate-200 pl-2 italic line-clamp-2 mb-2 bg-slate-50 py-1 rounded-r">
             "{hoverAnnotation.text}"
           </div>
           {hoverAnnotation.note && (
-            <div className="text-sm text-slate-700 max-h-32 overflow-y-auto">
-              {renderSimpleMarkdown(hoverAnnotation.note)}
-            </div>
+            <div
+              className="text-sm text-slate-700 max-h-32 overflow-y-auto"
+              dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(hoverAnnotation.note) }}
+            />
           )}
         </div>
       )}
     </div>
   )
 }
-

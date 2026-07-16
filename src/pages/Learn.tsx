@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   GraduationCap,
   Brain,
@@ -12,16 +12,22 @@ import {
   Image,
   BookOpen,
   SpellCheck,
-  ArrowRight,
-  XCircle,
-  CheckCircle,
+  Volume2,
   Shuffle,
   Sparkles,
   Loader2,
+  Settings,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  PenTool,
+  MessageSquare,
+  FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 type TabId = 'words' | 'sentences' | 'translation'
+type QuestionType = 'image' | 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
 
 interface Word {
   id: string
@@ -33,6 +39,9 @@ interface Word {
   exampleZh: string
   root?: string
   mastered?: boolean
+  proficiency?: number
+  errorCount?: number
+  lastStudyTime?: number
 }
 
 interface Sentence {
@@ -54,7 +63,20 @@ interface TranslationItem {
   mastered?: boolean
 }
 
-type WordStep = 'image' | 'detail' | 'spelling'
+interface StudyStats {
+  todayLearned: string[]
+  totalLearned: string[]
+  lastStudyDate: string
+}
+
+const questionTypes: { id: QuestionType; label: string; icon: typeof Brain }[] = [
+  { id: 'image', label: '图片选择', icon: Image },
+  { id: 'word', label: '单词选择', icon: BookOpen },
+  { id: 'spelling', label: '拼写练习', icon: SpellCheck },
+  { id: 'listening', label: '听音辨词', icon: Volume2 },
+  { id: 'zhToEn', label: '中译英', icon: PenTool },
+  { id: 'enToZh', label: '英译中', icon: MessageSquare },
+]
 
 const subTabs = [
   { id: 'words' as TabId, label: '单词', icon: Brain },
@@ -170,9 +192,17 @@ const STORAGE_KEYS = {
   words: 'learn_words',
   sentences: 'learn_sentences',
   translations: 'learn_translations',
+  stats: 'learn_stats',
+  currentType: 'learn_current_type',
+  randomMode: 'learn_random_mode',
 }
 
-function loadFromStorage<T>(key: string, defaultValue: T[]): T[] {
+const AI_GENERATE_OPTIONS = [
+  { value: '10.1038/s41560-024-01432-1', label: '钙钛矿太阳能电池综述 (Nature Energy)' },
+  { value: '10.1021/jacs.3c04567', label: 'CO2 还原电催化剂设计 (JACS)' },
+]
+
+function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
     const data = localStorage.getItem(key)
     if (data) {
@@ -184,7 +214,7 @@ function loadFromStorage<T>(key: string, defaultValue: T[]): T[] {
   return defaultValue
 }
 
-function saveToStorage<T>(key: string, data: T[]) {
+function saveToStorage<T>(key: string, data: T) {
   try {
     localStorage.setItem(key, JSON.stringify(data))
   } catch {
@@ -206,10 +236,15 @@ function generateImageUrl(prompt: string): string {
   return `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encoded}&image_size=square_hd`
 }
 
-const AI_GENERATE_OPTIONS = [
-  { value: '10.1038/s41560-024-01432-1', label: '钙钛矿太阳能电池综述 (Nature Energy)' },
-  { value: '10.1021/jacs.3c04567', label: 'CO2 还原电催化剂设计 (JACS)' },
-]
+function getTodayString(): string {
+  return new Date().toISOString().split('T')[0]
+}
+
+function getBlankPosition(sentence: string, word: string): number {
+  const lowerSentence = sentence.toLowerCase()
+  const lowerWord = word.toLowerCase()
+  return lowerSentence.indexOf(lowerWord)
+}
 
 export default function LearnPage() {
   const [activeTab, setActiveTab] = useState<TabId>('words')
@@ -221,6 +256,17 @@ export default function LearnPage() {
   const [words, setWords] = useState<Word[]>(() => loadFromStorage(STORAGE_KEYS.words, DEFAULT_WORDS))
   const [sentences, setSentences] = useState<Sentence[]>(() => loadFromStorage(STORAGE_KEYS.sentences, DEFAULT_SENTENCES))
   const [translations, setTranslations] = useState<TranslationItem[]>(() => loadFromStorage(STORAGE_KEYS.translations, DEFAULT_TRANSLATIONS))
+  const [studyStats, setStudyStats] = useState<StudyStats>(() => {
+    const saved = loadFromStorage<StudyStats | null>(STORAGE_KEYS.stats, null)
+    if (saved && saved.lastStudyDate === getTodayString()) {
+      return saved
+    }
+    return {
+      todayLearned: [],
+      totalLearned: saved?.totalLearned || [],
+      lastStudyDate: getTodayString(),
+    }
+  })
 
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.words, words)
@@ -233,6 +279,53 @@ export default function LearnPage() {
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.translations, translations)
   }, [translations])
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.stats, studyStats)
+  }, [studyStats])
+
+  const markWordLearned = useCallback((wordId: string) => {
+    setStudyStats((prev) => {
+      const today = getTodayString()
+      const todayLearned = prev.lastStudyDate === today ? [...prev.todayLearned] : []
+      if (!todayLearned.includes(wordId)) {
+        todayLearned.push(wordId)
+      }
+      const totalLearned = prev.totalLearned.includes(wordId)
+        ? prev.totalLearned
+        : [...prev.totalLearned, wordId]
+      return {
+        todayLearned,
+        totalLearned,
+        lastStudyDate: today,
+      }
+    })
+    setWords((prev) =>
+      prev.map((w) =>
+        w.id === wordId
+          ? {
+              ...w,
+              proficiency: Math.min((w.proficiency || 0) + 1, 5),
+              lastStudyTime: Date.now(),
+            }
+          : w
+      )
+    )
+  }, [])
+
+  const markWordError = useCallback((wordId: string) => {
+    setWords((prev) =>
+      prev.map((w) =>
+        w.id === wordId
+          ? {
+              ...w,
+              errorCount: (w.errorCount || 0) + 1,
+              lastStudyTime: Date.now(),
+            }
+          : w
+      )
+    )
+  }, [])
 
   const handleAIGenerate = async () => {
     if (!selectedPaper) {
@@ -392,68 +485,516 @@ export default function LearnPage() {
         </div>
       )}
 
-      {activeTab === 'words' && <WordSection words={words} setWords={setWords} />}
+      {activeTab === 'words' && (
+        <WordSection
+          words={words}
+          setWords={setWords}
+          studyStats={studyStats}
+          onMarkLearned={markWordLearned}
+          onMarkError={markWordError}
+        />
+      )}
       {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} />}
       {activeTab === 'translation' && <TranslationSection translations={translations} setTranslations={setTranslations} />}
     </div>
   )
 }
 
-function WordSection({ words, setWords }: { words: Word[]; setWords: React.Dispatch<React.SetStateAction<Word[]>> }) {
+interface WordSectionProps {
+  words: Word[]
+  setWords: React.Dispatch<React.SetStateAction<Word[]>>
+  studyStats: StudyStats
+  onMarkLearned: (id: string) => void
+  onMarkError: (id: string) => void
+}
+
+function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }: WordSectionProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [step, setStep] = useState<WordStep>('image')
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const [showResult, setShowResult] = useState(false)
-  const [spelledLetters, setSpelledLetters] = useState<string[]>([])
-  const [shuffledLetters, setShuffledLetters] = useState<string[]>([])
-  const [spellingCorrect, setSpellingCorrect] = useState<boolean | null>(null)
+  const [currentType, setCurrentType] = useState<QuestionType>(() =>
+    loadFromStorage<QuestionType>(STORAGE_KEYS.currentType, 'image')
+  )
+  const [randomMode, setRandomMode] = useState<boolean>(() =>
+    loadFromStorage<boolean>(STORAGE_KEYS.randomMode, false)
+  )
+  const [showSettings, setShowSettings] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showDetail, setShowDetail] = useState(false)
 
   const currentWord = words[currentIndex % words.length]
 
-  const options = useMemo(() => {
-    if (!currentWord) return []
-    const otherMeanings = words
-      .filter((w) => w.id !== currentWord.id)
-      .map((w) => w.meaning)
-    const shuffledOthers = shuffleArray(otherMeanings).slice(0, 3)
-    return shuffleArray([currentWord.meaning, ...shuffledOthers])
-  }, [currentWord, words])
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.currentType, currentType)
+  }, [currentType])
 
   useEffect(() => {
-    setStep('image')
-    setSelectedOption(null)
-    setShowResult(false)
-    setSpelledLetters([])
-    setSpellingCorrect(null)
-    if (currentWord) {
-      setShuffledLetters(shuffleArray(currentWord.word.split('')))
-    }
-  }, [currentIndex, currentWord])
+    saveToStorage(STORAGE_KEYS.randomMode, randomMode)
+  }, [randomMode])
 
-  const handleSelectOption = (option: string) => {
-    if (showResult) return
-    setSelectedOption(option)
-    setShowResult(true)
+  const handlePrev = () => {
+    setShowDetail(false)
+    setCurrentIndex((i) => (i - 1 + words.length) % words.length)
   }
 
-  const handleNextStep = () => {
-    if (step === 'image') {
-      setStep('detail')
-    } else if (step === 'detail') {
-      setStep('spelling')
-    } else if (step === 'spelling') {
+  const handleNext = () => {
+    setShowDetail(false)
+    if (randomMode) {
+      let nextIndex = Math.floor(Math.random() * words.length)
+      while (nextIndex === currentIndex && words.length > 1) {
+        nextIndex = Math.floor(Math.random() * words.length)
+      }
+      setCurrentIndex(nextIndex)
+    } else {
       setCurrentIndex((i) => (i + 1) % words.length)
     }
   }
 
-  const handlePrevStep = () => {
-    if (step === 'detail') {
-      setStep('image')
-    } else if (step === 'spelling') {
-      setStep('detail')
+  const handleMastered = () => {
+    setWords((prev) =>
+      prev.map((w, i) =>
+        i === currentIndex % words.length ? { ...w, mastered: !w.mastered } : w
+      )
+    )
+    toast.success(currentWord?.mastered ? '已取消掌握标记' : '已标记为已掌握')
+  }
+
+  const handleAddWord = (word: Word) => {
+    setWords((prev) => [...prev, word])
+    setShowAddModal(false)
+    toast.success('单词已添加')
+  }
+
+  const handleCorrect = useCallback(() => {
+    if (currentWord) {
+      onMarkLearned(currentWord.id)
+    }
+  }, [currentWord, onMarkLearned])
+
+  const handleWrong = useCallback(() => {
+    if (currentWord) {
+      onMarkError(currentWord.id)
+    }
+  }, [currentWord, onMarkError])
+
+  if (words.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <Brain className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+        <p className="text-slate-500 mb-4">还没有单词，快来添加吧！</p>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+        >
+          添加单词
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-4">
+            <div className="text-sm">
+              <span className="text-slate-500">今日学习：</span>
+              <span className="font-semibold text-indigo-600">{studyStats.todayLearned.length}</span>
+              <span className="text-slate-400"> 词</span>
+            </div>
+            <div className="text-sm">
+              <span className="text-slate-500">累计学习：</span>
+              <span className="font-semibold text-slate-700">{studyStats.totalLearned.length}</span>
+              <span className="text-slate-400"> 词</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+            >
+              <Plus className="w-4 h-4" />
+              添加
+            </button>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className={`p-1.5 rounded-lg transition ${
+                showSettings ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="w-full bg-slate-100 rounded-full h-2 mb-3">
+          <div
+            className="bg-indigo-600 h-2 rounded-full transition-all"
+            style={{ width: `${((currentIndex + 1) / words.length) * 100}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-slate-500">
+          <span>进度：{currentIndex + 1} / {words.length}</span>
+          <span>当前单词：{currentWord?.word}</span>
+        </div>
+      </div>
+
+      {showSettings && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+          <div className="text-sm font-medium text-slate-700 mb-3">题型选择</div>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {questionTypes.map((qt) => {
+              const Icon = qt.icon
+              const isActive = currentType === qt.id
+              return (
+                <button
+                  key={qt.id}
+                  onClick={() => setCurrentType(qt.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                    isActive
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {qt.label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-600">随机模式</span>
+            <button
+              onClick={() => setRandomMode(!randomMode)}
+              className={`relative w-11 h-6 rounded-full transition ${
+                randomMode ? 'bg-indigo-600' : 'bg-slate-300'
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  randomMode ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!showDetail && currentWord && (
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-4">
+          {currentType === 'image' && (
+            <ImageQuestion
+              word={currentWord}
+              words={words}
+              onCorrect={handleCorrect}
+              onWrong={handleWrong}
+              onShowDetail={() => setShowDetail(true)}
+            />
+          )}
+          {currentType === 'word' && (
+            <WordQuestion
+              word={currentWord}
+              words={words}
+              onCorrect={handleCorrect}
+              onWrong={handleWrong}
+              onShowDetail={() => setShowDetail(true)}
+            />
+          )}
+          {currentType === 'spelling' && (
+            <SpellingQuestion
+              word={currentWord}
+              onCorrect={handleCorrect}
+              onWrong={handleWrong}
+              onShowDetail={() => setShowDetail(true)}
+            />
+          )}
+          {currentType === 'listening' && (
+            <ListeningQuestion
+              word={currentWord}
+              words={words}
+              onCorrect={handleCorrect}
+              onWrong={handleWrong}
+              onShowDetail={() => setShowDetail(true)}
+            />
+          )}
+          {currentType === 'zhToEn' && (
+            <ZhToEnQuestion
+              word={currentWord}
+              onCorrect={handleCorrect}
+              onWrong={handleWrong}
+              onShowDetail={() => setShowDetail(true)}
+            />
+          )}
+          {currentType === 'enToZh' && (
+            <EnToZhQuestion
+              word={currentWord}
+              onCorrect={handleCorrect}
+              onWrong={handleWrong}
+              onShowDetail={() => setShowDetail(true)}
+            />
+          )}
+        </div>
+      )}
+
+      {showDetail && currentWord && (
+        <WordDetail
+          word={currentWord}
+          onBack={() => setShowDetail(false)}
+          onMastered={handleMastered}
+        />
+      )}
+
+      <div className="flex items-center justify-center gap-3">
+        <button
+          onClick={handlePrev}
+          className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          上一题
+        </button>
+        <button
+          onClick={handleMastered}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+            currentWord?.mastered
+              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <Check className="w-4 h-4" />
+          {currentWord?.mastered ? '已掌握' : '掌握'}
+        </button>
+        <button
+          onClick={handleNext}
+          className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+        >
+          下一题
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
+    </div>
+  )
+}
+
+interface QuestionProps {
+  word: Word
+  words: Word[]
+  onCorrect: () => void
+  onWrong: () => void
+  onShowDetail: () => void
+}
+
+function ImageQuestion({ word, words, onCorrect, onWrong, onShowDetail }: QuestionProps) {
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [showResult, setShowResult] = useState(false)
+
+  const options = useMemo(() => {
+    const otherMeanings = words
+      .filter((w) => w.id !== word.id)
+      .map((w) => w.meaning)
+    const shuffledOthers = shuffleArray(otherMeanings).slice(0, 3)
+    return shuffleArray([word.meaning, ...shuffledOthers])
+  }, [word, words])
+
+  useEffect(() => {
+    setSelectedOption(null)
+    setShowResult(false)
+  }, [word.id])
+
+  const handleSelect = (option: string) => {
+    if (showResult) return
+    setSelectedOption(option)
+    setShowResult(true)
+    if (option === word.meaning) {
+      onCorrect()
+      toast.success('回答正确！')
+    } else {
+      onWrong()
+      toast.error('回答错误')
     }
   }
+
+  const isCorrect = selectedOption === word.meaning
+
+  return (
+    <div className="p-6">
+      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
+        <Image className="w-3.5 h-3.5" />
+        图片选择题
+      </div>
+
+      <div className="aspect-square w-full max-w-sm mx-auto rounded-xl overflow-hidden bg-slate-100 mb-6">
+        <img
+          src={generateImageUrl(word.imagePrompt)}
+          alt={word.word}
+          className="w-full h-full object-cover"
+        />
+      </div>
+
+      <div className="text-center mb-6">
+        <h2 className="text-2xl font-bold text-slate-800 mb-1">{word.word}</h2>
+        <p className="text-sm text-slate-400">{word.phonetic}</p>
+      </div>
+
+      <p className="text-center text-sm text-slate-600 mb-4">请选择正确的中文释义</p>
+
+      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+        {options.map((option) => {
+          const isSelected = selectedOption === option
+          const isCorrectAnswer = option === word.meaning
+          let btnClass = 'bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
+          if (showResult) {
+            if (isCorrectAnswer) {
+              btnClass = 'bg-green-50 border-green-500 text-green-700'
+            } else if (isSelected) {
+              btnClass = 'bg-red-50 border-red-500 text-red-700'
+            } else {
+              btnClass = 'bg-slate-50 border-slate-200 text-slate-400'
+            }
+          }
+          return (
+            <button
+              key={option}
+              onClick={() => handleSelect(option)}
+              disabled={showResult}
+              className={`p-4 rounded-xl border-2 text-sm font-medium transition ${btnClass}`}
+            >
+              {option}
+            </button>
+          )
+        })}
+      </div>
+
+      {showResult && (
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
+            {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+            <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
+          </div>
+          <button
+            onClick={onShowDetail}
+            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+          >
+            <BookOpen className="w-4 h-4" />
+            查看单词详解
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WordQuestion({ word, words, onCorrect, onWrong, onShowDetail }: QuestionProps) {
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [showResult, setShowResult] = useState(false)
+
+  const options = useMemo(() => {
+    const otherMeanings = words
+      .filter((w) => w.id !== word.id)
+      .map((w) => w.meaning)
+    const shuffledOthers = shuffleArray(otherMeanings).slice(0, 3)
+    return shuffleArray([word.meaning, ...shuffledOthers])
+  }, [word, words])
+
+  useEffect(() => {
+    setSelectedOption(null)
+    setShowResult(false)
+  }, [word.id])
+
+  const handleSelect = (option: string) => {
+    if (showResult) return
+    setSelectedOption(option)
+    setShowResult(true)
+    if (option === word.meaning) {
+      onCorrect()
+      toast.success('回答正确！')
+    } else {
+      onWrong()
+      toast.error('回答错误')
+    }
+  }
+
+  const isCorrect = selectedOption === word.meaning
+
+  return (
+    <div className="p-6">
+      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
+        <BookOpen className="w-3.5 h-3.5" />
+        单词选择题
+      </div>
+
+      <div className="text-center py-8 mb-6">
+        <h2 className="text-4xl font-bold text-slate-800 mb-3">{word.word}</h2>
+        <p className="text-base text-slate-400">{word.phonetic}</p>
+      </div>
+
+      <p className="text-center text-sm text-slate-600 mb-4">请选择正确的中文释义</p>
+
+      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+        {options.map((option) => {
+          const isSelected = selectedOption === option
+          const isCorrectAnswer = option === word.meaning
+          let btnClass = 'bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
+          if (showResult) {
+            if (isCorrectAnswer) {
+              btnClass = 'bg-green-50 border-green-500 text-green-700'
+            } else if (isSelected) {
+              btnClass = 'bg-red-50 border-red-500 text-red-700'
+            } else {
+              btnClass = 'bg-slate-50 border-slate-200 text-slate-400'
+            }
+          }
+          return (
+            <button
+              key={option}
+              onClick={() => handleSelect(option)}
+              disabled={showResult}
+              className={`p-4 rounded-xl border-2 text-sm font-medium transition ${btnClass}`}
+            >
+              {option}
+            </button>
+          )
+        })}
+      </div>
+
+      {showResult && (
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
+            {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+            <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
+          </div>
+          <button
+            onClick={onShowDetail}
+            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+          >
+            <BookOpen className="w-4 h-4" />
+            查看单词详解
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface SpellingProps {
+  word: Word
+  onCorrect: () => void
+  onWrong: () => void
+  onShowDetail: () => void
+}
+
+function SpellingQuestion({ word, onCorrect, onWrong, onShowDetail }: SpellingProps) {
+  const [spelledLetters, setSpelledLetters] = useState<string[]>([])
+  const [shuffledLetters, setShuffledLetters] = useState<string[]>([])
+  const [spellingCorrect, setSpellingCorrect] = useState<boolean | null>(null)
+  const [hasAnswered, setHasAnswered] = useState(false)
+
+  useEffect(() => {
+    setSpelledLetters([])
+    setSpellingCorrect(null)
+    setHasAnswered(false)
+    setShuffledLetters(shuffleArray(word.word.split('')))
+  }, [word.id, word.word])
 
   const handleLetterClick = (letter: string, index: number) => {
     if (spellingCorrect !== null) return
@@ -463,13 +1004,16 @@ function WordSection({ words, setWords }: { words: Word[]; setWords: React.Dispa
     newShuffled.splice(index, 1)
     setShuffledLetters(newShuffled)
 
-    if (newSpelled.length === currentWord.word.length) {
-      const isCorrect = newSpelled.join('') === currentWord.word
+    if (newSpelled.length === word.word.length) {
+      const isCorrect = newSpelled.join('').toLowerCase() === word.word.toLowerCase()
       setSpellingCorrect(isCorrect)
+      setHasAnswered(true)
       if (isCorrect) {
+        onCorrect()
         toast.success('拼写正确！')
       } else {
-        toast.error('拼写错误，请重试')
+        onWrong()
+        toast.error('拼写错误')
       }
     }
   }
@@ -484,251 +1028,644 @@ function WordSection({ words, setWords }: { words: Word[]; setWords: React.Dispa
 
   const handleResetSpelling = () => {
     setSpelledLetters([])
-    setShuffledLetters(shuffleArray(currentWord.word.split('')))
+    setShuffledLetters(shuffleArray(word.word.split('')))
     setSpellingCorrect(null)
+    setHasAnswered(false)
   }
-
-  const handleAddWord = (word: Word) => {
-    setWords((prev) => [...prev, word])
-    setShowAddModal(false)
-    toast.success('单词已添加')
-  }
-
-  const isCorrect = selectedOption === currentWord?.meaning
 
   return (
-    <div className="relative">
-      <div className="flex justify-between items-center mb-4">
-        <div className="text-sm text-slate-500">
-          进度：{currentIndex + 1} / {words.length}
-        </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-        >
-          <Plus className="w-4 h-4" />
-          手动添加单词
-        </button>
+    <div className="p-6">
+      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
+        <SpellCheck className="w-3.5 h-3.5" />
+        拼写题
       </div>
 
-      <div className="w-full bg-slate-100 rounded-full h-2 mb-6">
-        <div
-          className="bg-indigo-600 h-2 rounded-full transition-all"
-          style={{ width: `${((currentIndex + 1) / words.length) * 100}%` }}
-        />
+      <div className="text-center mb-6">
+        <p className="text-sm text-slate-400 mb-2">根据释义拼写单词</p>
+        <p className="text-2xl text-indigo-600 font-semibold mb-2">{word.meaning}</p>
+        <p className="text-sm text-slate-400">{word.phonetic}</p>
       </div>
 
-      <div className="flex justify-center gap-2 mb-6">
-        {['image', 'detail', 'spelling'].map((s, i) => {
-          const Icon = s === 'image' ? Image : s === 'detail' ? BookOpen : SpellCheck
-          const isActive = step === s
-          const isPast = (step === 'detail' && s === 'image') || (step === 'spelling' && s !== 'spelling')
+      <div className="flex justify-center gap-2 mb-6 min-h-[56px]">
+        {word.word.split('').map((_, i) => {
+          const letter = spelledLetters[i] || ''
+          const isCorrectLetter = spellingCorrect === true
+          const isWrongLetter = spellingCorrect === false && letter && letter.toLowerCase() !== word.word[i].toLowerCase()
           return (
             <div
-              key={s}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
-                isActive
-                  ? 'bg-indigo-100 text-indigo-700'
-                  : isPast
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-slate-100 text-slate-500'
+              key={i}
+              className={`w-11 h-14 flex items-center justify-center text-xl font-bold rounded-lg border-2 transition ${
+                letter
+                  ? isCorrectLetter
+                    ? 'bg-green-50 border-green-400 text-green-700'
+                    : isWrongLetter
+                    ? 'bg-red-50 border-red-400 text-red-700'
+                    : 'bg-indigo-50 border-indigo-400 text-indigo-700'
+                  : 'bg-white border-slate-200'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
-              {['图片选择', '单词详解', '拼写练习'][i]}
+              {letter}
             </div>
           )
         })}
       </div>
 
-      <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-        {step === 'image' && currentWord && (
-          <div className="p-6">
-            <div className="aspect-square w-full max-w-md mx-auto rounded-xl overflow-hidden bg-slate-100 mb-6">
-              <img
-                src={generateImageUrl(currentWord.imagePrompt)}
-                alt={currentWord.word}
-                className="w-full h-full object-cover"
-              />
-            </div>
+      <div className="flex justify-center flex-wrap gap-2 mb-6 max-w-md mx-auto">
+        {shuffledLetters.map((letter, i) => (
+          <button
+            key={`${letter}-${i}`}
+            onClick={() => handleLetterClick(letter, i)}
+            disabled={spellingCorrect !== null}
+            className="w-11 h-11 flex items-center justify-center text-lg font-semibold bg-white border-2 border-slate-200 rounded-lg text-slate-700 hover:border-indigo-400 hover:bg-indigo-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {letter}
+          </button>
+        ))}
+      </div>
 
-            <div className="text-center mb-6">
-              <h2 className="text-3xl font-bold text-slate-800 mb-2">{currentWord.word}</h2>
-              <p className="text-sm text-slate-400">{currentWord.phonetic}</p>
-            </div>
+      <div className="flex justify-center gap-3 mb-4">
+        <button
+          onClick={handleUndoLetter}
+          disabled={spelledLetters.length === 0 || spellingCorrect !== null}
+          className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          撤销
+        </button>
+        <button
+          onClick={handleResetSpelling}
+          className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+        >
+          <Shuffle className="w-4 h-4" />
+          重排
+        </button>
+      </div>
 
-            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
-              {options.map((option) => {
-                const isSelected = selectedOption === option
-                const isCorrectAnswer = option === currentWord.meaning
-                let btnClass = 'bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
-                if (showResult) {
-                  if (isCorrectAnswer) {
-                    btnClass = 'bg-green-50 border-green-500 text-green-700'
-                  } else if (isSelected) {
-                    btnClass = 'bg-red-50 border-red-500 text-red-700'
-                  } else {
-                    btnClass = 'bg-slate-50 border-slate-200 text-slate-400'
-                  }
-                }
-                return (
-                  <button
-                    key={option}
-                    onClick={() => handleSelectOption(option)}
-                    disabled={showResult}
-                    className={`p-4 rounded-xl border-2 text-sm font-medium transition ${btnClass}`}
-                  >
-                    {option}
-                  </button>
-                )
-              })}
-            </div>
+      {hasAnswered && (
+        <div className="mt-4 flex flex-col items-center gap-3">
+          <div className={`flex items-center gap-2 ${spellingCorrect ? 'text-green-600' : 'text-red-500'}`}>
+            {spellingCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+            <span className="font-medium">
+              {spellingCorrect ? '拼写正确！' : `正确答案：${word.word}`}
+            </span>
+          </div>
+          <button
+            onClick={onShowDetail}
+            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+          >
+            <BookOpen className="w-4 h-4" />
+            查看单词详解
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
-            {showResult && (
-              <div className="mt-6 flex flex-col items-center">
-                <div className={`flex items-center gap-2 mb-4 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
-                  {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-                  <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
-                </div>
-                <button
-                  onClick={handleNextStep}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
-                >
-                  继续学习
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
+function ListeningQuestion({ word, words, onCorrect, onWrong, onShowDetail }: QuestionProps) {
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [showResult, setShowResult] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+
+  const options = useMemo(() => {
+    const otherWords = words
+      .filter((w) => w.id !== word.id)
+      .map((w) => w.word)
+    const shuffledOthers = shuffleArray(otherWords).slice(0, 3)
+    return shuffleArray([word.word, ...shuffledOthers])
+  }, [word, words])
+
+  useEffect(() => {
+    setSelectedOption(null)
+    setShowResult(false)
+  }, [word.id])
+
+  const playPronunciation = () => {
+    setIsPlaying(true)
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(word.word)
+      utterance.lang = 'en-US'
+      utterance.rate = 0.8
+      utterance.onend = () => setIsPlaying(false)
+      utterance.onerror = () => setIsPlaying(false)
+      speechSynthesis.speak(utterance)
+    } else {
+      setTimeout(() => setIsPlaying(false), 1000)
+    }
+  }
+
+  const handleSelect = (option: string) => {
+    if (showResult) return
+    setSelectedOption(option)
+    setShowResult(true)
+    if (option === word.word) {
+      onCorrect()
+      toast.success('回答正确！')
+    } else {
+      onWrong()
+      toast.error('回答错误')
+    }
+  }
+
+  const isCorrect = selectedOption === word.word
+
+  return (
+    <div className="p-6">
+      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
+        <Volume2 className="w-3.5 h-3.5" />
+        听音辨词
+      </div>
+
+      <div className="flex flex-col items-center py-8 mb-6">
+        <button
+          onClick={playPronunciation}
+          disabled={isPlaying}
+          className="w-24 h-24 rounded-full bg-indigo-100 hover:bg-indigo-200 flex items-center justify-center transition disabled:opacity-70"
+        >
+          <Volume2 className={`w-10 h-10 text-indigo-600 ${isPlaying ? 'animate-pulse' : ''}`} />
+        </button>
+        <p className="text-sm text-slate-500 mt-4">点击播放发音</p>
+        <p className="text-xs text-slate-400 mt-1">选择你听到的单词</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+        {options.map((option) => {
+          const isSelected = selectedOption === option
+          const isCorrectAnswer = option === word.word
+          let btnClass = 'bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
+          if (showResult) {
+            if (isCorrectAnswer) {
+              btnClass = 'bg-green-50 border-green-500 text-green-700'
+            } else if (isSelected) {
+              btnClass = 'bg-red-50 border-red-500 text-red-700'
+            } else {
+              btnClass = 'bg-slate-50 border-slate-200 text-slate-400'
+            }
+          }
+          return (
+            <button
+              key={option}
+              onClick={() => handleSelect(option)}
+              disabled={showResult}
+              className={`p-4 rounded-xl border-2 text-sm font-medium transition ${btnClass}`}
+            >
+              {option}
+            </button>
+          )
+        })}
+      </div>
+
+      {showResult && (
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
+            {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+            <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
+          </div>
+          <p className="text-sm text-slate-500">
+            正确答案：<span className="font-semibold text-indigo-600">{word.word}</span>
+            <span className="text-slate-400 ml-2">{word.meaning}</span>
+          </p>
+          <button
+            onClick={onShowDetail}
+            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+          >
+            <BookOpen className="w-4 h-4" />
+            查看单词详解
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ZhToEnQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<QuestionProps, 'words'>) {
+  const [inputValue, setInputValue] = useState('')
+  const [showResult, setShowResult] = useState(false)
+  const [isCorrect, setIsCorrect] = useState(false)
+
+  const blankPos = useMemo(() => getBlankPosition(word.exampleZh, word.meaning), [word])
+
+  const sentenceWithBlank = useMemo(() => {
+    if (blankPos === -1) return { before: word.exampleZh, blank: '', after: '' }
+    return {
+      before: word.exampleZh.slice(0, blankPos),
+      blank: word.meaning,
+      after: word.exampleZh.slice(blankPos + word.meaning.length),
+    }
+  }, [word, blankPos])
+
+  useEffect(() => {
+    setInputValue('')
+    setShowResult(false)
+    setIsCorrect(false)
+  }, [word.id])
+
+  const handleSubmit = () => {
+    if (!inputValue.trim()) {
+      toast.error('请填写答案')
+      return
+    }
+    const correct = inputValue.trim().toLowerCase() === word.word.toLowerCase()
+    setIsCorrect(correct)
+    setShowResult(true)
+    if (correct) {
+      onCorrect()
+      toast.success('回答正确！')
+    } else {
+      onWrong()
+      toast.error('回答错误')
+    }
+  }
+
+  return (
+    <div className="p-6">
+      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
+        <PenTool className="w-3.5 h-3.5" />
+        中译英
+      </div>
+
+      <p className="text-sm text-slate-500 mb-4 text-center">根据中文句子，填写正确的英文单词</p>
+
+      <div className="bg-slate-50 rounded-xl p-5 mb-6">
+        <p className="text-lg text-slate-700 leading-relaxed text-center">
+          {sentenceWithBlank.before}
+          <span className="inline-block mx-1 px-3 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
+            {sentenceWithBlank.blank || '____'}
+          </span>
+          {sentenceWithBlank.after}
+        </p>
+      </div>
+
+      <div className="max-w-md mx-auto">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !showResult && handleSubmit()}
+            disabled={showResult}
+            placeholder="请输入英文单词..."
+            className={`flex-1 px-4 py-3 border-2 rounded-xl text-base focus:outline-none transition ${
+              showResult
+                ? isCorrect
+                  ? 'border-green-500 bg-green-50'
+                  : 'border-red-500 bg-red-50'
+                : 'border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
+            }`}
+          />
+          {!showResult ? (
+            <button
+              onClick={handleSubmit}
+              className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition"
+            >
+              提交
+            </button>
+          ) : (
+            <button
+              onClick={onShowDetail}
+              className="px-6 py-3 bg-white border border-slate-200 text-indigo-600 rounded-xl font-medium hover:bg-indigo-50 transition"
+            >
+              详解
+            </button>
+          )}
+        </div>
+
+        {showResult && (
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
+              {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+              <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
+            </div>
+            {!isCorrect && (
+              <p className="text-sm text-slate-500">
+                正确答案：<span className="font-semibold text-indigo-600">{word.word}</span>
+              </p>
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
 
-        {step === 'detail' && currentWord && (
-          <div className="p-6">
-            <div className="text-center mb-6">
-              <h2 className="text-3xl font-bold text-slate-800 mb-2">{currentWord.word}</h2>
-              <p className="text-sm text-slate-400 mb-3">{currentWord.phonetic}</p>
-              <p className="text-xl text-indigo-600 font-semibold">{currentWord.meaning}</p>
+function EnToZhQuestion({ word, onCorrect, onWrong, onShowDetail }: Omit<QuestionProps, 'words'>) {
+  const [inputValue, setInputValue] = useState('')
+  const [showResult, setShowResult] = useState(false)
+  const [isCorrect, setIsCorrect] = useState(false)
+
+  const blankPos = useMemo(() => getBlankPosition(word.exampleEn, word.word), [word])
+
+  const sentenceWithBlank = useMemo(() => {
+    if (blankPos === -1) return { before: word.exampleEn, blank: '', after: '' }
+    return {
+      before: word.exampleEn.slice(0, blankPos),
+      blank: word.word,
+      after: word.exampleEn.slice(blankPos + word.word.length),
+    }
+  }, [word, blankPos])
+
+  useEffect(() => {
+    setInputValue('')
+    setShowResult(false)
+    setIsCorrect(false)
+  }, [word.id])
+
+  const handleSubmit = () => {
+    if (!inputValue.trim()) {
+      toast.error('请填写答案')
+      return
+    }
+    const correct = inputValue.trim() === word.meaning
+    setIsCorrect(correct)
+    setShowResult(true)
+    if (correct) {
+      onCorrect()
+      toast.success('回答正确！')
+    } else {
+      onWrong()
+      toast.error('回答错误')
+    }
+  }
+
+  return (
+    <div className="p-6">
+      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
+        <MessageSquare className="w-3.5 h-3.5" />
+        英译中
+      </div>
+
+      <p className="text-sm text-slate-500 mb-4 text-center">根据英文句子，填写划线单词的中文释义</p>
+
+      <div className="bg-slate-50 rounded-xl p-5 mb-6">
+        <p className="text-lg text-slate-700 leading-relaxed text-center">
+          {sentenceWithBlank.before}
+          <span className="inline-block mx-1 px-3 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
+            {sentenceWithBlank.blank || '____'}
+          </span>
+          {sentenceWithBlank.after}
+        </p>
+      </div>
+
+      <div className="max-w-md mx-auto">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !showResult && handleSubmit()}
+            disabled={showResult}
+            placeholder="请输入中文释义..."
+            className={`flex-1 px-4 py-3 border-2 rounded-xl text-base focus:outline-none transition ${
+              showResult
+                ? isCorrect
+                  ? 'border-green-500 bg-green-50'
+                  : 'border-red-500 bg-red-50'
+                : 'border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
+            }`}
+          />
+          {!showResult ? (
+            <button
+              onClick={handleSubmit}
+              className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition"
+            >
+              提交
+            </button>
+          ) : (
+            <button
+              onClick={onShowDetail}
+              className="px-6 py-3 bg-white border border-slate-200 text-indigo-600 rounded-xl font-medium hover:bg-indigo-50 transition"
+            >
+              详解
+            </button>
+          )}
+        </div>
+
+        {showResult && (
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
+              {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+              <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
             </div>
-
-            <div className="space-y-4 max-w-md mx-auto">
-              <div className="bg-slate-50 rounded-xl p-4">
-                <div className="text-xs font-medium text-slate-400 mb-2">例句</div>
-                <p className="text-sm text-slate-700 mb-2">{currentWord.exampleEn}</p>
-                <p className="text-sm text-slate-500">{currentWord.exampleZh}</p>
-              </div>
-
-              {currentWord.root && (
-                <div className="bg-amber-50 rounded-xl p-4">
-                  <div className="text-xs font-medium text-amber-600 mb-1">词根词缀</div>
-                  <p className="text-sm text-amber-800">{currentWord.root}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-center gap-3 mt-8">
-              <button
-                onClick={handlePrevStep}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                上一步
-              </button>
-              <button
-                onClick={handleNextStep}
-                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
-              >
-                拼写练习
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
+            {!isCorrect && (
+              <p className="text-sm text-slate-500">
+                正确答案：<span className="font-semibold text-indigo-600">{word.meaning}</span>
+              </p>
+            )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
 
-        {step === 'spelling' && currentWord && (
-          <div className="p-6">
-            <div className="text-center mb-6">
-              <p className="text-sm text-slate-400 mb-2">根据释义拼写单词</p>
-              <p className="text-xl text-indigo-600 font-semibold mb-2">{currentWord.meaning}</p>
-              <p className="text-sm text-slate-400">{currentWord.phonetic}</p>
+interface WordDetailProps {
+  word: Word
+  onBack: () => void
+  onMastered: () => void
+}
+
+function WordDetail({ word, onBack, onMastered }: WordDetailProps) {
+  const [spelledLetters, setSpelledLetters] = useState<string[]>([])
+  const [shuffledLetters, setShuffledLetters] = useState<string[]>([])
+  const [spellingCorrect, setSpellingCorrect] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    setSpelledLetters([])
+    setSpellingCorrect(null)
+    setShuffledLetters(shuffleArray(word.word.split('')))
+  }, [word.id, word.word])
+
+  const playPronunciation = () => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(word.word)
+      utterance.lang = 'en-US'
+      utterance.rate = 0.8
+      speechSynthesis.speak(utterance)
+    }
+  }
+
+  const handleLetterClick = (letter: string, index: number) => {
+    if (spellingCorrect !== null) return
+    const newSpelled = [...spelledLetters, letter]
+    setSpelledLetters(newSpelled)
+    const newShuffled = [...shuffledLetters]
+    newShuffled.splice(index, 1)
+    setShuffledLetters(newShuffled)
+
+    if (newSpelled.length === word.word.length) {
+      const isCorrect = newSpelled.join('').toLowerCase() === word.word.toLowerCase()
+      setSpellingCorrect(isCorrect)
+      if (isCorrect) {
+        toast.success('拼写正确！')
+      } else {
+        toast.error('拼写错误')
+      }
+    }
+  }
+
+  const handleUndoLetter = () => {
+    if (spelledLetters.length === 0 || spellingCorrect !== null) return
+    const lastLetter = spelledLetters[spelledLetters.length - 1]
+    setSpelledLetters(spelledLetters.slice(0, -1))
+    setShuffledLetters([...shuffledLetters, lastLetter])
+    setSpellingCorrect(null)
+  }
+
+  const handleResetSpelling = () => {
+    setSpelledLetters([])
+    setShuffledLetters(shuffleArray(word.word.split('')))
+    setSpellingCorrect(null)
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-4">
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            返回练习
+          </button>
+          <button
+            onClick={onMastered}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              word.mastered
+                ? 'bg-green-100 text-green-700'
+                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+            }`}
+          >
+            <Check className="w-3.5 h-3.5" />
+            {word.mastered ? '已掌握' : '标记掌握'}
+          </button>
+        </div>
+
+        <div className="text-center mb-8">
+          <h2 className="text-4xl font-bold text-slate-800 mb-2">{word.word}</h2>
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <p className="text-base text-slate-400">{word.phonetic}</p>
+            <button
+              onClick={playPronunciation}
+              className="p-1.5 rounded-full hover:bg-slate-100 transition text-indigo-500"
+            >
+              <Volume2 className="w-5 h-5" />
+            </button>
+          </div>
+          <p className="text-2xl text-indigo-600 font-semibold">{word.meaning}</p>
+        </div>
+
+        <div className="space-y-4 max-w-lg mx-auto">
+          <div className="bg-slate-50 rounded-xl p-4">
+            <div className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5" />
+              例句
             </div>
+            <p className="text-sm text-slate-700 mb-2">{word.exampleEn}</p>
+            <p className="text-sm text-slate-500">{word.exampleZh}</p>
+          </div>
 
-            <div className="flex justify-center gap-2 mb-6 min-h-[48px]">
-              {currentWord.word.split('').map((_, i) => {
-                const letter = spelledLetters[i] || ''
-                const isCorrectLetter = spellingCorrect !== null && letter === currentWord.word[i]
-                const isWrongLetter = spellingCorrect === false && letter && letter !== currentWord.word[i]
-                return (
-                  <div
-                    key={i}
-                    className={`w-10 h-12 flex items-center justify-center text-xl font-bold rounded-lg border-2 transition ${
-                      letter
-                        ? isCorrectLetter
-                          ? 'bg-green-50 border-green-400 text-green-700'
-                          : isWrongLetter
-                          ? 'bg-red-50 border-red-400 text-red-700'
-                          : 'bg-indigo-50 border-indigo-400 text-indigo-700'
-                        : 'bg-white border-slate-200'
-                    }`}
-                  >
-                    {letter}
+          {word.root && (
+            <div className="bg-amber-50 rounded-xl p-4">
+              <div className="text-xs font-medium text-amber-600 mb-1">词根词缀</div>
+              <p className="text-sm text-amber-800">{word.root}</p>
+            </div>
+          )}
+
+          {(word.proficiency !== undefined || word.errorCount !== undefined) && (
+            <div className="bg-blue-50 rounded-xl p-4">
+              <div className="text-xs font-medium text-blue-600 mb-2">学习记录</div>
+              <div className="flex gap-4 text-sm">
+                {word.proficiency !== undefined && (
+                  <div>
+                    <span className="text-blue-500">熟练度：</span>
+                    <span className="text-blue-700 font-medium">{word.proficiency}/5</span>
                   </div>
-                )
-              })}
+                )}
+                {word.errorCount !== undefined && (
+                  <div>
+                    <span className="text-blue-500">错误次数：</span>
+                    <span className="text-blue-700 font-medium">{word.errorCount}</span>
+                  </div>
+                )}
+              </div>
             </div>
+          )}
+        </div>
+      </div>
 
-            <div className="flex justify-center flex-wrap gap-2 mb-6 max-w-md mx-auto">
-              {shuffledLetters.map((letter, i) => (
-                <button
-                  key={`${letter}-${i}`}
-                  onClick={() => handleLetterClick(letter, i)}
-                  disabled={spellingCorrect !== null}
-                  className="w-10 h-10 flex items-center justify-center text-lg font-semibold bg-white border-2 border-slate-200 rounded-lg text-slate-700 hover:border-indigo-400 hover:bg-indigo-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {letter}
-                </button>
-              ))}
-            </div>
+      <div className="border-t border-slate-100 p-6">
+        <div className="text-sm font-medium text-slate-700 mb-4 flex items-center gap-1.5">
+          <SpellCheck className="w-4 h-4 text-indigo-600" />
+          拼写练习
+        </div>
 
-            <div className="flex justify-center gap-3">
-              <button
-                onClick={handleUndoLetter}
-                disabled={spelledLetters.length === 0 || spellingCorrect !== null}
-                className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        <div className="flex justify-center gap-2 mb-4 min-h-[52px]">
+          {word.word.split('').map((_, i) => {
+            const letter = spelledLetters[i] || ''
+            const isCorrectLetter = spellingCorrect === true
+            const isWrongLetter = spellingCorrect === false && letter && letter.toLowerCase() !== word.word[i].toLowerCase()
+            return (
+              <div
+                key={i}
+                className={`w-10 h-12 flex items-center justify-center text-lg font-bold rounded-lg border-2 transition ${
+                  letter
+                    ? isCorrectLetter
+                      ? 'bg-green-50 border-green-400 text-green-700'
+                      : isWrongLetter
+                      ? 'bg-red-50 border-red-400 text-red-700'
+                      : 'bg-indigo-50 border-indigo-400 text-indigo-700'
+                    : 'bg-white border-slate-200'
+                }`}
               >
-                <ChevronLeft className="w-4 h-4" />
-                撤销
-              </button>
-              <button
-                onClick={handleResetSpelling}
-                className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
-              >
-                <Shuffle className="w-4 h-4" />
-                重排
-              </button>
-            </div>
+                {letter}
+              </div>
+            )
+          })}
+        </div>
 
-            <div className="flex justify-center gap-3 mt-8">
-              <button
-                onClick={handlePrevStep}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                上一步
-              </button>
-              <button
-                onClick={handleNextStep}
-                disabled={!spellingCorrect}
-                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                下一个单词
-                <ArrowRight className="w-4 h-4" />
-              </button>
+        <div className="flex justify-center flex-wrap gap-2 mb-4 max-w-md mx-auto">
+          {shuffledLetters.map((letter, i) => (
+            <button
+              key={`${letter}-${i}`}
+              onClick={() => handleLetterClick(letter, i)}
+              disabled={spellingCorrect !== null}
+              className="w-10 h-10 flex items-center justify-center text-base font-semibold bg-white border-2 border-slate-200 rounded-lg text-slate-700 hover:border-indigo-400 hover:bg-indigo-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {letter}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex justify-center gap-3">
+          <button
+            onClick={handleUndoLetter}
+            disabled={spelledLetters.length === 0 || spellingCorrect !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            撤销
+          </button>
+          <button
+            onClick={handleResetSpelling}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            重置
+          </button>
+        </div>
+
+        {spellingCorrect !== null && (
+          <div className="mt-4 text-center">
+            <div className={`flex items-center justify-center gap-2 ${spellingCorrect ? 'text-green-600' : 'text-red-500'}`}>
+              {spellingCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+              <span className="font-medium">
+                {spellingCorrect ? '拼写正确！' : `正确答案：${word.word}`}
+              </span>
             </div>
           </div>
         )}
       </div>
-
-      {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
     </div>
   )
 }
@@ -763,6 +1700,21 @@ function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; s
     setSentences((prev) => [...prev, sentence])
     setShowAddModal(false)
     toast.success('长难句已添加')
+  }
+
+  if (sentences.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <Type className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+        <p className="text-slate-500 mb-4">还没有长难句，快来添加吧！</p>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+        >
+          添加长难句
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -907,6 +1859,21 @@ function TranslationSection({ translations, setTranslations }: { translations: T
     setTranslations((prev) => [...prev, item])
     setShowAddModal(false)
     toast.success('翻译练习已添加')
+  }
+
+  if (translations.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <Languages className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+        <p className="text-slate-500 mb-4">还没有翻译练习，快来添加吧！</p>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+        >
+          添加翻译练习
+        </button>
+      </div>
+    )
   }
 
   return (

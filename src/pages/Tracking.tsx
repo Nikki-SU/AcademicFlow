@@ -18,6 +18,7 @@ import {
   Edit3,
   Trash2,
   ChevronDown,
+  ChevronRight,
   Loader2,
   CheckCircle2,
   Tag,
@@ -27,6 +28,8 @@ import {
   Play,
   Newspaper,
   Hash,
+  FileText,
+  ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
@@ -58,6 +61,16 @@ interface SearchSite {
   color: string
 }
 
+interface TrackedPaper {
+  id: string
+  title: string
+  authors: string
+  year: number
+  journal: string
+  doi: string
+  source: string
+}
+
 // ============================================================
 // 常量
 // ============================================================
@@ -77,6 +90,8 @@ const TRACKING_SOURCES = [
   { label: 'RSS', count: 0, color: 'text-slate-400' },
 ]
 
+const DEMO_TRACKED_PAPERS: TrackedPaper[] = []
+
 // ============================================================
 // localStorage 工具函数
 // ============================================================
@@ -85,6 +100,8 @@ const STORAGE_KEYS = {
   KEYWORD_GROUPS: 'tracking_keyword_groups',
   JOURNALS: 'tracking_journals',
   SEARCH_SITES: 'tracking_search_sites',
+  KEYWORD_GROUPS_COLLAPSED: 'tracking_kw_groups_collapsed',
+  JOURNALS_COLLAPSED: 'tracking_journals_collapsed',
 }
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
@@ -124,6 +141,9 @@ export default function TrackingPage() {
   const [keywordGroups, setKeywordGroups] = useState<KeywordGroup[]>(() =>
     loadFromStorage<KeywordGroup[]>(STORAGE_KEYS.KEYWORD_GROUPS, []),
   )
+  const [keywordGroupsCollapsed, setKeywordGroupsCollapsed] = useState(() =>
+    loadFromStorage<boolean>(STORAGE_KEYS.KEYWORD_GROUPS_COLLAPSED, true),
+  )
   const [showKeywordModal, setShowKeywordModal] = useState(false)
   const [editingKeywordGroup, setEditingKeywordGroup] = useState<KeywordGroup | null>(null)
   const [keywordFormName, setKeywordFormName] = useState('')
@@ -133,6 +153,9 @@ export default function TrackingPage() {
   // ---------- 期刊 ----------
   const [journals, setJournals] = useState<JournalItem[]>(() =>
     loadFromStorage<JournalItem[]>(STORAGE_KEYS.JOURNALS, []),
+  )
+  const [journalsCollapsed, setJournalsCollapsed] = useState(() =>
+    loadFromStorage<boolean>(STORAGE_KEYS.JOURNALS_COLLAPSED, true),
   )
   const [showJournalModal, setShowJournalModal] = useState(false)
   const [editingJournal, setEditingJournal] = useState<JournalItem | null>(null)
@@ -160,6 +183,7 @@ export default function TrackingPage() {
 
   // ---------- 立即追踪 ----------
   const [isTracking, setIsTracking] = useState(false)
+  const [trackedPapers, setTrackedPapers] = useState<TrackedPaper[]>(DEMO_TRACKED_PAPERS)
 
   // ============================================================
   // 持久化
@@ -176,6 +200,14 @@ export default function TrackingPage() {
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.SEARCH_SITES, searchSites)
   }, [searchSites])
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.KEYWORD_GROUPS_COLLAPSED, keywordGroupsCollapsed)
+  }, [keywordGroupsCollapsed])
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.JOURNALS_COLLAPSED, journalsCollapsed)
+  }, [journalsCollapsed])
 
   // 点击外部关闭搜索下拉
   useEffect(() => {
@@ -463,8 +495,13 @@ export default function TrackingPage() {
     setIsTracking(true)
     setTimeout(() => {
       setIsTracking(false)
+      setTrackedPapers([])
       toast.success('追踪完成，暂无新文献命中')
     }, 1500)
+  }
+
+  const handleAddPaperToLibrary = (paper: TrackedPaper) => {
+    toast.success(`已入库：${paper.title.slice(0, 40)}${paper.title.length > 40 ? '...' : ''}`)
   }
 
   // ============================================================
@@ -492,7 +529,7 @@ export default function TrackingPage() {
   ]
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8">
       {/* 顶栏 */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -502,9 +539,11 @@ export default function TrackingPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 左侧：追踪状态 + 搜索 + 关键词组 + 期刊 */}
+        {/* ============================================================ */}
+        {/* 左侧（2/3 宽度）：今日追踪 + 学术搜索 + 追踪结果 */}
+        {/* ============================================================ */}
         <div className="lg:col-span-2 space-y-6">
-          {/* 今日追踪状态 */}
+          {/* ---------- 今日追踪卡片 ---------- */}
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -565,7 +604,7 @@ export default function TrackingPage() {
             </div>
           </div>
 
-          {/* 学术搜索框 */}
+          {/* ---------- 学术搜索框 ---------- */}
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
               <Globe className="w-5 h-5 text-indigo-600" />
@@ -649,200 +688,78 @@ export default function TrackingPage() {
             </p>
           </div>
 
-          {/* 关键词组列表 */}
+          {/* ---------- 追踪结果 ---------- */}
           <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-                <Tag className="w-5 h-5 text-indigo-600" />
-                关键词组
-              </h2>
-              <button
-                onClick={openAddKeywordGroup}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
-              >
-                <Plus className="w-4 h-4" />
-                新建
-              </button>
-            </div>
+            <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-600" />
+              追踪结果
+            </h2>
 
-            {keywordGroups.length === 0 ? (
-              <div className="text-center py-10 text-slate-400">
-                <Tag className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">尚未配置关键词组</p>
-                <p className="text-xs mt-1">添加关键词组后可自动追踪相关文献</p>
+            {trackedPapers.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <Rss className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="text-sm font-medium">今日暂无新文献</p>
+                <p className="text-xs mt-1">配置关键词组或期刊后自动追踪</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {keywordGroups.map((group) => (
+              <div className="space-y-4">
+                {trackedPapers.map((paper) => (
                   <div
-                    key={group.id}
-                    className={`p-4 border rounded-lg transition ${
-                      group.enabled ? 'border-slate-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-60'
-                    }`}
+                    key={paper.id}
+                    className="p-4 border border-slate-200 rounded-lg hover:border-indigo-200 hover:bg-indigo-50/30 transition"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => toggleKeywordGroup(group.id)}
-                          className={`w-10 h-6 rounded-full transition relative ${
-                            group.enabled ? 'bg-indigo-600' : 'bg-slate-300'
-                          }`}
-                        >
-                          <div
-                            className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                              group.enabled ? 'translate-x-4' : 'translate-x-0.5'
-                            }`}
-                          />
-                        </button>
-                        <span className="font-medium text-slate-800">{group.name}</span>
-                        <span className="text-xs text-slate-400">{group.keywords.length} 个关键词</span>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-slate-800 text-sm leading-snug mb-2">
+                          {paper.title}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-1.5">
+                          {paper.authors}
+                        </p>
+                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+                          <span>{paper.year}</span>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-indigo-600">{paper.journal}</span>
+                          {paper.doi && (
+                            <>
+                              <span className="text-slate-300">·</span>
+                              <a
+                                href={`https://doi.org/${paper.doi}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-slate-400 hover:text-indigo-600 inline-flex items-center gap-0.5"
+                              >
+                                DOI
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </>
+                          )}
+                          <span className="text-slate-300">·</span>
+                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">
+                            {paper.source}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => openEditKeywordGroup(group)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteKeywordGroup(group.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 ml-13">
-                      {group.keywords.map((kw, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs rounded-full"
-                        >
-                          {kw}
-                        </span>
-                      ))}
+                      <button
+                        onClick={() => handleAddPaperToLibrary(paper)}
+                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        入库
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
-
-          {/* 期刊列表 */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-                <BookMarked className="w-5 h-5 text-indigo-600" />
-                期刊追踪
-              </h2>
-              <button
-                onClick={openAddJournal}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
-              >
-                <Plus className="w-4 h-4" />
-                添加
-              </button>
-            </div>
-
-            {journals.length === 0 ? (
-              <div className="text-center py-10 text-slate-400">
-                <Newspaper className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">尚未添加期刊</p>
-                <p className="text-xs mt-1">添加期刊后可追踪最新发表的文献</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="text-left py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        期刊名
-                      </th>
-                      <th className="text-left py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        ISSN
-                      </th>
-                      <th className="text-left py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        出版社
-                      </th>
-                      <th className="text-center py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        状态
-                      </th>
-                      <th className="text-right py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        操作
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {journals.map((journal) => (
-                      <tr key={journal.id} className="hover:bg-slate-50 transition">
-                        <td className="py-3">
-                          <div className="font-medium text-sm text-slate-800">{journal.name}</div>
-                          {journal.rssUrl && (
-                            <a
-                              href={journal.rssUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-indigo-500 hover:underline inline-flex items-center gap-1 mt-0.5"
-                            >
-                              <Rss className="w-3 h-3" />
-                              RSS
-                            </a>
-                          )}
-                        </td>
-                        <td className="py-3 text-sm text-slate-500">{journal.issn || '-'}</td>
-                        <td className="py-3 text-sm text-slate-500">{journal.publisher || '-'}</td>
-                        <td className="py-3 text-center">
-                          <button
-                            onClick={() => toggleJournal(journal.id)}
-                            className={`w-10 h-6 rounded-full transition relative inline-block ${
-                              journal.enabled ? 'bg-indigo-600' : 'bg-slate-300'
-                            }`}
-                          >
-                            <div
-                              className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                                journal.enabled ? 'translate-x-4' : 'translate-x-0.5'
-                              }`}
-                            />
-                          </button>
-                        </td>
-                        <td className="py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => openEditJournal(journal)}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteJournal(journal.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* 追踪结果 */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h2 className="font-semibold text-slate-800 mb-4">追踪结果</h2>
-            <div className="text-center py-12 text-slate-400">
-              <Rss className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">今日暂无新文献命中</p>
-              <p className="text-xs mt-1">配置关键词组后自动追踪</p>
-            </div>
-          </div>
         </div>
 
-        {/* 右侧：快速入库 */}
+        {/* ============================================================ */}
+        {/* 右侧（1/3 宽度）：快速入库 + 关键词组 + 期刊追踪 */}
+        {/* ============================================================ */}
         <div className="space-y-6">
-          {/* 快速入库 */}
+          {/* ---------- 快速入库 ---------- */}
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <h3 className="font-semibold text-slate-800 text-sm mb-3 flex items-center gap-2">
               <Plus className="w-4 h-4 text-indigo-600" />
@@ -873,6 +790,218 @@ export default function TrackingPage() {
             <p className="text-xs text-slate-400 mt-2">
               支持 doi:10.xxx、https://doi.org/10.xxx 等格式
             </p>
+          </div>
+
+          {/* ---------- 关键词组（可折叠） ---------- */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <button
+              onClick={() => setKeywordGroupsCollapsed(!keywordGroupsCollapsed)}
+              className="w-full flex items-center justify-between p-5 hover:bg-slate-50 transition"
+            >
+              <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
+                <Tag className="w-4 h-4 text-indigo-600" />
+                关键词组
+                <span className="text-xs font-normal text-slate-400">
+                  ({keywordGroups.length})
+                </span>
+              </h3>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openAddKeywordGroup()
+                  }}
+                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                  title="新建关键词组"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+                {keywordGroupsCollapsed ? (
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                )}
+              </div>
+            </button>
+
+            {!keywordGroupsCollapsed && (
+              <div className="px-5 pb-5 border-t border-slate-100">
+                {keywordGroups.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400">
+                    <Tag className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-xs">尚未配置关键词组</p>
+                    <button
+                      onClick={openAddKeywordGroup}
+                      className="mt-2 text-xs text-indigo-600 hover:underline"
+                    >
+                      立即添加
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 mt-3 max-h-80 overflow-y-auto">
+                    {keywordGroups.map((group) => (
+                      <div
+                        key={group.id}
+                        className={`p-3 border rounded-lg transition ${
+                          group.enabled
+                            ? 'border-slate-200 bg-white'
+                            : 'border-slate-200 bg-slate-50 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <button
+                              onClick={() => toggleKeywordGroup(group.id)}
+                              className={`w-8 h-4.5 rounded-full transition relative flex-shrink-0 ${
+                                group.enabled ? 'bg-indigo-600' : 'bg-slate-300'
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
+                                  group.enabled ? 'translate-x-4' : 'translate-x-0.5'
+                                }`}
+                              />
+                            </button>
+                            <span className="font-medium text-sm text-slate-800 truncate">
+                              {group.name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-0.5 flex-shrink-0">
+                            <button
+                              onClick={() => openEditKeywordGroup(group)}
+                              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteKeywordGroup(group.id)}
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1 ml-10">
+                          {group.keywords.slice(0, 5).map((kw, idx) => (
+                            <span
+                              key={idx}
+                              className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-xs rounded-full"
+                            >
+                              {kw}
+                            </span>
+                          ))}
+                          {group.keywords.length > 5 && (
+                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full">
+                              +{group.keywords.length - 5}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ---------- 期刊追踪（可折叠） ---------- */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <button
+              onClick={() => setJournalsCollapsed(!journalsCollapsed)}
+              className="w-full flex items-center justify-between p-5 hover:bg-slate-50 transition"
+            >
+              <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
+                <BookMarked className="w-4 h-4 text-indigo-600" />
+                期刊追踪
+                <span className="text-xs font-normal text-slate-400">
+                  ({journals.length})
+                </span>
+              </h3>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openAddJournal()
+                  }}
+                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                  title="添加期刊"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+                {journalsCollapsed ? (
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                )}
+              </div>
+            </button>
+
+            {!journalsCollapsed && (
+              <div className="px-5 pb-5 border-t border-slate-100">
+                {journals.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400">
+                    <Newspaper className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-xs">尚未添加期刊</p>
+                    <button
+                      onClick={openAddJournal}
+                      className="mt-2 text-xs text-indigo-600 hover:underline"
+                    >
+                      立即添加
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 mt-3 max-h-80 overflow-y-auto">
+                    {journals.map((journal) => (
+                      <div
+                        key={journal.id}
+                        className={`flex items-center justify-between p-2.5 rounded-lg transition ${
+                          journal.enabled
+                            ? 'hover:bg-slate-50'
+                            : 'opacity-60 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <button
+                            onClick={() => toggleJournal(journal.id)}
+                            className={`w-8 h-4.5 rounded-full transition relative flex-shrink-0 ${
+                              journal.enabled ? 'bg-indigo-600' : 'bg-slate-300'
+                            }`}
+                          >
+                            <div
+                              className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
+                                journal.enabled ? 'translate-x-4' : 'translate-x-0.5'
+                              }`}
+                            />
+                          </button>
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm text-slate-800 truncate">
+                              {journal.name}
+                            </div>
+                            {journal.issn && (
+                              <div className="text-xs text-slate-400">{journal.issn}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-0.5 flex-shrink-0">
+                          <button
+                            onClick={() => openEditJournal(journal)}
+                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteJournal(journal.id)}
+                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -911,7 +1040,6 @@ export default function TrackingPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                   关键词
                 </label>
-                {/* 已添加的关键词标签 */}
                 {keywordFormKeywords.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-2 p-2 border border-slate-200 rounded-lg bg-slate-50 min-h-10">
                     {keywordFormKeywords.map((kw, idx) => (
