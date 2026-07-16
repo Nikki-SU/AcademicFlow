@@ -120,26 +120,12 @@ export interface SettingsData {
   /** MinerU JWT token（BYO）——用于 PDF → Markdown 解析 */
   mineruToken: string
   /**
-   * MinerU 代理部署方案（M3.6.2-d）
-   * -------------------------------------------------
-   * MinerU 服务端不返回 CORS 头，浏览器直连会被 preflight 拒。
-   * 用户需要自己部署一个透传代理（免费），支持两种 Runtime：
+   * MinerU 代理 URL（BYO）——用户在自己的 VPS 上部署透传代理后填入。
    *
-   *   - 'deno'       ：Deno Deploy（国内三大运营商基本可达，默认）
-   *   - 'cf-workers' ：Cloudflare Workers（一键部署，但国内需要代理才可达）
+   * 格式：http://你的VPS公网IP:8000
    *
-   * 两种 Runtime 用同一份 Worker 代码（core.js 抽离），健康检查响应里
-   * `runtime` 字段可用于识别用户实际部署到了哪个平台。默认 'deno'。
-   */
-  mineruDeployMode: 'deno' | 'cf-workers'
-  /**
-   * MinerU 代理 URL（BYO）——对应 mineruDeployMode 部署完成后填入。
-   *
-   *   - deno       → https://xxx.deno.net
-   *   - cf-workers → https://xxx.workers.dev
-   *
-   * 部署指引：https://github.com/Nikki-SU/AcademicFlow-Worker
-   * 数据隐私：代理只做纯转发，不缓存不落盘。部署在用户自己的账号下，作者不接触。
+   * 部署指引：Settings → MinerU 代理 提供一键安装脚本
+   * 数据隐私：代理只做纯转发，不缓存不落盘。部署在用户自己的服务器上，作者不接触。
    */
   mineruWorkerUrl: string
   /**

@@ -353,7 +353,7 @@ function Settings() {
           <DualEngineTestPanel />
         </section>
 
-        {/* MinerU 代理配置（M3.6.2-d · 双 Runtime：Deno Deploy / Cloudflare Workers） */}
+        {/* MinerU 代理配置（M3.7 · VPS 一键部署） */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
           <h2 className="font-semibold text-slate-800 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-orange-600" />

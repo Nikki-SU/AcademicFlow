@@ -2,18 +2,19 @@
  * MinerU 代理配置卡片
  * -------------------------------------------------
  * MinerU 服务端不返回 CORS 头 → 浏览器直连被 preflight 拒。
- * 解决方案：用户在自己的账号部署 Deno Deploy 透传代理。
+ * 解决方案：用户在自己的 VPS 上部署透传代理。
  *
  * 本组件职责：
- *   1. 部署指引（Deno Deploy 6 步）
+ *   1. 部署指引（VPS 一键安装 3 步）
  *   2. Worker URL 输入框（保存到 mineru_worker_url）
  *   3. 500ms debounce 自动 ping /__af_health
+ *   4. 配置成功后自动折叠部署指引，减少视觉噪音
  *
  * 数据流：用户浏览器 → 用户部署的代理 → mineru.net（作者完全绝缘）
  * 隐私：URL 存 IndexedDB，不上传服务器。
  */
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useSettingsStore } from '../../stores/settings'
 import MineruDeployGuide from './MineruDeployGuide'
@@ -40,7 +41,7 @@ async function pingWorker(
   const trimmed = url.trim().replace(/\/+$/, '')
   if (!trimmed) return { state: 'idle', message: '' }
   if (!/^https?:\/\//i.test(trimmed)) {
-    return { state: 'fail', message: '需要以 https:// 开头' }
+    return { state: 'fail', message: '需要以 http:// 或 https:// 开头' }
   }
   try {
     const res = await fetch(trimmed + HEALTH_PATH, { method: 'GET', signal })
@@ -64,6 +65,7 @@ export default function MineruProxyConfig() {
   }))
   const [draft, setDraft] = useState(mineruWorkerUrl)
   const [ping, setPing] = useState<PingResult>({ state: 'idle', message: '' })
+  const [showDeployGuide, setShowDeployGuide] = useState(!mineruWorkerUrl.trim())
   const abortRef = useRef<AbortController | null>(null)
   const debounceRef = useRef<number | null>(null)
 
@@ -76,6 +78,7 @@ export default function MineruProxyConfig() {
     if (abortRef.current) abortRef.current.abort()
     if (!draft.trim()) {
       setPing({ state: 'idle', message: '' })
+      setShowDeployGuide(true)
       return
     }
     setPing({ state: 'checking', message: '正在验证...' })
@@ -83,7 +86,12 @@ export default function MineruProxyConfig() {
       const ctl = new AbortController()
       abortRef.current = ctl
       const result = await pingWorker(draft, ctl.signal)
-      if (!ctl.signal.aborted) setPing(result)
+      if (!ctl.signal.aborted) {
+        setPing(result)
+        if (result.state === 'ok') {
+          setShowDeployGuide(false)
+        }
+      }
     }, 500)
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current)
@@ -101,13 +109,24 @@ export default function MineruProxyConfig() {
 
   return (
     <div className="space-y-4">
-      <MineruDeployGuide />
+      {showDeployGuide || ping.state !== 'ok' ? (
+        <button
+          type="button"
+          onClick={() => setShowDeployGuide(!showDeployGuide)}
+          className="flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 transition-colors"
+        >
+          {showDeployGuide ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          {showDeployGuide ? '收起部署指引' : '展开部署指引'}
+        </button>
+      ) : null}
+
+      {showDeployGuide && <MineruDeployGuide />}
 
       <div className="space-y-2">
         <label className="block text-sm font-medium text-slate-700">代理 URL</label>
         <div className="flex gap-2">
           <input
-            type="url"
+            type="text"
             placeholder="http://你的VPS公网IP:8000"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -155,7 +174,7 @@ export default function MineruProxyConfig() {
       </div>
 
       <p className="text-[11px] text-slate-500 leading-relaxed">
-        代理部署在你自己的账号下，作者不接触。
+        代理部署在你自己的服务器上，作者不接触。
         <a
           href={REPO_URL}
           target="_blank"
