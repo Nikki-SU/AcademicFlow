@@ -301,7 +301,7 @@ function JournalTemplatesPage() {
           <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Link
-                to="/"
+                to="/management"
                 className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
               >
                 <ArrowLeft className="w-5 h-5" />

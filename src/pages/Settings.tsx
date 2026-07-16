@@ -141,11 +141,11 @@ function Settings() {
             </span>
           </div>
           <Link
-            to="/"
+            to="/tracking"
             className="flex items-center gap-1 px-2.5 py-1.5 text-sm text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
           >
             <ArrowLeft className="w-4 h-4" />
-            返回首页
+            返回追踪页
           </Link>
         </div>
       </header>

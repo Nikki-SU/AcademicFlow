@@ -1,17 +1,14 @@
 /**
  * 顶部 Tab 导航布局
- * 所有功能模块通过顶部 Tab 切换
+ * 五个核心页面：追踪、阅读、学习、写作、管理
  */
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard,
   Search,
-  Library,
-  FileText,
   BookOpen,
   GraduationCap,
   PenTool,
-  Send,
+  FolderCog,
   Settings,
   LogOut,
   User,
@@ -19,14 +16,11 @@ import {
 import { useAuthStore } from '../stores/auth'
 
 const tabs = [
-  { path: '/', label: '工作台', icon: LayoutDashboard },
-  { path: '/tracking', label: '文献追踪', icon: Search },
-  { path: '/library', label: '文献库', icon: Library },
-  { path: '/pdf-to-md', label: 'PDF转MD', icon: FileText },
+  { path: '/tracking', label: '追踪', icon: Search },
   { path: '/reading', label: '阅读', icon: BookOpen },
   { path: '/learn', label: '学习', icon: GraduationCap },
   { path: '/writing', label: '写作', icon: PenTool },
-  { path: '/compile', label: '投稿编译', icon: Send },
+  { path: '/management', label: '管理', icon: FolderCog },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -43,7 +37,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="max-w-[1600px] mx-auto px-4">
           <div className="flex items-center justify-between h-12">
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-2 flex-shrink-0 mr-4">
+            <Link to="/tracking" className="flex items-center gap-2 flex-shrink-0 mr-6">
               <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
                 <span className="text-white text-xs font-bold">AF</span>
               </div>
@@ -51,32 +45,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </Link>
 
             {/* Tab 导航 */}
-            <nav className="flex items-center gap-0.5 overflow-x-auto flex-1 no-scrollbar">
+            <nav className="flex items-center gap-1 flex-1">
               {tabs.map((tab) => {
-                const isActive = currentPath === tab.path || (tab.path !== '/' && currentPath.startsWith(tab.path))
+                const isActive = currentPath === tab.path || currentPath.startsWith(tab.path + '/')
                 const Icon = tab.icon
                 return (
                   <Link
                     key={tab.path}
                     to={tab.path}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium whitespace-nowrap transition ${
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition ${
                       isActive
                         ? 'bg-indigo-50 text-indigo-700'
                         : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span className="hidden md:inline">{tab.label}</span>
+                    <Icon className="w-4 h-4" />
+                    <span>{tab.label}</span>
                   </Link>
                 )
               })}
             </nav>
 
-            {/* 右侧：用户 + 设置 */}
-            <div className="flex items-center gap-1 flex-shrink-0 ml-4">
+            {/* 右侧：设置 + 用户 */}
+            <div className="flex items-center gap-2 flex-shrink-0 ml-4">
               <Link
                 to="/settings"
-                className={`p-2 rounded-md transition ${
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition ${
                   currentPath === '/settings'
                     ? 'bg-indigo-50 text-indigo-700'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
@@ -84,6 +78,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 title="设置"
               >
                 <Settings className="w-4 h-4" />
+                <span className="hidden sm:inline">设置</span>
               </Link>
 
               {user ? (

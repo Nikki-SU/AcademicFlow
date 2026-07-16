@@ -313,10 +313,10 @@ function JournalFormatPage() {
               )}
             </button>
             <Link
-              to="/"
+              to="/management"
               className="text-sm text-slate-600 hover:text-indigo-600 px-3 py-1.5 rounded-md hover:bg-indigo-50 transition"
             >
-              返回首页
+              返回管理页
             </Link>
           </div>
         </div>

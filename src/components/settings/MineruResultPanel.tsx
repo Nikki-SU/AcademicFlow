@@ -264,7 +264,7 @@ export function MineruResultPanel(props: {
             <div className="p-2 bg-white border border-slate-200 rounded">
               <p className="text-xs text-slate-500 mb-2">图片预览（共 {imageCount} 张，展示前 12 张）</p>
               <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
-                {Object.entries(result.images).slice(0, 12).map(([name, blob]) => (
+                {Object.entries(result.images).slice(0, 12).map(([name]) => (
                   <img
                     key={name}
                     src={blobUrls[name] ?? ''}
