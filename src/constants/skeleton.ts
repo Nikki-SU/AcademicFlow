@@ -152,6 +152,59 @@ jobs:
         run: echo "Daily tracking script will be implemented in M8/M9."
 `
 
+const MONTHLY_CLEANUP_YML = `# AcademicFlow monthly PDF cleanup workflow
+# 每月1日自动清理一个月前上传的PDF文件，仅保留Markdown
+name: Monthly PDF Cleanup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 1 * *'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cleanup old PDFs
+        run: |
+          echo "=== AcademicFlow PDF Monthly Cleanup ==="
+          echo "Looking for PDFs older than 30 days..."
+          
+          # 查找 literatures 和 textbooks 目录下超过30天的PDF
+          find literatures textbooks -name "*.pdf" -type f -mtime +30 2>/dev/null | while read -r pdf; do
+            if [ -f "$pdf" ]; then
+              # 检查对应的Markdown是否存在
+              md_file="\${pdf%.pdf}.md"
+              md_dir="\${pdf%.pdf}"
+              
+              if [ -f "$md_file" ] || [ -d "$md_dir" ]; then
+                echo "Removing old PDF: $pdf"
+                git rm "$pdf"
+              else
+                echo "Keeping $pdf (no Markdown counterpart found)"
+              fi
+            fi
+          done
+          
+          echo "Cleanup complete."
+
+      - name: Commit and push if changes
+        run: |
+          git config user.name "academicflow-bot"
+          git config user.email "bot@academicflow.local"
+          
+          if git diff --cached --quiet; then
+            echo "No old PDFs to remove."
+          else
+            git commit -m "chore: monthly cleanup - remove PDFs older than 30 days"
+            git push
+            echo "Cleanup committed and pushed."
+          fi
+`
+
 /** CSV 表头（严格按照 spec §4.1-4.7） */
 const CSV_HEADERS = {
   literatures: 'doi,title,journal,year,authors,keywords,abstract_en,abstract_cn,tier,has_graphical_abstract,added_at,pdf_added_at,source,tracking_group',
@@ -181,6 +234,7 @@ export const WORKSPACE_SKELETON: SkeletonFile[] = [
   { path: 'templates/citations/_sample-generic.csl', content: SAMPLE_CSL },
 
   { path: '.github/workflows/daily-tracking.yml', content: DAILY_TRACKING_YML },
+  { path: '.github/workflows/monthly-cleanup.yml', content: MONTHLY_CLEANUP_YML },
 ]
 
 export const DEFAULT_WORKSPACE_REPO_NAME = 'academicflow-workspace'
