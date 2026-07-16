@@ -54,9 +54,8 @@ export const SETTING_KEYS = {
   // AI 模型清单缓存（M3，TTL 24h）
   AI_MODELS_CACHE_SILICONFLOW: 'ai_models_cache_siliconflow',
   AI_MODELS_CACHE_AT: 'ai_models_cache_at',
-  // MinerU 相关（M3.7 / M3.6.2-d / M3.6.3-b）
+  // MinerU 相关（M3.7）
   MINERU_TOKEN: 'mineru_token',
-  MINERU_DEPLOY_MODE: 'mineru_deploy_mode',
   MINERU_WORKER_URL: 'mineru_worker_url',
   EXTRACT_COVER_IMAGE: 'extract_cover_image',
   MINERU_DEBUG_MODE: 'mineru_debug_mode',

@@ -44,7 +44,6 @@ const DEFAULT_SETTINGS: SettingsData = {
   customAi2ApiKey: '',
   customAi2Model: '',
   mineruToken: '',
-  mineruDeployMode: 'deno',
   mineruWorkerUrl: '',
   extractCoverImage: true,
   mineruDebugMode: true,
@@ -64,7 +63,6 @@ const KEY_MAP: Record<keyof SettingsData, string> = {
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
   customAi2Model: SETTING_KEYS.CUSTOM_AI_2_MODEL,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
-  mineruDeployMode: SETTING_KEYS.MINERU_DEPLOY_MODE,
   mineruWorkerUrl: SETTING_KEYS.MINERU_WORKER_URL,
   extractCoverImage: SETTING_KEYS.EXTRACT_COVER_IMAGE,
   mineruDebugMode: SETTING_KEYS.MINERU_DEBUG_MODE,
@@ -88,11 +86,6 @@ function deserialize(
     return (raw === 'custom'
       ? 'custom'
       : 'siliconflow') as SettingsData[typeof key]
-  }
-  if (key === 'mineruDeployMode') {
-    return (raw === 'cf-workers'
-      ? 'cf-workers'
-      : 'deno') as SettingsData[typeof key]
   }
   return raw as SettingsData[typeof key]
 }

@@ -63,11 +63,11 @@ function safeStringify(v: unknown): string {
 /**
  * 构造 MinerU API 的 baseUrl。
  * MinerU 服务端不返回 CORS 头，浏览器直连会 preflight 405，
- * 因此必须走用户自持的 Deno Deploy 透传代理。
+ * 因此必须走用户在自己 VPS 上部署的透传代理。
  *
- * @param workerUrl 用户在 Settings 里配置的 deno.net URL（如 https://xxx.deno.net）
+ * @param workerUrl 用户在 Settings 里配置的 VPS 代理 URL（如 http://你的IP:8000）
  *                  尾斜杠会自动清理
- * @returns 如 `https://xxx.deno.net/api/v4`
+ * @returns 如 `http://你的IP:8000/api/v4`
  * @throws 当 workerUrl 为空时抛错，提醒调用方去 Settings 配置
  */
 export function buildMineruBaseUrl(workerUrl: string | null | undefined): string {

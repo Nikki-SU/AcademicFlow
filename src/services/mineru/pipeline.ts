@@ -23,7 +23,7 @@ import { extractZip } from './extract'
 export interface RunMineruSingleFileOptions {
   token: string
   /**
-   * 用户配置的 Deno Deploy 代理 URL（如 https://xxx.deno.net）
+   * 用户配置的 VPS 代理 URL（如 http://你的IP:8000）
    * MinerU 官方 API 无 CORS，浏览器直连不通，必须走用户自持的透传代理。
    */
   workerUrl: string
