@@ -21,6 +21,8 @@ import {
   Settings,
   X,
   Key,
+  Eye,
+  FileDown,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useSettingsStore } from '../stores/settings'
@@ -30,6 +32,8 @@ import type { JournalTemplate, LatexConversionResult } from '../types'
 import { SILICONFLOW_BASE_URL } from '../services/ai/models'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DEMO_JACS_MARKDOWN } from '../data/demo-content'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 
 /** 示例 Markdown — JACS 2024 李志平课题组论文（演示用） */
 const SAMPLE_MARKDOWN = DEMO_JACS_MARKDOWN
@@ -52,7 +56,7 @@ function JournalFormatPage() {
   const [isConverting, setIsConverting] = useState(false)
   const [progressStage, setProgressStage] = useState<Parameters<LatexConvertProgress>[0]['stage'] | null>(null)
   const [progressMessage, setProgressMessage] = useState('')
-  const [activeTab, setActiveTab] = useState<'latex' | 'bibtex'>('latex')
+  const [activeTab, setActiveTab] = useState<'latex' | 'bibtex' | 'preview'>('latex')
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false)
   const [sortMode, setSortMode] = useState<'appearance' | 'author-year' | 'alphabetical'>('appearance')
   const [showQuickSettings, setShowQuickSettings] = useState(false)
