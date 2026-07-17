@@ -26,7 +26,6 @@ import {
   Heading1,
   Heading2,
   Heading3,
-  Edit3,
   Check,
 } from 'lucide-react'
 import { readMdFile, writeMdFile, readCsvFile, writeCsvFile } from '../services/userData'
