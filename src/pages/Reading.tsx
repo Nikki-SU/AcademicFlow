@@ -27,6 +27,7 @@ import {
   Heading2,
   Heading3,
   Check,
+  Edit3,
 } from 'lucide-react'
 import { readMdFile, writeMdFile, readCsvFile, writeCsvFile } from '../services/userData'
 
@@ -395,8 +396,80 @@ function getColorInfo(color: HighlightColor) {
   return HIGHLIGHT_COLORS.find((c) => c.value === color) || HIGHLIGHT_COLORS[0]
 }
 
-function getWordCountFromMarkdown(md: string): number {
-  return md.replace(/\s/g, '').length
+function htmlToMarkdown(html: string): string {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  let md = ''
+
+  const walk = (node: Node, depth: number = 0): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent || ''
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return ''
+
+    const el = node as HTMLElement
+    const tag = el.tagName.toLowerCase()
+    let result = ''
+
+    switch (tag) {
+      case 'h1': result = `# ${el.textContent}\n\n`; break
+      case 'h2': result = `## ${el.textContent}\n\n`; break
+      case 'h3': result = `### ${el.textContent}\n\n`; break
+      case 'h4': result = `#### ${el.textContent}\n\n`; break
+      case 'h5': result = `##### ${el.textContent}\n\n`; break
+      case 'h6': result = `###### ${el.textContent}\n\n`; break
+      case 'p': result = `${el.textContent}\n\n`; break
+      case 'br': result = '\n'; break
+      case 'strong':
+      case 'b': result = `**${el.textContent}**`; break
+      case 'em':
+      case 'i': result = `*${el.textContent}*`; break
+      case 'blockquote': result = `> ${el.textContent}\n\n`; break
+      case 'code': result = `\`${el.textContent}\``; break
+      case 'pre': result = `\`\`\`\n${el.textContent}\n\`\`\`\n\n`; break
+      case 'a': result = `[${el.textContent}](${el.getAttribute('href') || ''})`; break
+      case 'img': result = `![${el.getAttribute('alt') || ''}](${el.getAttribute('src') || ''})\n\n`; break
+      case 'ul': {
+        let list = ''
+        el.querySelectorAll(':scope > li').forEach(li => {
+          list += `- ${li.textContent}\n`
+        })
+        return list + '\n'
+      }
+      case 'ol': {
+        let list = ''
+        let i = 1
+        el.querySelectorAll(':scope > li').forEach(li => {
+          list += `${i}. ${li.textContent}\n`
+          i++
+        })
+        return list + '\n'
+      }
+      case 'li': return ''
+      case 'div': {
+        let content = ''
+        el.childNodes.forEach(child => { content += walk(child, depth + 1) })
+        return content
+      }
+      default:
+        el.childNodes.forEach(child => { result += walk(child, depth + 1) })
+    }
+    return result
+  }
+
+  tmp.childNodes.forEach(child => { md += walk(child) })
+  return md.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function getWordCountFromHtml(html: string): number {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  return (tmp.textContent || '').replace(/\s/g, '').length
+}
+
+const DEMO_NOTES_HTML: PaperNotes = {
+  '1': renderMarkdownToHtml(DEMO_NOTES_INITIAL['1'] || ''),
+  '3': renderMarkdownToHtml(DEMO_NOTES_INITIAL['3'] || ''),
 }
 
 export default function ReadingPage() {
@@ -406,8 +479,8 @@ export default function ReadingPage() {
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [fontSize, setFontSize] = useState(16)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
-  const [notesMarkdown, setNotesMarkdown] = useState<PaperNotes>({})
-  const [noteEditMode, setNoteEditMode] = useState<'edit' | 'preview'>('edit')
+  const [notesHtml, setNotesHtml] = useState<PaperNotes>({})
+  const [notesLoaded, setNotesLoaded] = useState(false)
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null)
   const [showToolbar, setShowToolbar] = useState(false)
@@ -417,10 +490,11 @@ export default function ReadingPage() {
   const [annotationSaveState, setAnnotationSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
 
   const readerRef = useRef<HTMLDivElement>(null)
-  const noteTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const noteEditorRef = useRef<HTMLDivElement>(null)
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
+  const noteImageInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -450,22 +524,30 @@ export default function ReadingPage() {
         if (!cancelled) setAnnotations(DEMO_ANNOTATIONS)
       }
 
-      // 加载笔记（所有笔记合并存储在 notes/notes.json 或分别存 md）
-      // 这里简化为从单个 md 文件加载
+      // 加载笔记（存储为 HTML 格式，所见即所得）
       try {
         const noteResult = await readMdFile('notes/notes.json')
         if (!cancelled && noteResult) {
-          setNotesMarkdown(JSON.parse(noteResult.content))
+          setNotesHtml(JSON.parse(noteResult.content))
         } else if (!cancelled) {
-          setNotesMarkdown(DEMO_NOTES_INITIAL)
+          setNotesHtml(DEMO_NOTES_HTML)
         }
       } catch {
-        if (!cancelled) setNotesMarkdown(DEMO_NOTES_INITIAL)
+        if (!cancelled) setNotesHtml(DEMO_NOTES_HTML)
       }
+      if (!cancelled) setNotesLoaded(true)
     }
     loadData()
     return () => { cancelled = true }
   }, [])
+
+  // 仅在切换文献或首次加载时设置 innerHTML，不在每次输入时重置（避免光标跳转）
+  useEffect(() => {
+    if (noteEditorRef.current && selectedPaperId && notesLoaded) {
+      noteEditorRef.current.innerHTML = notesHtml[selectedPaperId] || ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPaperId, notesLoaded])
 
   const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
     if (annotationSaveTimerRef.current) {
@@ -486,46 +568,21 @@ export default function ReadingPage() {
     }, 500)
   }, [])
 
-  const saveNoteToStorage = useCallback((paperId: string, markdown: string) => {
+  const saveNoteToStorage = useCallback((paperId: string, html: string) => {
     if (noteSaveTimerRef.current) {
       clearTimeout(noteSaveTimerRef.current)
     }
     setNoteSaveState({ status: 'saving', lastSaved: null })
     noteSaveTimerRef.current = setTimeout(() => {
-      const newNotes = { ...notesMarkdown, [paperId]: markdown }
-      setNotesMarkdown(newNotes)
+      const newNotes = { ...notesHtml, [paperId]: html }
+      setNotesHtml(newNotes)
       writeMdFile('notes/notes.json', JSON.stringify(newNotes), 'Update reading notes').catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
       setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setNoteSaveState((prev) => ({ ...prev, status: 'idle' }))
       }, 2000)
     }, 800)
-  }, [notesMarkdown])
-
-  const filteredPapers = DEMO_PAPERS.filter((paper) => {
-    const matchesFilter =
-      filterType === 'all' ||
-      (filterType === 'has-md' && paper.hasMarkdown) ||
-      (filterType === 'no-md' && !paper.hasMarkdown)
-
-    if (!matchesFilter) return false
-
-    if (!searchQuery.trim()) return true
-
-    const q = searchQuery.toLowerCase()
-    return (
-      paper.title.toLowerCase().includes(q) ||
-      paper.authors.toLowerCase().includes(q) ||
-      paper.journal.toLowerCase().includes(q) ||
-      paper.year.toLowerCase().includes(q) ||
-      paper.keywords.some((k) => k.toLowerCase().includes(q)) ||
-      paper.doi.toLowerCase().includes(q)
-    )
-  })
-
-  const selectedPaper = DEMO_PAPERS.find((p) => p.id === selectedPaperId)
-  const paperAnnotations = annotations.filter((a) => a.paperId === selectedPaperId)
-  const currentNoteMarkdown = selectedPaperId ? (notesMarkdown[selectedPaperId] || '') : ''
+  }, [notesHtml])
 
   const handleTextSelection = useCallback(() => {
     const selection = window.getSelection()
@@ -602,75 +659,112 @@ export default function ReadingPage() {
     saveAnnotationsToStorage(newAnnotations)
   }
 
-  const handleNoteInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (!selectedPaperId) return
-    saveNoteToStorage(selectedPaperId, e.target.value)
+  const filteredPapers = DEMO_PAPERS.filter((paper) => {
+    const matchesFilter =
+      filterType === 'all' ||
+      (filterType === 'has-md' && paper.hasMarkdown) ||
+      (filterType === 'no-md' && !paper.hasMarkdown)
+
+    if (!matchesFilter) return false
+
+    if (!searchQuery.trim()) return true
+
+    const q = searchQuery.toLowerCase()
+    return (
+      paper.title.toLowerCase().includes(q) ||
+      paper.authors.toLowerCase().includes(q) ||
+      paper.journal.toLowerCase().includes(q) ||
+      paper.year.toLowerCase().includes(q) ||
+      paper.keywords.some((k) => k.toLowerCase().includes(q)) ||
+      paper.doi.toLowerCase().includes(q)
+    )
+  })
+
+  const selectedPaper = DEMO_PAPERS.find((p) => p.id === selectedPaperId)
+  const paperAnnotations = annotations.filter((a) => a.paperId === selectedPaperId)
+  const currentNoteHtml = selectedPaperId ? (notesHtml[selectedPaperId] || '') : ''
+
+  const focusNoteEditor = () => {
+    if (noteEditorRef.current) {
+      noteEditorRef.current.focus()
+    }
   }
 
-  const insertMarkdown = (before: string, after: string = '', placeholder: string = '') => {
-    if (!noteTextareaRef.current || !selectedPaperId) return
-    
-    const textarea = noteTextareaRef.current
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const currentValue = currentNoteMarkdown
-    
-    const selectedText = currentValue.substring(start, end) || placeholder
-    const newValue = currentValue.substring(0, start) + before + selectedText + after + currentValue.substring(end)
-    
-    saveNoteToStorage(selectedPaperId, newValue)
-    
-    setTimeout(() => {
-      textarea.focus()
-      const newCursorPos = start + before.length + selectedText.length
-      textarea.setSelectionRange(start + before.length, newCursorPos)
-    }, 0)
+  const handleNoteInput = () => {
+    if (!selectedPaperId || !noteEditorRef.current) return
+    const html = noteEditorRef.current.innerHTML
+    saveNoteToStorage(selectedPaperId, html)
+  }
+
+  const execNoteCommand = (command: string, value?: string) => {
+    focusNoteEditor()
+    document.execCommand(command, false, value)
+    handleNoteInput()
   }
 
   const insertHeading = (level: number) => {
-    const prefix = '#'.repeat(level) + ' '
-    insertMarkdown(prefix, '', '标题')
+    execNoteCommand('formatBlock', `H${level}`)
   }
 
   const insertBold = () => {
-    insertMarkdown('**', '**', '粗体文字')
+    execNoteCommand('bold')
   }
 
   const insertItalic = () => {
-    insertMarkdown('*', '*', '斜体文字')
+    execNoteCommand('italic')
   }
 
   const insertLink = () => {
-    const url = prompt('请输入链接地址：', 'https://')
-    if (!url) return
-    insertMarkdown('[', `](${url})`, '链接文字')
+    focusNoteEditor()
+    const sel = window.getSelection()
+    const selectedText = sel?.toString() || '链接文字'
+    const linkHtml = `<a href="https://" target="_blank" rel="noopener noreferrer" class="text-indigo-600 underline">${selectedText}</a>`
+    document.execCommand('insertHTML', false, linkHtml)
+    handleNoteInput()
+  }
+
+  const handleNoteImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedPaperId) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string
+      focusNoteEditor()
+      document.execCommand('insertImage', false, dataUrl)
+      handleNoteInput()
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
   }
 
   const insertImage = () => {
-    const url = prompt('请输入图片地址：', 'https://')
-    if (!url) return
-    insertMarkdown('![', `](${url})`, '图片描述')
+    noteImageInputRef.current?.click()
   }
 
   const insertCodeBlock = () => {
-    insertMarkdown('```\n', '\n```', '代码')
+    focusNoteEditor()
+    const sel = window.getSelection()
+    const selectedText = sel?.toString() || '代码'
+    const codeHtml = `<pre class="bg-slate-100 p-3 rounded text-sm font-mono overflow-x-auto"><code>${escapeHtml(selectedText)}</code></pre><p><br></p>`
+    document.execCommand('insertHTML', false, codeHtml)
+    handleNoteInput()
   }
 
   const insertUnorderedList = () => {
-    insertMarkdown('- ', '', '列表项')
+    execNoteCommand('insertUnorderedList')
   }
 
   const insertOrderedList = () => {
-    insertMarkdown('1. ', '', '列表项')
+    execNoteCommand('insertOrderedList')
   }
 
   const insertBlockquote = () => {
-    insertMarkdown('> ', '', '引用文字')
+    execNoteCommand('formatBlock', 'BLOCKQUOTE')
   }
 
   const exportNote = () => {
-    if (!selectedPaper || !currentNoteMarkdown) return
-    exportMarkdown(currentNoteMarkdown, `${selectedPaper.title}-笔记.md`)
+    if (!selectedPaper || !currentNoteHtml) return
+    exportMarkdown(htmlToMarkdown(currentNoteHtml), `${selectedPaper.title}-笔记.md`)
   }
 
   const exportAllAnnotations = () => {
@@ -792,7 +886,7 @@ export default function ReadingPage() {
     }
   }, [selectedAnnotationId, activeSideTab])
 
-  const wordCount = currentNoteMarkdown ? getWordCountFromMarkdown(currentNoteMarkdown) : 0
+  const wordCount = currentNoteHtml ? getWordCountFromHtml(currentNoteHtml) : 0
 
   return (
     <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
@@ -946,7 +1040,7 @@ export default function ReadingPage() {
                 </button>
                 <button
                   onClick={exportNote}
-                  disabled={!currentNoteMarkdown}
+                  disabled={!currentNoteHtml}
                   className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                   title="导出笔记"
                 >
@@ -1054,7 +1148,7 @@ export default function ReadingPage() {
                     onClick={() => insertHeading(1)}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="标题1"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Heading1 className="w-3.5 h-3.5" />
                   </button>
@@ -1062,7 +1156,7 @@ export default function ReadingPage() {
                     onClick={() => insertHeading(2)}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="标题2"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Heading2 className="w-3.5 h-3.5" />
                   </button>
@@ -1070,7 +1164,7 @@ export default function ReadingPage() {
                     onClick={() => insertHeading(3)}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="标题3"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Heading3 className="w-3.5 h-3.5" />
                   </button>
@@ -1079,7 +1173,7 @@ export default function ReadingPage() {
                     onClick={insertBold}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="加粗"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Bold className="w-3.5 h-3.5" />
                   </button>
@@ -1087,7 +1181,7 @@ export default function ReadingPage() {
                     onClick={insertItalic}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="斜体"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Italic className="w-3.5 h-3.5" />
                   </button>
@@ -1096,7 +1190,7 @@ export default function ReadingPage() {
                     onClick={insertUnorderedList}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="无序列表"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <List className="w-3.5 h-3.5" />
                   </button>
@@ -1104,7 +1198,7 @@ export default function ReadingPage() {
                     onClick={insertOrderedList}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="有序列表"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <ListOrdered className="w-3.5 h-3.5" />
                   </button>
@@ -1113,7 +1207,7 @@ export default function ReadingPage() {
                     onClick={insertBlockquote}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="引用"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Quote className="w-3.5 h-3.5" />
                   </button>
@@ -1121,7 +1215,7 @@ export default function ReadingPage() {
                     onClick={insertCodeBlock}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="代码块"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Code className="w-3.5 h-3.5" />
                   </button>
@@ -1129,7 +1223,7 @@ export default function ReadingPage() {
                     onClick={insertLink}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="链接"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Link className="w-3.5 h-3.5" />
                   </button>
@@ -1137,40 +1231,15 @@ export default function ReadingPage() {
                     onClick={insertImage}
                     className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="图片"
-                    disabled={!selectedPaper || noteEditMode === 'preview'}
+                    disabled={!selectedPaper}
                   >
                     <Image className="w-3.5 h-3.5" />
                   </button>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => setNoteEditMode('edit')}
-                    className={`px-2 py-1 text-xs rounded transition font-medium flex items-center gap-1 ${
-                      noteEditMode === 'edit'
-                        ? 'bg-indigo-100 text-indigo-700'
-                        : 'text-slate-500 hover:bg-white hover:text-slate-700'
-                    }`}
-                    title="编辑模式"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => setNoteEditMode('preview')}
-                    className={`px-2 py-1 text-xs rounded transition font-medium flex items-center gap-1 ${
-                      noteEditMode === 'preview'
-                        ? 'bg-indigo-100 text-indigo-700'
-                        : 'text-slate-500 hover:bg-white hover:text-slate-700'
-                    }`}
-                    title="预览模式"
-                  >
-                    <FileText className="w-3 h-3" />
-                    预览
-                  </button>
-                  <div className="w-px h-4 bg-slate-200 mx-0.5" />
-                  <button
                     onClick={exportNote}
-                    disabled={!selectedPaper || !currentNoteMarkdown}
+                    disabled={!selectedPaper || !currentNoteHtml}
                     className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -1181,19 +1250,13 @@ export default function ReadingPage() {
 
               <div className="flex-1 overflow-y-auto">
                 {selectedPaper ? (
-                  noteEditMode === 'edit' ? (
-                    <textarea
-                      ref={noteTextareaRef}
-                      value={currentNoteMarkdown}
-                      onChange={handleNoteInput}
-                      placeholder="在这里输入 Markdown 笔记..."
-                      className="w-full h-full p-3 text-sm focus:outline-none resize-none font-mono leading-relaxed bg-white"
-                    />
-                  ) : (
-                    <div className="p-3 prose-sm max-w-none">
-                      <div dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(currentNoteMarkdown) }} />
-                    </div>
-                  )
+                  <div
+                    ref={noteEditorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={handleNoteInput}
+                    className="w-full h-full p-3 text-sm focus:outline-none prose prose-slate max-w-none note-editor"
+                  />
                 ) : (
                   <div className="text-center text-slate-400 py-8">
                     <StickyNote className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -1230,6 +1293,13 @@ export default function ReadingPage() {
                   {wordCount} 字
                 </span>
               </div>
+              <input
+                ref={noteImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleNoteImageUpload}
+              />
             </div>
           ) : (
             <div className="flex-1 flex flex-col">

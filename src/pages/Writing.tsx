@@ -126,6 +126,20 @@ interface CitationRef {
   year: number
   journal: string
   projectId?: string
+  type?: 'paper' | 'book'
+}
+
+interface BookChapter {
+  id: string
+  bookId: string
+  title: string
+  pageStart: number
+  pageEnd: number
+}
+
+interface BookRef extends CitationRef {
+  type: 'book'
+  chapters: BookChapter[]
 }
 
 interface AIMessage {
@@ -158,6 +172,7 @@ const DEMO_CITATIONS: CitationRef[] = [
     year: 2024,
     journal: 'Nature Energy',
     projectId: '1',
+    type: 'paper',
   },
   {
     doi: '10.1021/jacs.3c11464',
@@ -166,6 +181,7 @@ const DEMO_CITATIONS: CitationRef[] = [
     year: 2024,
     journal: 'Journal of the American Chemical Society',
     projectId: '2',
+    type: 'paper',
   },
   {
     doi: '10.1016/j.nanoen.2023.108765',
@@ -174,8 +190,43 @@ const DEMO_CITATIONS: CitationRef[] = [
     year: 2023,
     journal: 'Nano Energy',
     projectId: '1',
+    type: 'paper',
   },
 ]
+
+const DEMO_BOOKS: BookRef[] = [
+  {
+    doi: '10.1007/978-3-030-12345-6',
+    title: '有机合成化学原理与方法',
+    authors: 'Smith, M.B., March, J.',
+    year: 2020,
+    journal: 'Wiley',
+    type: 'book',
+    projectId: '1',
+    chapters: [
+      { id: 'ch1', bookId: '10.1007/978-3-030-12345-6', title: '第一章 有机合成基础', pageStart: 1, pageEnd: 45 },
+      { id: 'ch2', bookId: '10.1007/978-3-030-12345-6', title: '第二章 亲核取代反应', pageStart: 46, pageEnd: 98 },
+      { id: 'ch3', bookId: '10.1007/978-3-030-12345-6', title: '第三章 消除反应', pageStart: 99, pageEnd: 145 },
+      { id: 'ch4', bookId: '10.1007/978-3-030-12345-6', title: '第四章 加成反应', pageStart: 146, pageEnd: 210 },
+    ],
+  },
+  {
+    doi: '10.1016/C2018-0-12345-6',
+    title: '材料科学基础',
+    authors: 'Callister, W.D., Rethwisch, D.G.',
+    year: 2021,
+    journal: 'Wiley',
+    type: 'book',
+    projectId: '2',
+    chapters: [
+      { id: 'ch1', bookId: '10.1016/C2018-0-12345-6', title: '第一章 材料结构基础', pageStart: 1, pageEnd: 60 },
+      { id: 'ch2', bookId: '10.1016/C2018-0-12345-6', title: '第二章 晶体结构', pageStart: 61, pageEnd: 120 },
+      { id: 'ch3', bookId: '10.1016/C2018-0-12345-6', title: '第三章 材料力学性能', pageStart: 121, pageEnd: 200 },
+    ],
+  },
+]
+
+const ALL_REFERENCES: CitationRef[] = [...DEMO_CITATIONS, ...DEMO_BOOKS]
 
 const DEMO_MD = `# 引言
 
@@ -593,7 +644,7 @@ export default function WritingPage() {
   const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [showNewProjectInput, setShowNewProjectInput] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
-  const [citations, setCitations] = useState<CitationRef[]>(DEMO_CITATIONS)
+  const [citations, setCitations] = useState<CitationRef[]>(ALL_REFERENCES)
   const [showAddCitationForm, setShowAddCitationForm] = useState(false)
   const [newCitation, setNewCitation] = useState({
     title: '',
@@ -604,6 +655,12 @@ export default function WritingPage() {
   })
   const [showBibtexInput, setShowBibtexInput] = useState(false)
   const [bibtexText, setBibtexText] = useState('')
+  const [imagePlaceholderId, setImagePlaceholderId] = useState<string | null>(null)
+  const [selectedBookIds, setSelectedBookIds] = useState<string[]>([])
+  const [selectedBookForChapters, setSelectedBookForChapters] = useState<string | null>(null)
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([])
+  const [showBookSelector, setShowBookSelector] = useState(false)
+  const [showChapterSelector, setShowChapterSelector] = useState(false)
 
   const editorRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -626,6 +683,13 @@ export default function WritingPage() {
       list = list.filter(c => c.projectId === activeProjectId)
     } else if (citationScope === 'selected' && selectedPaperIds.length > 0) {
       list = list.filter(c => selectedPaperIds.includes(c.doi))
+    } else if (citationScope === 'books') {
+      list = list.filter(c => c.type === 'book')
+      if (selectedBookIds.length > 0) {
+        list = list.filter(c => selectedBookIds.includes(c.doi))
+      }
+    } else if (citationScope === 'chapters') {
+      list = list.filter(c => c.type === 'book' && c.doi === selectedBookForChapters)
     }
     if (citationSearch.trim()) {
       const q = citationSearch.toLowerCase()
@@ -638,7 +702,21 @@ export default function WritingPage() {
       )
     }
     return list
-  }, [citationScope, citationSearch, activeProjectId, selectedPaperIds])
+  }, [citationScope, citationSearch, activeProjectId, selectedPaperIds, selectedBookIds, selectedBookForChapters])
+
+  const projectCitations = useMemo(() => {
+    if (!activeProjectId) return []
+    return citations.filter(c => c.projectId === activeProjectId)
+  }, [citations, activeProjectId])
+
+  const bookReferences = useMemo(() => {
+    return citations.filter(c => c.type === 'book') as BookRef[]
+  }, [citations])
+
+  const selectedBook = useMemo(() => {
+    if (!selectedBookForChapters) return null
+    return bookReferences.find(b => b.doi === selectedBookForChapters) || null
+  }, [selectedBookForChapters, bookReferences])
 
   const outline = useMemo(() => {
     const html = editorRef.current?.innerHTML || renderMarkdown(mdContent)
@@ -697,6 +775,22 @@ export default function WritingPage() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    const handlePlaceholderClick = (e: Event) => {
+      const customEvent = e as CustomEvent
+      if (customEvent.detail?.id) {
+        setImagePlaceholderId(customEvent.detail.id)
+        imageInputRef.current?.click()
+      }
+    }
+    editor.addEventListener('imagePlaceholderClick', handlePlaceholderClick)
+    return () => {
+      editor.removeEventListener('imagePlaceholderClick', handlePlaceholderClick)
+    }
+  }, [])
+
   const handleStageChange = useCallback((stage: string) => {
     if (!activeProjectId) return
     setProjects((prev) =>
@@ -728,7 +822,7 @@ export default function WritingPage() {
           const reader = new FileReader()
           reader.onload = (ev) => {
             const dataUrl = ev.target?.result as string
-            insertImageAtCursor(dataUrl, file.name)
+            insertImageAtCursor(dataUrl, file.name, true)
           }
           reader.readAsDataURL(file)
         }
@@ -767,7 +861,29 @@ export default function WritingPage() {
 
   const execCommand = (command: string, value?: string) => {
     restoreSelection()
-    document.execCommand(command, false, value)
+    const result = document.execCommand(command, false, value)
+    if (!result && (command === 'insertUnorderedList' || command === 'insertOrderedList')) {
+      insertListManual(command === 'insertOrderedList')
+    }
+    saveSelection()
+    handleEditorInput()
+  }
+
+  const insertListManual = (isOrdered: boolean) => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    const text = sel.toString() || '列表项'
+    const tag = isOrdered ? 'ol' : 'ul'
+    const listHtml = `<${tag} style="margin:12px 0;padding-left:24px;"><li>${text}</li></${tag}><p><br></p>`
+    document.execCommand('insertHTML', false, listHtml)
+  }
+
+  const insertCodeBlock = () => {
+    restoreSelection()
+    const sel = window.getSelection()
+    const selectedText = sel?.toString() || ''
+    const codeHtml = `<pre style="margin:16px 0;padding:16px;background:#0f172a;color:#f1f5f9;border-radius:8px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;line-height:1.6;"><code>${selectedText || '// 在此输入代码'}</code></pre><p><br></p>`
+    document.execCommand('insertHTML', false, codeHtml)
     saveSelection()
     handleEditorInput()
   }
@@ -791,12 +907,51 @@ export default function WritingPage() {
     handleEditorInput()
   }
 
-  const insertImageAtCursor = (src: string, alt: string) => {
+  const insertImageAtCursor = (src: string, alt: string, fromPaste = false) => {
     restoreSelection()
+    if (fromPaste && imagePlaceholderId && editorRef.current) {
+      const placeholder = editorRef.current.querySelector(`[data-placeholder-id="${imagePlaceholderId}"]`)
+      if (placeholder) {
+        const imgHtml = `<div style="margin:16px 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:8px;border:1px solid #e2e8f0;" /><p style="font-size:12px;color:#64748b;margin-top:8px;">${alt}</p></div>`
+        placeholder.outerHTML = imgHtml
+        setImagePlaceholderId(null)
+        saveSelection()
+        handleEditorInput()
+        return
+      }
+    }
     const html = `<div style="margin:16px 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:8px;border:1px solid #e2e8f0;" /><p style="font-size:12px;color:#64748b;margin-top:8px;">${alt}</p></div><p><br></p>`
     document.execCommand('insertHTML', false, html)
     saveSelection()
     handleEditorInput()
+  }
+
+  const insertImagePlaceholder = () => {
+    saveSelection()
+    restoreSelection()
+    const placeholderId = `img-placeholder-${Date.now()}`
+    const placeholderHtml = `<div data-placeholder-id="${placeholderId}" contenteditable="false" style="margin:16px 0;padding:40px 20px;border:2px dashed #cbd5e1;border-radius:8px;background:#f8fafc;text-align:center;cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('imagePlaceholderClick', {bubbles: true, detail: {id: '${placeholderId}'}}))">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+          <circle cx="9" cy="9" r="2"/>
+          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+        </svg>
+        <span style="font-size:14px;color:#64748b;">点击添加图片或粘贴图片</span>
+        <span style="font-size:12px;color:#94a3b8;">支持 JPG、PNG、GIF 等格式</span>
+      </div>
+    </div><p><br></p>`
+    document.execCommand('insertHTML', false, placeholderHtml)
+    setImagePlaceholderId(placeholderId)
+    saveSelection()
+    handleEditorInput()
+  }
+
+  const handleImageButtonClick = () => {
+    if (!imagePlaceholderId) {
+      insertImagePlaceholder()
+    }
+    imageInputRef.current?.click()
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -805,7 +960,7 @@ export default function WritingPage() {
     const reader = new FileReader()
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string
-      insertImageAtCursor(dataUrl, file.name)
+      insertImageAtCursor(dataUrl, file.name, true)
     }
     reader.readAsDataURL(file)
     e.target.value = ''
@@ -813,9 +968,9 @@ export default function WritingPage() {
 
   const insertTableWithSize = (rows: number, cols: number) => {
     restoreSelection()
-    const headerCells = Array.from({ length: cols }, (_, i) => `<th style="padding:10px 16px;font-size:14px;font-weight:600;background:#f8fafc;text-align:left;border-bottom:2px solid #e2e8f0;">列${i + 1}</th>`).join('')
+    const headerCells = Array.from({ length: cols }, () => `<th style="padding:10px 16px;font-size:14px;font-weight:600;background:#f8fafc;text-align:left;border-bottom:2px solid #e2e8f0;min-width:80px;">&nbsp;</th>`).join('')
     const bodyRows = Array.from({ length: rows }, () => {
-      const cells = Array.from({ length: cols }, () => `<td style="padding:10px 16px;font-size:14px;border-bottom:1px solid #e2e8f0;">内容</td>`).join('')
+      const cells = Array.from({ length: cols }, () => `<td style="padding:10px 16px;font-size:14px;border-bottom:1px solid #e2e8f0;min-width:80px;">&nbsp;</td>`).join('')
       return `<tr>${cells}</tr>`
     }).join('')
     const tableHtml = `<div style="margin:16px 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div><p><br></p>`
@@ -1318,7 +1473,7 @@ export default function WritingPage() {
                   <Minus className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => execCommand('formatBlock', 'pre')}
+                  onClick={insertCodeBlock}
                   className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
                   title="代码块"
                 >
@@ -1333,7 +1488,7 @@ export default function WritingPage() {
                   <Link className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => imageInputRef.current?.click()}
+                  onClick={handleImageButtonClick}
                   className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
                   title="插入图片 (支持粘贴)"
                 >
@@ -1601,6 +1756,8 @@ export default function WritingPage() {
                           {CITATION_SCOPES.find((s) => s.value === citationScope)?.label}
                           {citationScope === 'project' && activeProject && ` (${activeProject.name})`}
                           {citationScope === 'selected' && selectedPaperIds.length > 0 && ` (${selectedPaperIds.length}篇)`}
+                          {citationScope === 'books' && selectedBookIds.length > 0 && ` (${selectedBookIds.length}本)`}
+                          {citationScope === 'chapters' && selectedChapterIds.length > 0 && ` (${selectedChapterIds.length}章)`}
                         </span>
                         <ChevronDown className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${showCitationScopeDropdown ? 'rotate-180' : ''}`} />
                       </button>
@@ -1614,6 +1771,10 @@ export default function WritingPage() {
                                 setShowCitationScopeDropdown(false)
                                 if (scope.value === 'selected') {
                                   setShowPaperSelector(true)
+                                } else if (scope.value === 'books') {
+                                  setShowBookSelector(true)
+                                } else if (scope.value === 'chapters') {
+                                  setShowChapterSelector(true)
                                 }
                               }}
                               className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center justify-between ${
@@ -1631,6 +1792,72 @@ export default function WritingPage() {
                         </div>
                       )}
                     </div>
+
+                    {citationScope === 'project' && (
+                      <div className="mt-2">
+                        {projectCitations.length === 0 ? (
+                          <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            当前项目暂无关联文献，可从文献库添加
+                          </div>
+                        ) : (
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {projectCitations.map((cit, idx) => (
+                              <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                                {cit.title}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {citationScope === 'selected' && selectedPaperIds.length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-[10px] text-slate-500 mb-1">已选文献</div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                          {citations.filter(c => selectedPaperIds.includes(c.doi)).map((cit, idx) => (
+                            <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                              {cit.title}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {citationScope === 'books' && selectedBookIds.length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-[10px] text-slate-500 mb-1">已选图书</div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                          {bookReferences.filter(b => selectedBookIds.includes(b.doi)).map((book, idx) => (
+                            <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                              {book.title}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {citationScope === 'chapters' && selectedBook && (
+                      <div className="mt-2">
+                        <div className="text-[10px] text-slate-500 mb-1">
+                          {selectedBook.title}
+                        </div>
+                        {selectedChapterIds.length > 0 ? (
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {selectedBook.chapters.filter(ch => selectedChapterIds.includes(ch.id)).map((ch, idx) => (
+                              <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5">
+                                {ch.title}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            请选择章节
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {folderPasted && (
                       <div className="mt-1.5 text-[10px] text-emerald-600 flex items-center gap-1 truncate">
                         <Check className="w-3 h-3 flex-shrink-0" />
@@ -1804,22 +2031,15 @@ export default function WritingPage() {
                     <span>可信检索模式 · AI-1生成 + AI-2审阅</span>
                   </div>
                 )}
-                <div className="flex gap-2 mb-2">
+                <div className="flex gap-2">
                   <button
                     onClick={handleOpenFolder}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] bg-slate-50 border border-slate-200 text-slate-600 rounded-lg hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition"
+                    className="flex items-center gap-1.5 px-3 py-2 text-[11px] bg-slate-50 border border-slate-200 text-slate-600 rounded-xl hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex-shrink-0"
+                    title="从文件夹导入文献"
                   >
-                    <FolderOpen className="w-3.5 h-3.5" />
-                    从文件夹导入文献
+                    <FolderOpen className="w-4 h-4" />
+                    <span>导入</span>
                   </button>
-                  {folderPasted && (
-                    <span className="flex items-center gap-1 text-[10px] text-emerald-600">
-                      <Check className="w-3 h-3" />
-                      {folderPath}
-                    </span>
-                  )}
-                </div>
-                <div className="flex gap-2">
                   <input
                     type="text"
                     value={inputValue}
@@ -1841,6 +2061,12 @@ export default function WritingPage() {
                     <Send className="w-4 h-4" />
                   </button>
                 </div>
+                {folderPasted && (
+                  <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-600">
+                    <Check className="w-3 h-3" />
+                    {folderPath}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2393,6 +2619,171 @@ export default function WritingPage() {
                 className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium"
               >
                 确定 ({selectedPaperIds.length}篇)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBookSelector && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-800">选择指定图书</h3>
+              <button
+                onClick={() => setShowBookSelector(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {bookReferences.length === 0 ? (
+                <div className="text-center py-8 text-sm text-slate-400">
+                  暂无图书文献
+                </div>
+              ) : (
+                bookReferences.map((book) => {
+                  const isSelected = selectedBookIds.includes(book.doi)
+                  return (
+                    <div
+                      key={book.doi}
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedBookIds((prev) => prev.filter((d) => d !== book.doi))
+                        } else {
+                          setSelectedBookIds((prev) => [...prev, book.doi])
+                        }
+                      }}
+                      className={`p-2.5 rounded-lg border cursor-pointer transition ${
+                        isSelected
+                          ? 'border-indigo-400 bg-indigo-50/60'
+                          : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                          isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                            {book.title}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            {book.authors} ({book.year})
+                          </div>
+                          <div className="text-[10px] text-amber-600 mt-0.5">
+                            {book.chapters.length} 章
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end">
+              <button
+                onClick={() => setShowBookSelector(false)}
+                className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium"
+              >
+                确定 ({selectedBookIds.length}本)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showChapterSelector && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-800">选择章节</h3>
+              <button
+                onClick={() => setShowChapterSelector(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50">
+              <div className="text-xs font-medium text-slate-600 mb-1">选择图书</div>
+              <div className="flex flex-wrap gap-1.5">
+                {bookReferences.map((book) => (
+                  <button
+                    key={book.doi}
+                    onClick={() => {
+                      setSelectedBookForChapters(book.doi)
+                      setSelectedChapterIds([])
+                    }}
+                    className={`px-2 py-1 text-[11px] rounded-lg transition ${
+                      selectedBookForChapters === book.doi
+                        ? 'bg-indigo-100 text-indigo-700 font-medium border border-indigo-200'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-200'
+                    }`}
+                  >
+                    {book.title.length > 15 ? book.title.slice(0, 15) + '...' : book.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {!selectedBookForChapters ? (
+                <div className="text-center py-8 text-sm text-slate-400">
+                  请先选择一本图书
+                </div>
+              ) : selectedBook?.chapters.length === 0 ? (
+                <div className="text-center py-8 text-sm text-slate-400">
+                  该书暂无章节
+                </div>
+              ) : (
+                selectedBook?.chapters.map((chapter) => {
+                  const isSelected = selectedChapterIds.includes(chapter.id)
+                  return (
+                    <div
+                      key={chapter.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedChapterIds((prev) => prev.filter((id) => id !== chapter.id))
+                        } else {
+                          setSelectedChapterIds((prev) => [...prev, chapter.id])
+                        }
+                      }}
+                      className={`p-2.5 rounded-lg border cursor-pointer transition ${
+                        isSelected
+                          ? 'border-indigo-400 bg-indigo-50/60'
+                          : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                          isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-slate-700 leading-snug">
+                            {chapter.title}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            第 {chapter.pageStart} - {chapter.pageEnd} 页
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end">
+              <button
+                onClick={() => setShowChapterSelector(false)}
+                disabled={!selectedBookForChapters || selectedChapterIds.length === 0}
+                className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确定 ({selectedChapterIds.length}章)
               </button>
             </div>
           </div>
