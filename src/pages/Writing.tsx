@@ -13,9 +13,11 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Heading4,
+  Heading5,
+  Heading6,
   List,
   ListOrdered,
-  Quote,
   Code,
   Link,
   Image,
@@ -47,24 +49,25 @@ import {
   BookCopy,
   GraduationCap,
   Newspaper,
+  Copy,
+  FolderOpen,
+  Clipboard,
+  GripVertical,
+  Eye,
+  File,
 } from 'lucide-react'
 import TableGridPicker from '../components/TableGridPicker'
 
 const STAGES = [
-  { value: 'topic', label: '选题' },
-  { value: 'review', label: '文献综述' },
-  { value: 'writing', label: '正文撰写' },
-  { value: 'citation', label: '引用' },
-  { value: 'typesetting', label: '排版' },
-]
-
-const AI_MODELS = [
-  { value: 'model-a', label: '智能写作模型', desc: '擅长学术写作与润色' },
-  { value: 'model-b', label: '深度研究模型', desc: '擅长文献分析与综述' },
+  { value: 'topic', label: '选题', leftPanel: 'outline', rightPanel: 'knowledge' },
+  { value: 'review', label: '文献综述', leftPanel: 'references', rightPanel: 'library' },
+  { value: 'writing', label: '正文撰写', leftPanel: 'editor', rightPanel: 'ai' },
+  { value: 'citation', label: '引用', leftPanel: 'references', rightPanel: 'library' },
+  { value: 'typesetting', label: '排版', leftPanel: 'editor', rightPanel: 'typesetting' },
 ]
 
 const LEFT_PANEL_MODES = [
-  { value: 'projects', label: '项目导航', icon: FileText },
+  { value: 'editor', label: '编辑区', icon: PenTool },
   { value: 'outline', label: '大纲视图', icon: ListTree },
   { value: 'references', label: '文献列表', icon: BookCopy },
 ]
@@ -103,6 +106,12 @@ const QUICK_ACTIONS = [
   { key: 'summarize', label: '总结', icon: FileText },
 ]
 
+const PANEL_RATIOS = [
+  { value: '7:3', label: '7 : 3', left: 70 },
+  { value: '5:5', label: '5 : 5', left: 50 },
+  { value: '3:7', label: '3 : 7', left: 30 },
+]
+
 interface Project {
   id: string
   name: string
@@ -116,6 +125,7 @@ interface CitationRef {
   authors: string
   year: number
   journal: string
+  projectId?: string
 }
 
 interface AIMessage {
@@ -123,6 +133,7 @@ interface AIMessage {
   role: 'user' | 'assistant'
   content: string
   citations?: CitationRef[]
+  reviewStatus?: 'pending' | 'pass' | 'fail'
 }
 
 interface OutlineItem {
@@ -131,7 +142,7 @@ interface OutlineItem {
   id: string
 }
 
-type LeftPanelMode = 'projects' | 'outline' | 'references'
+type LeftPanelMode = 'editor' | 'outline' | 'references'
 type RightPanelMode = 'ai' | 'library' | 'knowledge' | 'typesetting'
 
 const DEMO_PROJECTS: Project[] = [
@@ -146,6 +157,7 @@ const DEMO_CITATIONS: CitationRef[] = [
     authors: 'Zhang Y, Wang L, Chen H',
     year: 2024,
     journal: 'Nature Energy',
+    projectId: '1',
   },
   {
     doi: '10.1021/jacs.3c11464',
@@ -153,6 +165,7 @@ const DEMO_CITATIONS: CitationRef[] = [
     authors: 'Qian H, Cheng ZP, Luo Y, Lv L, Chen S, Li Z',
     year: 2024,
     journal: 'Journal of the American Chemical Society',
+    projectId: '2',
   },
   {
     doi: '10.1016/j.nanoen.2023.108765',
@@ -160,12 +173,13 @@ const DEMO_CITATIONS: CitationRef[] = [
     authors: 'Liu X, Zhao Y, Sun M',
     year: 2023,
     journal: 'Nano Energy',
+    projectId: '1',
   },
 ]
 
 const DEMO_MD = `# 引言
 
-近年来，钙钛矿太阳能电池（PSCs）取得了突破性进展[[10.1038/s41560-024-01234-5]]，光电转换效率从 2009 年的 3.8% 迅速提升至 2024 年的 26.1%。
+近年来，钙钛矿太阳能电池（PSCs）取得了突破性进展[1]，光电转换效率从 2009 年的 3.8% 迅速提升至 2024 年的 26.1%。
 
 ## 研究背景
 
@@ -203,31 +217,31 @@ def prepare_perovskite_film():
 
 const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRef[] }> = {
   continue: {
-    content: '基于当前上下文，我建议从以下几个方面继续展开：\n\n1. **钙钛矿薄膜的形貌调控** —— 探讨反溶剂工程、添加剂工程等策略对薄膜质量的影响。\n\n2. **界面工程与电荷传输** —— 分析电子传输层（ETL）和空穴传输层（HTL）的选择及其对器件性能的影响。\n\n3. **稳定性研究进展** —— 讨论光稳定性、热稳定性和湿度稳定性的最新突破。\n\n下面我为你撰写"形貌调控"部分的初稿：\n\n### 形貌调控策略\n\n钙钛矿薄膜的形貌直接影响器件的光电转换效率和稳定性。研究者们开发了多种调控策略，其中反溶剂法是最常用的方法之一[[10.1038/s41560-024-01234-5]]。通过在旋涂过程中滴加反溶剂（如氯苯、甲苯），可以快速诱导前驱体结晶，形成致密、均匀的钙钛矿薄膜。',
+    content: '基于当前上下文，我建议从以下几个方面继续展开：\n\n1. **钙钛矿薄膜的形貌调控** —— 探讨反溶剂工程、添加剂工程等策略对薄膜质量的影响。\n\n2. **界面工程与电荷传输** —— 分析电子传输层（ETL）和空穴传输层（HTL）的选择及其对器件性能的影响。\n\n3. **稳定性研究进展** —— 讨论光稳定性、热稳定性和湿度稳定性的最新突破。\n\n下面我为你撰写"形貌调控"部分的初稿：\n\n### 形貌调控策略\n\n钙钛矿薄膜的形貌直接影响器件的光电转换效率和稳定性。研究者们开发了多种调控策略，其中反溶剂法是最常用的方法之一[1]。通过在旋涂过程中滴加反溶剂（如氯苯、甲苯），可以快速诱导前驱体结晶，形成致密、均匀的钙钛矿薄膜。',
     citations: [DEMO_CITATIONS[0]],
   },
   polish: {
-    content: '以下是润色后的段落：\n\n近年来，钙钛矿太阳能电池（Perovskite Solar Cells, PSCs）作为新一代光伏技术的代表，取得了举世瞩目的突破性进展[[10.1038/s41560-024-01234-5]]。自 2009 年首次报道 3.8% 的光电转换效率以来，PSCs 的效率在短短十余年间已攀升至 26.1%，这一增长速度在光伏发展史上堪称前所未有。\n\n**润色要点：**\n- 补充英文全称及缩写定义，学术规范性更强\n- "突破性进展"前增加修饰语，表达更丰富\n- 增加时间跨度的强调，突出进展的神速\n- 结尾增加评价性语句，提升段落的学术分量',
+    content: '以下是润色后的段落：\n\n近年来，钙钛矿太阳能电池（Perovskite Solar Cells, PSCs）作为新一代光伏技术的代表，取得了举世瞩目的突破性进展[1]。自 2009 年首次报道 3.8% 的光电转换效率以来，PSCs 的效率在短短十余年间已攀升至 26.1%，这一增长速度在光伏发展史上堪称前所未有。\n\n**润色要点：**\n- 补充英文全称及缩写定义，学术规范性更强\n- "突破性进展"前增加修饰语，表达更丰富\n- 增加时间跨度的强调，突出进展的神速\n- 结尾增加评价性语句，提升段落的学术分量',
     citations: [DEMO_CITATIONS[0]],
   },
   translate: {
-    content: '**英文翻译：**\n\n# Introduction\n\nIn recent years, perovskite solar cells (PSCs) have achieved breakthrough progress[[10.1038/s41560-024-01234-5]], with the power conversion efficiency rapidly increasing from 3.8% in 2009 to 26.1% in 2024.\n\n## Background\n\nPerovskite materials possess the following outstanding properties:\n\n- **High absorption coefficient**: nearly complete absorption in the visible light range\n- *Long carrier diffusion length*: reaching the micrometer scale\n- **Tunable bandgap**: regulated through halogen composition\n\n> Perovskite solar cells are hailed as "the rising star of next-generation photovoltaic technology".',
+    content: '**英文翻译：**\n\n# Introduction\n\nIn recent years, perovskite solar cells (PSCs) have achieved breakthrough progress[1], with the power conversion efficiency rapidly increasing from 3.8% in 2009 to 26.1% in 2024.\n\n## Background\n\nPerovskite materials possess the following outstanding properties:\n\n- **High absorption coefficient**: nearly complete absorption in the visible light range\n- *Long carrier diffusion length*: reaching the micrometer scale\n- **Tunable bandgap**: regulated through halogen composition\n\n> Perovskite solar cells are hailed as "the rising star of next-generation photovoltaic technology".',
     citations: [DEMO_CITATIONS[0]],
   },
   search: {
-    content: '根据你的研究方向，我为你推荐以下几篇相关文献：\n\n### 1. 钙钛矿太阳能电池综述\n\n这篇综述系统总结了钙钛矿太阳能电池近五年的关键进展，涵盖效率提升、稳定性改进和大面积制备等多个方面。引用量超过 2000 次，是该领域的经典综述之一[[10.1038/s41560-024-01234-5]]。\n\n### 2. 电催化 CO2 还原\n\n这篇研究论文报道了一种新型金属有机框架衍生纳米材料，在电催化 CO2 还原反应中表现出优异的活性和选择性[[10.1016/j.nanoen.2023.108765]]。\n\n### 3. 钯催化合成方法学\n\n这篇 JACS 论文报道了 Pd/IPr^BIDEA 催化体系在区域选择性氢化脱氟反应中的应用，对有机合成方法学研究有重要参考价值[[10.1021/jacs.3c11464]]。',
+    content: '根据你的研究方向，我为你推荐以下几篇相关文献：\n\n### 1. 钙钛矿太阳能电池综述\n\n这篇综述系统总结了钙钛矿太阳能电池近五年的关键进展，涵盖效率提升、稳定性改进和大面积制备等多个方面。引用量超过 2000 次，是该领域的经典综述之一[1]。\n\n### 2. 电催化 CO2 还原\n\n这篇研究论文报道了一种新型金属有机框架衍生纳米材料，在电催化 CO2 还原反应中表现出优异的活性和选择性[2]。\n\n### 3. 钯催化合成方法学\n\n这篇 JACS 论文报道了 Pd/IPr^BIDEA 催化体系在区域选择性氢化脱氟反应中的应用，对有机合成方法学研究有重要参考价值[3]。',
     citations: DEMO_CITATIONS,
   },
   summarize: {
-    content: '**段落总结：**\n\n本段主要介绍了钙钛矿太阳能电池的研究背景和优异特性，核心要点如下：\n\n1. **效率突破**：从 2009 年的 3.8% 提升至 2024 年的 26.1%，发展迅速\n2. **材料优势**：\n   - 高吸收系数：可见光范围内几乎完全吸收\n   - 长载流子扩散长度：可达微米级\n   - 可调节带隙：通过卤素组分调控\n3. **学术地位**：被誉为"下一代光伏技术的希望之星"\n\n这些特性使得钙钛矿太阳能电池成为光伏领域最具潜力的研究方向之一[[10.1038/s41560-024-01234-5]]。',
+    content: '**段落总结：**\n\n本段主要介绍了钙钛矿太阳能电池的研究背景和优异特性，核心要点如下：\n\n1. **效率突破**：从 2009 年的 3.8% 提升至 2024 年的 26.1%，发展迅速\n2. **材料优势**：\n   - 高吸收系数：可见光范围内几乎完全吸收\n   - 长载流子扩散长度：可达微米级\n   - 可调节带隙：通过卤素组分调控\n3. **学术地位**：被誉为"下一代光伏技术的希望之星"\n\n这些特性使得钙钛矿太阳能电池成为光伏领域最具潜力的研究方向之一[1]。',
     citations: [DEMO_CITATIONS[0]],
   },
   expand: {
-    content: '**扩写后的内容：**\n\n近年来，钙钛矿太阳能电池（PSCs）作为第三代光伏技术的典型代表，在全球范围内掀起了研究热潮并取得了突破性进展[[10.1038/s41560-024-01234-5]]。自 2009 年日本科学家 Miyasaka 等人首次将钙钛矿材料应用于染料敏化太阳能电池并获得 3.8% 的光电转换效率以来，PSCs 的效率在短短十余年间实现了跨越式发展，截至 2024 年已达到 26.1% 的认证效率，逼近单晶硅电池的理论极限。这一前所未有的发展速度，使得钙钛矿太阳能电池成为光伏领域最受关注的研究方向之一。',
+    content: '**扩写后的内容：**\n\n近年来，钙钛矿太阳能电池（PSCs）作为第三代光伏技术的典型代表，在全球范围内掀起了研究热潮并取得了突破性进展[1]。自 2009 年日本科学家 Miyasaka 等人首次将钙钛矿材料应用于染料敏化太阳能电池并获得 3.8% 的光电转换效率以来，PSCs 的效率在短短十余年间实现了跨越式发展，截至 2024 年已达到 26.1% 的认证效率，逼近单晶硅电池的理论极限。这一前所未有的发展速度，使得钙钛矿太阳能电池成为光伏领域最受关注的研究方向之一。',
     citations: [DEMO_CITATIONS[0]],
   },
   shorten: {
-    content: '**缩写后的内容：**\n\n钙钛矿太阳能电池（PSCs）近年来进展迅速[[10.1038/s41560-024-01234-5]]，效率从 2009 年的 3.8% 提升至 2024 年的 26.1%，被誉为下一代光伏技术的希望之星。其高吸收系数、长载流子扩散长度和可调节带隙等特性使其具有巨大的应用潜力。',
+    content: '**缩写后的内容：**\n\n钙钛矿太阳能电池（PSCs）近年来进展迅速[1]，效率从 2009 年的 3.8% 提升至 2024 年的 26.1%，被誉为下一代光伏技术的希望之星。其高吸收系数、长载流子扩散长度和可调节带隙等特性使其具有巨大的应用潜力。',
     citations: [DEMO_CITATIONS[0]],
   },
 }
@@ -242,11 +256,6 @@ function escapeHtml(text: string): string {
 
 function renderMarkdown(text: string): string {
   let html = text
-
-  const doiRegex = /\[\[([^\]]+)\]\]/g
-  html = html.replace(doiRegex, (_, doi) => {
-    return `<a href="https://doi.org/${doi}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline decoration-dotted underline-offset-2 font-medium">[${doi}]</a>`
-  })
 
   const codeBlockRegex = /```([\s\S]*?)```/g
   const codeBlocks: string[] = []
@@ -405,17 +414,70 @@ function renderMarkdown(text: string): string {
   return result.join('\n')
 }
 
-function extractOutline(md: string): OutlineItem[] {
-  const lines = md.split('\n')
+function htmlToMarkdown(html: string): string {
+  let md = html
+
+  md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n')
+  md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n')
+  md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n')
+  md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n')
+  md = md.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '##### $1\n\n')
+  md = md.replace(/<h6[^>]*>(.*?)<\/h6>/gi, '###### $1\n\n')
+
+  md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
+  md = md.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
+  md = md.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
+  md = md.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
+
+  md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, content) => {
+    return content.trim().split('\n').map((line: string) => '> ' + line.trim()).join('\n') + '\n\n'
+  })
+
+  md = md.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
+  md = md.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '```\n$1\n```\n\n')
+
+  md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, content) => {
+    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n') + '\n'
+  })
+
+  md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, content) => {
+    let i = 1
+    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, () => {
+      return `${i++}. $1\n`
+    }) + '\n'
+  })
+
+  md = md.replace(/<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
+  md = md.replace(/<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*>/gi, '![$2]($1)')
+
+  md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n')
+  md = md.replace(/<br\s*\/?>/gi, '\n')
+  md = md.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '$1\n')
+  md = md.replace(/<hr\s*\/?>/gi, '---\n\n')
+
+  md = md.replace(/<[^>]+>/g, '')
+
+  md = md.replace(/&nbsp;/g, ' ')
+  md = md.replace(/&amp;/g, '&')
+  md = md.replace(/&lt;/g, '<')
+  md = md.replace(/&gt;/g, '>')
+  md = md.replace(/&quot;/g, '"')
+
+  md = md.replace(/\n{3,}/g, '\n\n')
+  md = md.trim()
+
+  return md
+}
+
+function extractOutline(html: string): OutlineItem[] {
   const outline: OutlineItem[] = []
-  for (const line of lines) {
-    const match = line.match(/^(#{1,6})\s+(.+)$/)
-    if (match) {
-      const level = match[1].length
-      const text = match[2].trim()
-      const id = text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '')
-      outline.push({ level, text, id })
-    }
+  const regex = /<h([1-6])[^>]*>(.*?)<\/h\1>/gi
+  let match
+  while ((match = regex.exec(html)) !== null) {
+    const level = parseInt(match[1])
+    const text = match[2].replace(/<[^>]+>/g, '').trim()
+    const id = text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '')
+    if (text) outline.push({ level, text, id })
   }
   return outline
 }
@@ -425,28 +487,99 @@ function formatTime(timestamp: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function markdownToLatex(md: string, journalKey: string): string {
+  let tex = md
+
+  const docClass = journalKey === 'nature' || journalKey === 'science'
+    ? '\\documentclass[10pt,nature]{article}'
+    : journalKey === 'jacs' || journalKey === 'angew'
+    ? '\\documentclass[10pt]{article}'
+    : '\\documentclass[10pt]{article}'
+
+  const packages = `
+\\usepackage{graphicx}
+\\usepackage{amsmath}
+\\usepackage{amssymb}
+\\usepackage{booktabs}
+\\usepackage{hyperref}
+\\usepackage{url}
+\\usepackage{geometry}
+\\geometry{margin=1in}`
+
+  tex = tex.replace(/^# (.*)$/gm, '\\title{$1}')
+  tex = tex.replace(/^## (.*)$/gm, '\\section{$1}')
+  tex = tex.replace(/^### (.*)$/gm, '\\subsection{$1}')
+  tex = tex.replace(/^#### (.*)$/gm, '\\subsubsection{$1}')
+  tex = tex.replace(/^##### (.*)$/gm, '\\paragraph{$1}')
+  tex = tex.replace(/^###### (.*)$/gm, '\\subparagraph{$1}')
+
+  tex = tex.replace(/\*\*(.+?)\*\*/g, '\\textbf{$1}')
+  tex = tex.replace(/\*(.+?)\*/g, '\\textit{$1}')
+  tex = tex.replace(/`([^`]+)`/g, '\\texttt{$1}')
+
+  tex = tex.replace(/```(\w*)\n([\s\S]*?)\n```/g, '\\begin{verbatim}\n$2\\end{verbatim}')
+
+  tex = tex.replace(/^> (.*)$/gm, '\\textit{$1}')
+
+  tex = tex.replace(/^- (.*)$/gm, '\\item $1')
+  tex = tex.replace(/(\\item[^\n]*\n)+/g, '\\begin{itemize}\n$&\\end{itemize}\n')
+
+  tex = tex.replace(/^\d+\. (.*)$/gm, '\\item $1')
+  tex = tex.replace(/(\\item[^\n]*\n)+/g, (match) => {
+    if (match.includes('begin{itemize}')) return match
+    return '\\begin{enumerate}\n' + match + '\\end{enumerate}\n'
+  })
+
+  tex = tex.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '\\href{$2}{$1}')
+  tex = tex.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '\\includegraphics{$2}')
+
+  const titleMatch = tex.match(/\\title\{(.*?)\}/)
+  const title = titleMatch ? titleMatch[1] : 'Untitled'
+
+  return `${docClass}
+${packages}
+
+\\title{${title}}
+\\author{Author Name}
+\\affiliation{University / Institution}
+\\date{\\today}
+
+\\begin{document}
+
+\\maketitle
+
+${tex.replace(/\\title\{.*?\}\n?/, '')}
+
+\\end{document}`
+}
+
 export default function WritingPage() {
   const [projects, setProjects] = useState<Project[]>(DEMO_PROJECTS)
   const [activeProjectId, setActiveProjectId] = useState<string | null>('1')
   const [mdContent, setMdContent] = useState(DEMO_MD)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [lastSaved, setLastSaved] = useState<number | null>(null)
+  const [editorLoaded, setEditorLoaded] = useState(false)
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [inputValue, setInputValue] = useState('')
-  const [isAiLoading, setIsAiLoading] = useState(false)
+  const [isAiGenerating, setIsAiGenerating] = useState(false)
+  const [isAiReviewing, setIsAiReviewing] = useState(false)
 
-  const [leftCollapsed, setLeftCollapsed] = useState(false)
-  const [leftPanelMode, setLeftPanelMode] = useState<LeftPanelMode>('projects')
-  const [showLeftDropdown, setShowLeftDropdown] = useState(false)
-
+  const [navCollapsed, setNavCollapsed] = useState(false)
+  const [leftPanelMode, setLeftPanelMode] = useState<LeftPanelMode>('editor')
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
+  const [showLeftDropdown, setShowLeftDropdown] = useState(false)
   const [showRightDropdown, setShowRightDropdown] = useState(false)
+  const [panelRatio, setPanelRatio] = useState(70)
+  const [isDragging, setIsDragging] = useState(false)
 
-  const [selectedModel, setSelectedModel] = useState(AI_MODELS[0].value)
-  const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [trustedSearch, setTrustedSearch] = useState(true)
   const [citationScope, setCitationScope] = useState('all')
   const [showCitationScopeDropdown, setShowCitationScopeDropdown] = useState(false)
+  const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([])
+  const [showPaperSelector, setShowPaperSelector] = useState(false)
+  const [folderPasted, setFolderPasted] = useState(false)
+  const [folderPath, setFolderPath] = useState('')
 
   const [showCitationModal, setShowCitationModal] = useState(false)
   const [citationSearch, setCitationSearch] = useState('')
@@ -456,32 +589,56 @@ export default function WritingPage() {
   const [typesettingProgress, setTypesettingProgress] = useState(0)
   const [isTypesetting, setIsTypesetting] = useState(false)
   const [typesetDone, setTypesetDone] = useState(false)
+  const [latexOutput, setLatexOutput] = useState('')
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
 
   const editorRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const leftDropdownRef = useRef<HTMLDivElement>(null)
   const rightDropdownRef = useRef<HTMLDivElement>(null)
-  const modelDropdownRef = useRef<HTMLDivElement>(null)
   const citationScopeRef = useRef<HTMLDivElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dragStartX = useRef(0)
+  const dragStartRatio = useRef(70)
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
-  const renderedHtml = renderMarkdown(mdContent)
-  const wordCount = mdContent.replace(/\s/g, '').length
-  const currentModel = AI_MODELS.find((m) => m.value === selectedModel) || AI_MODELS[0]
-  const outline = useMemo(() => extractOutline(mdContent), [mdContent])
   const currentJournal = JOURNALS.find((j) => j.value === selectedJournal) || JOURNALS[0]
 
-  const filteredCitations = useMemo(() => {
-    if (!citationSearch.trim()) return DEMO_CITATIONS
-    const q = citationSearch.toLowerCase()
-    return DEMO_CITATIONS.filter(
-      (c) =>
-        c.title.toLowerCase().includes(q) ||
-        c.authors.toLowerCase().includes(q) ||
-        c.journal.toLowerCase().includes(q) ||
-        c.doi.toLowerCase().includes(q)
-    )
-  }, [citationSearch])
+  const scopedCitations = useMemo(() => {
+    let list = DEMO_CITATIONS
+    if (citationScope === 'project' && activeProjectId) {
+      list = list.filter(c => c.projectId === activeProjectId)
+    } else if (citationScope === 'selected' && selectedPaperIds.length > 0) {
+      list = list.filter(c => selectedPaperIds.includes(c.doi))
+    }
+    if (citationSearch.trim()) {
+      const q = citationSearch.toLowerCase()
+      list = list.filter(
+        (c) =>
+          c.title.toLowerCase().includes(q) ||
+          c.authors.toLowerCase().includes(q) ||
+          c.journal.toLowerCase().includes(q) ||
+          c.doi.toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [citationScope, citationSearch, activeProjectId, selectedPaperIds])
+
+  const outline = useMemo(() => {
+    const html = editorRef.current?.innerHTML || renderMarkdown(mdContent)
+    return extractOutline(html)
+  }, [mdContent, editorLoaded, leftPanelMode])
+
+  const wordCount = mdContent.replace(/\s/g, '').length
+
+  useEffect(() => {
+    if (editorRef.current && !editorLoaded) {
+      editorRef.current.innerHTML = renderMarkdown(mdContent)
+      setEditorLoaded(true)
+    }
+  }, [mdContent, editorLoaded])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -490,9 +647,6 @@ export default function WritingPage() {
       }
       if (rightDropdownRef.current && !rightDropdownRef.current.contains(e.target as Node)) {
         setShowRightDropdown(false)
-      }
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setShowModelDropdown(false)
       }
       if (citationScopeRef.current && !citationScopeRef.current.contains(e.target as Node)) {
         setShowCitationScopeDropdown(false)
@@ -516,7 +670,7 @@ export default function WritingPage() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isAiLoading])
+  }, [messages, isAiGenerating, isAiReviewing])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -534,76 +688,106 @@ export default function WritingPage() {
     setProjects((prev) =>
       prev.map((p) => (p.id === activeProjectId ? { ...p, stage } : p))
     )
+    const stageConfig = STAGES.find(s => s.value === stage)
+    if (stageConfig) {
+      setLeftPanelMode(stageConfig.leftPanel as LeftPanelMode)
+      setRightPanelMode(stageConfig.rightPanel as RightPanelMode)
+    }
   }, [activeProjectId])
-
-  const handleMdChange = (value: string) => {
-    setMdContent(value)
-    setSaveStatus('unsaved')
-  }
 
   const handleEditorInput = () => {
     if (!editorRef.current) return
-    const text = editorRef.current.innerText
-    handleMdChange(text)
+    const html = editorRef.current.innerHTML
+    const md = htmlToMarkdown(html)
+    setMdContent(md)
+    setSaveStatus('unsaved')
   }
 
-  const insertMarkdown = (prefix: string, suffix: string = '', placeholder: string = '') => {
-    const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0) return
+  const handleEditorPaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) {
+          const reader = new FileReader()
+          reader.onload = (ev) => {
+            const dataUrl = ev.target?.result as string
+            insertImageAtCursor(dataUrl, file.name)
+          }
+          reader.readAsDataURL(file)
+        }
+        return
+      }
+    }
+  }
 
-    const range = selection.getRangeAt(0)
-    const selectedText = range.toString() || placeholder
-
-    const newText = prefix + selectedText + suffix
-    const textNode = document.createTextNode(newText)
-    range.deleteContents()
-    range.insertNode(textNode)
-
-    range.setStart(textNode, prefix.length)
-    range.setEnd(textNode, prefix.length + selectedText.length)
-    selection.removeAllRanges()
-    selection.addRange(range)
-
+  const execCommand = (command: string, value?: string) => {
+    editorRef.current?.focus()
+    document.execCommand(command, false, value)
     handleEditorInput()
   }
 
-  const insertTableWithSize = (rows: number, cols: number) => {
-    const header = Array.from({ length: cols }, (_, i) => `列${i + 1}`).join(' | ')
-    const separator = Array.from({ length: cols }, () => '---').join(' | ')
-    const bodyRows = Array.from({ length: rows }, () =>
-      Array.from({ length: cols }, () => '内容').join(' | ')
-    )
-    const tableTemplate = `\n| ${header} |\n| ${separator} |\n${bodyRows.map(r => `| ${r} |`).join('\n')}\n`
-    const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0) return
-    const range = selection.getRangeAt(0)
-    const textNode = document.createTextNode(tableTemplate)
-    range.deleteContents()
-    range.insertNode(textNode)
-    handleEditorInput()
+  const insertHeading = (level: number) => {
+    execCommand('formatBlock', `h${level}`)
+  }
+
+  const insertHorizontalRule = () => {
+    execCommand('insertHorizontalRule')
   }
 
   const insertLink = () => {
     const url = prompt('请输入链接地址：', 'https://')
     if (!url) return
-    insertMarkdown('[', `](${url})`, '链接文字')
+    execCommand('createLink', url)
   }
 
-  const insertImage = () => {
-    const url = prompt('请输入图片地址：', 'https://')
-    if (!url) return
-    insertMarkdown('![', `](${url})`, '图片描述')
+  const insertImageAtCursor = (src: string, alt: string) => {
+    editorRef.current?.focus()
+    const html = `<div style="margin:16px 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:8px;border:1px solid #e2e8f0;" /><p style="font-size:12px;color:#64748b;margin-top:8px;">${alt}</p></div><p><br></p>`
+    document.execCommand('insertHTML', false, html)
+    handleEditorInput()
+  }
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string
+      insertImageAtCursor(dataUrl, file.name)
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const insertTableWithSize = (rows: number, cols: number) => {
+    editorRef.current?.focus()
+    const headerCells = Array.from({ length: cols }, (_, i) => `<th style="padding:10px 16px;font-size:14px;font-weight:600;background:#f8fafc;text-align:left;border-bottom:2px solid #e2e8f0;">列${i + 1}</th>`).join('')
+    const bodyRows = Array.from({ length: rows }, () => {
+      const cells = Array.from({ length: cols }, () => `<td style="padding:10px 16px;font-size:14px;border-bottom:1px solid #e2e8f0;">内容</td>`).join('')
+      return `<tr>${cells}</tr>`
+    }).join('')
+    const tableHtml = `<div style="margin:16px 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div><p><br></p>`
+    document.execCommand('insertHTML', false, tableHtml)
+    handleEditorInput()
   }
 
   const insertCitation = (doi: string) => {
-    insertMarkdown(`[[${doi}]]`, '', '')
+    editorRef.current?.focus()
+    const citeHtml = `<sup style="color:#4f46e5;font-weight:500;cursor:pointer;">[${doi}]</sup>`
+    document.execCommand('insertHTML', false, citeHtml)
+    handleEditorInput()
     setShowCitationModal(false)
   }
 
   const insertSelectedCitations = () => {
     if (selectedCitations.length === 0) return
-    const text = selectedCitations.map((d) => `[[${d}]]`).join('')
-    insertMarkdown(text, '', '')
+    editorRef.current?.focus()
+    const cites = selectedCitations.map(d => `<sup style="color:#4f46e5;font-weight:500;cursor:pointer;">[${d}]</sup>`).join('')
+    document.execCommand('insertHTML', false, cites)
+    handleEditorInput()
     setSelectedCitations([])
     setShowCitationModal(false)
   }
@@ -631,7 +815,8 @@ export default function WritingPage() {
     }
     setMessages((prev) => [...prev, userMsg])
     setInputValue('')
-    setIsAiLoading(true)
+    setIsAiGenerating(true)
+    setIsAiReviewing(false)
 
     setTimeout(() => {
       let response = DEMO_AI_RESPONSES.search
@@ -652,15 +837,28 @@ export default function WritingPage() {
         else if (lower.includes('缩写') || lower.includes('shorten')) response = DEMO_AI_RESPONSES.shorten
       }
 
-      const aiMsg: AIMessage = {
+      const genMsg: AIMessage = {
         id: String(Date.now() + 1),
         role: 'assistant',
         content: response.content,
         citations: trustedSearch ? response.citations : undefined,
+        reviewStatus: 'pending',
       }
-      setMessages((prev) => [...prev, aiMsg])
-      setIsAiLoading(false)
-    }, 800)
+      setMessages((prev) => [...prev, genMsg])
+      setIsAiGenerating(false)
+      setIsAiReviewing(true)
+
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === genMsg.id
+              ? { ...m, reviewStatus: 'pass' as const }
+              : m
+          )
+        )
+        setIsAiReviewing(false)
+      }, 1200)
+    }, 1000)
   }
 
   const handleQuickAction = (action: string) => {
@@ -676,16 +874,23 @@ export default function WritingPage() {
     handleSendMessage(prompts[action] || action)
   }
 
+  const handleCopyContent = (content: string) => {
+    navigator.clipboard?.writeText(content).catch(() => {})
+  }
+
   const startTypesetting = () => {
     setIsTypesetting(true)
     setTypesettingProgress(0)
     setTypesetDone(false)
+    setShowPdfPreview(false)
     const interval = setInterval(() => {
       setTypesettingProgress((prev) => {
         if (prev >= 100) {
           clearInterval(interval)
           setIsTypesetting(false)
           setTypesetDone(true)
+          const latex = markdownToLatex(mdContent, selectedJournal)
+          setLatexOutput(latex)
           return 100
         }
         return prev + 10
@@ -693,494 +898,589 @@ export default function WritingPage() {
     }, 300)
   }
 
-  const LeftPanelIcon = LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || FileText
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+    dragStartX.current = e.clientX
+    dragStartRatio.current = panelRatio
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    if (!isDragging) return
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return
+      const container = containerRef.current
+      const navWidth = navCollapsed ? 0 : 256
+      const usableWidth = container.clientWidth - navWidth - 6
+      const deltaX = e.clientX - dragStartX.current
+      const deltaPercent = (deltaX / usableWidth) * 100
+      let newRatio = dragStartRatio.current + deltaPercent
+      newRatio = Math.max(20, Math.min(80, newRatio))
+      setPanelRatio(newRatio)
+    }
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, navCollapsed])
+
+  const setPresetRatio = (ratio: number) => {
+    setPanelRatio(ratio)
+  }
+
+  const handleOpenFolder = () => {
+    folderInputRef.current?.click()
+  }
+
+  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      setFolderPasted(true)
+      setFolderPath(`已选择 ${files.length} 个文件`)
+    }
+  }
+
+  const handlePasteFolder = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) {
+        setFolderPasted(true)
+        setFolderPath(text.trim().substring(0, 60) + (text.length > 60 ? '...' : ''))
+      }
+    } catch {
+      setFolderPath('请先复制文件夹路径')
+    }
+    setShowCitationScopeDropdown(false)
+  }
+
+  const LeftPanelIcon = LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || PenTool
   const RightPanelIcon = RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
 
   return (
-    <div className="h-[calc(100vh-3rem)] flex bg-slate-50 relative">
+    <div ref={containerRef} className="h-[calc(100vh-3rem)] flex bg-slate-50 relative overflow-hidden">
       <aside
         className={`bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300 ${
-          leftCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-64 opacity-100'
+          navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-64 opacity-100'
         }`}
       >
-        <div className="p-3 border-b border-slate-200 bg-slate-50/50">
-          <div className="relative" ref={leftDropdownRef}>
-            <button
-              onClick={() => setShowLeftDropdown(!showLeftDropdown)}
-              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
-            >
-              <div className="flex items-center gap-2">
-                <LeftPanelIcon className="w-4 h-4 text-indigo-600" />
-                <span className="text-sm font-medium text-slate-700">
-                  {LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.label}
-                </span>
-              </div>
-              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showLeftDropdown ? 'rotate-180' : ''}`} />
-            </button>
-            {showLeftDropdown && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
-                {LEFT_PANEL_MODES.map((mode) => {
-                  const Icon = mode.icon
-                  return (
-                    <button
-                      key={mode.value}
-                      onClick={() => {
-                        setLeftPanelMode(mode.value as LeftPanelMode)
-                        setShowLeftDropdown(false)
-                      }}
-                      className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                        leftPanelMode === mode.value ? 'bg-indigo-50/50' : ''
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-slate-200">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-indigo-600" />
+                项目导航
+              </h2>
+              <button
+                onClick={() => {
+                  const name = prompt('项目名称')
+                  if (name) {
+                    setProjects((prev) => [...prev, { id: String(Date.now()), name, stage: 'topic', litCount: 0 }])
+                  }
+                }}
+                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                title="新建项目"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setActiveProjectId(p.id)}
+                className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
+                  activeProjectId === p.id ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
+                }`}
+              >
+                <div className="text-sm font-medium text-slate-700 truncate">{p.name}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">
+                    {STAGES.find((s) => s.value === p.stage)?.label}
+                  </span>
+                  <span className="text-xs text-slate-400 flex items-center gap-1">
+                    <BookOpen className="w-3 h-3" />
+                    {p.litCount}篇
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-slate-200 p-3 bg-slate-50/50">
+            <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+              <AlignLeft className="w-3.5 h-3.5" />
+              阶段导航
+            </div>
+            <div className="space-y-1">
+              {STAGES.map((s, idx) => {
+                const cur = activeProject?.stage === s.value
+                const isPast = STAGES.findIndex((st) => st.value === activeProject?.stage) > idx
+                return (
+                  <button
+                    key={s.value}
+                    disabled={!activeProject}
+                    onClick={() => handleStageChange(s.value)}
+                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition flex items-center gap-2 ${
+                      cur
+                        ? 'bg-indigo-600 text-white font-medium shadow-sm'
+                        : isPast
+                        ? 'text-slate-500 hover:bg-slate-200/60 disabled:opacity-40 disabled:cursor-not-allowed'
+                        : 'text-slate-400 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed'
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                        cur
+                          ? 'bg-white/20 text-white'
+                          : isPast
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-slate-200 text-slate-400'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 ${leftPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
-                      <span className={`text-sm ${leftPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
-                        {mode.label}
-                      </span>
-                      {leftPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+                      {idx + 1}
+                    </span>
+                    {s.label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
-
-        {leftPanelMode === 'projects' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-slate-200">
-              <div className="flex items-center justify-between">
-                <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-indigo-600" />
-                  项目列表
-                </h2>
-                <button
-                  onClick={() => {
-                    const name = prompt('项目名称')
-                    if (name) {
-                      setProjects((prev) => [...prev, { id: String(Date.now()), name, stage: 'topic', litCount: 0 }])
-                    }
-                  }}
-                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-                  title="新建项目"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {projects.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setActiveProjectId(p.id)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
-                    activeProjectId === p.id ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
-                  }`}
-                >
-                  <div className="text-sm font-medium text-slate-700 truncate">{p.name}</div>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">
-                      {STAGES.find((s) => s.value === p.stage)?.label}
-                    </span>
-                    <span className="text-xs text-slate-400 flex items-center gap-1">
-                      <BookOpen className="w-3 h-3" />
-                      {p.litCount}篇
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <div className="border-t border-slate-200 p-3 bg-slate-50/50">
-              <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                <AlignLeft className="w-3.5 h-3.5" />
-                阶段导航
-              </div>
-              <div className="space-y-1">
-                {STAGES.map((s, idx) => {
-                  const cur = activeProject?.stage === s.value
-                  const isPast = STAGES.findIndex((st) => st.value === activeProject?.stage) > idx
-                  return (
-                    <button
-                      key={s.value}
-                      disabled={!activeProject}
-                      onClick={() => handleStageChange(s.value)}
-                      className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition flex items-center gap-2 ${
-                        cur
-                          ? 'bg-indigo-600 text-white font-medium shadow-sm'
-                          : isPast
-                          ? 'text-slate-500 hover:bg-slate-200/60 disabled:opacity-40 disabled:cursor-not-allowed'
-                          : 'text-slate-400 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed'
-                      }`}
-                    >
-                      <span
-                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                          cur
-                            ? 'bg-white/20 text-white'
-                            : isPast
-                            ? 'bg-green-100 text-green-600'
-                            : 'bg-slate-200 text-slate-400'
-                        }`}
-                      >
-                        {idx + 1}
-                      </span>
-                      {s.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {leftPanelMode === 'outline' && (
-          <div className="flex-1 overflow-y-auto p-3">
-            <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
-              <ListTree className="w-3.5 h-3.5" />
-              文档大纲
-            </div>
-            <div className="space-y-0.5">
-              {outline.length === 0 && (
-                <div className="text-sm text-slate-400 text-center py-8">暂无大纲</div>
-              )}
-              {outline.map((item, idx) => (
-                <button
-                  key={idx}
-                  className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-slate-100 transition truncate ${
-                    item.level === 1
-                      ? 'font-semibold text-slate-700'
-                      : item.level === 2
-                      ? 'font-medium text-slate-600 pl-4'
-                      : item.level === 3
-                      ? 'text-slate-500 pl-6'
-                      : 'text-slate-400 pl-8'
-                  }`}
-                >
-                  {item.text}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {leftPanelMode === 'references' && (
-          <div className="flex-1 overflow-y-auto p-3">
-            <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
-              <BookCopy className="w-3.5 h-3.5" />
-              文献列表
-            </div>
-            <div className="space-y-2">
-              {DEMO_CITATIONS.map((cit, idx) => (
-                <div
-                  key={idx}
-                  className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition cursor-pointer"
-                >
-                  <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
-                    {cit.title}
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-1 truncate">
-                    {cit.authors} ({cit.year})
-                  </div>
-                  <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                    {cit.journal}
-                  </div>
-                  <a
-                    href={`https://doi.org/${cit.doi}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 font-medium"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <FileCode className="w-3 h-3" />
-                    {cit.doi}
-                  </a>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </aside>
 
       <button
-        onClick={() => setLeftCollapsed(!leftCollapsed)}
+        onClick={() => setNavCollapsed(!navCollapsed)}
         className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-slate-200 rounded-r-lg p-1 shadow-md hover:bg-slate-50 transition text-slate-400 hover:text-indigo-600"
-        style={{ left: leftCollapsed ? '0' : '256px' }}
-        title={leftCollapsed ? '展开左侧栏' : '折叠左侧栏'}
+        style={{ left: navCollapsed ? '0' : '256px' }}
+        title={navCollapsed ? '展开项目导航' : '折叠项目导航'}
       >
-        {leftCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        {navCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
 
-      <section className="flex-1 flex flex-col min-w-0">
-        <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0 shadow-sm">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="font-semibold text-slate-700">
-              {activeProject ? activeProject.name : '未选择项目'}
-            </span>
-            {activeProject && (
-              <>
-                <ChevronRight className="w-4 h-4 text-slate-300" />
-                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium">
-                  {STAGES.find((s) => s.value === activeProject.stage)?.label}
-                </span>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs">
-              {saveStatus === 'saved' && (
-                <span className="text-green-600 flex items-center gap-1 font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  已保存
-                  {lastSaved && <span className="text-slate-400 font-normal">{formatTime(lastSaved)}</span>}
-                </span>
-              )}
-              {saveStatus === 'saving' && (
-                <span className="text-slate-500 flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 animate-pulse" />
-                  保存中...
-                </span>
-              )}
-              {saveStatus === 'unsaved' && (
-                <span className="text-amber-600 flex items-center gap-1">
-                  <Save className="w-3.5 h-3.5" />
-                  未保存
-                </span>
+      <div className="flex-1 flex min-w-0">
+        <div
+          className="flex flex-col min-w-0 bg-white"
+          style={{ width: `${panelRatio}%` }}
+        >
+          <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="relative" ref={leftDropdownRef}>
+                <button
+                  onClick={() => setShowLeftDropdown(!showLeftDropdown)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center gap-2"
+                >
+                  <LeftPanelIcon className="w-4 h-4 text-indigo-600" />
+                  <span className="text-sm font-medium text-slate-700">
+                    {LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.label}
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showLeftDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {showLeftDropdown && (
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden min-w-36">
+                    {LEFT_PANEL_MODES.map((mode) => {
+                      const Icon = mode.icon
+                      return (
+                        <button
+                          key={mode.value}
+                          onClick={() => {
+                            setLeftPanelMode(mode.value as LeftPanelMode)
+                            setShowLeftDropdown(false)
+                          }}
+                          className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
+                            leftPanelMode === mode.value ? 'bg-indigo-50/50' : ''
+                          }`}
+                        >
+                          <Icon className={`w-4 h-4 ${leftPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
+                          <span className={`text-sm ${leftPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                            {mode.label}
+                          </span>
+                          {leftPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              {activeProject && (
+                <>
+                  <ChevronRight className="w-4 h-4 text-slate-300" />
+                  <span className="text-sm font-semibold text-slate-700 truncate max-w-40">
+                    {activeProject.name}
+                  </span>
+                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium flex-shrink-0">
+                    {STAGES.find((s) => s.value === activeProject.stage)?.label}
+                  </span>
+                </>
               )}
             </div>
-            <button
-              onClick={exportMarkdown}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition shadow-sm"
-            >
-              <Download className="w-3.5 h-3.5" />
-              导出
-            </button>
+
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 text-xs">
+                {PANEL_RATIOS.map((r) => (
+                  <button
+                    key={r.value}
+                    onClick={() => setPresetRatio(r.left)}
+                    className={`px-2 py-0.5 rounded font-mono transition ${
+                      Math.abs(panelRatio - r.left) < 5
+                        ? 'bg-indigo-100 text-indigo-700 font-medium'
+                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
+
+          {leftPanelMode === 'editor' && (
+            <>
+              <div className="flex items-center gap-0.5 px-3 py-1.5 bg-white border-b border-slate-200 flex-shrink-0">
+                <button
+                  onClick={() => insertHeading(1)}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="一级标题"
+                >
+                  <Heading1 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => insertHeading(2)}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="二级标题"
+                >
+                  <Heading2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => insertHeading(3)}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="三级标题"
+                >
+                  <Heading3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => insertHeading(4)}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="四级标题"
+                >
+                  <Heading4 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => insertHeading(5)}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="五级标题"
+                >
+                  <Heading5 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => insertHeading(6)}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="六级标题"
+                >
+                  <Heading6 className="w-4 h-4" />
+                </button>
+                <div className="w-px h-4 bg-slate-200 mx-1" />
+                <button
+                  onClick={() => execCommand('bold')}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="加粗"
+                >
+                  <Bold className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => execCommand('italic')}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="斜体"
+                >
+                  <Italic className="w-4 h-4" />
+                </button>
+                <div className="w-px h-4 bg-slate-200 mx-1" />
+                <button
+                  onClick={() => execCommand('insertUnorderedList')}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="无序列表"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => execCommand('insertOrderedList')}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="有序列表"
+                >
+                  <ListOrdered className="w-4 h-4" />
+                </button>
+                <div className="w-px h-4 bg-slate-200 mx-1" />
+                <button
+                  onClick={() => execCommand('formatBlock', 'blockquote')}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="引用块"
+                >
+                  <BookMarked className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={insertHorizontalRule}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="分隔线"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => execCommand('formatBlock', 'pre')}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="代码块"
+                >
+                  <Code className="w-4 h-4" />
+                </button>
+                <div className="w-px h-4 bg-slate-200 mx-1" />
+                <button
+                  onClick={insertLink}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="链接"
+                >
+                  <Link className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                  title="插入图片 (支持粘贴)"
+                >
+                  <Image className="w-4 h-4" />
+                </button>
+                <TableGridPicker onSelect={insertTableWithSize} />
+                <div className="w-px h-4 bg-slate-200 mx-1" />
+                <button
+                  onClick={() => setShowCitationModal(true)}
+                  className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition flex items-center gap-1"
+                  title="插入引用 (Ctrl+Shift+K)"
+                >
+                  <BookMarked className="w-4 h-4" />
+                  <span className="text-xs font-medium">引用</span>
+                </button>
+
+                <div className="flex-1" />
+
+                <div className="flex items-center gap-1.5 text-xs">
+                  {saveStatus === 'saved' && (
+                    <span className="text-green-600 flex items-center gap-1 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      已保存
+                      {lastSaved && <span className="text-slate-400 font-normal">{formatTime(lastSaved)}</span>}
+                    </span>
+                  )}
+                  {saveStatus === 'saving' && (
+                    <span className="text-slate-500 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 animate-pulse" />
+                      保存中...
+                    </span>
+                  )}
+                  {saveStatus === 'unsaved' && (
+                    <span className="text-amber-600 flex items-center gap-1">
+                      <Save className="w-3.5 h-3.5" />
+                      未保存
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={exportMarkdown}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  导出
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-auto bg-white">
+                <div className="max-w-3xl mx-auto p-8">
+                  <div
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={handleEditorInput}
+                    onPaste={handleEditorPaste}
+                    className="min-h-full outline-none prose prose-slate max-w-none"
+                  />
+                </div>
+              </div>
+
+              <div className="px-4 py-1.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
+                <span>所见即所得富文本编辑器 · 支持粘贴图片</span>
+                <span className="font-mono">{wordCount} 字</span>
+              </div>
+            </>
+          )}
+
+          {leftPanelMode === 'outline' && (
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="text-xs font-semibold text-slate-500 mb-3 px-1 flex items-center gap-1.5">
+                <ListTree className="w-3.5 h-3.5" />
+                文档大纲
+              </div>
+              <div className="space-y-0.5">
+                {outline.length === 0 && (
+                  <div className="text-sm text-slate-400 text-center py-8">暂无大纲</div>
+                )}
+                {outline.map((item, idx) => (
+                  <button
+                    key={idx}
+                    className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-slate-50 transition truncate ${
+                      item.level === 1
+                        ? 'font-semibold text-slate-700'
+                        : item.level === 2
+                        ? 'font-medium text-slate-600 pl-6'
+                        : item.level === 3
+                        ? 'text-slate-500 pl-9'
+                        : item.level === 4
+                        ? 'text-slate-500 pl-12'
+                        : item.level === 5
+                        ? 'text-slate-400 pl-14'
+                        : 'text-slate-400 pl-16'
+                    }`}
+                  >
+                    {item.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {leftPanelMode === 'references' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-3 border-b border-slate-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={citationSearch}
+                    onChange={(e) => setCitationSearch(e.target.value)}
+                    placeholder="搜索文献..."
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                  />
+                </div>
+                <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <span>共 {scopedCitations.length} 篇</span>
+                  <span className="text-slate-300">·</span>
+                  <span className="text-indigo-600 cursor-pointer hover:underline" onClick={() => setShowCitationModal(true)}>
+                    插入引用
+                  </span>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {scopedCitations.map((cit, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer"
+                    onClick={() => insertCitation(cit.doi)}
+                  >
+                    <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug">
+                      {cit.title}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
+                        {cit.year}
+                      </span>
+                      <span className="truncate">{cit.journal}</span>
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1 truncate">
+                      {cit.authors}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <a
+                        href={`https://doi.org/${cit.doi}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <FileCode className="w-3 h-3" />
+                        {cit.doi}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-0.5 px-3 py-1.5 bg-white border-b border-slate-200 flex-shrink-0">
-          <button
-            onClick={() => insertMarkdown('# ', '', '标题')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="一级标题"
-          >
-            <Heading1 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => insertMarkdown('## ', '', '标题')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="二级标题"
-          >
-            <Heading2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => insertMarkdown('### ', '', '标题')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="三级标题"
-          >
-            <Heading3 className="w-4 h-4" />
-          </button>
-          <div className="w-px h-4 bg-slate-200 mx-1" />
-          <button
-            onClick={() => insertMarkdown('**', '**', '粗体文字')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="加粗"
-          >
-            <Bold className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => insertMarkdown('*', '*', '斜体文字')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="斜体"
-          >
-            <Italic className="w-4 h-4" />
-          </button>
-          <div className="w-px h-4 bg-slate-200 mx-1" />
-          <button
-            onClick={() => insertMarkdown('- ', '', '列表项')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="无序列表"
-          >
-            <List className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => insertMarkdown('1. ', '', '列表项')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="有序列表"
-          >
-            <ListOrdered className="w-4 h-4" />
-          </button>
-          <div className="w-px h-4 bg-slate-200 mx-1" />
-          <button
-            onClick={() => insertMarkdown('> ', '', '引用文字')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="引用"
-          >
-            <Quote className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => insertMarkdown('```\n', '\n```', '代码')}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="代码块"
-          >
-            <Code className="w-4 h-4" />
-          </button>
-          <div className="w-px h-4 bg-slate-200 mx-1" />
-          <button
-            onClick={insertLink}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="链接"
-          >
-            <Link className="w-4 h-4" />
-          </button>
-          <button
-            onClick={insertImage}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="图片"
-          >
-            <Image className="w-4 h-4" />
-          </button>
-          <TableGridPicker onSelect={insertTableWithSize} />
-          <div className="w-px h-4 bg-slate-200 mx-1" />
-          <button
-            onClick={() => setShowCitationModal(true)}
-            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition flex items-center gap-1"
-            title="插入引用 (Ctrl+Shift+K)"
-          >
-            <BookMarked className="w-4 h-4" />
-            <span className="text-xs font-medium">插入引用</span>
-          </button>
-
-          <div className="flex-1" />
-
-          <div className="flex items-center gap-1 text-xs text-slate-400">
-            <span>左面板:</span>
-            <span className="font-medium text-slate-600">
-              {LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.label}
-            </span>
-            <span className="mx-1 text-slate-300">|</span>
-            <span>右面板:</span>
-            <span className="font-medium text-slate-600">
-              {RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.label}
-            </span>
-          </div>
+        <div
+          className={`flex-shrink-0 flex items-center justify-center cursor-col-resize bg-slate-100 hover:bg-indigo-100 transition-colors z-10 ${
+            isDragging ? 'bg-indigo-200' : ''
+          }`}
+          style={{ width: '6px' }}
+          onMouseDown={handleDragStart}
+        >
+          <GripVertical className="w-3 h-3 text-slate-400" />
         </div>
 
-        <div className="flex-1 overflow-auto bg-white">
-          <div className="max-w-3xl mx-auto p-8">
-            <div
-              ref={editorRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={handleEditorInput}
-              className="min-h-full outline-none prose prose-slate max-w-none"
-              dangerouslySetInnerHTML={{ __html: renderedHtml }}
-            />
-          </div>
-        </div>
-
-        <div className="px-4 py-1.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
-          <span>所见即所得 Markdown</span>
-          <span className="font-mono">{wordCount} 字</span>
-        </div>
-      </section>
-
-      <aside className="w-80 flex flex-col border-l border-slate-200 bg-white flex-shrink-0">
-        <div className="p-3 border-b border-slate-200 bg-slate-50/50">
-          <div className="relative" ref={rightDropdownRef}>
-            <button
-              onClick={() => setShowRightDropdown(!showRightDropdown)}
-              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
-            >
-              <div className="flex items-center gap-2">
+        <div
+          className="flex flex-col min-w-0 bg-white border-l border-slate-200"
+          style={{ width: `calc(${100 - panelRatio}% - 6px)` }}
+        >
+          <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between flex-shrink-0">
+            <div className="relative" ref={rightDropdownRef}>
+              <button
+                onClick={() => setShowRightDropdown(!showRightDropdown)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center gap-2"
+              >
                 <RightPanelIcon className="w-4 h-4 text-indigo-600" />
                 <span className="text-sm font-medium text-slate-700">
                   {RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.label}
                 </span>
-              </div>
-              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showRightDropdown ? 'rotate-180' : ''}`} />
-            </button>
-            {showRightDropdown && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
-                {RIGHT_PANEL_MODES.map((mode) => {
-                  const Icon = mode.icon
-                  return (
-                    <button
-                      key={mode.value}
-                      onClick={() => {
-                        setRightPanelMode(mode.value as RightPanelMode)
-                        setShowRightDropdown(false)
-                      }}
-                      className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                        rightPanelMode === mode.value ? 'bg-indigo-50/50' : ''
-                      }`}
-                    >
-                      <Icon className={`w-4 h-4 ${rightPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
-                      <span className={`text-sm ${rightPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
-                        {mode.label}
-                      </span>
-                      {rightPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {rightPanelMode === 'ai' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="px-3 py-2 border-b border-slate-100 bg-white">
-              <div className="relative" ref={modelDropdownRef}>
-                <div className="text-xs font-medium text-slate-600 mb-1.5">AI 模型</div>
-                <button
-                  onClick={() => setShowModelDropdown(!showModelDropdown)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 bg-indigo-100 rounded-md flex items-center justify-center">
-                      <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-slate-700">{currentModel.label}</div>
-                      <div className="text-[10px] text-slate-400">{currentModel.desc}</div>
-                    </div>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showModelDropdown ? 'rotate-180' : ''}`} />
-                </button>
-                {showModelDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
-                    {AI_MODELS.map((model) => (
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showRightDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              {showRightDropdown && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden min-w-36">
+                  {RIGHT_PANEL_MODES.map((mode) => {
+                    const Icon = mode.icon
+                    return (
                       <button
-                        key={model.value}
+                        key={mode.value}
                         onClick={() => {
-                          setSelectedModel(model.value)
-                          setShowModelDropdown(false)
+                          setRightPanelMode(mode.value as RightPanelMode)
+                          setShowRightDropdown(false)
                         }}
                         className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                          selectedModel === model.value ? 'bg-indigo-50/50' : ''
+                          rightPanelMode === mode.value ? 'bg-indigo-50/50' : ''
                         }`}
                       >
-                        <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
-                          selectedModel === model.value ? 'bg-indigo-600' : 'bg-slate-100'
-                        }`}>
-                          <Bot className={`w-3.5 h-3.5 ${selectedModel === model.value ? 'text-white' : 'text-slate-500'}`} />
-                        </div>
-                        <div>
-                          <div className={`text-xs font-medium ${selectedModel === model.value ? 'text-indigo-700' : 'text-slate-700'}`}>
-                            {model.label}
-                          </div>
-                          <div className="text-[10px] text-slate-400">{model.desc}</div>
-                        </div>
-                        {selectedModel === model.value && (
-                          <Check className="w-4 h-4 text-indigo-600 ml-auto" />
-                        )}
+                        <Icon className={`w-4 h-4 ${rightPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
+                        <span className={`text-sm ${rightPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                          {mode.label}
+                        </span>
+                        {rightPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
                       </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
 
-              <div className="mt-3">
-                <div className="flex items-center justify-between mb-1.5">
+          {rightPanelMode === 'ai' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="px-3 py-2 border-b border-slate-100 bg-white">
+                <div className="flex items-center gap-1 mb-2">
+                  <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-indigo-50 rounded-lg">
+                    <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                    <span className="text-[11px] font-medium text-indigo-700">AI-1 生成</span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+                  <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-emerald-50 rounded-lg">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-[11px] font-medium text-emerald-700">AI-2 审阅</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
                     <Zap className="w-3.5 h-3.5 text-amber-500" />
                     可信检索
@@ -1196,462 +1496,512 @@ export default function WritingPage() {
                     )}
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                  开启后 AI 回答必须引用知识库内容，确保回答的学术可信度
+
+                {trustedSearch && (
+                  <div className="mt-2" ref={citationScopeRef}>
+                    <div className="text-xs font-medium text-slate-600 mb-1.5">引用范围</div>
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowCitationScopeDropdown(!showCitationScopeDropdown)}
+                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between text-xs"
+                      >
+                        <span className="text-slate-700 truncate">
+                          {CITATION_SCOPES.find((s) => s.value === citationScope)?.label}
+                          {citationScope === 'project' && activeProject && ` (${activeProject.name})`}
+                          {citationScope === 'selected' && selectedPaperIds.length > 0 && ` (${selectedPaperIds.length}篇)`}
+                        </span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${showCitationScopeDropdown ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showCitationScopeDropdown && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+                          {CITATION_SCOPES.map((scope) => (
+                            <button
+                              key={scope.value}
+                              onClick={() => {
+                                setCitationScope(scope.value)
+                                setShowCitationScopeDropdown(false)
+                                if (scope.value === 'selected') {
+                                  setShowPaperSelector(true)
+                                }
+                              }}
+                              className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center justify-between ${
+                                citationScope === scope.value ? 'bg-indigo-50/50' : ''
+                              }`}
+                            >
+                              <span className={`text-xs ${citationScope === scope.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                                {scope.label}
+                              </span>
+                              {citationScope === scope.value && (
+                                <Check className="w-4 h-4 text-indigo-600" />
+                              )}
+                            </button>
+                          ))}
+                          <div className="border-t border-slate-100 px-3 py-2 space-y-1">
+                            <button
+                              onClick={handlePasteFolder}
+                              className="w-full text-left text-xs text-slate-600 hover:text-indigo-600 flex items-center gap-1.5 py-1"
+                            >
+                              <Clipboard className="w-3 h-3" />
+                              粘贴文件夹路径
+                            </button>
+                            <button
+                              onClick={handleOpenFolder}
+                              className="w-full text-left text-xs text-slate-600 hover:text-indigo-600 flex items-center gap-1.5 py-1"
+                            >
+                              <FolderOpen className="w-3 h-3" />
+                              打开文件夹
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {folderPasted && (
+                      <div className="mt-1.5 text-[10px] text-emerald-600 flex items-center gap-1 truncate">
+                        <Check className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{folderPath}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-2.5 border-b border-slate-100 bg-white">
+                <div className="text-[11px] font-medium text-slate-500 mb-2 px-1">快捷指令</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {QUICK_ACTIONS.map((action) => {
+                    const Icon = action.icon
+                    return (
+                      <button
+                        key={action.key}
+                        onClick={() => handleQuickAction(action.key)}
+                        className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
+                      >
+                        <Icon className="w-3 h-3" />
+                        {action.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50/30">
+                {messages.length === 0 && (
+                  <div className="text-center py-10">
+                    <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100 flex items-center justify-center shadow-inner">
+                      <Sparkles className="w-7 h-7 text-indigo-400" />
+                    </div>
+                    <p className="text-sm font-medium text-slate-600">AI 双引擎助手</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      AI-1 生成 + AI-2 审阅，确保内容可信
+                    </p>
+                    {trustedSearch && (
+                      <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-medium">
+                        <Zap className="w-3 h-3" />
+                        可信检索已开启
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[92%] rounded-2xl px-3 py-2.5 text-sm ${
+                        msg.role === 'user'
+                          ? 'bg-indigo-600 text-white rounded-br-md shadow-sm'
+                          : 'bg-white text-slate-700 rounded-bl-md border border-slate-200 shadow-sm'
+                      }`}
+                    >
+                      {msg.role === 'assistant' ? (
+                        <div className="space-y-2">
+                          {msg.reviewStatus === 'pending' && (
+                            <div className="flex items-center gap-2 px-2 py-1.5 bg-amber-50 rounded-lg text-[11px] text-amber-700">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              AI-2 审阅中...
+                            </div>
+                          )}
+                          {msg.reviewStatus === 'pass' && (
+                            <div className="flex items-center gap-2 px-2 py-1.5 bg-emerald-50 rounded-lg text-[11px] text-emerald-700">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              AI-2 已通过审阅 · 内容可信
+                            </div>
+                          )}
+                          <div
+                            className="whitespace-pre-wrap leading-relaxed text-sm"
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                          />
+                          {msg.citations && msg.citations.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-slate-100">
+                              <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
+                                <div className="w-4 h-4 bg-emerald-100 rounded-full flex items-center justify-center">
+                                  <BookMarked className="w-2.5 h-2.5 text-emerald-600" />
+                                </div>
+                                引用来源
+                              </div>
+                              <div className="space-y-2">
+                                {msg.citations.map((cit, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="p-2.5 bg-slate-50/80 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition"
+                                  >
+                                    <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                                      {cit.title}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 mt-1.5 truncate">
+                                      {cit.authors} ({cit.year})
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                                      {cit.journal}
+                                    </div>
+                                    <a
+                                      href={`https://doi.org/${cit.doi}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 font-medium"
+                                    >
+                                      <FileCode className="w-3 h-3" />
+                                      {cit.doi}
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {msg.reviewStatus === 'pass' && (
+                            <button
+                              onClick={() => handleCopyContent(msg.content)}
+                              className="w-full mt-2 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-100 transition flex items-center justify-center gap-1"
+                            >
+                              <Copy className="w-3 h-3" />
+                              复制内容
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {(isAiGenerating || isAiReviewing) && (
+                  <div className="flex justify-start">
+                    <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 border border-slate-200 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        {isAiGenerating ? (
+                          <>
+                            <div className="w-6 h-6 bg-indigo-100 rounded-md flex items-center justify-center">
+                              <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                            </div>
+                            <span className="text-xs text-slate-600">AI-1 生成中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <div className="w-6 h-6 bg-emerald-100 rounded-md flex items-center justify-center">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            </div>
+                            <span className="text-xs text-slate-600">AI-2 审阅中...</span>
+                          </>
+                        )}
+                        <div className="flex gap-1 ml-2">
+                          <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div ref={chatEndRef} />
+              </div>
+
+              <div className="p-3 border-t border-slate-200 bg-white">
+                {trustedSearch && (
+                  <div className="mb-2 flex items-center gap-1.5 text-[10px] text-emerald-600">
+                    <Zap className="w-3 h-3" />
+                    <span>可信检索模式 · AI-1生成 + AI-2审阅</span>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSendMessage()
+                      }
+                    }}
+                    placeholder="询问 AI 助手..."
+                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                  />
+                  <button
+                    onClick={() => handleSendMessage()}
+                    disabled={isAiGenerating || isAiReviewing || !inputValue.trim()}
+                    className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl text-sm hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {rightPanelMode === 'library' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-3 border-b border-slate-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={citationSearch}
+                    onChange={(e) => setCitationSearch(e.target.value)}
+                    placeholder="搜索文献..."
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {scopedCitations.map((cit, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer"
+                  >
+                    <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug">
+                      {cit.title}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
+                        {cit.year}
+                      </span>
+                      <span className="truncate">{cit.journal}</span>
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1 truncate">
+                      {cit.authors}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <a
+                        href={`https://doi.org/${cit.doi}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                      >
+                        <FileCode className="w-3 h-3" />
+                        DOI
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <button
+                        onClick={() => insertCitation(cit.doi)}
+                        className="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition font-medium"
+                      >
+                        插入引用
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {rightPanelMode === 'knowledge' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-3 border-b border-slate-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="搜索知识库..."
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3">
+                <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+                  <BookText className="w-3.5 h-3.5" />
+                  图书
+                </div>
+                <div className="space-y-2 mb-4">
+                  {[
+                    { title: '有机合成化学', author: 'Smith, M.B.', year: 2020 },
+                    { title: '高等物理化学', author: 'Atkins, P.', year: 2019 },
+                    { title: '材料科学基础', author: 'Callister, W.D.', year: 2021 },
+                  ].map((book, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-start gap-2"
+                    >
+                      <div className="w-8 h-10 bg-gradient-to-br from-amber-100 to-amber-200 rounded flex items-center justify-center flex-shrink-0">
+                        <BookText className="w-4 h-4 text-amber-700" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-slate-700 line-clamp-1">{book.title}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">{book.author} ({book.year})</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+                  <Newspaper className="w-3.5 h-3.5" />
+                  综述文章
+                </div>
+                <div className="space-y-2">
+                  {DEMO_CITATIONS.slice(0, 2).map((cit, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer"
+                    >
+                      <div className="text-xs font-medium text-slate-700 line-clamp-2 leading-snug">
+                        {cit.title}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        {cit.journal} ({cit.year})
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {rightPanelMode === 'typesetting' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-3 border-b border-slate-100">
+                <div className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">
+                  <LayoutTemplate className="w-3.5 h-3.5 text-indigo-600" />
+                  期刊排版
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  选择目标期刊，一键转换为对应格式的 LaTeX 模板
                 </p>
               </div>
 
-              {trustedSearch && (
-                <div className="mt-3" ref={citationScopeRef}>
-                  <div className="text-xs font-medium text-slate-600 mb-1.5">引用范围</div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                <div>
+                  <div className="text-xs font-medium text-slate-600 mb-1.5">选择目标期刊</div>
                   <div className="relative">
-                    <button
-                      onClick={() => setShowCitationScopeDropdown(!showCitationScopeDropdown)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between"
+                    <select
+                      value={selectedJournal}
+                      onChange={(e) => setSelectedJournal(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none pr-8"
                     >
-                      <span className="text-xs text-slate-700">
-                        {CITATION_SCOPES.find((s) => s.value === citationScope)?.label}
-                      </span>
-                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showCitationScopeDropdown ? 'rotate-180' : ''}`} />
-                    </button>
-                    {showCitationScopeDropdown && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
-                        {CITATION_SCOPES.map((scope) => (
-                          <button
-                            key={scope.value}
-                            onClick={() => {
-                              setCitationScope(scope.value)
-                              setShowCitationScopeDropdown(false)
-                            }}
-                            className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center justify-between ${
-                              citationScope === scope.value ? 'bg-indigo-50/50' : ''
-                            }`}
-                          >
-                            <span className={`text-xs ${citationScope === scope.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
-                              {scope.label}
-                            </span>
-                            {citationScope === scope.value && (
-                              <Check className="w-4 h-4 text-indigo-600" />
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                      {JOURNALS.map((j) => (
+                        <option key={j.value} value={j.value}>
+                          {j.label} — {j.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                   </div>
                 </div>
-              )}
-            </div>
 
-            <div className="p-2.5 border-b border-slate-100 bg-white">
-              <div className="text-[11px] font-medium text-slate-500 mb-2 px-1">快捷指令</div>
-              <div className="flex flex-wrap gap-1.5">
-                {QUICK_ACTIONS.map((action) => {
-                  const Icon = action.icon
-                  return (
-                    <button
-                      key={action.key}
-                      onClick={() => handleQuickAction(action.key)}
-                      className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                    >
-                      <Icon className="w-3 h-3" />
-                      {action.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50/30">
-              {messages.length === 0 && (
-                <div className="text-center py-10">
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100 flex items-center justify-center shadow-inner">
-                    <Sparkles className="w-7 h-7 text-indigo-400" />
-                  </div>
-                  <p className="text-sm font-medium text-slate-600">AI 写作助手</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    输入问题或点击上方快捷指令
-                  </p>
-                  {trustedSearch && (
-                    <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-medium">
-                      <Zap className="w-3 h-3" />
-                      可信检索已开启
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[92%] rounded-2xl px-3 py-2.5 text-sm ${
-                      msg.role === 'user'
-                        ? 'bg-indigo-600 text-white rounded-br-md shadow-sm'
-                        : 'bg-white text-slate-700 rounded-bl-md border border-slate-200 shadow-sm'
-                    }`}
-                  >
-                    {msg.role === 'assistant' ? (
-                      <div className="space-y-2">
-                        <div
-                          className="whitespace-pre-wrap leading-relaxed text-sm"
-                          dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-                        />
-                        {msg.citations && msg.citations.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-slate-100">
-                            <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
-                              <div className="w-4 h-4 bg-emerald-100 rounded-full flex items-center justify-center">
-                                <Quote className="w-2.5 h-2.5 text-emerald-600" />
-                              </div>
-                              引用来源 · 知识库
-                            </div>
-                            <div className="space-y-2">
-                              {msg.citations.map((cit, idx) => (
-                                <div
-                                  key={idx}
-                                  className="p-2.5 bg-slate-50/80 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition"
-                                >
-                                  <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
-                                    {cit.title}
-                                  </div>
-                                  <div className="text-xs text-slate-500 mt-1.5 truncate">
-                                    {cit.authors} ({cit.year})
-                                  </div>
-                                  <div className="text-xs text-slate-400 truncate mt-0.5">
-                                    {cit.journal}
-                                  </div>
-                                  <a
-                                    href={`https://doi.org/${cit.doi}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 font-medium"
-                                  >
-                                    <FileCode className="w-3 h-3" />
-                                    {cit.doi}
-                                    <ExternalLink className="w-3 h-3" />
-                                  </a>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {isAiLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 border border-slate-200 shadow-sm">
-                    <div className="flex gap-1.5">
-                      <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div ref={chatEndRef} />
-            </div>
-
-            <div className="p-3 border-t border-slate-200 bg-white">
-              {trustedSearch && (
-                <div className="mb-2 flex items-center gap-1.5 text-[10px] text-emerald-600">
-                  <Zap className="w-3 h-3" />
-                  <span>可信检索模式 · 回答将引用知识库</span>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSendMessage()
-                    }
-                  }}
-                  placeholder="询问 AI 助手..."
-                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
-                />
                 <button
-                  onClick={() => handleSendMessage()}
-                  disabled={isAiLoading || !inputValue.trim()}
-                  className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl text-sm hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  onClick={startTypesetting}
+                  disabled={isTypesetting}
+                  className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center justify-center gap-2"
                 >
-                  <Send className="w-4 h-4" />
+                  {isTypesetting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      排版中...
+                    </>
+                  ) : (
+                    <>
+                      <FileOutput className="w-4 h-4" />
+                      开始排版
+                    </>
+                  )}
                 </button>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {rightPanelMode === 'library' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-slate-100">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="搜索文献..."
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {DEMO_CITATIONS.map((cit, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer"
-                >
-                  <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug">
-                    {cit.title}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
-                    <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
-                      {cit.year}
-                    </span>
-                    <span className="truncate">{cit.journal}</span>
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1 truncate">
-                    {cit.authors}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <a
-                      href={`https://doi.org/${cit.doi}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
-                    >
-                      <FileCode className="w-3 h-3" />
-                      DOI
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                    <button
-                      onClick={() => insertCitation(cit.doi)}
-                      className="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition font-medium"
-                    >
-                      插入引用
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {rightPanelMode === 'knowledge' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-slate-100">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="搜索知识库..."
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3">
-              <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
-                <BookText className="w-3.5 h-3.5" />
-                图书
-              </div>
-              <div className="space-y-2 mb-4">
-                {[
-                  { title: '有机合成化学', author: 'Smith, M.B.', year: 2020 },
-                  { title: '高等物理化学', author: 'Atkins, P.', year: 2019 },
-                  { title: '材料科学基础', author: 'Callister, W.D.', year: 2021 },
-                ].map((book, idx) => (
-                  <div
-                    key={idx}
-                    className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-start gap-2"
-                  >
-                    <div className="w-8 h-10 bg-gradient-to-br from-amber-100 to-amber-200 rounded flex items-center justify-center flex-shrink-0">
-                      <BookText className="w-4 h-4 text-amber-700" />
+                {(isTypesetting || typesetDone) && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 font-medium">排版进度</span>
+                      <span className="text-indigo-600 font-mono">{typesettingProgress}%</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-slate-700 line-clamp-1">{book.title}</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">{book.author} ({book.year})</div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-300"
+                        style={{ width: `${typesettingProgress}%` }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {typesettingProgress < 30 && '解析 Markdown 内容...'}
+                      {typesettingProgress >= 30 && typesettingProgress < 60 && '转换 LaTeX 结构...'}
+                      {typesettingProgress >= 60 && typesettingProgress < 90 && '应用期刊模板...'}
+                      {typesettingProgress >= 90 && typesettingProgress < 100 && '生成最终文件...'}
+                      {typesettingProgress >= 100 && '排版完成！'}
                     </div>
                   </div>
-                ))}
-              </div>
-
-              <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
-                <Newspaper className="w-3.5 h-3.5" />
-                综述文章
-              </div>
-              <div className="space-y-2">
-                {DEMO_CITATIONS.slice(0, 2).map((cit, idx) => (
-                  <div
-                    key={idx}
-                    className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer"
-                  >
-                    <div className="text-xs font-medium text-slate-700 line-clamp-2 leading-snug">
-                      {cit.title}
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      {cit.journal} ({cit.year})
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {rightPanelMode === 'typesetting' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-slate-100">
-              <div className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">
-                <LayoutTemplate className="w-3.5 h-3.5 text-indigo-600" />
-                期刊排版
-              </div>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                选择目标期刊，一键转换为对应格式的 LaTeX 模板
-              </p>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3 space-y-4">
-              <div>
-                <div className="text-xs font-medium text-slate-600 mb-1.5">选择目标期刊</div>
-                <div className="relative">
-                  <select
-                    value={selectedJournal}
-                    onChange={(e) => setSelectedJournal(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none pr-8"
-                  >
-                    {JOURNALS.map((j) => (
-                      <option key={j.value} value={j.value}>
-                        {j.label} — {j.name}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-medium text-slate-600 mb-1.5">当前格式预览</div>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="text-center">
-                    <div className="text-sm font-bold text-slate-800">{currentJournal.label}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">{currentJournal.name}</div>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-slate-200 space-y-1.5">
-                    <div className="flex justify-between text-[11px]">
-                      <span className="text-slate-500">字号</span>
-                      <span className="text-slate-700 font-medium">10pt / 12pt</span>
-                    </div>
-                    <div className="flex justify-between text-[11px]">
-                      <span className="text-slate-500">栏数</span>
-                      <span className="text-slate-700 font-medium">双栏</span>
-                    </div>
-                    <div className="flex justify-between text-[11px]">
-                      <span className="text-slate-500">参考文献</span>
-                      <span className="text-slate-700 font-medium">编号制</span>
-                    </div>
-                    <div className="flex justify-between text-[11px]">
-                      <span className="text-slate-500">图表位置</span>
-                      <span className="text-slate-700 font-medium">文末</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={startTypesetting}
-                disabled={isTypesetting}
-                className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center justify-center gap-2"
-              >
-                {isTypesetting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    排版中...
-                  </>
-                ) : (
-                  <>
-                    <FileOutput className="w-4 h-4" />
-                    开始排版
-                  </>
                 )}
-              </button>
 
-              {(isTypesetting || typesetDone) && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 font-medium">排版进度</span>
-                    <span className="text-indigo-600 font-mono">{typesettingProgress}%</span>
-                  </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-300"
-                      style={{ width: `${typesettingProgress}%` }}
-                    />
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    {typesettingProgress < 30 && '解析 Markdown 内容...'}
-                    {typesettingProgress >= 30 && typesettingProgress < 60 && '转换 LaTeX 结构...'}
-                    {typesettingProgress >= 60 && typesettingProgress < 90 && '应用期刊模板...'}
-                    {typesettingProgress >= 90 && typesettingProgress < 100 && '生成最终文件...'}
-                    {typesettingProgress >= 100 && '排版完成！'}
-                  </div>
-                </div>
-              )}
-
-              {typesetDone && (
-                <div className="space-y-3">
-                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                      <span className="text-sm font-medium text-emerald-700">排版完成</span>
+                {typesetDone && (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        <span className="text-sm font-medium text-emerald-700">排版完成</span>
+                      </div>
+                      <p className="text-xs text-emerald-600 mt-1">
+                        已成功转换为 {currentJournal.label} 格式
+                      </p>
                     </div>
-                    <p className="text-xs text-emerald-600 mt-1">
-                      已成功转换为 {currentJournal.label} 格式
-                    </p>
-                  </div>
 
-                  <div className="p-3 bg-slate-900 rounded-lg overflow-x-auto">
-                    <div className="text-[10px] text-slate-400 mb-2 font-mono">LaTeX 预览</div>
-                    <pre className="text-[11px] text-slate-300 font-mono leading-relaxed">
-{`\\documentclass[10pt]{article}
-\\usepackage{achemso}
-\\title{钙钛矿太阳能电池的研究进展}
-\\author{Author One}
-\\affiliation{University}
-\\begin{document}
-\\begin{abstract}
-...
-\\end{abstract}
-\\section{Introduction}
-...
-\\end{document}`}
-                    </pre>
-                  </div>
+                    <div className="p-3 bg-slate-900 rounded-lg overflow-x-auto max-h-64 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[10px] text-slate-400 font-mono">LaTeX 输出</div>
+                        <button
+                          onClick={() => handleCopyContent(latexOutput)}
+                          className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1"
+                        >
+                          <Copy className="w-3 h-3" />
+                          复制
+                        </button>
+                      </div>
+                      <pre className="text-[11px] text-slate-300 font-mono leading-relaxed whitespace-pre-wrap">
+                        {latexOutput}
+                      </pre>
+                    </div>
 
-                  <div className="flex gap-2">
-                    <button className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1.5">
-                      <Download className="w-3.5 h-3.5" />
-                      下载 .zip
-                    </button>
-                    <button className="flex-1 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
-                      <FileCode className="w-3.5 h-3.5" />
-                      预览 PDF
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          const blob = new Blob([latexOutput], { type: 'text/x-tex;charset=utf-8' })
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = `${activeProject?.name || 'paper'}.tex`
+                          document.body.appendChild(a)
+                          a.click()
+                          document.body.removeChild(a)
+                          URL.revokeObjectURL(url)
+                        }}
+                        className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        下载 .tex
+                      </button>
+                      <button
+                        onClick={() => setShowPdfPreview(true)}
+                        className="flex-1 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        预览 PDF
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </aside>
+          )}
+        </div>
+      </div>
 
       {showCitationModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -1691,12 +2041,12 @@ export default function WritingPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {filteredCitations.length === 0 && (
+              {scopedCitations.length === 0 && (
                 <div className="text-center py-8 text-sm text-slate-400">
                   未找到匹配的文献
                 </div>
               )}
-              {filteredCitations.map((cit) => {
+              {scopedCitations.map((cit) => {
                 const isSelected = selectedCitations.includes(cit.doi)
                 return (
                   <div
@@ -1767,6 +2117,153 @@ export default function WritingPage() {
           </div>
         </div>
       )}
+
+      {showPaperSelector && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-800">选择指定文献</h3>
+              <button
+                onClick={() => setShowPaperSelector(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {DEMO_CITATIONS.map((cit) => {
+                const isSelected = selectedPaperIds.includes(cit.doi)
+                return (
+                  <div
+                    key={cit.doi}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedPaperIds((prev) => prev.filter((d) => d !== cit.doi))
+                      } else {
+                        setSelectedPaperIds((prev) => [...prev, cit.doi])
+                      }
+                    }}
+                    className={`p-2.5 rounded-lg border cursor-pointer transition ${
+                      isSelected
+                        ? 'border-indigo-400 bg-indigo-50/60'
+                        : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                      }`}>
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                          {cit.title}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1">
+                          {cit.journal} ({cit.year})
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end">
+              <button
+                onClick={() => setShowPaperSelector(false)}
+                className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium"
+              >
+                确定 ({selectedPaperIds.length}篇)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPdfPreview && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <File className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-semibold text-slate-800">PDF 预览</h3>
+                <span className="text-xs text-slate-500">— {currentJournal.label} 格式</span>
+              </div>
+              <button
+                onClick={() => setShowPdfPreview(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-8 bg-slate-100">
+              <div className="max-w-2xl mx-auto bg-white shadow-xl p-12 min-h-[800px]">
+                <div className="text-center mb-8">
+                  <h1 className="text-2xl font-bold text-slate-900 mb-2">
+                    {activeProject?.name || 'Research Paper'}
+                  </h1>
+                  <p className="text-sm text-slate-600">Author Name · University / Institution</p>
+                  <p className="text-xs text-slate-400 mt-1">{currentJournal.name}</p>
+                </div>
+                <div className="border-t-2 border-slate-200 pt-6">
+                  <div
+                    className="text-sm text-slate-700 leading-relaxed"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(mdContent) }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
+              <span className="text-xs text-slate-500">
+                预览仅供参考，正式排版以下载的 LaTeX 文件为准
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowPdfPreview(false)}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                >
+                  关闭
+                </button>
+                <button
+                  onClick={() => {
+                    const blob = new Blob([latexOutput], { type: 'text/x-tex;charset=utf-8' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `${activeProject?.name || 'paper'}.tex`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  下载 LaTeX
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        // @ts-ignore
+        webkitdirectory=""
+        directory=""
+        multiple
+        onChange={handleFolderSelect}
+        className="hidden"
+      />
     </div>
   )
 }
