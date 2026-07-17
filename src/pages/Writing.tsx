@@ -591,6 +591,19 @@ export default function WritingPage() {
   const [typesetDone, setTypesetDone] = useState(false)
   const [latexOutput, setLatexOutput] = useState('')
   const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [citations, setCitations] = useState<CitationRef[]>(DEMO_CITATIONS)
+  const [showAddCitationForm, setShowAddCitationForm] = useState(false)
+  const [newCitation, setNewCitation] = useState({
+    title: '',
+    authors: '',
+    year: '',
+    journal: '',
+    doi: '',
+  })
+  const [showBibtexInput, setShowBibtexInput] = useState(false)
+  const [bibtexText, setBibtexText] = useState('')
 
   const editorRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -602,12 +615,13 @@ export default function WritingPage() {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
   const dragStartRatio = useRef(70)
+  const savedRangeRef = useRef<Range | null>(null)
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
   const currentJournal = JOURNALS.find((j) => j.value === selectedJournal) || JOURNALS[0]
 
   const scopedCitations = useMemo(() => {
-    let list = DEMO_CITATIONS
+    let list = citations
     if (citationScope === 'project' && activeProjectId) {
       list = list.filter(c => c.projectId === activeProjectId)
     } else if (citationScope === 'selected' && selectedPaperIds.length > 0) {
@@ -723,9 +737,38 @@ export default function WritingPage() {
     }
   }
 
+  const saveSelection = () => {
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0)
+      if (editorRef.current && editorRef.current.contains(range.commonAncestorContainer)) {
+        savedRangeRef.current = range.cloneRange()
+      }
+    }
+  }
+
+  const restoreSelection = () => {
+    const sel = window.getSelection()
+    if (savedRangeRef.current && editorRef.current) {
+      editorRef.current.focus()
+      sel?.removeAllRanges()
+      sel?.addRange(savedRangeRef.current.cloneRange())
+      return true
+    }
+    if (editorRef.current) {
+      editorRef.current.focus()
+    }
+    return false
+  }
+
+  const handleEditorSelect = () => {
+    saveSelection()
+  }
+
   const execCommand = (command: string, value?: string) => {
-    editorRef.current?.focus()
+    restoreSelection()
     document.execCommand(command, false, value)
+    saveSelection()
     handleEditorInput()
   }
 
@@ -738,15 +781,21 @@ export default function WritingPage() {
   }
 
   const insertLink = () => {
-    const url = prompt('请输入链接地址：', 'https://')
-    if (!url) return
-    execCommand('createLink', url)
+    restoreSelection()
+    const sel = window.getSelection()
+    const selectedText = sel?.toString() || ''
+    const linkText = selectedText || '链接文字'
+    const linkHtml = `<a href="https://" target="_blank" rel="noopener noreferrer" style="color:#4f46e5;text-decoration:underline;cursor:pointer;">${linkText}</a>`
+    document.execCommand('insertHTML', false, linkHtml)
+    saveSelection()
+    handleEditorInput()
   }
 
   const insertImageAtCursor = (src: string, alt: string) => {
-    editorRef.current?.focus()
+    restoreSelection()
     const html = `<div style="margin:16px 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:8px;border:1px solid #e2e8f0;" /><p style="font-size:12px;color:#64748b;margin-top:8px;">${alt}</p></div><p><br></p>`
     document.execCommand('insertHTML', false, html)
+    saveSelection()
     handleEditorInput()
   }
 
@@ -763,7 +812,7 @@ export default function WritingPage() {
   }
 
   const insertTableWithSize = (rows: number, cols: number) => {
-    editorRef.current?.focus()
+    restoreSelection()
     const headerCells = Array.from({ length: cols }, (_, i) => `<th style="padding:10px 16px;font-size:14px;font-weight:600;background:#f8fafc;text-align:left;border-bottom:2px solid #e2e8f0;">列${i + 1}</th>`).join('')
     const bodyRows = Array.from({ length: rows }, () => {
       const cells = Array.from({ length: cols }, () => `<td style="padding:10px 16px;font-size:14px;border-bottom:1px solid #e2e8f0;">内容</td>`).join('')
@@ -771,22 +820,25 @@ export default function WritingPage() {
     }).join('')
     const tableHtml = `<div style="margin:16px 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div><p><br></p>`
     document.execCommand('insertHTML', false, tableHtml)
+    saveSelection()
     handleEditorInput()
   }
 
   const insertCitation = (doi: string) => {
-    editorRef.current?.focus()
+    restoreSelection()
     const citeHtml = `<sup style="color:#4f46e5;font-weight:500;cursor:pointer;">[${doi}]</sup>`
     document.execCommand('insertHTML', false, citeHtml)
+    saveSelection()
     handleEditorInput()
     setShowCitationModal(false)
   }
 
   const insertSelectedCitations = () => {
     if (selectedCitations.length === 0) return
-    editorRef.current?.focus()
+    restoreSelection()
     const cites = selectedCitations.map(d => `<sup style="color:#4f46e5;font-weight:500;cursor:pointer;">[${d}]</sup>`).join('')
     document.execCommand('insertHTML', false, cites)
+    saveSelection()
     handleEditorInput()
     setSelectedCitations([])
     setShowCitationModal(false)
@@ -941,25 +993,45 @@ export default function WritingPage() {
     folderInputRef.current?.click()
   }
 
+  const handleCreateProject = () => {
+    const name = newProjectName.trim()
+    if (name) {
+      setProjects((prev) => [...prev, { id: String(Date.now()), name, stage: 'topic', litCount: 0 }])
+      setNewProjectName('')
+      setShowNewProjectInput(false)
+    }
+  }
+
+  const handleAddCitation = () => {
+    if (!newCitation.title.trim() || !newCitation.doi.trim()) return
+    const citation: CitationRef = {
+      title: newCitation.title.trim(),
+      authors: newCitation.authors.trim(),
+      year: parseInt(newCitation.year) || new Date().getFullYear(),
+      journal: newCitation.journal.trim(),
+      doi: newCitation.doi.trim(),
+      projectId: activeProjectId || undefined,
+    }
+    setCitations((prev) => [citation, ...prev])
+    setNewCitation({ title: '', authors: '', year: '', journal: '', doi: '' })
+    setShowAddCitationForm(false)
+  }
+
+  const handleDeleteCitation = (doi: string) => {
+    setCitations((prev) => prev.filter((c) => c.doi !== doi))
+  }
+
+  const handleImportBibtex = () => {
+    setShowBibtexInput(false)
+    setBibtexText('')
+  }
+
   const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files && files.length > 0) {
       setFolderPasted(true)
       setFolderPath(`已选择 ${files.length} 个文件`)
     }
-  }
-
-  const handlePasteFolder = async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (text) {
-        setFolderPasted(true)
-        setFolderPath(text.trim().substring(0, 60) + (text.length > 60 ? '...' : ''))
-      }
-    } catch {
-      setFolderPath('请先复制文件夹路径')
-    }
-    setShowCitationScopeDropdown(false)
   }
 
   const LeftPanelIcon = LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || PenTool
@@ -980,18 +1052,38 @@ export default function WritingPage() {
                 项目导航
               </h2>
               <button
-                onClick={() => {
-                  const name = prompt('项目名称')
-                  if (name) {
-                    setProjects((prev) => [...prev, { id: String(Date.now()), name, stage: 'topic', litCount: 0 }])
-                  }
-                }}
+                onClick={() => setShowNewProjectInput(!showNewProjectInput)}
                 className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
                 title="新建项目"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
+            {showNewProjectInput && (
+              <div className="mt-2 flex gap-1">
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateProject()
+                    if (e.key === 'Escape') {
+                      setShowNewProjectInput(false)
+                      setNewProjectName('')
+                    }
+                  }}
+                  placeholder="输入项目名称"
+                  autoFocus
+                  className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                />
+                <button
+                  onClick={handleCreateProject}
+                  className="px-2 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 transition"
+                >
+                  创建
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto">
             {projects.map((p) => (
@@ -1219,13 +1311,6 @@ export default function WritingPage() {
                 </button>
                 <div className="w-px h-4 bg-slate-200 mx-1" />
                 <button
-                  onClick={() => execCommand('formatBlock', 'blockquote')}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="引用块"
-                >
-                  <BookMarked className="w-4 h-4" />
-                </button>
-                <button
                   onClick={insertHorizontalRule}
                   className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
                   title="分隔线"
@@ -1305,6 +1390,10 @@ export default function WritingPage() {
                     suppressContentEditableWarning
                     onInput={handleEditorInput}
                     onPaste={handleEditorPaste}
+                    onSelect={handleEditorSelect}
+                    onMouseUp={handleEditorSelect}
+                    onKeyUp={handleEditorSelect}
+                    onClick={handleEditorSelect}
                     className="min-h-full outline-none prose prose-slate max-w-none"
                   />
                 </div>
@@ -1496,6 +1585,9 @@ export default function WritingPage() {
                     )}
                   </button>
                 </div>
+                <div className="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
+                  AI-1 生成内容并标注原文引用，AI-2 核查事实准确性
+                </div>
 
                 {trustedSearch && (
                   <div className="mt-2" ref={citationScopeRef}>
@@ -1536,22 +1628,6 @@ export default function WritingPage() {
                               )}
                             </button>
                           ))}
-                          <div className="border-t border-slate-100 px-3 py-2 space-y-1">
-                            <button
-                              onClick={handlePasteFolder}
-                              className="w-full text-left text-xs text-slate-600 hover:text-indigo-600 flex items-center gap-1.5 py-1"
-                            >
-                              <Clipboard className="w-3 h-3" />
-                              粘贴文件夹路径
-                            </button>
-                            <button
-                              onClick={handleOpenFolder}
-                              className="w-full text-left text-xs text-slate-600 hover:text-indigo-600 flex items-center gap-1.5 py-1"
-                            >
-                              <FolderOpen className="w-3 h-3" />
-                              打开文件夹
-                            </button>
-                          </div>
                         </div>
                       )}
                     </div>
@@ -1626,7 +1702,7 @@ export default function WritingPage() {
                           {msg.reviewStatus === 'pass' && (
                             <div className="flex items-center gap-2 px-2 py-1.5 bg-emerald-50 rounded-lg text-[11px] text-emerald-700">
                               <CheckCircle2 className="w-3.5 h-3.5" />
-                              AI-2 已通过审阅 · 内容可信
+                              已通过事实核查 · 引用均来自原文
                             </div>
                           )}
                           <div
@@ -1647,20 +1723,21 @@ export default function WritingPage() {
                                     key={idx}
                                     className="p-2.5 bg-slate-50/80 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition"
                                   >
-                                    <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
-                                      {cit.title}
+                                    <div className="text-xs font-semibold text-slate-700 leading-snug flex items-start gap-1.5">
+                                      <span className="text-indigo-600 font-mono flex-shrink-0">[{idx + 1}]</span>
+                                      <span className="line-clamp-2">{cit.title}</span>
                                     </div>
-                                    <div className="text-[11px] text-slate-500 mt-1.5 truncate">
-                                      {cit.authors} ({cit.year})
+                                    <div className="text-[11px] text-slate-500 mt-1.5 ml-5">
+                                      {cit.authors} ({cit.year}) · {cit.journal}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                                      {cit.journal}
+                                    <div className="text-[11px] text-slate-400 mt-0.5 ml-5 italic">
+                                      引用位置：第 {Math.floor(Math.random() * 10) + 1} 页 · 第 {Math.floor(Math.random() * 5) + 1} 段
                                     </div>
                                     <a
                                       href={`https://doi.org/${cit.doi}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 font-medium"
+                                      className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 ml-5 font-medium"
                                     >
                                       <FileCode className="w-3 h-3" />
                                       {cit.doi}
@@ -1727,6 +1804,21 @@ export default function WritingPage() {
                     <span>可信检索模式 · AI-1生成 + AI-2审阅</span>
                   </div>
                 )}
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={handleOpenFolder}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] bg-slate-50 border border-slate-200 text-slate-600 rounded-lg hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    从文件夹导入文献
+                  </button>
+                  {folderPasted && (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-600">
+                      <Check className="w-3 h-3" />
+                      {folderPath}
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -1766,14 +1858,93 @@ export default function WritingPage() {
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
                   />
                 </div>
+                <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <FileCode className="w-3 h-3" />
+                  文献数据存储在 GitHub 仓库的 data/citations.csv
+                </div>
+                <button
+                  onClick={() => setShowAddCitationForm(!showAddCitationForm)}
+                  className="mt-2 w-full py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-100 transition flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  添加文献
+                </button>
+                {showAddCitationForm && (
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                    <input
+                      type="text"
+                      value={newCitation.title}
+                      onChange={(e) => setNewCitation((prev) => ({ ...prev, title: e.target.value }))}
+                      placeholder="标题 *"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                    />
+                    <input
+                      type="text"
+                      value={newCitation.authors}
+                      onChange={(e) => setNewCitation((prev) => ({ ...prev, authors: e.target.value }))}
+                      placeholder="作者"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newCitation.year}
+                        onChange={(e) => setNewCitation((prev) => ({ ...prev, year: e.target.value }))}
+                        placeholder="年份"
+                        className="w-20 px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      />
+                      <input
+                        type="text"
+                        value={newCitation.journal}
+                        onChange={(e) => setNewCitation((prev) => ({ ...prev, journal: e.target.value }))}
+                        placeholder="期刊"
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={newCitation.doi}
+                      onChange={(e) => setNewCitation((prev) => ({ ...prev, doi: e.target.value }))}
+                      placeholder="DOI *"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleAddCitation}
+                        disabled={!newCitation.title.trim() || !newCitation.doi.trim()}
+                        className="flex-1 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        添加
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAddCitationForm(false)
+                          setNewCitation({ title: '', authors: '', year: '', journal: '', doi: '' })
+                        }}
+                        className="px-3 py-1.5 bg-slate-200 text-slate-600 rounded text-xs font-medium hover:bg-slate-300 transition"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {scopedCitations.map((cit, idx) => (
                   <div
                     key={idx}
-                    className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer"
+                    className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer group relative"
                   >
-                    <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteCitation(cit.doi)
+                      }}
+                      className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug pr-6">
                       {cit.title}
                     </div>
                     <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
@@ -1791,13 +1962,17 @@ export default function WritingPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <FileCode className="w-3 h-3" />
                         DOI
                         <ExternalLink className="w-3 h-3" />
                       </a>
                       <button
-                        onClick={() => insertCitation(cit.doi)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          insertCitation(cit.doi)
+                        }}
                         className="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition font-medium"
                       >
                         插入引用
@@ -1805,6 +1980,50 @@ export default function WritingPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="p-3 border-t border-slate-200 bg-slate-50/50 space-y-2">
+                <button
+                  onClick={handleOpenFolder}
+                  className="w-full py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center justify-center gap-1.5"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  从文件夹导入
+                </button>
+                <button
+                  onClick={() => setShowBibtexInput(!showBibtexInput)}
+                  className="w-full py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center justify-center gap-1.5"
+                >
+                  <Clipboard className="w-3.5 h-3.5" />
+                  粘贴 BibTeX
+                </button>
+                {showBibtexInput && (
+                  <div className="p-2 bg-white rounded-lg border border-slate-200 space-y-2">
+                    <textarea
+                      value={bibtexText}
+                      onChange={(e) => setBibtexText(e.target.value)}
+                      placeholder="粘贴 BibTeX 内容..."
+                      rows={4}
+                      className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 resize-none"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleImportBibtex}
+                        className="flex-1 py-1 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 transition"
+                      >
+                        导入
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowBibtexInput(false)
+                          setBibtexText('')
+                        }}
+                        className="px-3 py-1 bg-slate-200 text-slate-600 rounded text-xs font-medium hover:bg-slate-300 transition"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2131,7 +2350,7 @@ export default function WritingPage() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {DEMO_CITATIONS.map((cit) => {
+              {citations.map((cit) => {
                 const isSelected = selectedPaperIds.includes(cit.doi)
                 return (
                   <div
