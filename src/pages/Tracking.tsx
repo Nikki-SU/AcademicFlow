@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
+import { readCsvFile, writeCsvFile } from '../services/userData'
 
 // ============================================================
 // 类型定义
@@ -138,9 +139,7 @@ export default function TrackingPage() {
   const [isAdding, setIsAdding] = useState(false)
 
   // ---------- 关键词组 ----------
-  const [keywordGroups, setKeywordGroups] = useState<KeywordGroup[]>(() =>
-    loadFromStorage<KeywordGroup[]>(STORAGE_KEYS.KEYWORD_GROUPS, []),
-  )
+  const [keywordGroups, setKeywordGroups] = useState<KeywordGroup[]>([])
   const [keywordGroupsCollapsed, setKeywordGroupsCollapsed] = useState(() =>
     loadFromStorage<boolean>(STORAGE_KEYS.KEYWORD_GROUPS_COLLAPSED, true),
   )
@@ -151,9 +150,7 @@ export default function TrackingPage() {
   const [keywordInput, setKeywordInput] = useState('')
 
   // ---------- 期刊 ----------
-  const [journals, setJournals] = useState<JournalItem[]>(() =>
-    loadFromStorage<JournalItem[]>(STORAGE_KEYS.JOURNALS, []),
-  )
+  const [journals, setJournals] = useState<JournalItem[]>([])
   const [journalsCollapsed, setJournalsCollapsed] = useState(() =>
     loadFromStorage<boolean>(STORAGE_KEYS.JOURNALS_COLLAPSED, true),
   )
@@ -189,14 +186,7 @@ export default function TrackingPage() {
   // 持久化
   // ============================================================
 
-  useEffect(() => {
-    saveToStorage(STORAGE_KEYS.KEYWORD_GROUPS, keywordGroups)
-  }, [keywordGroups])
-
-  useEffect(() => {
-    saveToStorage(STORAGE_KEYS.JOURNALS, journals)
-  }, [journals])
-
+  // 搜索源、折叠状态等 UI 偏好继续用 localStorage
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.SEARCH_SITES, searchSites)
   }, [searchSites])
@@ -208,6 +198,102 @@ export default function TrackingPage() {
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.JOURNALS_COLLAPSED, journalsCollapsed)
   }, [journalsCollapsed])
+
+  // 关键词组 & 期刊从 GitHub 私库加载
+  const dataLoadedRef = useRef(false)
+  useEffect(() => {
+    let cancelled = false
+    async function loadData() {
+      try {
+        const groups = await readCsvFile<KeywordGroup>(
+          'keyword_groups/keyword_groups.csv',
+          (rows) => {
+            if (rows.length <= 1) return []
+            return rows.slice(1).map((r) => ({
+              id: r[0] || '',
+              name: r[1] || '',
+              keywords: (r[2] || '').split(',').filter(Boolean),
+              enabled: r[3] === '1' || r[3] === 'true',
+            }))
+          },
+        )
+        if (!cancelled && groups.length > 0) {
+          setKeywordGroups(groups)
+        }
+      } catch (err) {
+        console.warn('[Tracking] 从 GitHub 加载关键词组失败:', err)
+      }
+
+      try {
+        const loadedJournals = await readCsvFile<JournalItem>(
+          'journals/journal_tracking.csv',
+          (rows) => {
+            if (rows.length <= 1) return []
+            return rows.slice(1).map((r) => ({
+              id: r[0] || '',
+              name: r[1] || '',
+              rssUrl: r[2] || undefined,
+              enabled: r[3] === '1' || r[3] === 'true',
+            }))
+          },
+        )
+        if (!cancelled && loadedJournals.length > 0) {
+          setJournals(loadedJournals)
+        }
+      } catch (err) {
+        console.warn('[Tracking] 从 GitHub 加载期刊失败:', err)
+      }
+      if (!cancelled) dataLoadedRef.current = true
+    }
+    loadData()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 关键词组变化时防抖保存到 GitHub
+  const keywordGroupsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!dataLoadedRef.current) return
+    if (keywordGroupsSaveTimerRef.current) clearTimeout(keywordGroupsSaveTimerRef.current)
+    keywordGroupsSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await writeCsvFile(
+          'keyword_groups/keyword_groups.csv',
+          keywordGroups,
+          ['id', 'name', 'keywords', 'enabled'],
+          (g) => [g.id, g.name, g.keywords.join(','), g.enabled ? '1' : '0'],
+        )
+      } catch (err) {
+        console.error('[Tracking] 保存关键词组到 GitHub 失败:', err)
+      }
+    }, 2000)
+    return () => {
+      if (keywordGroupsSaveTimerRef.current) clearTimeout(keywordGroupsSaveTimerRef.current)
+    }
+  }, [keywordGroups])
+
+  // 期刊变化时防抖保存到 GitHub
+  const journalsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!dataLoadedRef.current) return
+    if (journalsSaveTimerRef.current) clearTimeout(journalsSaveTimerRef.current)
+    journalsSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await writeCsvFile(
+          'journals/journal_tracking.csv',
+          journals,
+          ['id', 'name', 'rss_url', 'enabled'],
+          (j) => [j.id, j.name, j.rssUrl || '', j.enabled ? '1' : '0'],
+        )
+      } catch (err) {
+        console.error('[Tracking] 保存期刊到 GitHub 失败:', err)
+      }
+    }, 2000)
+    return () => {
+      if (journalsSaveTimerRef.current) clearTimeout(journalsSaveTimerRef.current)
+    }
+  }, [journals])
 
   // 点击外部关闭搜索下拉
   useEffect(() => {

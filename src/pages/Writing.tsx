@@ -19,7 +19,6 @@ import {
   Code,
   Link,
   Image,
-  Table,
   FileText,
   BookOpen,
   Library,
@@ -49,6 +48,7 @@ import {
   GraduationCap,
   Newspaper,
 } from 'lucide-react'
+import TableGridPicker from '../components/TableGridPicker'
 
 const STAGES = [
   { value: 'topic', label: '选题' },
@@ -567,8 +567,13 @@ export default function WritingPage() {
     handleEditorInput()
   }
 
-  const insertTable = () => {
-    const tableTemplate = `\n| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| 内容 | 内容 | 内容 |\n| 内容 | 内容 | 内容 |\n`
+  const insertTableWithSize = (rows: number, cols: number) => {
+    const header = Array.from({ length: cols }, (_, i) => `列${i + 1}`).join(' | ')
+    const separator = Array.from({ length: cols }, () => '---').join(' | ')
+    const bodyRows = Array.from({ length: rows }, () =>
+      Array.from({ length: cols }, () => '内容').join(' | ')
+    )
+    const tableTemplate = `\n| ${header} |\n| ${separator} |\n${bodyRows.map(r => `| ${r} |`).join('\n')}\n`
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return
     const range = selection.getRangeAt(0)
@@ -1033,13 +1038,7 @@ export default function WritingPage() {
           >
             <Image className="w-4 h-4" />
           </button>
-          <button
-            onClick={insertTable}
-            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-            title="表格"
-          >
-            <Table className="w-4 h-4" />
-          </button>
+          <TableGridPicker onSelect={insertTableWithSize} />
           <div className="w-px h-4 bg-slate-200 mx-1" />
           <button
             onClick={() => setShowCitationModal(true)}

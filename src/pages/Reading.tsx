@@ -29,6 +29,7 @@ import {
   Edit3,
   Check,
 } from 'lucide-react'
+import { readMdFile, writeMdFile, readCsvFile, writeCsvFile } from '../services/userData'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 type SideTab = 'notes' | 'annotations'
@@ -445,22 +446,48 @@ export default function ReadingPage() {
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
 
   useEffect(() => {
-    const savedAnnotations = localStorage.getItem('reading-annotations')
-    const savedNotes = localStorage.getItem('reading-notes-html')
+    let cancelled = false
+    async function loadData() {
+      // 加载批注
+      try {
+        const annData = await readCsvFile(
+          `annotations/annotations.csv`,
+          (rows) => {
+            if (rows.length <= 1) return []
+            return rows.slice(1).map((r) => ({
+              id: r[0] || '',
+              paperId: r[1] || '',
+              text: r[2] || '',
+              color: r[3] || 'yellow',
+              note: r[4] || '',
+              timestamp: parseInt(r[5] || '0', 10),
+            }))
+          }
+        )
+        if (!cancelled && annData.length > 0) {
+          setAnnotations(annData as any[])
+        } else if (!cancelled) {
+          setAnnotations(DEMO_ANNOTATIONS)
+        }
+      } catch {
+        if (!cancelled) setAnnotations(DEMO_ANNOTATIONS)
+      }
 
-    if (savedAnnotations) {
-      setAnnotations(JSON.parse(savedAnnotations))
-    } else {
-      setAnnotations(DEMO_ANNOTATIONS)
-      localStorage.setItem('reading-annotations', JSON.stringify(DEMO_ANNOTATIONS))
+      // 加载笔记（所有笔记合并存储在 notes/notes.json 或分别存 md）
+      // 这里简化为从单个 md 文件加载
+      try {
+        const noteResult = await readMdFile('notes/notes.json')
+        if (!cancelled && noteResult) {
+          setNotesHtml(JSON.parse(noteResult.content))
+        } else if (!cancelled) {
+          setNotesHtml(DEMO_NOTES_INITIAL)
+        }
+      } catch {
+        if (!cancelled) setNotesHtml(DEMO_NOTES_INITIAL)
+      }
     }
-
-    if (savedNotes) {
-      setNotesHtml(JSON.parse(savedNotes))
-    } else {
-      setNotesHtml(DEMO_NOTES_INITIAL)
-      localStorage.setItem('reading-notes-html', JSON.stringify(DEMO_NOTES_INITIAL))
-    }
+    loadData()
+    return () => { cancelled = true }
   }, [])
 
   const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
@@ -469,7 +496,12 @@ export default function ReadingPage() {
     }
     setAnnotationSaveState({ status: 'saving', lastSaved: null })
     annotationSaveTimerRef.current = setTimeout(() => {
-      localStorage.setItem('reading-annotations', JSON.stringify(newAnnotations))
+      writeCsvFile(
+        'annotations/annotations.csv',
+        newAnnotations as any[],
+        ['id', 'paper_id', 'text', 'color', 'note', 'timestamp'],
+        (a: any) => [a.id, a.paperId, a.text, a.color, a.note, String(a.timestamp)]
+      ).catch(err => console.error('[Reading] 保存批注到 GitHub 失败:', err))
       setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setAnnotationSaveState((prev) => ({ ...prev, status: 'idle' }))
@@ -485,7 +517,7 @@ export default function ReadingPage() {
     noteSaveTimerRef.current = setTimeout(() => {
       const newNotes = { ...notesHtml, [paperId]: html }
       setNotesHtml(newNotes)
-      localStorage.setItem('reading-notes-html', JSON.stringify(newNotes))
+      writeMdFile('notes/notes.json', JSON.stringify(newNotes), 'Update reading notes').catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
       setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setNoteSaveState((prev) => ({ ...prev, status: 'idle' }))

@@ -23,6 +23,8 @@ import {
   FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
+import type { WordData } from '../services/learningData'
 
 type TabId = 'words' | 'sentences' | 'translation'
 type QuestionType = 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
@@ -262,9 +264,9 @@ export default function LearnPage() {
   const [selectedPaper, setSelectedPaper] = useState('')
   const [genTypes, setGenTypes] = useState({ words: true, sentences: true, translation: true })
 
-  const [words, setWords] = useState<Word[]>(() => loadFromStorage(STORAGE_KEYS.words, DEFAULT_WORDS))
-  const [sentences, setSentences] = useState<Sentence[]>(() => loadFromStorage(STORAGE_KEYS.sentences, DEFAULT_SENTENCES))
-  const [translations, setTranslations] = useState<TranslationItem[]>(() => loadFromStorage(STORAGE_KEYS.translations, DEFAULT_TRANSLATIONS))
+  const [words, setWords] = useState<Word[]>(DEFAULT_WORDS)
+  const [sentences, setSentences] = useState<Sentence[]>(DEFAULT_SENTENCES)
+  const [translations, setTranslations] = useState<TranslationItem[]>(DEFAULT_TRANSLATIONS)
   const [studyStats, setStudyStats] = useState<StudyStats>(() => {
     const saved = loadFromStorage<StudyStats | null>(STORAGE_KEYS.stats, null)
     if (saved && saved.lastStudyDate === getTodayString()) {
@@ -276,19 +278,54 @@ export default function LearnPage() {
       lastStudyDate: getTodayString(),
     }
   })
+  const [dataLoaded, setDataLoaded] = useState(false)
 
+  // 从 GitHub 私库加载数据
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.words, words)
-  }, [words])
+    let cancelled = false
+    async function loadData() {
+      try {
+        const [loadedWords, loadedSentences, loadedTranslations] = await Promise.all([
+          loadWords(),
+          loadSentences(),
+          loadTranslations(),
+        ])
+        if (cancelled) return
+        if (loadedWords.length > 0) setWords(loadedWords as unknown as Word[])
+        if (loadedSentences.length > 0) setSentences(loadedSentences as unknown as Sentence[])
+        if (loadedTranslations.length > 0) setTranslations(loadedTranslations as unknown as TranslationItem[])
+        setDataLoaded(true)
+      } catch (err) {
+        console.warn('[Learn] 从 GitHub 加载学习数据失败，使用默认数据:', err)
+        setDataLoaded(true)
+      }
+    }
+    loadData()
+    return () => { cancelled = true }
+  }, [])
 
+  // 防抖保存到 GitHub 私库
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.sentences, sentences)
-  }, [sentences])
+    if (!dataLoaded) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await Promise.all([
+          saveWords(words as unknown as WordData[]),
+          saveSentences(sentences as unknown as any[]),
+          saveTranslations(translations as unknown as any[]),
+        ])
+      } catch (err) {
+        console.error('[Learn] 保存学习数据到 GitHub 失败:', err)
+      }
+    }, 2000)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [words, sentences, translations, dataLoaded])
 
-  useEffect(() => {
-    saveToStorage(STORAGE_KEYS.translations, translations)
-  }, [translations])
-
+  // studyStats 仍用 localStorage（纯 UI 统计，非业务数据）
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.stats, studyStats)
   }, [studyStats])
