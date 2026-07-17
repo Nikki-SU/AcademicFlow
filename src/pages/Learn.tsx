@@ -423,14 +423,14 @@ export default function LearnPage() {
             <GraduationCap className="w-6 h-6 text-indigo-600" />
             学习
           </h1>
-          <p className="text-sm text-slate-500 mt-1">AI 从文献 Markdown 自动生成学习内容：单词、长难句、翻译练习</p>
+          <p className="text-sm text-slate-500 mt-1">PDF 入库转换为 Markdown 时自动生成学习内容，也可手动添加</p>
         </div>
         <button
           onClick={() => setAiGenOpen(true)}
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-purple-700 transition shadow-sm"
         >
           <Sparkles className="w-4 h-4" />
-          AI 生成学习内容
+          AI 补充生成
         </button>
       </div>
 
@@ -459,7 +459,7 @@ export default function LearnPage() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
             <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-600" />
-              AI 生成学习内容
+              AI 补充生成学习内容
             </h3>
             <p className="text-sm text-slate-500 mb-4">
               从选定文献的 Markdown 内容中自动提取并生成学习卡片
@@ -557,6 +557,7 @@ interface WordSectionProps {
 }
 
 function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }: WordSectionProps) {
+  const BATCH_SIZE = 7
   const [currentIndex, setCurrentIndex] = useState(0)
   const [currentType, setCurrentType] = useState<QuestionType>(() =>
     loadFromStorage<QuestionType>(STORAGE_KEYS.currentType, 'word')
@@ -574,7 +575,14 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
   const [showDetail, setShowDetail] = useState(false)
   const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const currentWord = words[currentIndex % words.length]
+  // 短队列：取前7个未掌握的词作为当前学习批次
+  const studyWords = useMemo(() => {
+    const unmastered = words.filter(w => !w.mastered)
+    const pool = unmastered.length > 0 ? unmastered : words
+    return pool.slice(0, BATCH_SIZE)
+  }, [words])
+
+  const currentWord = studyWords[currentIndex % Math.max(studyWords.length, 1)]
 
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.currentType, currentType)
@@ -611,16 +619,17 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
       clearTimeout(autoNextTimerRef.current)
       autoNextTimerRef.current = null
     }
+    const len = Math.max(studyWords.length, 1)
     if (randomMode) {
-      let nextIndex = Math.floor(Math.random() * words.length)
-      while (nextIndex === currentIndex && words.length > 1) {
-        nextIndex = Math.floor(Math.random() * words.length)
+      let nextIndex = Math.floor(Math.random() * len)
+      while (nextIndex === currentIndex && len > 1) {
+        nextIndex = Math.floor(Math.random() * len)
       }
       setCurrentIndex(nextIndex)
     } else {
-      setCurrentIndex((i) => (i + 1) % words.length)
+      setCurrentIndex((i) => (i + 1) % len)
     }
-  }, [randomMode, words.length, currentIndex])
+  }, [randomMode, studyWords.length, currentIndex])
 
   const handlePrev = () => {
     setShowDetail(false)
@@ -628,13 +637,16 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
       clearTimeout(autoNextTimerRef.current)
       autoNextTimerRef.current = null
     }
-    setCurrentIndex((i) => (i - 1 + words.length) % words.length)
+    const len = Math.max(studyWords.length, 1)
+    setCurrentIndex((i) => (i - 1 + len) % len)
   }
 
   const handleMastered = () => {
+    const wordId = currentWord?.id
+    if (!wordId) return
     setWords((prev) =>
-      prev.map((w, i) =>
-        i === currentIndex % words.length ? { ...w, mastered: !w.mastered } : w
+      prev.map((w) =>
+        w.id === wordId ? { ...w, mastered: !w.mastered } : w
       )
     )
     toast.success(currentWord?.mastered ? '已取消掌握标记' : '已标记为已掌握')
@@ -743,12 +755,12 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
         <div className="w-full bg-slate-100 rounded-full h-2 mb-3">
           <div
             className="bg-indigo-600 h-2 rounded-full transition-all"
-            style={{ width: `${((currentIndex + 1) / words.length) * 100}%` }}
+            style={{ width: `${((currentIndex + 1) / Math.max(studyWords.length, 1)) * 100}%` }}
           />
         </div>
 
         <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>进度：{currentIndex + 1} / {words.length}</span>
+          <span>本批进度：{currentIndex + 1} / {studyWords.length}（共 {words.length} 词）</span>
           <span>当前单词：{currentWord?.word}</span>
         </div>
       </div>

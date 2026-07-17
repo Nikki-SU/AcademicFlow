@@ -438,6 +438,7 @@ export default function ReadingPage() {
   const [selectedText, setSelectedText] = useState('')
   const [noteSaveState, setNoteSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
   const [annotationSaveState, setAnnotationSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
+  const [notesLoaded, setNotesLoaded] = useState(false)
 
   const readerRef = useRef<HTMLDivElement>(null)
   const noteEditorRef = useRef<HTMLDivElement>(null)
@@ -485,10 +486,19 @@ export default function ReadingPage() {
       } catch {
         if (!cancelled) setNotesHtml(DEMO_NOTES_INITIAL)
       }
+      if (!cancelled) setNotesLoaded(true)
     }
     loadData()
     return () => { cancelled = true }
   }, [])
+
+  // 仅在切换文献或首次加载时设置 innerHTML，不在每次输入时重置（避免光标跳转）
+  useEffect(() => {
+    if (noteEditorRef.current && selectedPaperId && notesLoaded) {
+      noteEditorRef.current.innerHTML = notesHtml[selectedPaperId] || ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPaperId, notesLoaded])
 
   const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
     if (annotationSaveTimerRef.current) {
@@ -1182,7 +1192,6 @@ export default function ReadingPage() {
                     onInput={handleNoteInput}
                     suppressContentEditableWarning
                     className="w-full h-full p-3 text-sm focus:outline-none prose-sm max-w-none note-editor"
-                    dangerouslySetInnerHTML={{ __html: currentNoteHtml }}
                   />
                 ) : (
                   <div className="text-center text-slate-400 py-8">
