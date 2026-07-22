@@ -64,16 +64,28 @@ function Login() {
   const handlePollToken = useCallback(async () => {
     if (!deviceCode) return
     setIsPolling(true)
+    const startTime = Date.now()
+    const expiresAt = startTime + deviceCode.expires_in * 1000
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
     const poll = async () => {
       try {
+        if (Date.now() > expiresAt) {
+          throw new Error('授权码已过期')
+        }
         const result = await pollDeviceToken(deviceCode.device_code)
         if (result) {
           await login(result.access_token, 'device_flow')
           toast.success('登录成功！')
           return
         }
-        setTimeout(poll, deviceCode.interval * 1000)
+        const remaining = expiresAt - Date.now()
+        if (remaining <= 0) {
+          throw new Error('授权码已过期')
+        }
+        timeoutId = setTimeout(poll, Math.min(deviceCode.interval * 1000, remaining))
       } catch (e) {
+        if (timeoutId) clearTimeout(timeoutId)
         setIsPolling(false)
         toast.error(e instanceof Error ? e.message : '授权失败')
         setDeviceCode(null)

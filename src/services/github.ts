@@ -278,6 +278,19 @@ function utf8ToBase64(text: string): string {
 }
 
 /**
+ * 将 base64 内容解码为文本（UTF-8 安全）
+ * 浏览器 atob 只能处理 latin1，中文会乱码，用 TextDecoder 走一遍
+ */
+function base64ToUtf8(base64: string): string {
+  const bin = atob(base64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i)
+  }
+  return new TextDecoder('utf-8').decode(bytes)
+}
+
+/**
  * 检测仓库是否为空（无任何 commit / 无默认分支）
  * -------------------------------------------------
  * 空仓库的判定信号：`GET /repos/{owner}/{repo}/branches` 返回空数组。
@@ -516,7 +529,7 @@ export async function readRepoTextFile(
     throw new GitHubAPIError(res.status, err, `读取文件失败：${err}`)
   }
   const data = (await res.json()) as { content: string; sha: string; encoding: string }
-  const content = atob(data.content.replace(/\n/g, ''))
+  const content = base64ToUtf8(data.content.replace(/\n/g, ''))
   return { content, sha: data.sha }
 }
 

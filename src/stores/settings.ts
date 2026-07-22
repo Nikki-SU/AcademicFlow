@@ -250,6 +250,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       onProgress,
     ) => {
       const state = get()
+      if (state.isRunningDualEngine) {
+        throw new Error('双引擎测试正在运行中，请等待完成')
+      }
 
       let ai1BaseUrl: string
       let ai1ApiKey: string
