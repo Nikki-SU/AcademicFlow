@@ -57,6 +57,10 @@ import {
   File,
 } from 'lucide-react'
 import TableGridPicker from '../components/TableGridPicker'
+import { toast } from 'sonner'
+import { readMdFile, writeMdFile } from '../services/userData'
+
+const PROJECT_DOC_PATH = 'writing/default.md'
 
 const STAGES = [
   { value: 'topic', label: '选题', leftPanel: 'outline', rightPanel: 'knowledge' },
@@ -159,40 +163,24 @@ interface OutlineItem {
 type LeftPanelMode = 'editor' | 'outline' | 'references'
 type RightPanelMode = 'ai' | 'library' | 'knowledge' | 'typesetting'
 
-const DEMO_PROJECTS: Project[] = [
-  { id: '1', name: '钙钛矿太阳能电池', stage: 'writing', litCount: 24 },
-  { id: '2', name: 'CO2电催化还原', stage: 'review', litCount: 18 },
-]
+const DEFAULT_PROJECT: Project = { id: 'default', name: '默认项目', stage: 'writing', litCount: 0 }
+
+// 保留最小 fallback，使 UI 在无数据时仍可渲染；真实数据在组件挂载后从 GitHub 私库加载
+const DEMO_PROJECTS: Project[] = [DEFAULT_PROJECT]
 
 const DEMO_CITATIONS: CitationRef[] = [
   {
-    doi: '10.1038/s41560-024-01234-5',
-    title: '钙钛矿太阳能电池的最新进展与挑战',
-    authors: 'Zhang Y, Wang L, Chen H',
-    year: 2024,
-    journal: 'Nature Energy',
-    projectId: '1',
-    type: 'paper',
-  },
-  {
     doi: '10.1021/jacs.3c11464',
-    title: 'Pd/IPr^BIDEA 催化 gem-二氟环丙烷区域选择性氢化脱氟合成末端氟代烯烃',
-    authors: 'Qian H, Cheng ZP, Luo Y, Lv L, Chen S, Li Z',
-    year: 2024,
-    journal: 'Journal of the American Chemical Society',
-    projectId: '2',
-    type: 'paper',
-  },
-  {
-    doi: '10.1016/j.nanoen.2023.108765',
-    title: 'Metal-organic framework derived nanomaterials for electrocatalytic CO2 reduction',
-    authors: 'Liu X, Zhao Y, Sun M',
+    title: 'Efficient Perovskite Solar Cells via Interface Engineering',
+    authors: 'Chen, X., Li, Y.',
     year: 2023,
-    journal: 'Nano Energy',
-    projectId: '1',
+    journal: 'Journal of the American Chemical Society',
+    projectId: 'default',
     type: 'paper',
   },
 ]
+
+// 真实文献数据在组件挂载时从 GitHub 私库加载
 
 const DEMO_BOOKS: BookRef[] = [
   {
@@ -725,6 +713,25 @@ export default function WritingPage() {
 
   const wordCount = mdContent.replace(/\s/g, '').length
 
+  // 从 GitHub 私库加载文档内容
+  useEffect(() => {
+    let cancelled = false
+    async function loadDocument() {
+      try {
+        const doc = await readMdFile(PROJECT_DOC_PATH)
+        if (cancelled) return
+        if (doc?.content) {
+          setMdContent(doc.content)
+          setLastSaved(Date.now())
+        }
+      } catch (err) {
+        console.warn('[Writing] 加载文档失败:', err)
+      }
+    }
+    loadDocument()
+    return () => { cancelled = true }
+  }, [])
+
   useEffect(() => {
     if (editorRef.current && !editorLoaded) {
       editorRef.current.innerHTML = renderMarkdown(mdContent)
@@ -748,14 +755,20 @@ export default function WritingPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // 自动保存到 GitHub 私库
   useEffect(() => {
     if (saveStatus !== 'unsaved') return
     const timer = setTimeout(() => {
       setSaveStatus('saving')
-      setTimeout(() => {
-        setSaveStatus('saved')
-        setLastSaved(Date.now())
-      }, 500)
+      writeMdFile(PROJECT_DOC_PATH, mdContent, 'Auto-save document')
+        .then(() => {
+          setSaveStatus('saved')
+          setLastSaved(Date.now())
+        })
+        .catch(() => {
+          setSaveStatus('unsaved')
+          toast.error('保存失败，请检查 GitHub 配置')
+        })
     }, 1000)
     return () => clearTimeout(timer)
   }, [mdContent, saveStatus])

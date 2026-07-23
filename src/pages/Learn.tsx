@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner'
 import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
 import type { WordData } from '../services/learningData'
+import { getSetting, putSetting } from '../services/db'
 
 type TabId = 'words' | 'sentences' | 'translation'
 type QuestionType = 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
@@ -187,38 +188,39 @@ const DEFAULT_TRANSLATIONS: TranslationItem[] = [
   },
 ]
 
-const STORAGE_KEYS = {
-  words: 'learn_words',
-  sentences: 'learn_sentences',
-  translations: 'learn_translations',
-  stats: 'learn_stats',
-  currentType: 'learn_current_type',
-  randomMode: 'learn_random_mode',
-  enabledTypes: 'learn_enabled_types',
-}
-
 const AI_GENERATE_OPTIONS = [
   { value: '10.1038/s41560-024-01432-1', label: '钙钛矿太阳能电池综述 (Nature Energy)' },
   { value: '10.1021/jacs.3c04567', label: 'CO2 还原电催化剂设计 (JACS)' },
 ]
 
-function loadFromStorage<T>(key: string, defaultValue: T): T {
+/** 学习进度存储 key（IndexedDB settings 表） */
+const LEARN_KEYS = {
+  activeTab: 'learn_active_tab',
+  stats: 'learn_stats',
+  wordCurrentIndex: 'learn_word_current_index',
+  wordCurrentId: 'learn_word_current_id',
+  wordCurrentType: 'learn_word_current_type',
+  wordRandomMode: 'learn_word_random_mode',
+  wordEnabledTypes: 'learn_word_enabled_types',
+  sentenceCurrentIndex: 'learn_sentence_current_index',
+  translationCurrentIndex: 'learn_translation_current_index',
+}
+
+async function loadSetting<T>(key: string, defaultValue: T): Promise<T> {
   try {
-    const data = localStorage.getItem(key)
-    if (data) {
-      return JSON.parse(data)
-    }
-  } catch {
-    // ignore
+    const raw = await getSetting(key)
+    if (raw) return JSON.parse(raw) as T
+  } catch (err) {
+    console.error(`[Learn] 读取进度失败 (${key}):`, err)
   }
   return defaultValue
 }
 
-function saveToStorage<T>(key: string, data: T) {
+async function saveSetting<T>(key: string, data: T) {
   try {
-    localStorage.setItem(key, JSON.stringify(data))
-  } catch {
-    // ignore
+    await putSetting(key, JSON.stringify(data))
+  } catch (err) {
+    console.error(`[Learn] 保存进度失败 (${key}):`, err)
   }
 }
 
@@ -267,18 +269,39 @@ export default function LearnPage() {
   const [words, setWords] = useState<Word[]>(DEFAULT_WORDS)
   const [sentences, setSentences] = useState<Sentence[]>(DEFAULT_SENTENCES)
   const [translations, setTranslations] = useState<TranslationItem[]>(DEFAULT_TRANSLATIONS)
-  const [studyStats, setStudyStats] = useState<StudyStats>(() => {
-    const saved = loadFromStorage<StudyStats | null>(STORAGE_KEYS.stats, null)
-    if (saved && saved.lastStudyDate === getTodayString()) {
-      return saved
-    }
-    return {
-      todayLearned: [],
-      totalLearned: saved?.totalLearned || [],
-      lastStudyDate: getTodayString(),
-    }
+  const [studyStats, setStudyStats] = useState<StudyStats>({
+    todayLearned: [],
+    totalLearned: [],
+    lastStudyDate: getTodayString(),
   })
   const [dataLoaded, setDataLoaded] = useState(false)
+
+  // 从 IndexedDB 恢复标签页和学习统计
+  useEffect(() => {
+    let cancelled = false
+    async function loadProgress() {
+      try {
+        const [savedTab, savedStats] = await Promise.all([
+          loadSetting<TabId>(LEARN_KEYS.activeTab, 'words'),
+          loadSetting<StudyStats | null>(LEARN_KEYS.stats, null),
+        ])
+        if (cancelled) return
+        if (savedTab) setActiveTab(savedTab)
+        if (savedStats) {
+          const today = getTodayString()
+          setStudyStats({
+            todayLearned: savedStats.lastStudyDate === today ? savedStats.todayLearned : [],
+            totalLearned: savedStats.totalLearned || [],
+            lastStudyDate: today,
+          })
+        }
+      } catch (err) {
+        console.error('[Learn] 恢复标签页/统计失败:', err)
+      }
+    }
+    loadProgress()
+    return () => { cancelled = true }
+  }, [])
 
   // 从 GitHub 私库加载数据
   useEffect(() => {
@@ -325,9 +348,13 @@ export default function LearnPage() {
     }
   }, [words, sentences, translations, dataLoaded])
 
-  // studyStats 仍用 localStorage（纯 UI 统计，非业务数据）
+  // 持久化标签页和学习统计到 IndexedDB
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.stats, studyStats)
+    saveSetting(LEARN_KEYS.activeTab, activeTab)
+  }, [activeTab])
+
+  useEffect(() => {
+    saveSetting(LEARN_KEYS.stats, studyStats)
   }, [studyStats])
 
   const markWordLearned = useCallback((wordId: string) => {
@@ -559,15 +586,9 @@ interface WordSectionProps {
 function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }: WordSectionProps) {
   const BATCH_SIZE = 7
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [currentType, setCurrentType] = useState<QuestionType>(() =>
-    loadFromStorage<QuestionType>(STORAGE_KEYS.currentType, 'word')
-  )
-  const [randomMode, setRandomMode] = useState<boolean>(() =>
-    loadFromStorage<boolean>(STORAGE_KEYS.randomMode, false)
-  )
-  const [enabledTypes, setEnabledTypes] = useState<QuestionType[]>(() =>
-    loadFromStorage<QuestionType[]>(STORAGE_KEYS.enabledTypes, ['word', 'spelling', 'listening', 'zhToEn', 'enToZh'])
-  )
+  const [currentType, setCurrentType] = useState<QuestionType>('word')
+  const [randomMode, setRandomMode] = useState<boolean>(false)
+  const [enabledTypes, setEnabledTypes] = useState<QuestionType[]>(['word', 'spelling', 'listening', 'zhToEn', 'enToZh'])
   const [randomQuestionMode, setRandomQuestionMode] = useState<boolean>(false)
   const [questionTypeForWord, setQuestionTypeForWord] = useState<QuestionType>('word')
   const [showSettings, setShowSettings] = useState(false)
@@ -584,16 +605,55 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
 
   const currentWord = studyWords[currentIndex % Math.max(studyWords.length, 1)]
 
+  // 从 IndexedDB 恢复单词学习进度
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.currentType, currentType)
+    let cancelled = false
+    async function loadProgress() {
+      try {
+        const [idx, wordId, type, random, enabled] = await Promise.all([
+          loadSetting<number>(LEARN_KEYS.wordCurrentIndex, 0),
+          loadSetting<string | null>(LEARN_KEYS.wordCurrentId, null),
+          loadSetting<QuestionType>(LEARN_KEYS.wordCurrentType, 'word'),
+          loadSetting<boolean>(LEARN_KEYS.wordRandomMode, false),
+          loadSetting<QuestionType[]>(LEARN_KEYS.wordEnabledTypes, ['word', 'spelling', 'listening', 'zhToEn', 'enToZh']),
+        ])
+        if (cancelled) return
+        // 优先用保存的单词 ID 在词表中定位；找不到再回退到索引
+        let restoredIdx = idx
+        if (wordId) {
+          const foundIdx = studyWords.findIndex((w) => w.id === wordId)
+          if (foundIdx >= 0) restoredIdx = foundIdx
+        }
+        const safeIdx = Math.max(0, Math.min(restoredIdx, Math.max(studyWords.length - 1, 0)))
+        setCurrentIndex(safeIdx)
+        setCurrentType(type)
+        setRandomMode(random)
+        setEnabledTypes(enabled)
+      } catch (err) {
+        console.error('[Learn] WordSection 加载进度失败:', err)
+      }
+    }
+    loadProgress()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    saveSetting(LEARN_KEYS.wordCurrentIndex, currentIndex)
+    if (currentWord?.id) {
+      saveSetting(LEARN_KEYS.wordCurrentId, currentWord.id)
+    }
+  }, [currentIndex, currentWord?.id])
+
+  useEffect(() => {
+    saveSetting(LEARN_KEYS.wordCurrentType, currentType)
   }, [currentType])
 
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.randomMode, randomMode)
+    saveSetting(LEARN_KEYS.wordRandomMode, randomMode)
   }, [randomMode])
 
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.enabledTypes, enabledTypes)
+    saveSetting(LEARN_KEYS.wordEnabledTypes, enabledTypes)
   }, [enabledTypes])
 
   useEffect(() => {
@@ -1584,7 +1644,27 @@ function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; s
   const [flipped, setFlipped] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
 
-  const currentSentence = sentences[currentIndex % sentences.length]
+  useEffect(() => {
+    let cancelled = false
+    async function loadProgress() {
+      try {
+        const idx = await loadSetting<number>(LEARN_KEYS.sentenceCurrentIndex, 0)
+        if (cancelled) return
+        const safeIdx = sentences.length > 0 ? idx % sentences.length : 0
+        setCurrentIndex(safeIdx)
+      } catch (err) {
+        console.error('[Learn] SentenceSection 加载进度失败:', err)
+      }
+    }
+    loadProgress()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    saveSetting(LEARN_KEYS.sentenceCurrentIndex, currentIndex)
+  }, [currentIndex])
+
+  const currentSentence = sentences.length > 0 ? sentences[currentIndex % sentences.length] : undefined
 
   const handlePrev = () => {
     setFlipped(false)
@@ -1743,7 +1823,27 @@ function TranslationSection({ translations, setTranslations }: { translations: T
   const [flipped, setFlipped] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
 
-  const currentItem = translations[currentIndex % translations.length]
+  useEffect(() => {
+    let cancelled = false
+    async function loadProgress() {
+      try {
+        const idx = await loadSetting<number>(LEARN_KEYS.translationCurrentIndex, 0)
+        if (cancelled) return
+        const safeIdx = translations.length > 0 ? idx % translations.length : 0
+        setCurrentIndex(safeIdx)
+      } catch (err) {
+        console.error('[Learn] TranslationSection 加载进度失败:', err)
+      }
+    }
+    loadProgress()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    saveSetting(LEARN_KEYS.translationCurrentIndex, currentIndex)
+  }, [currentIndex])
+
+  const currentItem = translations.length > 0 ? translations[currentIndex % translations.length] : undefined
 
   const handlePrev = () => {
     setFlipped(false)
