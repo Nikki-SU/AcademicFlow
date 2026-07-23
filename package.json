@@ -21,7 +21,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.17.0",
     "lucide-react": "^0.454.0",
-    "react": "^18.3.1",
+    "react": "^19.2.8",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
     "sonner": "^1.5.0",
@@ -31,7 +31,7 @@
   "devDependencies": {
     "@types/katex": "^0.16.8",
     "@types/node": "^22.20.1",
-    "@types/react": "^18.3.11",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
