@@ -109,12 +109,12 @@ function AttemptHistory({
                   <div className="font-medium text-slate-700 mb-1">
                     AI-1 输出
                     {!a.ai1Invoked && (
-                      <span className="ml-1 text-[11px] font-normal text-slate-500">
+                      <span className="ml-1 text-[0.6875rem] font-normal text-slate-500">
                         （本轮 AI-2 自纠，AI-1 输出沿用上一轮）
                       </span>
                     )}
                   </div>
-                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded whitespace-pre-wrap font-sans leading-relaxed max-h-[160px] overflow-y-auto">
+                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded whitespace-pre-wrap font-sans leading-relaxed max-h-[10rem] overflow-y-auto">
                     {a.ai1Output}
                   </pre>
                 </div>

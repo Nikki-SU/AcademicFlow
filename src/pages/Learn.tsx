@@ -1163,7 +1163,7 @@ function SpellingQuestion({ word, onCorrect, onWrong }: SpellingProps) {
         <p className="text-sm text-slate-400">{word.phonetic}</p>
       </div>
 
-      <div className="flex justify-center gap-2 mb-6 min-h-[56px]">
+      <div className="flex justify-center gap-2 mb-6 min-h-[3.5rem]">
         {word.word.split('').map((_, i) => {
           const letter = spelledLetters[i] || ''
           const isCorrectLetter = spellingCorrect === true
@@ -1730,15 +1730,15 @@ function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; s
 
       <div
         onClick={() => setFlipped(!flipped)}
-        className="w-full min-h-[320px] cursor-pointer perspective-1000"
-        style={{ perspective: '1000px' }}
+        className="w-full min-h-[20rem] cursor-pointer perspective-[62.5rem]"
+        style={{ perspective: '62.5rem' }}
       >
         <div
           className="relative w-full h-full transition-transform duration-500"
           style={{
             transformStyle: 'preserve-3d',
             transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-            minHeight: '320px',
+            minHeight: '20rem',
           }}
         >
           <div
@@ -1909,15 +1909,15 @@ function TranslationSection({ translations, setTranslations }: { translations: T
 
       <div
         onClick={() => setFlipped(!flipped)}
-        className="w-full min-h-[280px] cursor-pointer"
-        style={{ perspective: '1000px' }}
+        className="w-full min-h-[17.5rem] cursor-pointer"
+        style={{ perspective: '62.5rem' }}
       >
         <div
           className="relative w-full h-full transition-transform duration-500"
           style={{
             transformStyle: 'preserve-3d',
             transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-            minHeight: '280px',
+            minHeight: '17.5rem',
           }}
         >
           <div

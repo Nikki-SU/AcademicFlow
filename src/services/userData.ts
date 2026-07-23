@@ -24,7 +24,6 @@ import { readRepoTextFile, writeRepoTextFile } from './github'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 
-const CACHE_PREFIX = 'af_cache_'
 const CACHE_TTL = 5 * 60 * 1000 // 5 分钟缓存
 
 interface CacheEntry<T> {
@@ -33,21 +32,23 @@ interface CacheEntry<T> {
   fetchedAt: number
 }
 
+// 使用内存缓存而非 localStorage，避免把用户业务数据落到浏览器持久存储。
+// 页面刷新后缓存失效，会从 GitHub 私库重新拉取真实数据。
+const memoryCache = new Map<string, CacheEntry<unknown>>()
+
 function getCache<T>(key: string): CacheEntry<T> | null {
-  try {
-    const raw = localStorage.getItem(CACHE_PREFIX + key)
-    if (!raw) return null
-    const entry = JSON.parse(raw) as CacheEntry<T>
-    if (Date.now() - entry.fetchedAt > CACHE_TTL) return null
-    return entry
-  } catch {
+  const entry = memoryCache.get(key) as CacheEntry<T> | undefined
+  if (!entry) return null
+  if (Date.now() - entry.fetchedAt > CACHE_TTL) {
+    memoryCache.delete(key)
     return null
   }
+  return entry
 }
 
 function setCache<T>(key: string, data: T, sha: string) {
   const entry: CacheEntry<T> = { data, sha, fetchedAt: Date.now() }
-  localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(entry))
+  memoryCache.set(key, entry as CacheEntry<unknown>)
 }
 
 function getRepoContext(): { owner: string; repo: string; token: string } | null {
@@ -220,10 +221,5 @@ function csvEscape(val: string | number | boolean | null | undefined): string {
 
 /** 强制刷新所有缓存（手动同步时调用） */
 export function clearAllCache() {
-  const keys: string[] = []
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i)
-    if (k?.startsWith(CACHE_PREFIX)) keys.push(k)
-  }
-  keys.forEach((k) => localStorage.removeItem(k))
+  memoryCache.clear()
 }

@@ -201,7 +201,7 @@ export default function MineruTestPanel() {
           <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
             <Bug className="w-3.5 h-3.5 text-indigo-500" />
             调试模式（Debug Console）
-            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-normal bg-indigo-100 text-indigo-700 rounded">
+            <span className="ml-1 px-1.5 py-0.5 text-[0.625rem] font-normal bg-indigo-100 text-indigo-700 rounded">
               开发期默认开启
             </span>
           </div>
@@ -225,7 +225,7 @@ export default function MineruTestPanel() {
           <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
             提取题图（cover figure）
-            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-normal bg-amber-100 text-amber-700 rounded">
+            <span className="ml-1 px-1.5 py-0.5 text-[0.625rem] font-normal bg-amber-100 text-amber-700 rounded">
               Import 时生效
             </span>
           </div>

@@ -247,21 +247,21 @@ function JournalFormatPage() {
         <title>AcademicFlow - LaTeX Preview</title>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
         <style>
-          body { font-family: 'Times New Roman', serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
-          h1 { text-align: center; font-size: 24px; margin-bottom: 20px; }
-          h2 { font-size: 18px; margin-top: 24px; margin-bottom: 12px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-          h3 { font-size: 16px; margin-top: 16px; margin-bottom: 8px; }
-          p { margin: 8px 0; text-align: justify; }
+          body { font-family: 'Times New Roman', serif; max-width: 50rem; margin: 2.5rem auto; padding: 1.25rem; line-height: 1.6; }
+          h1 { text-align: center; font-size: 1.5rem; margin-bottom: 1.25rem; }
+          h2 { font-size: 1.125rem; margin-top: 1.5rem; margin-bottom: 0.75rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
+          h3 { font-size: 1rem; margin-top: 1rem; margin-bottom: 0.5rem; }
+          p { margin: 0.5rem 0; text-align: justify; }
           .katex { font-size: 1.1em; }
           sup { color: #4f46e5; }
-          @media print { body { margin: 0; padding: 20px; } }
+          @media print { body { margin: 0; padding: 1.25rem; } }
         </style>
       </head>
       <body>
         ${previewHtml}
-        <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+        <div style="margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid #ddd; font-size: 0.75rem; color: #666;">
           <p><strong>References (BibTeX):</strong></p>
-          <pre style="white-space: pre-wrap; font-size: 10px; background: #f5f5f5; padding: 10px; border-radius: 4px;">${result.bibtex.replace(/</g, '&lt;')}</pre>
+          <pre style="white-space: pre-wrap; font-size: 0.625rem; background: #f5f5f5; padding: 0.625rem; border-radius: 0.25rem;">${result.bibtex.replace(/</g, '&lt;')}</pre>
         </div>
         <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
       </body>
@@ -285,7 +285,7 @@ function JournalFormatPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
       {/* 顶栏 */}
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm sticky top-0 z-20">
-        <div className="max-w-[1600px] mx-auto px-4 md:px-6 py-3 flex items-center justify-between">
+        <div className="max-w-[100rem] mx-auto px-4 md:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-1.5 bg-indigo-100 rounded-md">
               <BookOpen className="w-5 h-5 text-indigo-600" />
@@ -384,7 +384,7 @@ function JournalFormatPage() {
       )}
 
       {/* 主内容区：左右分栏 */}
-      <main className="max-w-[1600px] mx-auto px-4 md:px-6 py-6">
+      <main className="max-w-[100rem] mx-auto px-4 md:px-6 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* ===== 左侧：输入区 ===== */}
           <div className="space-y-4">
@@ -538,7 +538,7 @@ function JournalFormatPage() {
 - [@doi:10.1038/nature12345]
 - [@10.1038/nature12345]
 - https://doi.org/10.1038/nature12345"
-                className="w-full h-[500px] p-4 font-mono text-sm text-slate-800 bg-white resize-none focus:outline-none"
+                className="w-full h-[31.25rem] p-4 font-mono text-sm text-slate-800 bg-white resize-none focus:outline-none"
                 disabled={isConverting}
                 spellCheck={false}
               />
@@ -688,7 +688,7 @@ function JournalFormatPage() {
               </div>
 
               {/* 内容区 */}
-              <div className="h-[500px] overflow-auto">
+              <div className="h-[31.25rem] overflow-auto">
                 {result ? (
                   activeTab === 'preview' ? (
                     <div

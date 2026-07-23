@@ -971,16 +971,16 @@ export default function ReadingPage() {
                   <div className="text-slate-400 truncate">{p.journal}</div>
                   <div className="flex items-center gap-2 mt-1">
                     {p.hasMarkdown ? (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px] font-medium">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium">
                         <FileText className="w-3 h-3" />
                         Markdown
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px]">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[0.625rem]">
                         待转换
                       </span>
                     )}
-                    <span className="text-slate-400 text-[10px] truncate">
+                    <span className="text-slate-400 text-[0.625rem] truncate">
                       {p.doi}
                     </span>
                   </div>
@@ -1020,7 +1020,7 @@ export default function ReadingPage() {
                 >
                   <ZoomOut className="w-4 h-4" />
                 </button>
-                <span className="text-xs text-slate-400 w-8 text-center">{fontSize}px</span>
+                <span className="text-xs text-slate-400 w-8 text-center">{fontSize / 16}rem</span>
                 <button
                   onClick={() => setFontSize((s) => Math.min(24, s + 1))}
                   className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition"
@@ -1055,7 +1055,7 @@ export default function ReadingPage() {
                 <div className="max-w-3xl mx-auto px-8 py-8">
                   <div
                     className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 relative"
-                    style={{ fontSize: `${fontSize}px` }}
+                    style={{ fontSize: `${fontSize / 16}rem` }}
                   >
                     <div
                       ref={readerRef}
@@ -1132,7 +1132,7 @@ export default function ReadingPage() {
             <Highlighter className="w-4 h-4" />
             批注
             {paperAnnotations.length > 0 && (
-              <span className="px-1.5 py-0.5 text-[10px] bg-indigo-100 text-indigo-600 rounded-full font-medium">
+              <span className="px-1.5 py-0.5 text-[0.625rem] bg-indigo-100 text-indigo-600 rounded-full font-medium">
                 {paperAnnotations.length}
               </span>
             )}
@@ -1483,7 +1483,7 @@ export default function ReadingPage() {
           margin-top: 0.5rem;
           margin-bottom: 1rem;
           padding-bottom: 0.75rem;
-          border-bottom: 2px solid #c7d2fe;
+          border-bottom: 0.125rem solid #c7d2fe;
         }
         .prose-reader h2 {
           font-size: 1.5rem;

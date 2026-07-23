@@ -157,7 +157,7 @@ function Node({
           {marker} {label}
         </span>
       </div>
-      <span className="font-mono text-[11px] leading-tight min-h-[14px]">
+      <span className="font-mono text-[0.6875rem] leading-tight min-h-[0.875rem]">
         {text ?? '\u00A0'}
       </span>
     </div>
@@ -196,7 +196,7 @@ function StageTimeline({
             第 {attempt}/{maxAttempts} 轮 · {reasonLabel(reason)}
           </span>
           {maxAttempts > 1 && attempt < maxAttempts && (
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[0.6875rem] text-slate-500">
               未通过将自动进入下一轮（最多 {maxAttempts} 轮）
             </span>
           )}

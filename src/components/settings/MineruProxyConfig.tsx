@@ -173,7 +173,7 @@ export default function MineruProxyConfig() {
         )}
       </div>
 
-      <p className="text-[11px] text-slate-500 leading-relaxed">
+      <p className="text-[0.6875rem] text-slate-500 leading-relaxed">
         代理部署在你自己的服务器上，作者不接触。
         <a
           href={REPO_URL}

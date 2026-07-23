@@ -32,10 +32,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # 依赖漏洞扫描（不阻塞部署，只在 CI log 里留告警；
-      # Dependabot 会同步开 PR 通知维护者）
+      # 依赖漏洞扫描（符合 SPEC §1.12.2：高危/严重漏洞阻塞发布）
       - name: Audit dependencies
-        run: npm audit --audit-level=moderate || true
+        run: npm audit --audit-level=moderate
 
       - name: Build
         run: npm run build

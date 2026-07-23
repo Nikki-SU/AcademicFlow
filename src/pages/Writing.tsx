@@ -59,6 +59,8 @@ import {
 import TableGridPicker from '../components/TableGridPicker'
 import { toast } from 'sonner'
 import { readMdFile, writeMdFile } from '../services/userData'
+import { getAllTemplates } from '../services/journal-templates'
+import type { JournalTemplate } from '../types'
 
 const PROJECT_DOC_PATH = 'writing/default.md'
 
@@ -89,15 +91,6 @@ const CITATION_SCOPES = [
   { value: 'selected', label: '指定文献' },
   { value: 'books', label: '指定图书' },
   { value: 'chapters', label: '指定章节' },
-]
-
-const JOURNALS = [
-  { value: 'jacs', label: 'JACS', name: 'Journal of the American Chemical Society' },
-  { value: 'angew', label: 'Angew. Chem.', name: 'Angewandte Chemie International Edition' },
-  { value: 'nature', label: 'Nature', name: 'Nature' },
-  { value: 'science', label: 'Science', name: 'Science' },
-  { value: 'nano-lett', label: 'Nano Lett.', name: 'Nano Letters' },
-  { value: 'acs-nano', label: 'ACS Nano', name: 'ACS Nano' },
 ]
 
 const QUICK_ACTIONS = [
@@ -526,24 +519,32 @@ function formatTime(timestamp: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-function markdownToLatex(md: string, journalKey: string): string {
+function markdownToLatex(md: string, template: JournalTemplate): string {
   let tex = md
 
-  const docClass = journalKey === 'nature' || journalKey === 'science'
-    ? '\\documentclass[10pt,nature]{article}'
-    : journalKey === 'jacs' || journalKey === 'angew'
-    ? '\\documentclass[10pt]{article}'
-    : '\\documentclass[10pt]{article}'
+  const options = template.document_options ? `[${template.document_options}]` : '[10pt]'
+  const docClass = `\\documentclass${options}{${template.document_class || 'article'}}`
 
-  const packages = `
-\\usepackage{graphicx}
-\\usepackage{amsmath}
-\\usepackage{amssymb}
-\\usepackage{booktabs}
-\\usepackage{hyperref}
-\\usepackage{url}
-\\usepackage{geometry}
-\\geometry{margin=1in}`
+  const pkgList = [
+    'graphicx',
+    'amsmath',
+    'amssymb',
+    'booktabs',
+    'hyperref',
+    'url',
+    'geometry',
+    ...(template.packages || []),
+  ]
+  const packages = pkgList
+    .map((p) => `\\usepackage${p.includes('[') ? p : `{${p}}`}`)
+    .join('\n')
+  const geometry = template.margins
+    ? `\\geometry{${Object.entries(template.margins)
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(',')}}`
+    : '\\geometry{margin=1in}'
+  const customPreamble = template.custom_preamble || ''
 
   tex = tex.replace(/^# (.*)$/gm, '\\title{$1}')
   tex = tex.replace(/^## (.*)$/gm, '\\section{$1}')
@@ -577,6 +578,8 @@ function markdownToLatex(md: string, journalKey: string): string {
 
   return `${docClass}
 ${packages}
+${geometry}
+${customPreamble}
 
 \\title{${title}}
 \\author{Author Name}
@@ -624,7 +627,8 @@ export default function WritingPage() {
   const [citationSearch, setCitationSearch] = useState('')
   const [selectedCitations, setSelectedCitations] = useState<string[]>([])
 
-  const [selectedJournal, setSelectedJournal] = useState(JOURNALS[0].value)
+  const [templates, setTemplates] = useState<JournalTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
   const [typesettingProgress, setTypesettingProgress] = useState(0)
   const [isTypesetting, setIsTypesetting] = useState(false)
   const [typesetDone, setTypesetDone] = useState(false)
@@ -663,7 +667,6 @@ export default function WritingPage() {
   const savedRangeRef = useRef<Range | null>(null)
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
-  const currentJournal = JOURNALS.find((j) => j.value === selectedJournal) || JOURNALS[0]
 
   const scopedCitations = useMemo(() => {
     let list = citations
@@ -711,6 +714,10 @@ export default function WritingPage() {
     return extractOutline(html)
   }, [mdContent, editorLoaded, leftPanelMode])
 
+  const currentTemplate = useMemo(() => {
+    return templates.find((t) => t.id === selectedTemplateId) || templates[0] || null
+  }, [templates, selectedTemplateId])
+
   const wordCount = mdContent.replace(/\s/g, '').length
 
   // 从 GitHub 私库加载文档内容
@@ -729,6 +736,25 @@ export default function WritingPage() {
       }
     }
     loadDocument()
+    return () => { cancelled = true }
+  }, [])
+
+  // 加载用户维护的期刊模板（零硬编码期刊名）
+  useEffect(() => {
+    let cancelled = false
+    async function loadTemplates() {
+      try {
+        const list = await getAllTemplates()
+        if (cancelled) return
+        setTemplates(list)
+        if (list.length > 0 && !selectedTemplateId) {
+          setSelectedTemplateId(list[0].id)
+        }
+      } catch (err) {
+        console.warn('[Writing] 加载期刊模板失败:', err)
+      }
+    }
+    loadTemplates()
     return () => { cancelled = true }
   }, [])
 
@@ -887,7 +913,7 @@ export default function WritingPage() {
     if (!sel || sel.rangeCount === 0) return
     const text = sel.toString() || '列表项'
     const tag = isOrdered ? 'ol' : 'ul'
-    const listHtml = `<${tag} style="margin:12px 0;padding-left:24px;"><li>${text}</li></${tag}><p><br></p>`
+    const listHtml = `<${tag} style="margin:0.75rem 0;padding-left:1.5rem;"><li>${text}</li></${tag}><p><br></p>`
     document.execCommand('insertHTML', false, listHtml)
   }
 
@@ -895,7 +921,7 @@ export default function WritingPage() {
     restoreSelection()
     const sel = window.getSelection()
     const selectedText = sel?.toString() || ''
-    const codeHtml = `<pre style="margin:16px 0;padding:16px;background:#0f172a;color:#f1f5f9;border-radius:8px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;line-height:1.6;"><code>${selectedText || '// 在此输入代码'}</code></pre><p><br></p>`
+    const codeHtml = `<pre style="margin:1rem 0;padding:1rem;background:#0f172a;color:#f1f5f9;border-radius:0.5rem;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.875rem;line-height:1.6;"><code>${selectedText || '// 在此输入代码'}</code></pre><p><br></p>`
     document.execCommand('insertHTML', false, codeHtml)
     saveSelection()
     handleEditorInput()
@@ -925,7 +951,7 @@ export default function WritingPage() {
     if (fromPaste && imagePlaceholderId && editorRef.current) {
       const placeholder = editorRef.current.querySelector(`[data-placeholder-id="${imagePlaceholderId}"]`)
       if (placeholder) {
-        const imgHtml = `<div style="margin:16px 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:8px;border:1px solid #e2e8f0;" /><p style="font-size:12px;color:#64748b;margin-top:8px;">${alt}</p></div>`
+        const imgHtml = `<div style="margin:1rem 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:0.5rem;border:1px solid #e2e8f0;" /><p style="font-size:0.75rem;color:#64748b;margin-top:0.5rem;">${alt}</p></div>`
         placeholder.outerHTML = imgHtml
         setImagePlaceholderId(null)
         saveSelection()
@@ -933,7 +959,7 @@ export default function WritingPage() {
         return
       }
     }
-    const html = `<div style="margin:16px 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:8px;border:1px solid #e2e8f0;" /><p style="font-size:12px;color:#64748b;margin-top:8px;">${alt}</p></div><p><br></p>`
+    const html = `<div style="margin:1rem 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:0.5rem;border:1px solid #e2e8f0;" /><p style="font-size:0.75rem;color:#64748b;margin-top:0.5rem;">${alt}</p></div><p><br></p>`
     document.execCommand('insertHTML', false, html)
     saveSelection()
     handleEditorInput()
@@ -943,15 +969,15 @@ export default function WritingPage() {
     saveSelection()
     restoreSelection()
     const placeholderId = `img-placeholder-${Date.now()}`
-    const placeholderHtml = `<div data-placeholder-id="${placeholderId}" contenteditable="false" style="margin:16px 0;padding:40px 20px;border:2px dashed #cbd5e1;border-radius:8px;background:#f8fafc;text-align:center;cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('imagePlaceholderClick', {bubbles: true, detail: {id: '${placeholderId}'}}))">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;">
+    const placeholderHtml = `<div data-placeholder-id="${placeholderId}" contenteditable="false" style="margin:1rem 0;padding:2.5rem 1.25rem;border:0.125rem dashed #cbd5e1;border-radius:0.5rem;background:#f8fafc;text-align:center;cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('imagePlaceholderClick', {bubbles: true, detail: {id: '${placeholderId}'}}))">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;pointer-events:none;">
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
           <circle cx="9" cy="9" r="2"/>
           <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
         </svg>
-        <span style="font-size:14px;color:#64748b;">点击添加图片或粘贴图片</span>
-        <span style="font-size:12px;color:#94a3b8;">支持 JPG、PNG、GIF 等格式</span>
+        <span style="font-size:0.875rem;color:#64748b;">点击添加图片或粘贴图片</span>
+        <span style="font-size:0.75rem;color:#94a3b8;">支持 JPG、PNG、GIF 等格式</span>
       </div>
     </div><p><br></p>`
     document.execCommand('insertHTML', false, placeholderHtml)
@@ -981,12 +1007,12 @@ export default function WritingPage() {
 
   const insertTableWithSize = (rows: number, cols: number) => {
     restoreSelection()
-    const headerCells = Array.from({ length: cols }, () => `<th style="padding:10px 16px;font-size:14px;font-weight:600;background:#f8fafc;text-align:left;border-bottom:2px solid #e2e8f0;min-width:80px;">&nbsp;</th>`).join('')
+    const headerCells = Array.from({ length: cols }, () => `<th style="padding:0.625rem 1rem;font-size:0.875rem;font-weight:600;background:#f8fafc;text-align:left;border-bottom:0.125rem solid #e2e8f0;min-width:5rem;">&nbsp;</th>`).join('')
     const bodyRows = Array.from({ length: rows }, () => {
-      const cells = Array.from({ length: cols }, () => `<td style="padding:10px 16px;font-size:14px;border-bottom:1px solid #e2e8f0;min-width:80px;">&nbsp;</td>`).join('')
+      const cells = Array.from({ length: cols }, () => `<td style="padding:0.625rem 1rem;font-size:0.875rem;border-bottom:1px solid #e2e8f0;min-width:5rem;">&nbsp;</td>`).join('')
       return `<tr>${cells}</tr>`
     }).join('')
-    const tableHtml = `<div style="margin:16px 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div><p><br></p>`
+    const tableHtml = `<div style="margin:1rem 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:0.5rem;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div><p><br></p>`
     document.execCommand('insertHTML', false, tableHtml)
     saveSelection()
     handleEditorInput()
@@ -1099,6 +1125,10 @@ export default function WritingPage() {
   }
 
   const startTypesetting = () => {
+    if (!currentTemplate) {
+      toast.error('请先在“期刊模板”页面创建至少一个期刊模板')
+      return
+    }
     setIsTypesetting(true)
     setTypesettingProgress(0)
     setTypesetDone(false)
@@ -1109,7 +1139,7 @@ export default function WritingPage() {
           clearInterval(interval)
           setIsTypesetting(false)
           setTypesetDone(true)
-          const latex = markdownToLatex(mdContent, selectedJournal)
+          const latex = markdownToLatex(mdContent, currentTemplate)
           setLatexOutput(latex)
           return 100
         }
@@ -1298,7 +1328,7 @@ export default function WritingPage() {
                     }`}
                   >
                     <span
-                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[0.625rem] font-bold flex-shrink-0 ${
                         cur
                           ? 'bg-white/20 text-white'
                           : isPast
@@ -1320,7 +1350,7 @@ export default function WritingPage() {
       <button
         onClick={() => setNavCollapsed(!navCollapsed)}
         className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-slate-200 rounded-r-lg p-1 shadow-md hover:bg-slate-50 transition text-slate-400 hover:text-indigo-600"
-        style={{ left: navCollapsed ? '0' : '256px' }}
+        style={{ left: navCollapsed ? '0' : '16rem' }}
         title={navCollapsed ? '展开项目导航' : '折叠项目导航'}
       >
         {navCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
@@ -1621,7 +1651,7 @@ export default function WritingPage() {
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
                   />
                 </div>
-                <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+                <div className="mt-2 text-[0.6875rem] text-slate-400 flex items-center gap-1.5">
                   <span>共 {scopedCitations.length} 篇</span>
                   <span className="text-slate-300">·</span>
                   <span className="text-indigo-600 cursor-pointer hover:underline" onClick={() => setShowCitationModal(true)}>
@@ -1640,7 +1670,7 @@ export default function WritingPage() {
                       {cit.title}
                     </div>
                     <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
+                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[0.625rem] font-medium">
                         {cit.year}
                       </span>
                       <span className="truncate">{cit.journal}</span>
@@ -1653,7 +1683,7 @@ export default function WritingPage() {
                         href={`https://doi.org/${cit.doi}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                        className="text-[0.6875rem] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <FileCode className="w-3 h-3" />
@@ -1672,7 +1702,7 @@ export default function WritingPage() {
           className={`flex-shrink-0 flex items-center justify-center cursor-col-resize bg-slate-100 hover:bg-indigo-100 transition-colors z-10 ${
             isDragging ? 'bg-indigo-200' : ''
           }`}
-          style={{ width: '6px' }}
+          style={{ width: '0.375rem' }}
           onMouseDown={handleDragStart}
         >
           <GripVertical className="w-3 h-3 text-slate-400" />
@@ -1680,7 +1710,7 @@ export default function WritingPage() {
 
         <div
           className="flex flex-col min-w-0 bg-white border-l border-slate-200"
-          style={{ width: `calc(${100 - panelRatio}% - 6px)` }}
+          style={{ width: `calc(${100 - panelRatio}% - 0.375rem)` }}
         >
           <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between flex-shrink-0">
             <div className="relative" ref={rightDropdownRef}>
@@ -1728,12 +1758,12 @@ export default function WritingPage() {
                 <div className="flex items-center gap-1 mb-2">
                   <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-indigo-50 rounded-lg">
                     <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                    <span className="text-[11px] font-medium text-indigo-700">AI-1 生成</span>
+                    <span className="text-[0.6875rem] font-medium text-indigo-700">AI-1 生成</span>
                   </div>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
                   <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-emerald-50 rounded-lg">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="text-[11px] font-medium text-emerald-700">AI-2 审阅</span>
+                    <span className="text-[0.6875rem] font-medium text-emerald-700">AI-2 审阅</span>
                   </div>
                 </div>
 
@@ -1753,7 +1783,7 @@ export default function WritingPage() {
                     )}
                   </button>
                 </div>
-                <div className="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
+                <div className="mt-1.5 text-[0.625rem] text-slate-400 leading-relaxed">
                   AI-1 生成内容并标注原文引用，AI-2 核查事实准确性
                 </div>
 
@@ -1809,13 +1839,13 @@ export default function WritingPage() {
                     {citationScope === 'project' && (
                       <div className="mt-2">
                         {projectCitations.length === 0 ? (
-                          <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <div className="text-[0.6875rem] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                             当前项目暂无关联文献，可从文献库添加
                           </div>
                         ) : (
                           <div className="space-y-1 max-h-40 overflow-y-auto">
                             {projectCitations.map((cit, idx) => (
-                              <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                              <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
                                 {cit.title}
                               </div>
                             ))}
@@ -1826,10 +1856,10 @@ export default function WritingPage() {
 
                     {citationScope === 'selected' && selectedPaperIds.length > 0 && (
                       <div className="mt-2">
-                        <div className="text-[10px] text-slate-500 mb-1">已选文献</div>
+                        <div className="text-[0.625rem] text-slate-500 mb-1">已选文献</div>
                         <div className="space-y-1 max-h-40 overflow-y-auto">
                           {citations.filter(c => selectedPaperIds.includes(c.doi)).map((cit, idx) => (
-                            <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                            <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
                               {cit.title}
                             </div>
                           ))}
@@ -1839,10 +1869,10 @@ export default function WritingPage() {
 
                     {citationScope === 'books' && selectedBookIds.length > 0 && (
                       <div className="mt-2">
-                        <div className="text-[10px] text-slate-500 mb-1">已选图书</div>
+                        <div className="text-[0.625rem] text-slate-500 mb-1">已选图书</div>
                         <div className="space-y-1 max-h-40 overflow-y-auto">
                           {bookReferences.filter(b => selectedBookIds.includes(b.doi)).map((book, idx) => (
-                            <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                            <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
                               {book.title}
                             </div>
                           ))}
@@ -1852,19 +1882,19 @@ export default function WritingPage() {
 
                     {citationScope === 'chapters' && selectedBook && (
                       <div className="mt-2">
-                        <div className="text-[10px] text-slate-500 mb-1">
+                        <div className="text-[0.625rem] text-slate-500 mb-1">
                           {selectedBook.title}
                         </div>
                         {selectedChapterIds.length > 0 ? (
                           <div className="space-y-1 max-h-40 overflow-y-auto">
                             {selectedBook.chapters.filter(ch => selectedChapterIds.includes(ch.id)).map((ch, idx) => (
-                              <div key={idx} className="text-[11px] text-slate-600 bg-slate-50 rounded px-2 py-1.5">
+                              <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5">
                                 {ch.title}
                               </div>
                             ))}
                           </div>
                         ) : (
-                          <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <div className="text-[0.6875rem] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                             请选择章节
                           </div>
                         )}
@@ -1872,7 +1902,7 @@ export default function WritingPage() {
                     )}
 
                     {folderPasted && (
-                      <div className="mt-1.5 text-[10px] text-emerald-600 flex items-center gap-1 truncate">
+                      <div className="mt-1.5 text-[0.625rem] text-emerald-600 flex items-center gap-1 truncate">
                         <Check className="w-3 h-3 flex-shrink-0" />
                         <span className="truncate">{folderPath}</span>
                       </div>
@@ -1882,7 +1912,7 @@ export default function WritingPage() {
               </div>
 
               <div className="p-2.5 border-b border-slate-100 bg-white">
-                <div className="text-[11px] font-medium text-slate-500 mb-2 px-1">快捷指令</div>
+                <div className="text-[0.6875rem] font-medium text-slate-500 mb-2 px-1">快捷指令</div>
                 <div className="flex flex-wrap gap-1.5">
                   {QUICK_ACTIONS.map((action) => {
                     const Icon = action.icon
@@ -1911,7 +1941,7 @@ export default function WritingPage() {
                       AI-1 生成 + AI-2 审阅，确保内容可信
                     </p>
                     {trustedSearch && (
-                      <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-medium">
+                      <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[0.625rem] font-medium">
                         <Zap className="w-3 h-3" />
                         可信检索已开启
                       </div>
@@ -1934,13 +1964,13 @@ export default function WritingPage() {
                       {msg.role === 'assistant' ? (
                         <div className="space-y-2">
                           {msg.reviewStatus === 'pending' && (
-                            <div className="flex items-center gap-2 px-2 py-1.5 bg-amber-50 rounded-lg text-[11px] text-amber-700">
+                            <div className="flex items-center gap-2 px-2 py-1.5 bg-amber-50 rounded-lg text-[0.6875rem] text-amber-700">
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
                               AI-2 审阅中...
                             </div>
                           )}
                           {msg.reviewStatus === 'pass' && (
-                            <div className="flex items-center gap-2 px-2 py-1.5 bg-emerald-50 rounded-lg text-[11px] text-emerald-700">
+                            <div className="flex items-center gap-2 px-2 py-1.5 bg-emerald-50 rounded-lg text-[0.6875rem] text-emerald-700">
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               已通过事实核查 · 引用均来自原文
                             </div>
@@ -1951,7 +1981,7 @@ export default function WritingPage() {
                           />
                           {msg.citations && msg.citations.length > 0 && (
                             <div className="mt-3 pt-3 border-t border-slate-100">
-                              <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
+                              <div className="text-[0.6875rem] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
                                 <div className="w-4 h-4 bg-emerald-100 rounded-full flex items-center justify-center">
                                   <BookMarked className="w-2.5 h-2.5 text-emerald-600" />
                                 </div>
@@ -1967,17 +1997,17 @@ export default function WritingPage() {
                                       <span className="text-indigo-600 font-mono flex-shrink-0">[{idx + 1}]</span>
                                       <span className="line-clamp-2">{cit.title}</span>
                                     </div>
-                                    <div className="text-[11px] text-slate-500 mt-1.5 ml-5">
+                                    <div className="text-[0.6875rem] text-slate-500 mt-1.5 ml-5">
                                       {cit.authors} ({cit.year}) · {cit.journal}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 mt-0.5 ml-5 italic">
+                                    <div className="text-[0.6875rem] text-slate-400 mt-0.5 ml-5 italic">
                                       引用位置：第 {Math.floor(Math.random() * 10) + 1} 页 · 第 {Math.floor(Math.random() * 5) + 1} 段
                                     </div>
                                     <a
                                       href={`https://doi.org/${cit.doi}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 ml-5 font-medium"
+                                      className="text-[0.6875rem] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 ml-5 font-medium"
                                     >
                                       <FileCode className="w-3 h-3" />
                                       {cit.doi}
@@ -2039,7 +2069,7 @@ export default function WritingPage() {
 
               <div className="p-3 border-t border-slate-200 bg-white">
                 {trustedSearch && (
-                  <div className="mb-2 flex items-center gap-1.5 text-[10px] text-emerald-600">
+                  <div className="mb-2 flex items-center gap-1.5 text-[0.625rem] text-emerald-600">
                     <Zap className="w-3 h-3" />
                     <span>可信检索模式 · AI-1生成 + AI-2审阅</span>
                   </div>
@@ -2047,7 +2077,7 @@ export default function WritingPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={handleOpenFolder}
-                    className="flex items-center gap-1.5 px-3 py-2 text-[11px] bg-slate-50 border border-slate-200 text-slate-600 rounded-xl hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex-shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-2 text-[0.6875rem] bg-slate-50 border border-slate-200 text-slate-600 rounded-xl hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex-shrink-0"
                     title="从文件夹导入文献"
                   >
                     <FolderOpen className="w-4 h-4" />
@@ -2075,7 +2105,7 @@ export default function WritingPage() {
                   </button>
                 </div>
                 {folderPasted && (
-                  <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-600">
+                  <div className="mt-2 flex items-center gap-1 text-[0.625rem] text-emerald-600">
                     <Check className="w-3 h-3" />
                     {folderPath}
                   </div>
@@ -2097,7 +2127,7 @@ export default function WritingPage() {
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
                   />
                 </div>
-                <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+                <div className="mt-2 text-[0.6875rem] text-slate-400 flex items-center gap-1.5">
                   <FileCode className="w-3 h-3" />
                   文献数据存储在 GitHub 仓库的 data/citations.csv
                 </div>
@@ -2187,7 +2217,7 @@ export default function WritingPage() {
                       {cit.title}
                     </div>
                     <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
+                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[0.625rem] font-medium">
                         {cit.year}
                       </span>
                       <span className="truncate">{cit.journal}</span>
@@ -2200,7 +2230,7 @@ export default function WritingPage() {
                         href={`https://doi.org/${cit.doi}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                        className="text-[0.6875rem] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <FileCode className="w-3 h-3" />
@@ -2212,7 +2242,7 @@ export default function WritingPage() {
                           e.stopPropagation()
                           insertCitation(cit.doi)
                         }}
-                        className="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition font-medium"
+                        className="text-[0.6875rem] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition font-medium"
                       >
                         插入引用
                       </button>
@@ -2299,7 +2329,7 @@ export default function WritingPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-medium text-slate-700 line-clamp-1">{book.title}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">{book.author} ({book.year})</div>
+                        <div className="text-[0.6875rem] text-slate-500 mt-0.5">{book.author} ({book.year})</div>
                       </div>
                     </div>
                   ))}
@@ -2318,7 +2348,7 @@ export default function WritingPage() {
                       <div className="text-xs font-medium text-slate-700 line-clamp-2 leading-snug">
                         {cit.title}
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-1">
+                      <div className="text-[0.6875rem] text-slate-500 mt-1">
                         {cit.journal} ({cit.year})
                       </div>
                     </div>
@@ -2335,7 +2365,7 @@ export default function WritingPage() {
                   <LayoutTemplate className="w-3.5 h-3.5 text-indigo-600" />
                   期刊排版
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-[0.6875rem] text-slate-500 leading-relaxed">
                   选择目标期刊，一键转换为对应格式的 LaTeX 模板
                 </p>
               </div>
@@ -2345,13 +2375,17 @@ export default function WritingPage() {
                   <div className="text-xs font-medium text-slate-600 mb-1.5">选择目标期刊</div>
                   <div className="relative">
                     <select
-                      value={selectedJournal}
-                      onChange={(e) => setSelectedJournal(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none pr-8"
+                      value={selectedTemplateId}
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      disabled={templates.length === 0}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none pr-8 disabled:bg-slate-100 disabled:text-slate-400"
                     >
-                      {JOURNALS.map((j) => (
-                        <option key={j.value} value={j.value}>
-                          {j.label} — {j.name}
+                      {templates.length === 0 && (
+                        <option value="">未创建期刊模板</option>
+                      )}
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.short_name || t.name}
                         </option>
                       ))}
                     </select>
@@ -2389,7 +2423,7 @@ export default function WritingPage() {
                         style={{ width: `${typesettingProgress}%` }}
                       />
                     </div>
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[0.6875rem] text-slate-500">
                       {typesettingProgress < 30 && '解析 Markdown 内容...'}
                       {typesettingProgress >= 30 && typesettingProgress < 60 && '转换 LaTeX 结构...'}
                       {typesettingProgress >= 60 && typesettingProgress < 90 && '应用期刊模板...'}
@@ -2407,22 +2441,22 @@ export default function WritingPage() {
                         <span className="text-sm font-medium text-emerald-700">排版完成</span>
                       </div>
                       <p className="text-xs text-emerald-600 mt-1">
-                        已成功转换为 {currentJournal.label} 格式
+                        已成功转换为 {currentTemplate?.short_name || currentTemplate?.name || '当前模板'} 格式
                       </p>
                     </div>
 
                     <div className="p-3 bg-slate-900 rounded-lg overflow-x-auto max-h-64 overflow-y-auto">
                       <div className="flex items-center justify-between mb-2">
-                        <div className="text-[10px] text-slate-400 font-mono">LaTeX 输出</div>
+                        <div className="text-[0.625rem] text-slate-400 font-mono">LaTeX 输出</div>
                         <button
                           onClick={() => handleCopyContent(latexOutput)}
-                          className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1"
+                          className="text-[0.625rem] text-slate-400 hover:text-white flex items-center gap-1"
                         >
                           <Copy className="w-3 h-3" />
                           复制
                         </button>
                       </div>
-                      <pre className="text-[11px] text-slate-300 font-mono leading-relaxed whitespace-pre-wrap">
+                      <pre className="text-[0.6875rem] text-slate-300 font-mono leading-relaxed whitespace-pre-wrap">
                         {latexOutput}
                       </pre>
                     </div>
@@ -2493,7 +2527,7 @@ export default function WritingPage() {
                   autoFocus
                 />
               </div>
-              <div className="mt-2 text-[11px] text-slate-400">
+              <div className="mt-2 text-[0.6875rem] text-slate-400">
                 快捷键：<kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono">Ctrl+Shift+K</kbd>
               </div>
             </div>
@@ -2538,7 +2572,7 @@ export default function WritingPage() {
                         <div className="text-xs text-slate-400 truncate mt-0.5">
                           {cit.journal}
                         </div>
-                        <div className="text-[11px] text-indigo-600 mt-1 font-mono">
+                        <div className="text-[0.6875rem] text-indigo-600 mt-1 font-mono">
                           {cit.doi}
                         </div>
                       </div>
@@ -2617,7 +2651,7 @@ export default function WritingPage() {
                         <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
                           {cit.title}
                         </div>
-                        <div className="text-[11px] text-slate-500 mt-1">
+                        <div className="text-[0.6875rem] text-slate-500 mt-1">
                           {cit.journal} ({cit.year})
                         </div>
                       </div>
@@ -2684,10 +2718,10 @@ export default function WritingPage() {
                           <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
                             {book.title}
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-1">
+                          <div className="text-[0.6875rem] text-slate-500 mt-1">
                             {book.authors} ({book.year})
                           </div>
-                          <div className="text-[10px] text-amber-600 mt-0.5">
+                          <div className="text-[0.625rem] text-amber-600 mt-0.5">
                             {book.chapters.length} 章
                           </div>
                         </div>
@@ -2731,7 +2765,7 @@ export default function WritingPage() {
                       setSelectedBookForChapters(book.doi)
                       setSelectedChapterIds([])
                     }}
-                    className={`px-2 py-1 text-[11px] rounded-lg transition ${
+                    className={`px-2 py-1 text-[0.6875rem] rounded-lg transition ${
                       selectedBookForChapters === book.doi
                         ? 'bg-indigo-100 text-indigo-700 font-medium border border-indigo-200'
                         : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-200'
@@ -2780,7 +2814,7 @@ export default function WritingPage() {
                           <div className="text-xs font-semibold text-slate-700 leading-snug">
                             {chapter.title}
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-1">
+                          <div className="text-[0.6875rem] text-slate-500 mt-1">
                             第 {chapter.pageStart} - {chapter.pageEnd} 页
                           </div>
                         </div>
@@ -2810,7 +2844,7 @@ export default function WritingPage() {
               <div className="flex items-center gap-2">
                 <File className="w-5 h-5 text-indigo-600" />
                 <h3 className="text-base font-semibold text-slate-800">PDF 预览</h3>
-                <span className="text-xs text-slate-500">— {currentJournal.label} 格式</span>
+                <span className="text-xs text-slate-500">— {currentTemplate?.short_name || currentTemplate?.name || '默认'} 格式</span>
               </div>
               <button
                 onClick={() => setShowPdfPreview(false)}
@@ -2820,13 +2854,13 @@ export default function WritingPage() {
               </button>
             </div>
             <div className="flex-1 overflow-auto p-8 bg-slate-100">
-              <div className="max-w-2xl mx-auto bg-white shadow-xl p-12 min-h-[800px]">
+              <div className="max-w-2xl mx-auto bg-white shadow-xl p-12 min-h-[50rem]">
                 <div className="text-center mb-8">
                   <h1 className="text-2xl font-bold text-slate-900 mb-2">
                     {activeProject?.name || 'Research Paper'}
                   </h1>
                   <p className="text-sm text-slate-600">Author Name · University / Institution</p>
-                  <p className="text-xs text-slate-400 mt-1">{currentJournal.name}</p>
+                  <p className="text-xs text-slate-400 mt-1">{currentTemplate?.name || ''}</p>
                 </div>
                 <div className="border-t-2 border-slate-200 pt-6">
                   <div

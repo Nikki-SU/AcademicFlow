@@ -68,7 +68,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
         <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="font-medium">余额查询失败</div>
-          <div className="text-[11px] mt-0.5 text-red-700 leading-relaxed break-all">
+          <div className="text-[0.6875rem] mt-0.5 text-red-700 leading-relaxed break-all">
             {error}
           </div>
         </div>
@@ -101,16 +101,16 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
         </span>
       </div>
       {account.chargeBalance !== undefined && (
-        <span className="text-[11px] opacity-70 font-mono">
+        <span className="text-[0.6875rem] opacity-70 font-mono">
           (充值 ¥ {Number(account.chargeBalance).toFixed(2)})
         </span>
       )}
       {account.status && account.status !== 'normal' && (
-        <span className="px-1.5 py-0.5 bg-white/60 border border-current rounded text-[11px] font-mono">
+        <span className="px-1.5 py-0.5 bg-white/60 border border-current rounded text-[0.6875rem] font-mono">
           状态 {account.status}
         </span>
       )}
-      <span className="ml-auto text-[11px] opacity-60">
+      <span className="ml-auto text-[0.6875rem] opacity-60">
         更新于 {formatFetchedAt(account.fetchedAt)}
       </span>
       <button

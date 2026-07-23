@@ -1,8 +1,10 @@
 # AcademicFlow
 
-> 一款以 GitHub 为后端的个人学术工作流工具 · Vite + React + TypeScript · AGPL-3.0
+> 一款以 GitHub 为后端的个人学术工作流工具 · Vite + React + TypeScript · **AGPL-3.0-or-later**
 
 **在线体验：** https://nikki-su.github.io/AcademicFlow/
+
+> **许可提示**：本项目采用 AGPL-3.0（或更新版本）开源。若你在网络环境中运行、修改或分发本项目（包括作为 SaaS 提供服务），你必须向用户公开完整的源代码。详见本文件底部「许可」章节及 [LICENSE](./LICENSE)。
 
 ## 项目简介
 
@@ -16,6 +18,20 @@ AcademicFlow 是一个**纯前端 SPA**，把用户自己的 GitHub 私库作为
 ## 数据主权声明
 
 AcademicFlow **无任何后端服务器**。所有数据（笔记、论文、词汇、AI 调用）均通过用户自己的凭据直连 GitHub / 硅基流动 / Free Dictionary，**工具作者在架构上无法获取任何用户数据**。代码开源可审计（AGPL-3.0），出站请求可通过浏览器 DevTools → Network 面板自行核验。
+
+## 数据资源与第三方许可
+
+AcademicFlow 在用户本地或用户自己的 GitHub 私库中处理数据，不内置、不托管任何受版权保护的学术内容。项目中可能引用的公开数据资源及其许可如下：
+
+| 资源 | 用途 | 许可 |
+|---|---|---|
+| CSL 引用样式 | 参考文献格式化 | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
+| Academic Word List (AWL) | 学术词汇学习参考 | 仅作为用户可导入的公开词表示例，遵循原作者使用条款 |
+| Free Dictionary API | 单词释义查询 | 按服务方公开接口条款使用 |
+| CrossRef / OpenAlex | 文献元数据检索 | 按服务方 API 条款使用 |
+| MinerU | PDF → Markdown 解析 | 用户自行部署代理，按 MinerU 服务条款使用 |
+
+> 注意：任何由用户自行导入的 PDF、图片、词表、引用样式等内容的版权均归用户或原权利人所有，AcademicFlow 仅提供本地/私库处理工具，不主张任何权利。
 
 ## MinerU PDF → Markdown（BYO 代理，双 Runtime）
 

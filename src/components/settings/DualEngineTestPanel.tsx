@@ -578,7 +578,7 @@ function DualEngineTestPanel() {
               </span>
             )}
           </summary>
-          <pre className="p-3 text-xs bg-white text-slate-800 whitespace-pre-wrap font-sans leading-relaxed max-h-[400px] overflow-y-auto">
+          <pre className="p-3 text-xs bg-white text-slate-800 whitespace-pre-wrap font-sans leading-relaxed max-h-[25rem] overflow-y-auto">
             {ai1OutputToShow}
           </pre>
         </details>
@@ -730,7 +730,7 @@ function DualEngineTestPanel() {
                 <summary className="cursor-pointer hover:text-slate-700">
                   查看 AI-2 原始输出（JSON）
                 </summary>
-                <pre className="mt-1 p-2 bg-slate-50 border border-slate-200 rounded whitespace-pre-wrap font-mono max-h-[200px] overflow-y-auto">
+                <pre className="mt-1 p-2 bg-slate-50 border border-slate-200 rounded whitespace-pre-wrap font-mono max-h-[12.5rem] overflow-y-auto">
                   {result.ai2RawOutput}
                 </pre>
               </details>

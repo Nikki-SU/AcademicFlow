@@ -270,7 +270,7 @@ function ModelSelector({ label, role, value, onChange, icon, accentColor }: Mode
   return (
     <div className="relative" ref={dropdownRef}>
       <div className="text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1.5">
-        <span className={`w-5 h-5 rounded ${accentClasses.bg} flex items-center justify-center text-[10px] font-bold ${accentClasses.text}`}>
+        <span className={`w-5 h-5 rounded ${accentClasses.bg} flex items-center justify-center text-[0.625rem] font-bold ${accentClasses.text}`}>
           {role === 'ai1' ? '1' : '2'}
         </span>
         {label}
@@ -286,7 +286,7 @@ function ModelSelector({ label, role, value, onChange, icon, accentColor }: Mode
           </div>
           <div className="min-w-0">
             <div className="text-xs font-medium text-slate-700 truncate">{currentModel?.label}</div>
-            <div className="text-[10px] text-slate-400 truncate">{currentModel?.desc}</div>
+            <div className="text-[0.625rem] text-slate-400 truncate">{currentModel?.desc}</div>
           </div>
         </div>
         <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -316,7 +316,7 @@ function ModelSelector({ label, role, value, onChange, icon, accentColor }: Mode
                 }`}>
                   {model.label}
                 </div>
-                <div className="text-[10px] text-slate-400 truncate">{model.desc}</div>
+                <div className="text-[0.625rem] text-slate-400 truncate">{model.desc}</div>
               </div>
               {value === model.value && <Check className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
             </button>
@@ -390,7 +390,7 @@ function SearchableMultiSelect({
           <button
             type="button"
             onClick={onSelectAll}
-            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium"
+            className="text-[0.625rem] text-indigo-600 hover:text-indigo-800 font-medium"
           >
             全选
           </button>
@@ -398,7 +398,7 @@ function SearchableMultiSelect({
           <button
             type="button"
             onClick={onClear}
-            className="text-[10px] text-slate-500 hover:text-slate-700 font-medium"
+            className="text-[0.625rem] text-slate-500 hover:text-slate-700 font-medium"
           >
             清空
           </button>
@@ -440,12 +440,12 @@ function SearchableMultiSelect({
                   }`}>
                     {type === 'literature' ? (item as LiteratureItem).title : (item as BookItem).title}
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+                  <div className="text-[0.625rem] text-slate-500 mt-0.5 truncate">
                     {type === 'literature'
                       ? `${(item as LiteratureItem).authors} (${(item as LiteratureItem).year})`
                       : `${(item as BookItem).authors} · ${(item as BookItem).publisher}`}
                   </div>
-                  <div className="text-[10px] text-slate-400 truncate">
+                  <div className="text-[0.625rem] text-slate-400 truncate">
                     {type === 'literature' ? (item as LiteratureItem).journal : (item as BookItem).isbn}
                   </div>
                 </div>
@@ -509,7 +509,7 @@ function ChapterSelector({
                   <button
                     type="button"
                     onClick={() => onSelectAllChapters(book.id)}
-                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium"
+                    className="text-[0.625rem] text-indigo-600 hover:text-indigo-800 font-medium"
                   >
                     全选
                   </button>
@@ -517,7 +517,7 @@ function ChapterSelector({
                   <button
                     type="button"
                     onClick={() => onClearChapters(book.id)}
-                    className="text-[10px] text-slate-500 hover:text-slate-700 font-medium"
+                    className="text-[0.625rem] text-slate-500 hover:text-slate-700 font-medium"
                   >
                     清空
                   </button>
@@ -540,12 +540,12 @@ function ChapterSelector({
                       }`}>
                         {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
                       </div>
-                      <span className={`text-[11px] flex-1 truncate ${
+                      <span className={`text-[0.6875rem] flex-1 truncate ${
                         isSelected ? 'text-indigo-800 font-medium' : 'text-slate-600'
                       }`}>
                         {chapter.number} {chapter.title}
                       </span>
-                      <span className="text-[10px] text-slate-400 flex-shrink-0">{chapter.pageRange}</span>
+                      <span className="text-[0.625rem] text-slate-400 flex-shrink-0">{chapter.pageRange}</span>
                     </button>
                   )
                 })}
@@ -617,7 +617,7 @@ function CitationScopeModal({
               <Filter className="w-4 h-4 text-indigo-600" />
               引用范围设置
             </h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">
+            <p className="text-[0.6875rem] text-slate-500 mt-0.5">
               选择 AI 可信检索时可参考的文献来源范围
             </p>
           </div>
@@ -895,7 +895,7 @@ export default function TrustedRetrievalPanel({
             </div>
             <div>
               <div className="text-sm font-semibold text-slate-800">AI 双引擎 · 可信检索</div>
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[0.625rem] text-slate-500">
                 AI-1 生成 + 引用标注 · AI-2 事实核查
               </div>
             </div>
@@ -952,7 +952,7 @@ export default function TrustedRetrievalPanel({
                 <div className="text-xs font-medium text-slate-700 truncate">
                   {getScopeLabel()}
                 </div>
-                <div className="text-[10px] text-slate-400 truncate">
+                <div className="text-[0.625rem] text-slate-400 truncate">
                   点击设置 AI 可参考的文献范围
                 </div>
               </div>
@@ -963,7 +963,7 @@ export default function TrustedRetrievalPanel({
 
         <div className="px-4 pb-3">
           <div className="p-2.5 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-100">
-            <div className="text-[11px] text-emerald-800 leading-relaxed">
+            <div className="text-[0.6875rem] text-emerald-800 leading-relaxed">
               <span className="font-semibold">工作流程：</span>
               AI-1 基于选定文献生成回答并标注 [1][2] 引用 → AI-2 逐句核查真实性 →
               仅输出通过核查的内容

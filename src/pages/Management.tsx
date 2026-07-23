@@ -641,7 +641,7 @@ export default function ManagementPage() {
             className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition group ${
               isActive ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-600 hover:bg-slate-50'
             }`}
-            style={{ paddingLeft: `${level * 16 + 8}px` }}
+            style={{ paddingLeft: `${level + 0.5}rem` }}
             onClick={() => {
               if (hasChildren) {
                 toggleCategoryExpand(cat.id)
@@ -701,7 +701,7 @@ export default function ManagementPage() {
                 <button
                   onClick={() => handleAddCategory(cat.id)}
                   className="flex items-center gap-1 ml-4 mt-1 px-2 py-1 text-xs text-slate-400 hover:text-indigo-600 rounded-md hover:bg-indigo-50 transition"
-                  style={{ marginLeft: `${(level + 1) * 16 + 8}px` }}
+                  style={{ marginLeft: `${level + 1.5}rem` }}
                 >
                   <Plus className="w-3 h-3" />
                   添加子分类
@@ -963,11 +963,11 @@ export default function ManagementPage() {
                               <div className="text-sm font-medium text-slate-800 line-clamp-2 max-w-xs">{paper.title}</div>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-sm text-slate-600 max-w-[120px] truncate">{paper.authors}</td>
+                          <td className="px-4 py-3 text-sm text-slate-600 max-w-[7.5rem] truncate">{paper.authors}</td>
                           <td className="px-4 py-3 text-sm text-slate-600">{paper.year}</td>
-                          <td className="px-4 py-3 text-sm text-slate-600 max-w-[140px] truncate">{paper.journal}</td>
+                          <td className="px-4 py-3 text-sm text-slate-600 max-w-[8.75rem] truncate">{paper.journal}</td>
                           <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1 max-w-[180px]">
+                            <div className="flex flex-wrap gap-1 max-w-[11.25rem]">
                               {paper.keywords.slice(0, 2).map((kw) => (
                                 <span key={kw} className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs rounded-full">
                                   {kw}
@@ -985,13 +985,13 @@ export default function ManagementPage() {
                               href={`https://doi.org/${paper.doi}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs text-indigo-600 hover:underline max-w-[140px] truncate block"
+                              className="text-xs text-indigo-600 hover:underline max-w-[8.75rem] truncate block"
                             >
                               {paper.doi.slice(0, 20)}...
                             </a>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1 max-w-[120px]">
+                            <div className="flex flex-wrap gap-1 max-w-[7.5rem]">
                               {paper.categoryIds.length > 0 ? (
                                 paper.categoryIds.slice(0, 1).map((cid) => {
                                   const cat = getAllLeafCategories.find((c) => c.id === cid)
@@ -1084,7 +1084,7 @@ export default function ManagementPage() {
                             </div>
                           </div>
                           <div className="p-3">
-                            <h3 className="font-medium text-slate-800 text-sm line-clamp-2 mb-1.5 min-h-[40px]">{paper.title}</h3>
+                            <h3 className="font-medium text-slate-800 text-sm line-clamp-2 mb-1.5 min-h-[2.5rem]">{paper.title}</h3>
                             <p className="text-xs text-slate-500 line-clamp-1 mb-1">{paper.authors}</p>
                             <p className="text-xs text-slate-400 line-clamp-1 mb-2">{paper.journal} · {paper.year}</p>
                             <div className="flex flex-wrap gap-1 mb-2">

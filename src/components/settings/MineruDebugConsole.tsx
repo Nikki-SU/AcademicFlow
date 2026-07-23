@@ -144,7 +144,7 @@ export function MineruDebugConsole(props: Props) {
 
       {/* Body */}
       {expanded && (
-        <div className="max-h-96 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed">
+        <div className="max-h-96 overflow-y-auto p-2 font-mono text-[0.6875rem] leading-relaxed">
           {events.map((ev, i) => {
             const style = KIND_STYLE[ev.kind]
             return (
@@ -160,7 +160,7 @@ export function MineruDebugConsole(props: Props) {
                 </span>
                 {/* 类型徽章 */}
                 <span
-                  className={`shrink-0 px-1.5 rounded text-[10px] font-semibold ${style.className}`}
+                  className={`shrink-0 px-1.5 rounded text-[0.625rem] font-semibold ${style.className}`}
                 >
                   {style.label}
                 </span>
