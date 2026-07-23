@@ -23,6 +23,10 @@ interface AuthActions {
   logout: () => Promise<void>
   /** 清错误提示 */
   clearError: () => void
+  /** 设置全局认证错误（通常由 github.ts 在 401/403 时调用） */
+  setAuthError: (message: string) => void
+  /** 清除全局认证错误 */
+  clearAuthError: () => void
 }
 
 const initialState: AuthState = {
@@ -35,6 +39,7 @@ const initialState: AuthState = {
   isLoading: false,
   isInitialized: false,
   error: null,
+  authError: null,
 }
 
 export const useAuthStore = create<AuthState & AuthActions>((set) => ({
@@ -145,4 +150,8 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  setAuthError: (message: string) => set({ authError: message }),
+
+  clearAuthError: () => set({ authError: null }),
 }))

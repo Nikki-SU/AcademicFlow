@@ -23,6 +23,7 @@
 import { readRepoTextFile, writeRepoTextFile } from './github'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
+import { assertCanWrite } from './authError'
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 分钟缓存
 
@@ -100,6 +101,7 @@ export async function writeCsvFile<T>(
   headers: string[],
   serializeFn: (item: T) => string[],
 ): Promise<void> {
+  assertCanWrite()
   const ctx = getRepoContext()
   if (!ctx) {
     setCache(path, data, '')
@@ -159,6 +161,7 @@ export async function writeMdFile(
   content: string,
   message?: string,
 ): Promise<string | null> {
+  assertCanWrite()
   const ctx = getRepoContext()
   if (!ctx) {
     setCache(path, content, '')

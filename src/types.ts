@@ -33,6 +33,8 @@ export interface AuthState {
   isInitialized: boolean
   /** 上次登录/验证的错误信息 */
   error: string | null
+  /** 全局认证错误（401/403），触发后冻结写操作 */
+  authError: string | null
 }
 
 /** PAT 验证成功后的返回结果 */

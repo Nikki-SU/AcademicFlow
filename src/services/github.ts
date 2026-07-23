@@ -9,6 +9,7 @@
  * - https://docs.github.com/en/rest/users/users#get-the-authenticated-user
  */
 import { GitHubAPIError, type GitHubUser, type PATVerifyResult } from '../types'
+import { assertCanWrite, setGlobalAuthError } from './authError'
 
 const API_BASE = 'https://api.github.com'
 
@@ -30,6 +31,20 @@ export async function githubFetch(
   headers.set('X-GitHub-Api-Version', '2022-11-28')
 
   const res = await fetch(url, { ...init, headers })
+
+  if (res.status === 401 || res.status === 403) {
+    let detail = `GitHub 返回 ${res.status}`
+    try {
+      const data = await res.clone().json()
+      if (data?.message) detail = data.message
+    } catch {
+      // ignore
+    }
+    setGlobalAuthError(
+      `Token 失效或权限不足（${res.status}：${detail}）。请重新登录或检查 PAT 权限。`,
+    )
+  }
+
   return res
 }
 
@@ -170,12 +185,22 @@ export async function getDeviceCode(): Promise<DeviceCodeResponse> {
   return (await res.json()) as DeviceCodeResponse
 }
 
+/** 轮询结果：成功返回 token；pending 时返回下一次轮询间隔（秒） */
+export type PollDeviceTokenResult =
+  | { type: 'token'; token: TokenResponse }
+  | { type: 'pending'; interval: number }
+
 /**
  * 轮询获取 Access Token
  * POST https://github.com/login/oauth/access_token
- * @returns TokenResponse 成功时，null 表示等待用户授权中
+ * @param deviceCode 设备码
+ * @param currentInterval 当前轮询间隔（秒）
+ * @returns TokenResponse 成功时；pending 时返回新的轮询间隔
  */
-export async function pollDeviceToken(deviceCode: string): Promise<TokenResponse | null> {
+export async function pollDeviceToken(
+  deviceCode: string,
+  currentInterval: number,
+): Promise<PollDeviceTokenResult> {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -187,13 +212,18 @@ export async function pollDeviceToken(deviceCode: string): Promise<TokenResponse
   })
   const data = (await res.json()) as TokenResponse | TokenError
   if ('error' in data) {
-    if (data.error === 'authorization_pending') return null
-    if (data.error === 'slow_down') return null
+    if (data.error === 'authorization_pending') {
+      return { type: 'pending', interval: currentInterval }
+    }
+    if (data.error === 'slow_down') {
+      // GitHub 要求遇到 slow_down 时把轮询间隔增加 5 秒
+      return { type: 'pending', interval: currentInterval + 5 }
+    }
     if (data.error === 'expired_token') throw new Error('授权码已过期，请重新获取')
     if (data.error === 'access_denied') throw new Error('你拒绝了授权')
     throw new Error(data.error_description || `Token 获取失败: ${data.error}`)
   }
-  return data
+  return { type: 'token', token: data }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -545,6 +575,7 @@ export async function writeRepoTextFile(
   token: string,
   message?: string,
 ): Promise<string> {
+  assertCanWrite()
   const encoded = utf8ToBase64(content)
 
   let existingSha: string | undefined

@@ -2,7 +2,7 @@
  * 顶部 Tab 导航布局
  * 五个核心页面：追踪、阅读、学习、写作、管理
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   Search,
@@ -16,8 +16,11 @@ import {
   ChevronDown,
   ExternalLink,
   RefreshCw,
+  AlertTriangle,
+  X,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/auth'
+import { subscribeGlobalAuthError, clearGlobalAuthError } from '../services/authError'
 
 const tabs = [
   { path: '/tracking', label: '追踪', icon: Search },
@@ -128,11 +131,48 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, method, expiresAt, logout } = useAuthStore()
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  useEffect(() => {
+    return subscribeGlobalAuthError((err) => setAuthError(err))
+  }, [])
 
   const currentPath = location.pathname
 
+  const daysUntilExpire = expiresAt
+    ? Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24))
+    : null
+  const showExpiryBanner =
+    daysUntilExpire !== null && (daysUntilExpire <= 7 || daysUntilExpire < 0)
+
+  const handleReLogin = () => {
+    clearGlobalAuthError()
+    logout()
+    navigate('/auth')
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* PAT 过期横幅 */}
+      {showExpiryBanner && user && (
+        <div className={`px-4 py-2 text-sm flex items-center justify-center gap-2 ${
+          daysUntilExpire < 0 ? 'bg-slate-200 text-slate-600' : 'bg-red-50 text-red-700'
+        }`}>
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>
+            {daysUntilExpire < 0
+              ? '你的 GitHub PAT 已过期，写操作已暂停。请重新登录。'
+              : `你的 GitHub PAT 将在 ${daysUntilExpire} 天后过期，建议尽快更换。`}
+          </span>
+          <button
+            onClick={handleReLogin}
+            className="underline hover:no-underline font-medium ml-1"
+          >
+            重新登录
+          </button>
+        </div>
+      )}
+
       {/* 顶部导航栏 */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-[100rem] mx-auto px-4">
@@ -208,6 +248,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-auto">
         {children}
       </main>
+
+      {/* 全局 Token 失效 modal */}
+      {authError && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-red-100 rounded-full">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-slate-800">GitHub 授权失败</h3>
+                <p className="mt-2 text-sm text-slate-600">{authError}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  在重新登录前，所有写入 GitHub 私库的操作已被冻结，防止数据丢失。
+                </p>
+              </div>
+              <button
+                onClick={() => clearGlobalAuthError()}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="关闭"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => clearGlobalAuthError()}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
+              >
+                稍后处理
+              </button>
+              <button
+                onClick={handleReLogin}
+                className="px-4 py-2 text-sm bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg transition"
+              >
+                重新登录
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
