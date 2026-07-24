@@ -1,6 +1,6 @@
 /**
  * 顶部 Tab 导航布局
- * 五个核心页面：追踪、阅读、学习、写作、管理
+ * 六个核心页面：追踪、阅读、学习、写作、管理、排版
  */
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -10,6 +10,7 @@ import {
   GraduationCap,
   PenTool,
   FolderCog,
+  LayoutTemplate,
   Settings,
   LogOut,
   User,
@@ -29,6 +30,7 @@ const tabs = [
   { path: '/learn', label: '学习', icon: GraduationCap },
   { path: '/writing', label: '写作', icon: PenTool },
   { path: '/management', label: '管理', icon: FolderCog },
+  { path: '/journal-format', label: '排版', icon: LayoutTemplate },
 ]
 
 import type { GitHubUser } from '../types'

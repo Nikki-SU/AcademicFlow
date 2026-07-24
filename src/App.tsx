@@ -14,6 +14,7 @@ import ReadingPage from './pages/Reading'
 import LearnPage from './pages/Learn'
 import WritingPage from './pages/Writing'
 import ManagementPage from './pages/Management'
+import JournalFormatPage from './pages/JournalFormat'
 import { useAuthStore } from './stores/auth'
 import { useSettingsStore } from './stores/settings'
 import { useWorkspaceStore } from './stores/workspace'
@@ -78,6 +79,7 @@ function AppLayout() {
         <Route path="/learn" element={<LearnPage />} />
         <Route path="/writing" element={<WritingPage />} />
         <Route path="/management" element={<ManagementPage />} />
+        <Route path="/journal-format" element={<JournalFormatPage />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/" element={<Navigate to="/tracking" replace />} />

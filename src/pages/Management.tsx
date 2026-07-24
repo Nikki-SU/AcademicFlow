@@ -119,35 +119,32 @@ const DEMO_PAPER_CATEGORIES: PaperCategory[] = [
     id: 'my-categories',
     name: '我的分类',
     children: [
-      { id: 'perovskite', name: '钙钛矿太阳能电池' },
-      { id: 'co2', name: 'CO2 电催化还原' },
-      { id: 'battery', name: '锂电池' },
-      { id: 'nano', name: '纳米材料' },
+      { id: 'category-a', name: '示例分类 A' },
+      { id: 'category-b', name: '示例分类 B' },
+      { id: 'category-c', name: '示例分类 C' },
     ],
   },
 ]
 
 const DEMO_BOOK_CATEGORIES: BookCategory[] = [
   { id: 'all', name: '全部图书' },
-  { id: 'phys-chem', name: '物理化学' },
-  { id: 'material', name: '材料科学' },
-  { id: 'electrochem', name: '电化学' },
-  { id: 'semiconductor', name: '半导体物理' },
+  { id: 'textbook-a', name: '示例教材 A' },
+  { id: 'textbook-b', name: '示例教材 B' },
 ]
 
 const DEMO_PAPERS: Paper[] = [
-  { id: '1', title: '钙钛矿太阳能电池研究进展与展望', authors: '李明, 王芳, 张伟', year: '2024', journal: 'Sample Journal', keywords: ['太阳能', '钙钛矿', '光伏'], doi: '10.1000/sample.00000001', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=solar%20cell%20energy%20research%20cover%20image&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['perovskite'] },
-  { id: '2', title: 'CO2 还原电催化剂的设计策略', authors: '陈晓, 刘洋', year: '2023', journal: 'Sample Journal', keywords: ['催化', 'CO2还原', '电化学'], doi: '10.1000/sample.00000002', tier: 1, hasNotes: false, mdStatus: 'converting', mdProgress: 65, categoryIds: ['co2', 'electrochem'] },
-  { id: '3', title: '深度神经网络在药物发现中的应用', authors: '赵磊, 孙娜, 周杰', year: '2024', journal: 'Sample Journal', keywords: ['AI', '药物发现', '深度学习'], doi: '10.1000/sample.00000003', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=drug%20discovery%20neural%20network%20medical%20research&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
-  { id: '4', title: '二维材料的量子输运特性研究', authors: '钱伟, 吴强', year: '2023', journal: 'Sample Journal', keywords: ['二维材料', '量子输运', '凝聚态物理'], doi: '10.1000/sample.00000004', tier: 1, hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['nano', 'semiconductor'] },
-  { id: '5', title: 'CRISPR基因编辑技术的临床转化', authors: '郑华, 冯敏, 陈刚', year: '2024', journal: 'Sample Journal', keywords: ['CRISPR', '基因编辑', '临床'], doi: '10.1000/sample.00000005', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CRISPR%20gene%20editing%20dna%20biotechnology&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
-  { id: '6', title: '金属有机框架材料的气体分离应用', authors: '黄磊, 徐丽', year: '2023', journal: 'Sample Journal', keywords: ['MOF', '气体分离', '材料化学'], doi: '10.1000/sample.00000006', tier: 1, hasNotes: false, mdStatus: 'failed', mdProgress: 40, categoryIds: ['material'] },
-  { id: '7', title: '脑机接口技术的最新进展', authors: '杨帆, 林静, 郭涛', year: '2024', journal: 'Sample Journal', keywords: ['脑机接口', '神经工程', 'BCI'], doi: '10.1000/sample.00000007', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=brain%20computer%20interface%20neural%20technology&image_size=square', hasNotes: false, mdStatus: 'converting', mdProgress: 30, categoryIds: [] },
-  { id: '8', title: '可持续聚合物的合成与降解研究', authors: '何勇, 马丽', year: '2023', journal: 'Sample Journal', keywords: ['可持续', '聚合物', '绿色化学'], doi: '10.1000/sample.00000008', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['material'] },
-  { id: '9', title: '量子计算在化学模拟中的应用', authors: '罗斌, 谢颖, 唐亮', year: '2024', journal: 'Sample Journal', keywords: ['量子计算', '化学模拟', '计算化学'], doi: '10.1000/sample.00000009', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=quantum%20computing%20chemistry%20simulation%20atoms&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['phys-chem'] },
-  { id: '10', title: '单原子催化剂的精准合成', authors: '韩雪, 曹阳', year: '2023', journal: 'Sample Journal', keywords: ['单原子', '催化', '合成'], doi: '10.1000/sample.00000010', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['co2', 'electrochem'] },
-  { id: '11', title: '类器官模型在癌症研究中的应用', authors: '邓杰, 曾红, 彭飞', year: '2024', journal: 'Sample Journal', keywords: ['类器官', '癌症', '模型'], doi: '10.1000/sample.00000011', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=organoid%20cancer%20research%20biology%20cells&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: [] },
-  { id: '12', title: '拓扑绝缘体的自旋电子学特性', authors: '苏明, 卢芳', year: '2023', journal: 'Sample Journal', keywords: ['拓扑绝缘体', '自旋电子学', '凝聚态'], doi: '10.1000/sample.00000012', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['semiconductor', 'nano'] },
+  { id: '1', title: '示例论文：学术研究方法综述', authors: 'Author A, Author B, Author C', year: '2024', journal: 'Sample Journal', keywords: ['methodology', 'review', 'academic writing'], doi: '10.1000/sample.00000001', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20academic%20research%20methodology%20cover%20minimal&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-a'] },
+  { id: '2', title: '示例论文：文献综述写作指南', authors: 'Author D, Author E', year: '2023', journal: 'Sample Journal', keywords: ['literature review', 'writing'], doi: '10.1000/sample.00000002', tier: 1, hasNotes: false, mdStatus: 'converting', mdProgress: 65, categoryIds: ['category-a', 'category-b'] },
+  { id: '3', title: '示例论文：数据可视化最佳实践', authors: 'Author F, Author G, Author H', year: '2024', journal: 'Sample Journal', keywords: ['visualization', 'data', 'communication'], doi: '10.1000/sample.00000003', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20data%20visualization%20charts%20cover%20minimal&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
+  { id: '4', title: '示例论文：学术诚信与引用规范', authors: 'Author I, Author J', year: '2023', journal: 'Sample Journal', keywords: ['ethics', 'citation', 'scholarship'], doi: '10.1000/sample.00000004', tier: 1, hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['category-b', 'category-c'] },
+  { id: '5', title: '示例论文：实验设计与可复现性', authors: 'Author K, Author L, Author M', year: '2024', journal: 'Sample Journal', keywords: ['experiment', 'reproducibility'], doi: '10.1000/sample.00000005', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20laboratory%20experiment%20reproducibility%20cover%20minimal&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
+  { id: '6', title: '示例论文：学术演讲与海报设计', authors: 'Author N, Author O', year: '2023', journal: 'Sample Journal', keywords: ['presentation', 'poster', 'communication'], doi: '10.1000/sample.00000006', tier: 1, hasNotes: false, mdStatus: 'failed', mdProgress: 40, categoryIds: ['category-c'] },
+  { id: '7', title: '示例论文：科研项目管理入门', authors: 'Author P, Author Q, Author R', year: '2024', journal: 'Sample Journal', keywords: ['project management', 'workflow'], doi: '10.1000/sample.00000007', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20project%20management%20workflow%20cover%20minimal&image_size=square', hasNotes: false, mdStatus: 'converting', mdProgress: 30, categoryIds: [] },
+  { id: '8', title: '示例论文：统计方法基础', authors: 'Author S, Author T', year: '2023', journal: 'Sample Journal', keywords: ['statistics', 'methods'], doi: '10.1000/sample.00000008', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-b'] },
+  { id: '9', title: '示例论文：科学写作中的逻辑结构', authors: 'Author U, Author V, Author W', year: '2024', journal: 'Sample Journal', keywords: ['writing', 'logic', 'structure'], doi: '10.1000/sample.00000009', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20scientific%20writing%20logic%20structure%20cover%20minimal&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['textbook-a'] },
+  { id: '10', title: '示例论文：开放科学与数据共享', authors: 'Author X, Author Y', year: '2023', journal: 'Sample Journal', keywords: ['open science', 'data sharing'], doi: '10.1000/sample.00000010', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-a', 'category-b'] },
+  { id: '11', title: '示例论文：同行评审流程解析', authors: 'Author Z, Author AA', year: '2024', journal: 'Sample Journal', keywords: ['peer review', 'publishing'], doi: '10.1000/sample.00000011', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20peer%20review%20publishing%20cover%20minimal&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: [] },
+  { id: '12', title: '示例论文：跨学科研究的方法论挑战', authors: 'Author AB, Author AC, Author AD', year: '2023', journal: 'Sample Journal', keywords: ['interdisciplinary', 'methods'], doi: '10.1000/sample.00000012', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-c', 'textbook-b'] },
 ]
 
 const DEMO_TEMPLATES: JournalTemplateItem[] = [
