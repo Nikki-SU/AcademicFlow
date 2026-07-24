@@ -43,6 +43,7 @@ import {
   Tag,
   Library,
 } from 'lucide-react'
+import { DoiLink } from '../components/DoiLink'
 
 type SubTabId = 'library' | 'templates' | 'knowledge' | 'import-export'
 
@@ -925,7 +926,7 @@ export default function ManagementPage() {
                         <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">年份</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">期刊</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">关键词</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">DOI</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">DOI 链接</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">分类</th>
                         <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">操作</th>
                       </tr>
@@ -981,14 +982,7 @@ export default function ManagementPage() {
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <a
-                              href={`https://doi.org/${paper.doi}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-indigo-600 hover:underline max-w-[8.75rem] truncate block"
-                            >
-                              {paper.doi.slice(0, 20)}...
-                            </a>
+                            <DoiLink doi={paper.doi} className="text-xs max-w-[8.75rem] truncate block" />
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-1 max-w-[7.5rem]">
@@ -1814,15 +1808,11 @@ export default function ManagementPage() {
                   onChange={(e) => setEditingPaper({ ...editingPaper, doi: e.target.value })}
                   className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
-                <a
-                  href={`https://doi.org/${editingPaper.doi}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 px-3 py-2 text-sm text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  测试跳转
-                </a>
+                <DoiLink
+                  doi={editingPaper.doi}
+                  showIcon
+                  className="flex items-center gap-1 px-3 py-2 text-sm bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
+                />
               </div>
             </div>
 

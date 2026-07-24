@@ -75,14 +75,14 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
       })
 
       try {
-        const { user, scopes } = await verifyPAT(authRow.access_token)
+        const { user, scopes, expiresAt } = await verifyPAT(authRow.access_token)
         set({ user, scopes })
         await putAuth({
           method: authRow.method,
           access_token: authRow.access_token,
           scope: scopes.join(','),
           login_at: authRow.login_at,
-          expires_at: authRow.expires_at,
+          expires_at: expiresAt ?? authRow.expires_at,
           github_username: user.login,
           github_user_id: user.id,
           user_data: JSON.stringify(user),
@@ -113,14 +113,15 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
   login: async (token: string, method: 'device_flow' | 'pat', expiresAt?: number) => {
     set({ isLoading: true, error: null })
     try {
-      const { user, scopes } = await verifyPAT(token)
+      const { user, scopes, expiresAt: detectedExpiresAt } = await verifyPAT(token)
+      const finalExpiresAt = detectedExpiresAt ?? expiresAt
       const now = Date.now()
       await putAuth({
         method,
         access_token: token.trim(),
         scope: scopes.join(','),
         login_at: now,
-        expires_at: expiresAt ?? null,
+        expires_at: finalExpiresAt ?? null,
         github_username: user.login,
         github_user_id: user.id,
         user_data: JSON.stringify(user),
@@ -131,7 +132,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
         scopes,
         method,
         loginAt: now,
-        expiresAt: expiresAt ?? null,
+        expiresAt: finalExpiresAt ?? null,
         isLoading: false,
         error: null,
       })

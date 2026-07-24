@@ -127,7 +127,15 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
     10,
   )
 
-  return { user, scopes, rateLimitRemaining }
+  // GitHub 在部分场景下通过响应头返回 token 过期时间（Fine-grained PAT 创建/校验）
+  let expiresAt: number | undefined
+  const tokenExpiration = res.headers.get('github-authentication-token-expiration')
+  if (tokenExpiration) {
+    const parsed = new Date(tokenExpiration).getTime()
+    if (!isNaN(parsed)) expiresAt = parsed
+  }
+
+  return { user, scopes, rateLimitRemaining, expiresAt }
 }
 
 /** 生成 Fine-grained PAT 创建页 URL（预填名称/描述/过期时间/仓库权限）

@@ -29,10 +29,10 @@ import {
   Newspaper,
   Hash,
   FileText,
-  ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
+import { DoiLink } from '../components/DoiLink'
 import { readCsvFile, writeCsvFile } from '../services/userData'
 
 // ============================================================
@@ -807,15 +807,7 @@ export default function TrackingPage() {
                           {paper.doi && (
                             <>
                               <span className="text-slate-300">·</span>
-                              <a
-                                href={`https://doi.org/${paper.doi}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-slate-400 hover:text-indigo-600 inline-flex items-center gap-0.5"
-                              >
-                                DOI
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
+                              <DoiLink doi={paper.doi} mode="label" showIcon className="text-xs inline-flex items-center gap-0.5" />
                             </>
                           )}
                           <span className="text-slate-300">·</span>

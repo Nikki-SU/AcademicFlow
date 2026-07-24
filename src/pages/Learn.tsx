@@ -14,7 +14,6 @@ import {
   Volume2,
   Shuffle,
   Sparkles,
-  Loader2,
   Settings,
   CheckCircle,
   XCircle,
@@ -24,6 +23,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
+import { useSettingsStore } from '../stores/settings'
 import type { WordData } from '../services/learningData'
 import { getSetting, putSetting } from '../services/db'
 
@@ -84,114 +84,10 @@ const subTabs = [
   { id: 'translation' as TabId, label: '翻译练习', icon: Languages },
 ]
 
-const DEFAULT_WORDS: Word[] = [
-  {
-    id: 'w1',
-    word: 'perovskite',
-    phonetic: '/pəˈrɒvskaɪt/',
-    meaning: '钙钛矿',
-    exampleEn: 'Perovskite solar cells have achieved remarkable efficiency improvements in recent years.',
-    exampleZh: '钙钛矿太阳能电池近年来在效率上取得了显著的提升。',
-    root: 'perov- (钙钛矿结构) + -skite (矿)',
-    seenCount: 0,
-  },
-  {
-    id: 'w2',
-    word: 'catalysis',
-    phonetic: '/kəˈtælɪsɪs/',
-    meaning: '催化',
-    exampleEn: 'Heterogeneous catalysis plays a vital role in industrial chemical processes.',
-    exampleZh: '多相催化在工业化学过程中起着至关重要的作用。',
-    root: 'cata- (完全) + lysis (分解)',
-    seenCount: 0,
-  },
-  {
-    id: 'w3',
-    word: 'electrolyte',
-    phonetic: '/ɪˈlektrəlaɪt/',
-    meaning: '电解质',
-    exampleEn: 'Solid-state electrolytes offer improved safety compared to liquid electrolytes.',
-    exampleZh: '与液态电解质相比，固态电解质具有更高的安全性。',
-    root: 'electro- (电) + -lyte (溶解物)',
-    seenCount: 0,
-  },
-  {
-    id: 'w4',
-    word: 'photovoltaic',
-    phonetic: '/ˌfəʊtəʊvɒlˈteɪɪk/',
-    meaning: '光伏的',
-    exampleEn: 'Photovoltaic technology converts sunlight directly into electricity.',
-    exampleZh: '光伏技术将太阳光直接转化为电能。',
-    root: 'photo- (光) + voltaic (电流的)',
-    seenCount: 0,
-  },
-  {
-    id: 'w5',
-    word: 'semiconductor',
-    phonetic: '/ˌsemikənˈdʌktə/',
-    meaning: '半导体',
-    exampleEn: 'Silicon is the most widely used semiconductor material in electronic devices.',
-    exampleZh: '硅是电子设备中使用最广泛的半导体材料。',
-    root: 'semi- (半) + conductor (导体)',
-    seenCount: 0,
-  },
-]
-
-const DEFAULT_SENTENCES: Sentence[] = [
-  {
-    id: 's1',
-    en: 'The synergistic effect between the metal nanoparticles and the metal-organic framework support plays a crucial role in determining the overall catalytic activity and stability of the heterogeneous catalyst.',
-    zh: '金属纳米颗粒与金属有机框架载体之间的协同效应对决定多相催化剂的整体催化活性和稳定性起着至关重要的作用。',
-    structure: {
-      subject: 'The synergistic effect between the metal nanoparticles and the metal-organic framework support',
-      predicate: 'plays a crucial role',
-      object: 'in determining the overall catalytic activity and stability of the heterogeneous catalyst',
-    },
-  },
-  {
-    id: 's2',
-    en: 'Despite extensive research efforts over the past three decades, the underlying mechanism by which single-atom catalysts achieve their remarkable selectivity remains elusive and continues to be a subject of intense debate.',
-    zh: '尽管过去三十年进行了广泛的研究，单原子催化剂实现其卓越选择性的潜在机制仍然难以捉摸，并继续成为激烈争论的主题。',
-    structure: {
-      subject: 'the underlying mechanism',
-      predicate: 'remains elusive and continues to be a subject of intense debate',
-      object: 'by which single-atom catalysts achieve their remarkable selectivity',
-    },
-  },
-  {
-    id: 's3',
-    en: 'By carefully controlling the synthesis parameters, researchers were able to fabricate a hybrid material that exhibits both high electrical conductivity and excellent electrochemical performance.',
-    zh: '通过仔细控制合成参数，研究人员成功制备了一种兼具高导电性和优异电化学性能的杂化材料。',
-    structure: {
-      subject: 'researchers',
-      predicate: 'were able to fabricate',
-      object: 'a hybrid material that exhibits both high electrical conductivity and excellent electrochemical performance',
-    },
-  },
-]
-
-const DEFAULT_TRANSLATIONS: TranslationItem[] = [
-  {
-    id: 't1',
-    source: '我们报道了一种新型纳米催化剂，其在室温下表现出优异的 CO2 还原性能和长期稳定性。',
-    reference: 'We report a novel nanocatalyst that exhibits excellent CO2 reduction performance and long-term stability at room temperature.',
-  },
-  {
-    id: 't2',
-    source: '该研究结果为设计高效、低成本的能量转换装置提供了新的思路和理论指导。',
-    reference: 'The research results provide new insights and theoretical guidance for the design of efficient and low-cost energy conversion devices.',
-  },
-  {
-    id: 't3',
-    source: '实验结果表明，这种复合电极材料的比容量是纯碳材料的三倍以上。',
-    reference: 'Experimental results show that the specific capacity of this composite electrode material is more than three times that of pure carbon material.',
-  },
-]
-
-const AI_GENERATE_OPTIONS = [
-  { value: '10.1000/sample.00000001', label: '钙钛矿太阳能电池综述 (Sample Journal)' },
-  { value: '10.1000/sample.00000002', label: 'CO2 还原电催化剂设计 (Sample Journal)' },
-]
+const DEFAULT_WORDS: Word[] = []
+const DEFAULT_SENTENCES: Sentence[] = []
+const DEFAULT_TRANSLATIONS: TranslationItem[] = []
+const AI_GENERATE_OPTIONS: { value: string; label: string }[] = []
 
 /** 学习进度存储 key（IndexedDB settings 表） */
 const LEARN_KEYS = {
@@ -262,7 +158,6 @@ function formatTime(timestamp?: number): string {
 export default function LearnPage() {
   const [activeTab, setActiveTab] = useState<TabId>('words')
   const [aiGenOpen, setAiGenOpen] = useState(false)
-  const [aiGenLoading, setAiGenLoading] = useState(false)
   const [selectedPaper, setSelectedPaper] = useState('')
   const [genTypes, setGenTypes] = useState({ words: true, sentences: true, translation: true })
 
@@ -411,35 +306,13 @@ export default function LearnPage() {
       toast.error('请至少选择一种生成类型')
       return
     }
-    setAiGenLoading(true)
-    try {
-      await new Promise((r) => setTimeout(r, 2000))
-      if (genTypes.words) {
-        const newWords: Word[] = [
-          { id: `ai-${Date.now()}-1`, word: 'photovoltaic', phonetic: '/ˌfəʊtəʊvɒlˈteɪɪk/', meaning: '光伏的', exampleEn: 'Photovoltaic technology converts sunlight directly into electricity.', exampleZh: '光伏技术将阳光直接转化为电能。', root: 'photo-光 + voltaic-电的', seenCount: 0 },
-          { id: `ai-${Date.now()}-2`, word: 'efficiency', phonetic: '/ɪˈfɪʃənsi/', meaning: '效率', exampleEn: 'The power conversion efficiency reached a record 26%.', exampleZh: '功率转换效率达到了创纪录的26%。', root: 'ef-出 + fic-做 + -iency', seenCount: 0 },
-        ]
-        setWords((prev) => [...newWords, ...prev])
-      }
-      if (genTypes.sentences) {
-        const newSents: Sentence[] = [
-          { id: `ai-${Date.now()}-s1`, en: 'The power conversion efficiency of perovskite solar cells has increased dramatically over the past decade.', zh: '钙钛矿太阳能电池的功率转换效率在过去十年中大幅提升。', structure: { subject: 'The power conversion efficiency', predicate: 'has increased', object: '' } },
-        ]
-        setSentences((prev) => [...newSents, ...prev])
-      }
-      if (genTypes.translation) {
-        const newTrans: TranslationItem[] = [
-          { id: `ai-${Date.now()}-t1`, source: '该研究揭示了钙钛矿材料中载流子输运的微观机制。', reference: 'This study reveals the microscopic mechanism of carrier transport in perovskite materials.' },
-        ]
-        setTranslations((prev) => [...newTrans, ...prev])
-      }
-      toast.success('学习内容生成成功！')
-      setAiGenOpen(false)
-    } catch {
-      toast.error('生成失败，请重试')
-    } finally {
-      setAiGenLoading(false)
+    const { siliconflowApiKey } = useSettingsStore.getState()
+    if (!siliconflowApiKey.trim()) {
+      toast.error('请先在设置页填写 AI API Key')
+      return
     }
+    // SPEC §1.3/§1.6：AI 不可用时明确告知，禁止伪造数据
+    toast.info('AI 学习内容生成功能正在接入真实模型，当前不可用')
   }
 
   return (
@@ -540,20 +413,10 @@ export default function LearnPage() {
               </button>
               <button
                 onClick={handleAIGenerate}
-                disabled={aiGenLoading}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition flex items-center justify-center gap-2"
               >
-                {aiGenLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    生成中...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    开始生成
-                  </>
-                )}
+                <Sparkles className="w-4 h-4" />
+                开始生成
               </button>
             </div>
           </div>

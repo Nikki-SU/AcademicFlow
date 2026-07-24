@@ -30,6 +30,7 @@ import {
   Edit3,
 } from 'lucide-react'
 import { readMdFile, writeMdFile, readCsvFile, writeCsvFile } from '../services/userData'
+import { DoiLink } from '../components/DoiLink'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 type SideTab = 'notes' | 'annotations'
@@ -981,7 +982,7 @@ export default function ReadingPage() {
                       </span>
                     )}
                     <span className="text-slate-400 text-[0.625rem] truncate">
-                      {p.doi}
+                      <DoiLink doi={p.doi} className="text-[0.625rem]" />
                     </span>
                   </div>
                 </div>

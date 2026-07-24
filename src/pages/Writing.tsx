@@ -36,7 +36,6 @@ import {
   Wand2,
   Languages,
   FileCode,
-  ExternalLink,
   AlignLeft,
   X,
   BookText,
@@ -60,9 +59,11 @@ import TableGridPicker from '../components/TableGridPicker'
 import { toast } from 'sonner'
 import { readMdFile, writeMdFile } from '../services/userData'
 import { getAllTemplates } from '../services/journal-templates'
+import { useSettingsStore } from '../stores/settings'
 import type { JournalTemplate } from '../types'
+import { DoiLink } from '../components/DoiLink'
 
-const PROJECT_DOC_PATH = 'writing/default.md'
+const PROJECT_DOC_PATH = 'projects/default/manuscript.md'
 
 const STAGES = [
   { value: 'topic', label: '选题', leftPanel: 'outline', rightPanel: 'knowledge' },
@@ -211,72 +212,41 @@ const ALL_REFERENCES: CitationRef[] = [...DEMO_CITATIONS, ...DEMO_BOOKS]
 
 const DEMO_MD = `# 引言
 
-近年来，钙钛矿太阳能电池（PSCs）取得了突破性进展[1]，光电转换效率从 2009 年的 3.8% 迅速提升至 2024 年的 26.1%。
+这是一份示例手稿，用于展示 AcademicFlow 的写作界面。请从文献库引入真实文献后替换此内容[1]。
 
 ## 研究背景
 
-钙钛矿材料具有以下优异特性：
+在此处描述你的研究背景：
 
-- **高吸收系数**：可见光范围内几乎完全吸收
-- *长载流子扩散长度*：可达微米级
-- **可调节带隙**：通过卤素组分调控
+- **核心问题**：本研究试图解决什么科学问题？
+- *现有方法*：前人是如何处理的？
+- **创新点**：本文的主要增量是什么？
 
-> 钙钛矿太阳能电池被誉为"下一代光伏技术的希望之星"。
+> 提示：选中任意段落后，可在右侧 AI 助手面板请求润色、扩写或翻译。
 
-## 性能对比
+## 示例表格
 
-| 材料体系 | 效率（%） | 稳定性（小时） | 成本（$/W） |
-|---------|----------|--------------|------------|
-| 单晶硅 | 26.7 | >25000 | 0.20-0.30 |
-| 钙钛矿 | 26.1 | >10000 | 0.10-0.15 |
-| 碲化镉 | 22.1 | >20000 | 0.18-0.25 |
-| CIGS | 23.6 | >15000 | 0.25-0.35 |
+| 样品 | 指标 A | 指标 B | 指标 C |
+|-----|--------|--------|--------|
+| 对照组 | 10.0 | 0.85 | 95 |
+| 实验组 1 | 12.5 | 0.88 | 97 |
+| 实验组 2 | 11.8 | 0.86 | 96 |
 
-## 实验方法
-
-我们采用一步旋涂法制备钙钛矿薄膜：
+## 示例代码
 
 \`\`\`python
-def prepare_perovskite_film():
-    precursor = PbI2 + MAI + DMF
-    spin_coat(precursor, rpm=4000)
-    anneal(temperature=100, time=60)
-    return film
+def example_analysis():
+    data = load_data()
+    results = process(data)
+    return summarize(results)
 \`\`\`
 
 更多细节请参考 [原始文献](https://doi.org/10.1000/sample.00000001)。
 `
 
-const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRef[] }> = {
-  continue: {
-    content: '基于当前上下文，我建议从以下几个方面继续展开：\n\n1. **钙钛矿薄膜的形貌调控** —— 探讨反溶剂工程、添加剂工程等策略对薄膜质量的影响。\n\n2. **界面工程与电荷传输** —— 分析电子传输层（ETL）和空穴传输层（HTL）的选择及其对器件性能的影响。\n\n3. **稳定性研究进展** —— 讨论光稳定性、热稳定性和湿度稳定性的最新突破。\n\n下面我为你撰写"形貌调控"部分的初稿：\n\n### 形貌调控策略\n\n钙钛矿薄膜的形貌直接影响器件的光电转换效率和稳定性。研究者们开发了多种调控策略，其中反溶剂法是最常用的方法之一[1]。通过在旋涂过程中滴加反溶剂（如氯苯、甲苯），可以快速诱导前驱体结晶，形成致密、均匀的钙钛矿薄膜。',
-    citations: [DEMO_CITATIONS[0]],
-  },
-  polish: {
-    content: '以下是润色后的段落：\n\n近年来，钙钛矿太阳能电池（Perovskite Solar Cells, PSCs）作为新一代光伏技术的代表，取得了举世瞩目的突破性进展[1]。自 2009 年首次报道 3.8% 的光电转换效率以来，PSCs 的效率在短短十余年间已攀升至 26.1%，这一增长速度在光伏发展史上堪称前所未有。\n\n**润色要点：**\n- 补充英文全称及缩写定义，学术规范性更强\n- "突破性进展"前增加修饰语，表达更丰富\n- 增加时间跨度的强调，突出进展的神速\n- 结尾增加评价性语句，提升段落的学术分量',
-    citations: [DEMO_CITATIONS[0]],
-  },
-  translate: {
-    content: '**英文翻译：**\n\n# Introduction\n\nIn recent years, perovskite solar cells (PSCs) have achieved breakthrough progress[1], with the power conversion efficiency rapidly increasing from 3.8% in 2009 to 26.1% in 2024.\n\n## Background\n\nPerovskite materials possess the following outstanding properties:\n\n- **High absorption coefficient**: nearly complete absorption in the visible light range\n- *Long carrier diffusion length*: reaching the micrometer scale\n- **Tunable bandgap**: regulated through halogen composition\n\n> Perovskite solar cells are hailed as "the rising star of next-generation photovoltaic technology".',
-    citations: [DEMO_CITATIONS[0]],
-  },
-  search: {
-    content: '根据你的研究方向，我为你推荐以下几篇相关文献：\n\n### 1. 钙钛矿太阳能电池综述\n\n这篇综述系统总结了钙钛矿太阳能电池近五年的关键进展，涵盖效率提升、稳定性改进和大面积制备等多个方面。引用量超过 2000 次，是该领域的经典综述之一[1]。\n\n### 2. 电催化 CO2 还原\n\n这篇研究论文报道了一种新型金属有机框架衍生纳米材料，在电催化 CO2 还原反应中表现出优异的活性和选择性[2]。\n\n### 3. 钯催化合成方法学\n\n这篇示例论文报道了 Pd/IPr^BIDEA 催化体系在区域选择性氢化脱氟反应中的应用，对有机合成方法学研究有重要参考价值[3]。',
-    citations: DEMO_CITATIONS,
-  },
-  summarize: {
-    content: '**段落总结：**\n\n本段主要介绍了钙钛矿太阳能电池的研究背景和优异特性，核心要点如下：\n\n1. **效率突破**：从 2009 年的 3.8% 提升至 2024 年的 26.1%，发展迅速\n2. **材料优势**：\n   - 高吸收系数：可见光范围内几乎完全吸收\n   - 长载流子扩散长度：可达微米级\n   - 可调节带隙：通过卤素组分调控\n3. **学术地位**：被誉为"下一代光伏技术的希望之星"\n\n这些特性使得钙钛矿太阳能电池成为光伏领域最具潜力的研究方向之一[1]。',
-    citations: [DEMO_CITATIONS[0]],
-  },
-  expand: {
-    content: '**扩写后的内容：**\n\n近年来，钙钛矿太阳能电池（PSCs）作为第三代光伏技术的典型代表，在全球范围内掀起了研究热潮并取得了突破性进展[1]。自 2009 年日本科学家 Miyasaka 等人首次将钙钛矿材料应用于染料敏化太阳能电池并获得 3.8% 的光电转换效率以来，PSCs 的效率在短短十余年间实现了跨越式发展，截至 2024 年已达到 26.1% 的认证效率，逼近单晶硅电池的理论极限。这一前所未有的发展速度，使得钙钛矿太阳能电池成为光伏领域最受关注的研究方向之一。',
-    citations: [DEMO_CITATIONS[0]],
-  },
-  shorten: {
-    content: '**缩写后的内容：**\n\n钙钛矿太阳能电池（PSCs）近年来进展迅速[1]，效率从 2009 年的 3.8% 提升至 2024 年的 26.1%，被誉为下一代光伏技术的希望之星。其高吸收系数、长载流子扩散长度和可调节带隙等特性使其具有巨大的应用潜力。',
-    citations: [DEMO_CITATIONS[0]],
-  },
-}
+// SPEC §1.3/§1.6：AI 不可用时明确告知，禁止用随机数/占位内容伪造。
+// 真实 AI 写作助手接入前，所有快捷动作统一返回"功能开发中"提示。
+const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRef[] }> = {}
 
 function escapeHtml(text: string): string {
   return text
@@ -1065,29 +1035,22 @@ export default function WritingPage() {
     setIsAiReviewing(false)
 
     setTimeout(() => {
-      let response = DEMO_AI_RESPONSES.search
-      if (prompt) {
-        if (prompt.includes('continue') || prompt.includes('继续')) response = DEMO_AI_RESPONSES.continue
-        else if (prompt.includes('polish') || prompt.includes('润色')) response = DEMO_AI_RESPONSES.polish
-        else if (prompt.includes('translate') || prompt.includes('翻译')) response = DEMO_AI_RESPONSES.translate
-        else if (prompt.includes('summarize') || prompt.includes('总结')) response = DEMO_AI_RESPONSES.summarize
-        else if (prompt.includes('expand') || prompt.includes('扩写')) response = DEMO_AI_RESPONSES.expand
-        else if (prompt.includes('shorten') || prompt.includes('缩写')) response = DEMO_AI_RESPONSES.shorten
+      const { siliconflowApiKey } = useSettingsStore.getState()
+      const aiAvailable = DEMO_AI_RESPONSES.search && siliconflowApiKey.trim()
+      let content: string
+      if (!siliconflowApiKey.trim()) {
+        content = '**AI 服务未配置**\n\n请先在设置页填写 AI API Key，届时写作助手才能正常工作。'
+      } else if (!aiAvailable) {
+        content = '**AI 写作助手正在接入真实模型**\n\n当前尚未接入 AI-1/Ai-2 双引擎，无法生成或审阅内容。'
       } else {
-        const lower = text.toLowerCase()
-        if (lower.includes('继续') || lower.includes('续写')) response = DEMO_AI_RESPONSES.continue
-        else if (lower.includes('润色') || lower.includes('优化') || lower.includes('polish')) response = DEMO_AI_RESPONSES.polish
-        else if (lower.includes('翻译') || lower.includes('translate')) response = DEMO_AI_RESPONSES.translate
-        else if (lower.includes('总结') || lower.includes('摘要') || lower.includes('summarize')) response = DEMO_AI_RESPONSES.summarize
-        else if (lower.includes('扩写') || lower.includes('expand')) response = DEMO_AI_RESPONSES.expand
-        else if (lower.includes('缩写') || lower.includes('shorten')) response = DEMO_AI_RESPONSES.shorten
+        content = DEMO_AI_RESPONSES.search.content
       }
 
       const genMsg: AIMessage = {
         id: String(Date.now() + 1),
         role: 'assistant',
-        content: response.content,
-        citations: trustedSearch ? response.citations : undefined,
+        content,
+        citations: undefined,
         reviewStatus: 'pending',
       }
       setMessages((prev) => [...prev, genMsg])
@@ -1114,7 +1077,7 @@ export default function WritingPage() {
       translate: '请将选中内容进行中英文互译',
       expand: '请扩写当前段落，丰富内容',
       shorten: '请缩写当前段落，精简内容',
-      search: '请推荐与钙钛矿太阳能电池相关的文献',
+      search: '请推荐与当前研究主题相关的文献',
       summarize: '请总结当前段落的核心要点',
     }
     handleSendMessage(prompts[action] || action)
@@ -1679,17 +1642,13 @@ export default function WritingPage() {
                       {cit.authors}
                     </div>
                     <div className="mt-2 flex items-center justify-between">
-                      <a
-                        href={`https://doi.org/${cit.doi}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[0.6875rem] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                      <DoiLink
+                        doi={cit.doi}
+                        mode="short"
+                        showIcon
+                        className="text-[0.6875rem] flex items-center gap-1 font-medium"
                         onClick={(e) => e.stopPropagation()}
-                      >
-                        <FileCode className="w-3 h-3" />
-                        {cit.doi}
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                      />
                     </div>
                   </div>
                 ))}
@@ -2003,16 +1962,12 @@ export default function WritingPage() {
                                     <div className="text-[0.6875rem] text-slate-400 mt-0.5 ml-5 italic">
                                       引用位置：第 {Math.floor(Math.random() * 10) + 1} 页 · 第 {Math.floor(Math.random() * 5) + 1} 段
                                     </div>
-                                    <a
-                                      href={`https://doi.org/${cit.doi}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-[0.6875rem] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-1.5 ml-5 font-medium"
-                                    >
-                                      <FileCode className="w-3 h-3" />
-                                      {cit.doi}
-                                      <ExternalLink className="w-3 h-3" />
-                                    </a>
+                                    <DoiLink
+                                      doi={cit.doi}
+                                      mode="short"
+                                      showIcon
+                                      className="text-[0.6875rem] flex items-center gap-1 mt-1.5 ml-5 font-medium"
+                                    />
                                   </div>
                                 ))}
                               </div>
@@ -2226,17 +2181,13 @@ export default function WritingPage() {
                       {cit.authors}
                     </div>
                     <div className="mt-2 flex items-center justify-between">
-                      <a
-                        href={`https://doi.org/${cit.doi}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[0.6875rem] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                      <DoiLink
+                        doi={cit.doi}
+                        mode="label"
+                        showIcon
+                        className="text-[0.6875rem] flex items-center gap-1 font-medium"
                         onClick={(e) => e.stopPropagation()}
-                      >
-                        <FileCode className="w-3 h-3" />
-                        DOI
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                      />
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -2572,8 +2523,8 @@ export default function WritingPage() {
                         <div className="text-xs text-slate-400 truncate mt-0.5">
                           {cit.journal}
                         </div>
-                        <div className="text-[0.6875rem] text-indigo-600 mt-1 font-mono">
-                          {cit.doi}
+                        <div className="text-[0.6875rem] mt-1">
+                          <DoiLink doi={cit.doi} mode="short" />
                         </div>
                       </div>
                     </div>

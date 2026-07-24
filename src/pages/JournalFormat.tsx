@@ -32,6 +32,7 @@ import type { JournalTemplate, LatexConversionResult } from '../types'
 import { SILICONFLOW_BASE_URL } from '../services/ai/models'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DEMO_SAMPLE_MARKDOWN } from '../data/demo-content'
+import { DoiLink } from '../components/DoiLink'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
@@ -739,14 +740,10 @@ function JournalFormatPage() {
                             {entry.year ? ` · ${entry.year}` : ''}
                             {entry.journal ? ` · ${entry.journal}` : ''}
                           </div>
-                          <a
-                            href={`https://doi.org/${entry.doi}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-indigo-500 hover:text-indigo-700 font-mono mt-1 inline-block truncate max-w-full"
-                          >
-                            https://doi.org/{entry.doi}
-                          </a>
+                          <DoiLink
+                            doi={entry.doi}
+                            className="text-xs mt-1 inline-block truncate max-w-full"
+                          />
                         </div>
                       </div>
                     </div>

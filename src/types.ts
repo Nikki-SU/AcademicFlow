@@ -43,6 +43,8 @@ export interface PATVerifyResult {
   scopes: string[]
   /** 剩余速率配额（X-RateLimit-Remaining） */
   rateLimitRemaining: number
+  /** PAT 过期时间（Unix ms），当 GitHub 响应头提供时才有 */
+  expiresAt?: number
 }
 
 /** GitHub API 错误 */
@@ -661,6 +663,10 @@ export interface JournalTemplate {
   reference_format_note?: string
   /** 自定义 LaTeX 前置代码（插入 \begin{document} 之前） */
   custom_preamble?: string
+  /** 完整 LaTeX 模板骨架（对应 templates/journals/{slug}/template.tex） */
+  template_tex?: string
+  /** 投稿信模板（对应 templates/journals/{slug}/cover-letter.md.tpl） */
+  cover_letter?: string
   /** 备注 / 用户笔记 */
   notes?: string
   /** 创建时间 */
