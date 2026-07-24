@@ -163,11 +163,11 @@ const DEMO_PROJECTS: Project[] = [DEFAULT_PROJECT]
 
 const DEMO_CITATIONS: CitationRef[] = [
   {
-    doi: '10.1021/jacs.3c11464',
+    doi: '10.1000/sample.00000001',
     title: 'Efficient Perovskite Solar Cells via Interface Engineering',
     authors: 'Chen, X., Li, Y.',
     year: 2023,
-    journal: 'Journal of the American Chemical Society',
+    journal: 'Sample Journal',
     projectId: 'default',
     type: 'paper',
   },
@@ -177,32 +177,32 @@ const DEMO_CITATIONS: CitationRef[] = [
 
 const DEMO_BOOKS: BookRef[] = [
   {
-    doi: '10.1007/978-3-030-12345-6',
+    doi: '10.1000/sample.00000020',
     title: '有机合成化学原理与方法',
     authors: 'Smith, M.B., March, J.',
     year: 2020,
-    journal: 'Wiley',
+    journal: 'Sample Publisher',
     type: 'book',
     projectId: '1',
     chapters: [
-      { id: 'ch1', bookId: '10.1007/978-3-030-12345-6', title: '第一章 有机合成基础', pageStart: 1, pageEnd: 45 },
-      { id: 'ch2', bookId: '10.1007/978-3-030-12345-6', title: '第二章 亲核取代反应', pageStart: 46, pageEnd: 98 },
-      { id: 'ch3', bookId: '10.1007/978-3-030-12345-6', title: '第三章 消除反应', pageStart: 99, pageEnd: 145 },
-      { id: 'ch4', bookId: '10.1007/978-3-030-12345-6', title: '第四章 加成反应', pageStart: 146, pageEnd: 210 },
+      { id: 'ch1', bookId: '10.1000/sample.00000020', title: '第一章 有机合成基础', pageStart: 1, pageEnd: 45 },
+      { id: 'ch2', bookId: '10.1000/sample.00000020', title: '第二章 亲核取代反应', pageStart: 46, pageEnd: 98 },
+      { id: 'ch3', bookId: '10.1000/sample.00000020', title: '第三章 消除反应', pageStart: 99, pageEnd: 145 },
+      { id: 'ch4', bookId: '10.1000/sample.00000020', title: '第四章 加成反应', pageStart: 146, pageEnd: 210 },
     ],
   },
   {
-    doi: '10.1016/C2018-0-12345-6',
+    doi: '10.1000/sample.00000021',
     title: '材料科学基础',
     authors: 'Callister, W.D., Rethwisch, D.G.',
     year: 2021,
-    journal: 'Wiley',
+    journal: 'Sample Publisher',
     type: 'book',
     projectId: '2',
     chapters: [
-      { id: 'ch1', bookId: '10.1016/C2018-0-12345-6', title: '第一章 材料结构基础', pageStart: 1, pageEnd: 60 },
-      { id: 'ch2', bookId: '10.1016/C2018-0-12345-6', title: '第二章 晶体结构', pageStart: 61, pageEnd: 120 },
-      { id: 'ch3', bookId: '10.1016/C2018-0-12345-6', title: '第三章 材料力学性能', pageStart: 121, pageEnd: 200 },
+      { id: 'ch1', bookId: '10.1000/sample.00000021', title: '第一章 材料结构基础', pageStart: 1, pageEnd: 60 },
+      { id: 'ch2', bookId: '10.1000/sample.00000021', title: '第二章 晶体结构', pageStart: 61, pageEnd: 120 },
+      { id: 'ch3', bookId: '10.1000/sample.00000021', title: '第三章 材料力学性能', pageStart: 121, pageEnd: 200 },
     ],
   },
 ]
@@ -244,7 +244,7 @@ def prepare_perovskite_film():
     return film
 \`\`\`
 
-更多细节请参考 [原始文献](https://doi.org/10.1021/jacs.3c11464)。
+更多细节请参考 [原始文献](https://doi.org/10.1000/sample.00000001)。
 `
 
 const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRef[] }> = {
@@ -261,7 +261,7 @@ const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRe
     citations: [DEMO_CITATIONS[0]],
   },
   search: {
-    content: '根据你的研究方向，我为你推荐以下几篇相关文献：\n\n### 1. 钙钛矿太阳能电池综述\n\n这篇综述系统总结了钙钛矿太阳能电池近五年的关键进展，涵盖效率提升、稳定性改进和大面积制备等多个方面。引用量超过 2000 次，是该领域的经典综述之一[1]。\n\n### 2. 电催化 CO2 还原\n\n这篇研究论文报道了一种新型金属有机框架衍生纳米材料，在电催化 CO2 还原反应中表现出优异的活性和选择性[2]。\n\n### 3. 钯催化合成方法学\n\n这篇 JACS 论文报道了 Pd/IPr^BIDEA 催化体系在区域选择性氢化脱氟反应中的应用，对有机合成方法学研究有重要参考价值[3]。',
+    content: '根据你的研究方向，我为你推荐以下几篇相关文献：\n\n### 1. 钙钛矿太阳能电池综述\n\n这篇综述系统总结了钙钛矿太阳能电池近五年的关键进展，涵盖效率提升、稳定性改进和大面积制备等多个方面。引用量超过 2000 次，是该领域的经典综述之一[1]。\n\n### 2. 电催化 CO2 还原\n\n这篇研究论文报道了一种新型金属有机框架衍生纳米材料，在电催化 CO2 还原反应中表现出优异的活性和选择性[2]。\n\n### 3. 钯催化合成方法学\n\n这篇示例论文报道了 Pd/IPr^BIDEA 催化体系在区域选择性氢化脱氟反应中的应用，对有机合成方法学研究有重要参考价值[3]。',
     citations: DEMO_CITATIONS,
   },
   summarize: {
@@ -969,7 +969,7 @@ export default function WritingPage() {
     saveSelection()
     restoreSelection()
     const placeholderId = `img-placeholder-${Date.now()}`
-    const placeholderHtml = `<div data-placeholder-id="${placeholderId}" contenteditable="false" style="margin:1rem 0;padding:2.5rem 1.25rem;border:0.125rem dashed #cbd5e1;border-radius:0.5rem;background:#f8fafc;text-align:center;cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('imagePlaceholderClick', {bubbles: true, detail: {id: '${placeholderId}'}}))">
+    const placeholderHtml = `<div data-placeholder-id="${placeholderId}" contenteditable="false" style="margin:1rem 0;padding:2.5rem 1.25rem;border:1px dashed #cbd5e1;border-radius:0.5rem;background:#f8fafc;text-align:center;cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('imagePlaceholderClick', {bubbles: true, detail: {id: '${placeholderId}'}}))">
       <div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;pointer-events:none;">
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
@@ -1007,7 +1007,7 @@ export default function WritingPage() {
 
   const insertTableWithSize = (rows: number, cols: number) => {
     restoreSelection()
-    const headerCells = Array.from({ length: cols }, () => `<th style="padding:0.625rem 1rem;font-size:0.875rem;font-weight:600;background:#f8fafc;text-align:left;border-bottom:0.125rem solid #e2e8f0;min-width:5rem;">&nbsp;</th>`).join('')
+    const headerCells = Array.from({ length: cols }, () => `<th style="padding:0.625rem 1rem;font-size:0.875rem;font-weight:600;background:#f8fafc;text-align:left;border-bottom:1px solid #e2e8f0;min-width:5rem;">&nbsp;</th>`).join('')
     const bodyRows = Array.from({ length: rows }, () => {
       const cells = Array.from({ length: cols }, () => `<td style="padding:0.625rem 1rem;font-size:0.875rem;border-bottom:1px solid #e2e8f0;min-width:5rem;">&nbsp;</td>`).join('')
       return `<tr>${cells}</tr>`

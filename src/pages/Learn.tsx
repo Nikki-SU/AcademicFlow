@@ -189,8 +189,8 @@ const DEFAULT_TRANSLATIONS: TranslationItem[] = [
 ]
 
 const AI_GENERATE_OPTIONS = [
-  { value: '10.1038/s41560-024-01432-1', label: '钙钛矿太阳能电池综述 (Nature Energy)' },
-  { value: '10.1021/jacs.3c04567', label: 'CO2 还原电催化剂设计 (JACS)' },
+  { value: '10.1000/sample.00000001', label: '钙钛矿太阳能电池综述 (Sample Journal)' },
+  { value: '10.1000/sample.00000002', label: 'CO2 还原电催化剂设计 (Sample Journal)' },
 ]
 
 /** 学习进度存储 key（IndexedDB settings 表） */

@@ -347,12 +347,12 @@ function JournalTemplatesPage() {
                   onClick={async () => {
                     try {
                       const tpl = await createTemplate({
-                        name: 'Angewandte Chemie Int. Ed. (演示)',
-                        short_name: 'Angew. Chem. Int. Ed.',
-                        publisher: 'Wiley-VCH',
+                        name: '示例期刊模板 (演示)',
+                        short_name: 'Sample J.',
+                        publisher: '示例出版社',
                         guidelines_content: DEMO_ANGEW_GUIDELINES,
                       })
-                      toast.success('演示模板已加载：Angewandte Chemie')
+                      toast.success('演示模板已加载：示例期刊')
                       await loadTemplates()
                       openEdit(tpl)
                     } catch (err) {
@@ -363,7 +363,7 @@ function JournalTemplatesPage() {
                   className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-white border border-indigo-200 text-indigo-600 rounded-lg font-medium hover:bg-indigo-50 transition"
                 >
                   <Sparkles className="w-4 h-4" />
-                  加载演示示例 (Angew)
+                  加载演示示例
                 </button>
               </div>
             </div>
@@ -495,7 +495,7 @@ function JournalTemplatesPage() {
                 type="text"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                placeholder="如：Angewandte Chemie International Edition"
+                placeholder="如：Sample Journal"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -507,7 +507,7 @@ function JournalTemplatesPage() {
                 type="text"
                 value={formShortName}
                 onChange={(e) => setFormShortName(e.target.value)}
-                placeholder="如：Angew. Chem. Int. Ed."
+                placeholder="如：Sample J."
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -519,7 +519,7 @@ function JournalTemplatesPage() {
                 type="text"
                 value={formPublisher}
                 onChange={(e) => setFormPublisher(e.target.value)}
-                placeholder="如：Wiley-VCH"
+                placeholder="如：示例出版社"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>

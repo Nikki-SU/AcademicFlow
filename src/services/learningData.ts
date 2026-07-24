@@ -6,7 +6,7 @@
  * - sentences/sentences.csv
  * - translation_practice/translation_practice.csv
  *
- * localStorage 仅作缓存，数据源是 GitHub 私库。
+ * 不经过 localStorage，直接读写 GitHub 私库 CSV。
  */
 
 import { readCsvFile, writeCsvFile } from './userData'

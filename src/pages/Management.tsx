@@ -135,25 +135,25 @@ const DEMO_BOOK_CATEGORIES: BookCategory[] = [
 ]
 
 const DEMO_PAPERS: Paper[] = [
-  { id: '1', title: '钙钛矿太阳能电池研究进展与展望', authors: '李明, 王芳, 张伟', year: '2024', journal: 'Nature Energy', keywords: ['太阳能', '钙钛矿', '光伏'], doi: '10.1038/s41560-024-01432-1', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=solar%20cell%20energy%20research%20cover%20image&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['perovskite'] },
-  { id: '2', title: 'CO2 还原电催化剂的设计策略', authors: '陈晓, 刘洋', year: '2023', journal: 'Journal of the American Chemical Society', keywords: ['催化', 'CO2还原', '电化学'], doi: '10.1021/jacs.3c04567', tier: 1, hasNotes: false, mdStatus: 'converting', mdProgress: 65, categoryIds: ['co2', 'electrochem'] },
-  { id: '3', title: '深度神经网络在药物发现中的应用', authors: '赵磊, 孙娜, 周杰', year: '2024', journal: 'Nature Reviews Drug Discovery', keywords: ['AI', '药物发现', '深度学习'], doi: '10.1038/s41573-024-00892-5', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=drug%20discovery%20neural%20network%20medical%20research&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
-  { id: '4', title: '二维材料的量子输运特性研究', authors: '钱伟, 吴强', year: '2023', journal: 'Physical Review Letters', keywords: ['二维材料', '量子输运', '凝聚态物理'], doi: '10.1103/PhysRevLett.130.156402', tier: 1, hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['nano', 'semiconductor'] },
-  { id: '5', title: 'CRISPR基因编辑技术的临床转化', authors: '郑华, 冯敏, 陈刚', year: '2024', journal: 'Cell', keywords: ['CRISPR', '基因编辑', '临床'], doi: '10.1016/j.cell.2024.02.015', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CRISPR%20gene%20editing%20dna%20biotechnology&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
-  { id: '6', title: '金属有机框架材料的气体分离应用', authors: '黄磊, 徐丽', year: '2023', journal: 'Science', keywords: ['MOF', '气体分离', '材料化学'], doi: '10.1126/science.adj1234', tier: 1, hasNotes: false, mdStatus: 'failed', mdProgress: 40, categoryIds: ['material'] },
-  { id: '7', title: '脑机接口技术的最新进展', authors: '杨帆, 林静, 郭涛', year: '2024', journal: 'Nature Neuroscience', keywords: ['脑机接口', '神经工程', 'BCI'], doi: '10.1038/s41593-024-01678-9', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=brain%20computer%20interface%20neural%20technology&image_size=square', hasNotes: false, mdStatus: 'converting', mdProgress: 30, categoryIds: [] },
-  { id: '8', title: '可持续聚合物的合成与降解研究', authors: '何勇, 马丽', year: '2023', journal: 'Angewandte Chemie', keywords: ['可持续', '聚合物', '绿色化学'], doi: '10.1002/anie.202312345', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['material'] },
-  { id: '9', title: '量子计算在化学模拟中的应用', authors: '罗斌, 谢颖, 唐亮', year: '2024', journal: 'Nature Reviews Chemistry', keywords: ['量子计算', '化学模拟', '计算化学'], doi: '10.1038/s41570-024-00567-2', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=quantum%20computing%20chemistry%20simulation%20atoms&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['phys-chem'] },
-  { id: '10', title: '单原子催化剂的精准合成', authors: '韩雪, 曹阳', year: '2023', journal: 'Nature Catalysis', keywords: ['单原子', '催化', '合成'], doi: '10.1038/s41929-023-00987-6', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['co2', 'electrochem'] },
-  { id: '11', title: '类器官模型在癌症研究中的应用', authors: '邓杰, 曾红, 彭飞', year: '2024', journal: 'Cancer Cell', keywords: ['类器官', '癌症', '模型'], doi: '10.1016/j.ccell.2024.01.008', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=organoid%20cancer%20research%20biology%20cells&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: [] },
-  { id: '12', title: '拓扑绝缘体的自旋电子学特性', authors: '苏明, 卢芳', year: '2023', journal: 'Nature Physics', keywords: ['拓扑绝缘体', '自旋电子学', '凝聚态'], doi: '10.1038/s41567-023-02233-w', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['semiconductor', 'nano'] },
+  { id: '1', title: '钙钛矿太阳能电池研究进展与展望', authors: '李明, 王芳, 张伟', year: '2024', journal: 'Sample Journal', keywords: ['太阳能', '钙钛矿', '光伏'], doi: '10.1000/sample.00000001', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=solar%20cell%20energy%20research%20cover%20image&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['perovskite'] },
+  { id: '2', title: 'CO2 还原电催化剂的设计策略', authors: '陈晓, 刘洋', year: '2023', journal: 'Sample Journal', keywords: ['催化', 'CO2还原', '电化学'], doi: '10.1000/sample.00000002', tier: 1, hasNotes: false, mdStatus: 'converting', mdProgress: 65, categoryIds: ['co2', 'electrochem'] },
+  { id: '3', title: '深度神经网络在药物发现中的应用', authors: '赵磊, 孙娜, 周杰', year: '2024', journal: 'Sample Journal', keywords: ['AI', '药物发现', '深度学习'], doi: '10.1000/sample.00000003', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=drug%20discovery%20neural%20network%20medical%20research&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
+  { id: '4', title: '二维材料的量子输运特性研究', authors: '钱伟, 吴强', year: '2023', journal: 'Sample Journal', keywords: ['二维材料', '量子输运', '凝聚态物理'], doi: '10.1000/sample.00000004', tier: 1, hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['nano', 'semiconductor'] },
+  { id: '5', title: 'CRISPR基因编辑技术的临床转化', authors: '郑华, 冯敏, 陈刚', year: '2024', journal: 'Sample Journal', keywords: ['CRISPR', '基因编辑', '临床'], doi: '10.1000/sample.00000005', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CRISPR%20gene%20editing%20dna%20biotechnology&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
+  { id: '6', title: '金属有机框架材料的气体分离应用', authors: '黄磊, 徐丽', year: '2023', journal: 'Sample Journal', keywords: ['MOF', '气体分离', '材料化学'], doi: '10.1000/sample.00000006', tier: 1, hasNotes: false, mdStatus: 'failed', mdProgress: 40, categoryIds: ['material'] },
+  { id: '7', title: '脑机接口技术的最新进展', authors: '杨帆, 林静, 郭涛', year: '2024', journal: 'Sample Journal', keywords: ['脑机接口', '神经工程', 'BCI'], doi: '10.1000/sample.00000007', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=brain%20computer%20interface%20neural%20technology&image_size=square', hasNotes: false, mdStatus: 'converting', mdProgress: 30, categoryIds: [] },
+  { id: '8', title: '可持续聚合物的合成与降解研究', authors: '何勇, 马丽', year: '2023', journal: 'Sample Journal', keywords: ['可持续', '聚合物', '绿色化学'], doi: '10.1000/sample.00000008', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['material'] },
+  { id: '9', title: '量子计算在化学模拟中的应用', authors: '罗斌, 谢颖, 唐亮', year: '2024', journal: 'Sample Journal', keywords: ['量子计算', '化学模拟', '计算化学'], doi: '10.1000/sample.00000009', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=quantum%20computing%20chemistry%20simulation%20atoms&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['phys-chem'] },
+  { id: '10', title: '单原子催化剂的精准合成', authors: '韩雪, 曹阳', year: '2023', journal: 'Sample Journal', keywords: ['单原子', '催化', '合成'], doi: '10.1000/sample.00000010', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['co2', 'electrochem'] },
+  { id: '11', title: '类器官模型在癌症研究中的应用', authors: '邓杰, 曾红, 彭飞', year: '2024', journal: 'Sample Journal', keywords: ['类器官', '癌症', '模型'], doi: '10.1000/sample.00000011', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=organoid%20cancer%20research%20biology%20cells&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: [] },
+  { id: '12', title: '拓扑绝缘体的自旋电子学特性', authors: '苏明, 卢芳', year: '2023', journal: 'Sample Journal', keywords: ['拓扑绝缘体', '自旋电子学', '凝聚态'], doi: '10.1000/sample.00000012', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['semiconductor', 'nano'] },
 ]
 
 const DEMO_TEMPLATES: JournalTemplateItem[] = [
-  { id: '1', name: 'Nature Energy', publisher: 'Nature Portfolio', issn: '2058-7546', lastUpdated: '2024-03-15', isDefault: true, formatSummary: '摘要250字以内，正文含Introduction/Results/Discussion/Methods四部分，参考文献采用Nature格式，图表嵌入正文对应位置。' },
-  { id: '2', name: 'JACS', publisher: 'American Chemical Society', issn: '0002-7863', lastUpdated: '2024-02-28', isDefault: false, formatSummary: '通讯类限于3页，全文含Abstract/Introduction/Results/Conclusion，参考文献ACS格式，支持Supporting Information。' },
-  { id: '3', name: 'Angewandte Chemie', publisher: 'Wiley-VCH', issn: '1433-7851', lastUpdated: '2024-03-10', isDefault: false, formatSummary: '通讯类限4页，全文有严格字数限制，参考文献Wiley格式，图表标题需详细说明实验条件。' },
-  { id: '4', name: 'Cell', publisher: 'Cell Press', issn: '0092-8674', lastUpdated: '2024-01-20', isDefault: false, formatSummary: '长文格式，摘要结构化（Background/Results/Conclusions），正文多小节，参考文献Cell格式，需附Author Contributions。' },
+  { id: '1', name: '示例期刊 A', publisher: '示例出版社', issn: '0000-0000', lastUpdated: '2024-03-15', isDefault: true, formatSummary: '摘要250字以内，正文含引言/结果/讨论/方法四部分，参考文献采用通用格式，图表嵌入正文对应位置。' },
+  { id: '2', name: '示例期刊 B', publisher: '示例出版社', issn: '0000-0001', lastUpdated: '2024-02-28', isDefault: false, formatSummary: '通讯类限于3页，全文含摘要/引言/结果/结论，参考文献采用通用格式，支持补充材料。' },
+  { id: '3', name: '示例期刊 C', publisher: '示例出版社', issn: '0000-0002', lastUpdated: '2024-03-10', isDefault: false, formatSummary: '通讯类限4页，全文有严格字数限制，参考文献采用通用格式，图表标题需详细说明实验条件。' },
+  { id: '4', name: '示例期刊 D', publisher: '示例出版社', issn: '0000-0003', lastUpdated: '2024-01-20', isDefault: false, formatSummary: '长文格式，摘要结构化（背景/结果/结论），正文多小节，参考文献采用通用格式，需附作者贡献。' },
 ]
 
 const DEMO_BOOKS: BookItem[] = [
@@ -1618,7 +1618,7 @@ export default function ManagementPage() {
                 type="text"
                 value={newPaper.doi}
                 onChange={(e) => setNewPaper({ ...newPaper, doi: e.target.value })}
-                placeholder="10.1038/..."
+                placeholder="10.1000/sample.00000001"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -2058,7 +2058,7 @@ export default function ManagementPage() {
                   type="text"
                   value={newTemplate.name}
                   onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
-                  placeholder="如：Nature Energy"
+                  placeholder="如：Sample Journal"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
@@ -2079,7 +2079,7 @@ export default function ManagementPage() {
                 type="text"
                 value={newTemplate.publisher}
                 onChange={(e) => setNewTemplate({ ...newTemplate, publisher: e.target.value })}
-                placeholder="如：Nature Portfolio"
+                placeholder="如：示例出版社"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>

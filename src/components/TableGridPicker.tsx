@@ -7,7 +7,7 @@ interface TableGridPickerProps {
 
 const MAX_ROWS = 10
 const MAX_COLS = 10
-const CELL_SIZE = 20
+const CELL_SIZE = 1.25 // rem (≈20px)
 
 export default function TableGridPicker({ onSelect }: TableGridPickerProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -68,8 +68,8 @@ export default function TableGridPicker({ onSelect }: TableGridPickerProps) {
           <div
             className="grid gap-0.5"
             style={{
-              gridTemplateColumns: `repeat(${MAX_COLS}, ${CELL_SIZE}px)`,
-              gridTemplateRows: `repeat(${MAX_ROWS}, ${CELL_SIZE}px)`,
+              gridTemplateColumns: `repeat(${MAX_COLS}, ${CELL_SIZE}rem)`,
+              gridTemplateRows: `repeat(${MAX_ROWS}, ${CELL_SIZE}rem)`,
             }}
           >
             {Array.from({ length: MAX_ROWS * MAX_COLS }).map((_, index) => {
@@ -87,7 +87,7 @@ export default function TableGridPicker({ onSelect }: TableGridPickerProps) {
                       ? 'bg-indigo-500'
                       : 'bg-slate-200 hover:bg-slate-300'
                   }`}
-                  style={{ width: CELL_SIZE, height: CELL_SIZE }}
+                  style={{ width: `${CELL_SIZE}rem`, height: `${CELL_SIZE}rem` }}
                 />
               )
             })}

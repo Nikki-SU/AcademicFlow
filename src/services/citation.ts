@@ -26,12 +26,12 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
  * 归一化 DOI：从各种输入格式中提取纯 DOI（10.xxx/xxx）
  *
  * 支持的输入格式：
- * - 纯 DOI: 10.1038/nature12345
- * - DOI 链接: https://doi.org/10.1038/nature12345
- * - http 前缀: http://doi.org/10.1038/nature12345
- * - dx.doi.org: https://dx.doi.org/10.1038/nature12345
- * - 带尾部斜杠: https://doi.org/10.1038/nature12345/
- * - doi: 前缀: doi:10.1038/nature12345
+ * - 纯 DOI: 10.1000/sample.00000001
+ * - DOI 链接: https://doi.org/10.1000/sample.00000001
+ * - http 前缀: http://doi.org/10.1000/sample.00000001
+ * - dx.doi.org: https://dx.doi.org/10.1000/sample.00000001
+ * - 带尾部斜杠: https://doi.org/10.1000/sample.00000001/
+ * - doi: 前缀: doi:10.1000/sample.00000001
  */
 export function normalizeDoi(input: string): DoiNormalizeResult {
   const raw = input.trim()
@@ -107,10 +107,10 @@ export function normalizeDois(inputs: string[]): {
  * 从 Markdown 文本中提取所有引用标记
  *
  * 支持的引用语法：
- * - [@doi:10.1038/nature12345]
- * - [@10.1038/nature12345]
- * - 直接的 DOI 链接: https://doi.org/10.1038/nature12345
- * - \cite{doi:10.1038/nature12345}（LaTeX 格式）
+ * - [@doi:10.1000/sample.00000001]
+ * - [@10.1000/sample.00000001]
+ * - 直接的 DOI 链接: https://doi.org/10.1000/sample.00000001
+ * - \cite{doi:10.1000/sample.00000001}（LaTeX 格式）
  *
  * 返回：按出现顺序排列的 DOI 列表（已去重但保持首次出现顺序）
  */

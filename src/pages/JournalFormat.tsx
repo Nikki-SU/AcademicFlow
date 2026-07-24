@@ -31,12 +31,12 @@ import { getAllTemplates } from '../services/journal-templates'
 import type { JournalTemplate, LatexConversionResult } from '../types'
 import { SILICONFLOW_BASE_URL } from '../services/ai/models'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { DEMO_JACS_MARKDOWN } from '../data/demo-content'
+import { DEMO_SAMPLE_MARKDOWN } from '../data/demo-content'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
-/** 示例 Markdown — JACS 2024 李志平课题组论文（演示用） */
-const SAMPLE_MARKDOWN = DEMO_JACS_MARKDOWN
+/** 示例 Markdown — 演示用示例论文（不出厂任何真实期刊） */
+const SAMPLE_MARKDOWN = DEMO_SAMPLE_MARKDOWN
 
 const CITATION_SORT_OPTIONS = [
   { value: 'appearance', label: '按出现顺序' },
@@ -239,13 +239,14 @@ function JournalFormatPage() {
       toast.error('请允许弹出窗口以导出 PDF')
       return
     }
+    const katexUrl = `${window.location.origin}${import.meta.env.BASE_URL}katex.min.css`
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
         <title>AcademicFlow - LaTeX Preview</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+        <link rel="stylesheet" href="${katexUrl}">
         <style>
           body { font-family: 'Times New Roman', serif; max-width: 50rem; margin: 2.5rem auto; padding: 1.25rem; line-height: 1.6; }
           h1 { text-align: center; font-size: 1.5rem; margin-bottom: 1.25rem; }
@@ -263,11 +264,11 @@ function JournalFormatPage() {
           <p><strong>References (BibTeX):</strong></p>
           <pre style="white-space: pre-wrap; font-size: 0.625rem; background: #f5f5f5; padding: 0.625rem; border-radius: 0.25rem;">${result.bibtex.replace(/</g, '&lt;')}</pre>
         </div>
-        <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
       </body>
       </html>
     `)
     printWindow.document.close()
+    setTimeout(() => printWindow.print(), 800)
     toast.success('PDF 预览已打开，请使用浏览器的"另存为 PDF"功能下载')
   }
 
@@ -535,9 +536,9 @@ function JournalFormatPage() {
                 placeholder="在此粘贴 Markdown 格式的论文内容...
 
 支持的引用格式：
-- [@doi:10.1038/nature12345]
-- [@10.1038/nature12345]
-- https://doi.org/10.1038/nature12345"
+- [@doi:10.1000/sample.00000001]
+- [@10.1000/sample.00000001]
+- https://doi.org/10.1000/sample.00000001"
                 className="w-full h-[31.25rem] p-4 font-mono text-sm text-slate-800 bg-white resize-none focus:outline-none"
                 disabled={isConverting}
                 spellCheck={false}

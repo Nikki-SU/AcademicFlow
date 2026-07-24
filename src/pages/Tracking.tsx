@@ -98,8 +98,6 @@ const DEMO_TRACKED_PAPERS: TrackedPaper[] = []
 // ============================================================
 
 const STORAGE_KEYS = {
-  KEYWORD_GROUPS: 'tracking_keyword_groups',
-  JOURNALS: 'tracking_journals',
   SEARCH_SITES: 'tracking_search_sites',
   KEYWORD_GROUPS_COLLAPSED: 'tracking_kw_groups_collapsed',
   JOURNALS_COLLAPSED: 'tracking_journals_collapsed',
@@ -186,7 +184,7 @@ export default function TrackingPage() {
   // 持久化
   // ============================================================
 
-  // 搜索源、折叠状态等 UI 偏好继续用 localStorage
+  // UI 偏好（搜索源、折叠状态）暂存 localStorage；业务数据（关键词组、期刊）只存 GitHub 私库 CSV
   useEffect(() => {
     saveToStorage(STORAGE_KEYS.SEARCH_SITES, searchSites)
   }, [searchSites])
@@ -1206,7 +1204,7 @@ export default function TrackingPage() {
                   type="text"
                   value={journalFormName}
                   onChange={(e) => setJournalFormName(e.target.value)}
-                  placeholder="如：Nature"
+                  placeholder="如：Sample Journal"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>

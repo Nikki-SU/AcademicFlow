@@ -78,10 +78,10 @@ const DEMO_PAPERS: Paper[] = [
     id: '1',
     title: '钙钛矿太阳能电池的最新进展与挑战',
     authors: 'Zhang Y, Wang L, Chen H',
-    journal: 'Nature Energy',
+    journal: 'Sample Journal',
     year: '2024',
     keywords: ['perovskite', 'solar cell', 'photovoltaic', 'efficiency'],
-    doi: '10.1038/s41560-024-01234-5',
+    doi: '10.1000/sample.00000001',
     hasMarkdown: true,
     markdownContent: `# 钙钛矿太阳能电池的最新进展与挑战
 
@@ -136,7 +136,7 @@ const DEMO_PAPERS: Paper[] = [
 
 ## 参考文献
 
-1. Kojima A, et al. Organometal halide perovskites as visible-light sensitizers for photovoltaic cells. JACS, 2009.
+1. Kojima A, et al. Organometal halide perovskites as visible-light sensitizers for photovoltaic cells. Sample Journal, 2009.
 2. National Renewable Energy Laboratory. Best Research-Cell Efficiency Chart, 2024.
 `,
   },
@@ -144,20 +144,20 @@ const DEMO_PAPERS: Paper[] = [
     id: '2',
     title: 'CO2还原电催化剂的设计策略',
     authors: 'Li M, Zhao J, Liu S',
-    journal: 'Journal of the American Chemical Society',
+    journal: 'Sample Journal',
     year: '2023',
     keywords: ['CO2 reduction', 'electrocatalyst', 'single atom', 'copper'],
-    doi: '10.1021/jacs.3c04567',
+    doi: '10.1000/sample.00000002',
     hasMarkdown: false,
   },
   {
     id: '3',
     title: '金属有机框架衍生纳米材料在电催化中的应用',
     authors: 'Liu X, Zhao Y, Sun M, Wang Q',
-    journal: 'Nano Energy',
+    journal: 'Sample Journal',
     year: '2023',
     keywords: ['MOF', 'electrocatalysis', 'nanomaterial', 'energy'],
-    doi: '10.1016/j.nanoen.2023.108765',
+    doi: '10.1000/sample.00000003',
     hasMarkdown: true,
     markdownContent: `# 金属有机框架衍生纳米材料在电催化中的应用
 
@@ -248,7 +248,7 @@ const DEMO_NOTES_INITIAL: PaperNotes = {
 
 ## 相关文献
 
-- [[10.1038/s41560-024-01234-5]] 本文
+- [[10.1000/sample.00000001]] 本文
 - 待补充...
 `,
   '3': `# 阅读笔记：MOF衍生电催化材料

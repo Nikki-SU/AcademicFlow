@@ -78,17 +78,17 @@ const CSV_HEADERS = {
 } as const
 
 const VOCABULARY_CSV = `${CSV_HEADERS.vocabulary}
-perovskite,钙钛矿,钙钛矿矿物,"A perovskite structure is any material with the formula ABX3.","Perovskite solar cells have achieved remarkable efficiency improvements in recent years.",10.1038/s41560-024-01432-1,new,1784195716,0,0,0,2.5
-catalysis,催化,催化作用,"Catalysis is the process of increasing the rate of a chemical reaction.","Heterogeneous catalysis plays a vital role in industrial chemical processes.",10.1021/jacs.3c04567,new,1784195716,0,0,0,2.5
-electrolyte,电解质,电解质,"An electrolyte is a substance that produces an electrically conducting solution.","The electrolyte enables ion transport between the anode and cathode.",10.1021/jacs.3c04567,new,1784195716,0,0,0,2.5
+perovskite,钙钛矿,钙钛矿矿物,"A perovskite structure is any material with the formula ABX3.","Perovskite solar cells have achieved remarkable efficiency improvements in recent years.",10.1000/sample.00000001,new,1784195716,0,0,0,2.5
+catalysis,催化,催化作用,"Catalysis is the process of increasing the rate of a chemical reaction.","Heterogeneous catalysis plays a vital role in industrial chemical processes.",10.1000/sample.00000002,new,1784195716,0,0,0,2.5
+electrolyte,电解质,电解质,"An electrolyte is a substance that produces an electrically conducting solution.","The electrolyte enables ion transport between the anode and cathode.",10.1000/sample.00000002,new,1784195716,0,0,0,2.5
 `
 
 const SENTENCES_CSV = `${CSV_HEADERS.sentences}
-s1,"The power conversion efficiency of perovskite solar cells has increased dramatically over the past decade.","钙钛矿太阳能电池的功率转换效率在过去十年中大幅提升。","钙钛矿太阳能电池的功率转换效率在过去十年中大幅提升。",10.1038/s41560-024-01432-1,new,1784195716,0,0,0,2.5
+s1,"The power conversion efficiency of perovskite solar cells has increased dramatically over the past decade.","钙钛矿太阳能电池的功率转换效率在过去十年中大幅提升。","钙钛矿太阳能电池的功率转换效率在过去十年中大幅提升。",10.1000/sample.00000001,new,1784195716,0,0,0,2.5
 `
 
 const TRANSLATION_CSV = `${CSV_HEADERS.translation_practice}
-t1,"该研究揭示了钙钛矿材料中载流子输运的微观机制。",10.1038/s41560-024-01432-1,"This study reveals the microscopic mechanism of carrier transport in perovskite materials.","",,new,1784195716,0
+t1,"该研究揭示了钙钛矿材料中载流子输运的微观机制。",10.1000/sample.00000001,"This study reveals the microscopic mechanism of carrier transport in perovskite materials.","",,new,1784195716,0
 `
 
 const KEYWORD_GROUPS_CSV = `${CSV_HEADERS.keyword_groups}
@@ -97,8 +97,8 @@ kg2,"CO2电催化还原","CO2 reduction AND electrocatalysis",1,0,1784195716
 `
 
 const LITERATURES_CSV = `${CSV_HEADERS.literatures}
-10.1038/s41560-024-01432-1,"Perovskite Solar Cells: A Review","Nature Energy",2024,"Smith et al.","solar,perovskite,review","This review summarizes recent advances in perovskite solar cells.","本文综述了钙钛矿太阳能电池的最新进展。",2,1,1784195716,1784195716,crossref,kg1
-10.1021/jacs.3c04567,"Design of CO2 Reduction Electrocatalysts","Journal of the American Chemical Society",2023,"Zhang et al.","catalysis,CO2,electrochemistry","This paper presents a design strategy for CO2 reduction electrocatalysts.","本研究提出了一种 CO2 还原电催化剂的设计策略。",1,0,1784195716,1784195716,crossref,kg2
+10.1000/sample.00000001,"Perovskite Solar Cells: A Review","Sample Journal",2024,"Smith et al.","solar,perovskite,review","This review summarizes recent advances in perovskite solar cells.","本文综述了钙钛矿太阳能电池的最新进展。",2,1,1784195716,1784195716,crossref,kg1
+10.1000/sample.00000002,"Design of CO2 Reduction Electrocatalysts","Sample Journal",2023,"Zhang et al.","catalysis,CO2,electrochemistry","This paper presents a design strategy for CO2 reduction electrocatalysts.","本研究提出了一种 CO2 还原电催化剂的设计策略。",1,0,1784195716,1784195716,crossref,kg2
 `
 
 const TEXTBOOKS_CSV = `${CSV_HEADERS.textbooks}

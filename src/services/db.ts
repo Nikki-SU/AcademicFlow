@@ -5,7 +5,7 @@
  *
  * 表结构：
  * - auth: 认证信息（GitHub token / 用户 / scope / method / expires_at）
- * - settings: 键值对存储（用户偏好等，不含敏感凭据）
+ * - settings: 键值对存储（含 AI/MinerU 等敏感 API key，spec §4.8）
  * - journal_templates: 期刊模板
  * - citation_cache: 引用元数据缓存（DOI 为 key）
  */

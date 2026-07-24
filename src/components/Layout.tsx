@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '../stores/auth'
 import { subscribeGlobalAuthError, clearGlobalAuthError } from '../services/authError'
+import { useOrientation } from '../hooks/useOrientation'
 
 const tabs = [
   { path: '/tracking', label: '追踪', icon: Search },
@@ -32,12 +33,13 @@ const tabs = [
 
 import type { GitHubUser } from '../types'
 
-function AuthDropdown({ user, method, expiresAt, logout, navigate }: {
+function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }: {
   user: GitHubUser | null
   method: 'device_flow' | 'pat' | null
   expiresAt: number | null
   logout: () => Promise<void>
   navigate: (to: string) => void
+  orientation: 'landscape' | 'portrait'
 }) {
   const [isOpen, setIsOpen] = useState(false)
 
@@ -77,7 +79,9 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate }: {
           alt={user?.login}
           className="w-5 h-5 rounded-full"
         />
-        <span className="text-xs text-slate-600 hidden lg:inline">@{user?.login}</span>
+        {orientation === 'landscape' && (
+          <span className="text-xs text-slate-600">@{user?.login}</span>
+        )}
         <div className={`px-1.5 py-0.5 rounded text-xs font-medium ${
           isExpiringSoon && daysUntilExpire !== null && daysUntilExpire >= 0
             ? 'bg-red-100 text-red-700'
@@ -130,6 +134,7 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate }: {
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const orientation = useOrientation()
   const { user, method, expiresAt, logout } = useAuthStore()
   const [authError, setAuthError] = useState<string | null>(null)
 
@@ -182,7 +187,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
                 <span className="text-white text-xs font-bold">AF</span>
               </div>
-              <span className="font-semibold text-slate-800 text-sm hidden sm:block">AcademicFlow</span>
+              {orientation === 'landscape' && (
+                <span className="font-semibold text-slate-800 text-sm">AcademicFlow</span>
+              )}
             </Link>
 
             {/* Tab 导航 */}
@@ -219,7 +226,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 title="设置"
               >
                 <Settings className="w-4 h-4" />
-                <span className="hidden sm:inline">设置</span>
+                {orientation === 'landscape' && <span>设置</span>}
               </Link>
 
               {user ? (
@@ -229,6 +236,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   expiresAt={expiresAt}
                   logout={logout}
                   navigate={navigate}
+                  orientation={orientation}
                 />
               ) : (
                 <Link

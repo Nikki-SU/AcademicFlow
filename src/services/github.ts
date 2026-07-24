@@ -130,13 +130,21 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
   return { user, scopes, rateLimitRemaining }
 }
 
-/** 生成"一键创建 PAT"URL（预填 scope 和描述） */
+/** 生成 Fine-grained PAT 创建页 URL（预填名称/描述/过期时间/仓库权限）
+ * 说明：GitHub  Fine-grained PAT 创建页支持通过 URL 参数预填字段，
+ * 仓库选择需要用户手动勾选（首次登录时目标私库可能尚未创建）。
+ */
 export function buildPATCreateURL(): string {
   const params = new URLSearchParams({
-    scopes: 'repo,workflow',
-    description: 'AcademicFlow',
+    name: 'AcademicFlow',
+    description: 'AcademicFlow 以 GitHub 为后端的个人学术工作流工具',
+    expires_in: '90',
+    repo_access: 'selected',
+    contents: 'write',
+    metadata: 'read',
+    workflows: 'write',
   })
-  return `https://github.com/settings/tokens/new?${params.toString()}`
+  return `https://github.com/settings/personal-access-tokens/new?${params.toString()}`
 }
 
 // ═════════════════════════════════════════════════════════════════════════
