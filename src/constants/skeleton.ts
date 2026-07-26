@@ -226,6 +226,17 @@ const LEARNING_PROGRESS_MD = `# 学习进度
 
 const SEARCH_SITES_CSV = 'id,name,url_template,color\n'
 
+const LOGS_README = `# 追踪日志
+
+每日追踪结果按日期存储在此目录下。
+
+- 格式：\`{yyyy-mm-dd}.md\`
+- 内容：当日命中的文献列表 + 调试信息（调试模式下）
+- 由 GitHub Actions \`daily-tracking.yml\` 自动生成
+
+*Managed by AcademicFlow.*
+`
+
 export const WORKSPACE_SKELETON: SkeletonFile[] = [
   { path: 'README.md', content: README_MD },
   { path: 'settings/global.md', content: SETTINGS_GLOBAL_MD },
@@ -244,6 +255,8 @@ export const WORKSPACE_SKELETON: SkeletonFile[] = [
   { path: 'templates/journals/_sample-generic/template.tex', content: SAMPLE_JOURNAL_TEMPLATE },
   { path: 'templates/journals/_sample-generic/cover-letter.md.tpl', content: SAMPLE_JOURNAL_COVER_LETTER },
   { path: 'templates/citations/_sample-generic.csl', content: SAMPLE_CSL },
+
+  { path: 'logs/tracking/README.md', content: LOGS_README },
 
   { path: '.github/workflows/daily-tracking.yml', content: DAILY_TRACKING_YML },
   { path: '.github/workflows/monthly-cleanup.yml', content: MONTHLY_CLEANUP_YML },
