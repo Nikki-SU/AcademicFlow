@@ -22,47 +22,13 @@ import {
   FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
+import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, calcSm2, estimateRepetitions } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
-import type { WordData } from '../services/learningData'
+import type { WordData, SentenceData, TranslationData } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
 
 type TabId = 'words' | 'sentences' | 'translation'
 type QuestionType = 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
-
-interface Word {
-  id: string
-  word: string
-  phonetic: string
-  meaning: string
-  exampleEn: string
-  exampleZh: string
-  root?: string
-  mastered?: boolean
-  proficiency?: number
-  errorCount?: number
-  lastStudyTime?: number
-  seenCount?: number
-}
-
-interface Sentence {
-  id: string
-  en: string
-  zh: string
-  structure?: {
-    subject: string
-    predicate: string
-    object?: string
-  }
-  mastered?: boolean
-}
-
-interface TranslationItem {
-  id: string
-  source: string
-  reference: string
-  mastered?: boolean
-}
 
 interface StudyStats {
   todayLearned: string[]
@@ -84,9 +50,9 @@ const subTabs = [
   { id: 'translation' as TabId, label: '翻译练习', icon: Languages },
 ]
 
-const DEFAULT_WORDS: Word[] = []
-const DEFAULT_SENTENCES: Sentence[] = []
-const DEFAULT_TRANSLATIONS: TranslationItem[] = []
+const DEFAULT_WORDS: WordData[] = []
+const DEFAULT_SENTENCES: SentenceData[] = []
+const DEFAULT_TRANSLATIONS: TranslationData[] = []
 const AI_GENERATE_OPTIONS: { value: string; label: string }[] = []
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -130,9 +96,9 @@ export default function LearnPage() {
   const [selectedPaper, setSelectedPaper] = useState('')
   const [genTypes, setGenTypes] = useState({ words: true, sentences: true, translation: true })
 
-  const [words, setWords] = useState<Word[]>(DEFAULT_WORDS)
-  const [sentences, setSentences] = useState<Sentence[]>(DEFAULT_SENTENCES)
-  const [translations, setTranslations] = useState<TranslationItem[]>(DEFAULT_TRANSLATIONS)
+  const [words, setWords] = useState<WordData[]>(DEFAULT_WORDS)
+  const [sentences, setSentences] = useState<SentenceData[]>(DEFAULT_SENTENCES)
+  const [translations, setTranslations] = useState<TranslationData[]>(DEFAULT_TRANSLATIONS)
   const [studyStats, setStudyStats] = useState<StudyStats>({
     todayLearned: [],
     totalLearned: [],
@@ -175,9 +141,9 @@ export default function LearnPage() {
           loadTranslations(),
         ])
         if (cancelled) return
-        if (loadedWords.length > 0) setWords(loadedWords as unknown as Word[])
-        if (loadedSentences.length > 0) setSentences(loadedSentences as unknown as Sentence[])
-        if (loadedTranslations.length > 0) setTranslations(loadedTranslations as unknown as TranslationItem[])
+        if (loadedWords.length > 0) setWords(loadedWords)
+        if (loadedSentences.length > 0) setSentences(loadedSentences)
+        if (loadedTranslations.length > 0) setTranslations(loadedTranslations)
         setDataLoaded(true)
       } catch (err) {
         console.warn('[Learn] 从 GitHub 加载学习数据失败，使用默认数据:', err)
@@ -196,9 +162,9 @@ export default function LearnPage() {
     saveTimerRef.current = setTimeout(async () => {
       try {
         await Promise.all([
-          saveWords(words as unknown as WordData[]),
-          saveSentences(sentences as unknown as any[]),
-          saveTranslations(translations as unknown as any[]),
+          saveWords(words),
+          saveSentences(sentences),
+          saveTranslations(translations),
         ])
       } catch (err) {
         console.error('[Learn] 保存学习数据到 GitHub 失败:', err)
@@ -222,7 +188,7 @@ export default function LearnPage() {
     })
   }, [studyStats])
 
-  const markWordLearned = useCallback((wordId: string) => {
+  const reviewWord = useCallback((wordId: string, quality: number) => {
     setStudyStats((prev) => {
       const today = getTodayString()
       const todayLearned = prev.lastStudyDate === today ? [...prev.todayLearned] : []
@@ -239,33 +205,22 @@ export default function LearnPage() {
       }
     })
     setWords((prev) =>
-      prev.map((w) =>
-        w.id === wordId
-          ? {
-              ...w,
-              proficiency: Math.min((w.proficiency || 0) + 1, 5),
-              lastStudyTime: Date.now(),
-              seenCount: (w.seenCount || 0) + 1,
-            }
-          : w
-      )
+      prev.map((w) => {
+        if (w.id !== wordId) return w
+        const repetitions = estimateRepetitions(w)
+        const result = calcSm2(w.sm2Ease, w.sm2Interval, repetitions, quality)
+        return {
+          ...w,
+          status: result.status,
+          lastReview: Date.now(),
+          reviewCount: w.reviewCount + 1,
+          sm2Interval: result.interval,
+          sm2Ease: result.easeFactor,
+        }
+      })
     )
   }, [])
 
-  const markWordError = useCallback((wordId: string) => {
-    setWords((prev) =>
-      prev.map((w) =>
-        w.id === wordId
-          ? {
-              ...w,
-              errorCount: (w.errorCount || 0) + 1,
-              lastStudyTime: Date.now(),
-              seenCount: (w.seenCount || 0) + 1,
-            }
-          : w
-      )
-    )
-  }, [])
 
   const handleAIGenerate = async () => {
     if (!selectedPaper) {
@@ -398,8 +353,7 @@ export default function LearnPage() {
           words={words}
           setWords={setWords}
           studyStats={studyStats}
-          onMarkLearned={markWordLearned}
-          onMarkError={markWordError}
+          onReview={reviewWord}
         />
       )}
       {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} />}
@@ -409,14 +363,13 @@ export default function LearnPage() {
 }
 
 interface WordSectionProps {
-  words: Word[]
-  setWords: React.Dispatch<React.SetStateAction<Word[]>>
+  words: WordData[]
+  setWords: React.Dispatch<React.SetStateAction<WordData[]>>
   studyStats: StudyStats
-  onMarkLearned: (id: string) => void
-  onMarkError: (id: string) => void
+  onReview: (id: string, quality: number) => void
 }
 
-function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }: WordSectionProps) {
+function WordSection({ words, setWords, studyStats, onReview }: WordSectionProps) {
   const BATCH_SIZE = 7
   const [currentIndex, setCurrentIndex] = useState(0)
   const [currentType, setCurrentType] = useState<QuestionType>('word')
@@ -429,10 +382,9 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
   const [showDetail, setShowDetail] = useState(false)
   const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 短队列：取前7个未掌握的词作为当前学习批次
   const studyWords = useMemo(() => {
-    const unmastered = words.filter(w => !w.mastered)
-    const pool = unmastered.length > 0 ? unmastered : words
+    const due = words.filter(w => w.status !== 'mastered')
+    const pool = due.length > 0 ? due : words
     return pool.slice(0, BATCH_SIZE)
   }, [words])
 
@@ -538,13 +490,13 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
     if (!wordId) return
     setWords((prev) =>
       prev.map((w) =>
-        w.id === wordId ? { ...w, mastered: !w.mastered } : w
+        w.id === wordId ? { ...w, status: w.status === 'mastered' ? 'learning' : 'mastered' } : w
       )
     )
-    toast.success(currentWord?.mastered ? '已取消掌握标记' : '已标记为已掌握')
+    toast.success(currentWord?.status === 'mastered' ? '已取消掌握标记' : '已标记为已掌握')
   }
 
-  const handleAddWord = (word: Word) => {
+  const handleAddWord = (word: WordData) => {
     setWords((prev) => [...prev, word])
     setShowAddModal(false)
     toast.success('单词已添加')
@@ -552,12 +504,10 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
 
   const handleCorrect = useCallback(() => {
     if (currentWord) {
-      onMarkLearned(currentWord.id)
-      
-      const newSeenCount = (currentWord.seenCount || 0) + 1
-      const isFirstTimeAfter = newSeenCount === 1
-      
-      if (isFirstTimeAfter) {
+      onReview(currentWord.id, 4)
+
+      const isFirstTime = currentWord.reviewCount === 0
+      if (isFirstTime) {
         setTimeout(() => {
           setShowDetail(true)
         }, 500)
@@ -567,17 +517,16 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
         }, 800)
       }
     }
-  }, [currentWord, onMarkLearned, goToNext])
+  }, [currentWord, onReview, goToNext])
 
   const handleWrong = useCallback(() => {
     if (currentWord) {
-      onMarkError(currentWord.id)
-      
+      onReview(currentWord.id, 1)
       setTimeout(() => {
         setShowDetail(true)
       }, 800)
     }
-  }, [currentWord, onMarkError])
+  }, [currentWord, onReview])
 
   const toggleType = (type: QuestionType) => {
     setEnabledTypes((prev) => {
@@ -1471,7 +1420,7 @@ function WordDetail({ word, onNext, onMastered }: WordDetailProps) {
   )
 }
 
-function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; setSentences: React.Dispatch<React.SetStateAction<Sentence[]>> }) {
+function SentenceSection({ sentences, setSentences }: { sentences: SentenceData[]; setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>> }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -1512,13 +1461,15 @@ function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; s
   const toggleMastered = () => {
     setSentences((prev) =>
       prev.map((s, i) =>
-        i === currentIndex % sentences.length ? { ...s, mastered: !s.mastered } : s
+        i === currentIndex % sentences.length
+          ? { ...s, status: s.status === 'mastered' ? 'learning' : 'mastered' }
+          : s
       )
     )
-    toast.success(currentSentence?.mastered ? '已取消标记' : '已标记为已掌握')
+    toast.success(currentSentence?.status === 'mastered' ? '已取消标记' : '已标记为已掌握')
   }
 
-  const handleAddSentence = (sentence: Sentence) => {
+  const handleAddSentence = (sentence: SentenceData) => {
     setSentences((prev) => [...prev, sentence])
     setShowAddModal(false)
     toast.success('长难句已添加')
@@ -1579,7 +1530,7 @@ function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; s
             style={{ backfaceVisibility: 'hidden' }}
           >
             <div className="text-xs font-medium text-slate-400 mb-3">英文长难句</div>
-            <p className="text-lg text-slate-800 leading-relaxed">{currentSentence?.en}</p>
+            <p className="text-lg text-slate-800 leading-relaxed">{currentSentence?.sentenceEn}</p>
             <div className="mt-6 text-xs text-slate-400 text-center">点击卡片查看答案</div>
           </div>
 
@@ -1651,7 +1602,7 @@ function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; s
   )
 }
 
-function TranslationSection({ translations, setTranslations }: { translations: TranslationItem[]; setTranslations: React.Dispatch<React.SetStateAction<TranslationItem[]>> }) {
+function TranslationSection({ translations, setTranslations }: { translations: TranslationData[]; setTranslations: React.Dispatch<React.SetStateAction<TranslationData[]>> }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)

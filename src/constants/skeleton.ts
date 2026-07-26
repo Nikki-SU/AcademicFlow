@@ -71,7 +71,7 @@ const SETTINGS_GLOBAL_MD = `# 全局设置
 /** CSV 表头（严格按照 spec §4.1-4.7） */
 const CSV_HEADERS = {
   literatures: 'doi,title,journal,year,authors,keywords,abstract_en,abstract_cn,tier,has_graphical_abstract,added_at,pdf_added_at,source,tracking_group',
-  vocabulary: 'word_en,word_cn,definition_cn,definition_en,example_context,source_doi,status,added_at,last_review,review_count,sm2_interval,sm2_ease',
+  vocabulary: 'word_en,word_cn,phonetic,definition_cn,definition_en,example_context,source_doi,status,added_at,last_review,review_count,sm2_interval,sm2_ease',
   sentences: 'id,sentence_en,sentence_cn,ai_reference_cn,source_doi,status,added_at,last_review,review_count,sm2_interval,sm2_ease',
   translation_practice: 'id,original_text,source_doi,latest_user_translation,latest_ai_feedback,latest_error_words,status,added_at,last_practice,practice_count',
   keyword_groups: 'group_id,group_name,expression,enabled,translate_abstract,created_at',
