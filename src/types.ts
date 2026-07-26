@@ -707,6 +707,14 @@ export interface LatexConversionResult {
   duration_ms: number
   /** 使用的期刊模板 id */
   journal_template_id: string
+  /** AI-2 审查是否通过 */
+  review_passed?: boolean
+  /** AI-2 审查发现的问题 */
+  review_issues?: Array<{
+    type: string
+    description: string
+    suggestion: string
+  }>
 }
 
 /** DOI 归一化结果 */

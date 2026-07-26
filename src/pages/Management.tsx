@@ -1,7 +1,11 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
+import { useSettingsStore } from '../stores/settings'
+import { runMineruSingleFile } from '../services/mineru'
+import { savePaperMineruResult, saveTextbookMineruResult } from '../services/mineru-storage'
+import { splitAndSaveTextbookChapters } from '../services/chapterSplit'
 import {
   FolderCog,
   BookMarked,
@@ -47,6 +51,7 @@ import {
   Library,
 } from 'lucide-react'
 import { DoiLink } from '../components/DoiLink'
+import { toast } from 'sonner'
 
 type SubTabId = 'library' | 'templates' | 'knowledge' | 'import-export'
 
@@ -670,43 +675,218 @@ export default function ManagementPage() {
     }
   }
 
+  const { mineruToken, mineruWorkerUrl } = useSettingsStore()
+  const paperConvertAbortRef = useRef<Map<string, AbortController>>(new Map())
+  const bookConvertAbortRef = useRef<Map<string, AbortController>>(new Map())
+
+  const startPaperMineruConvert = async (paperDoi: string, file: File) => {
+    if (!mineruToken.trim()) {
+      toast.error('请先在设置页配置 MinerU Token')
+      return
+    }
+    if (!mineruWorkerUrl.trim()) {
+      toast.error('请先在设置页配置 MinerU 代理地址')
+      return
+    }
+
+    setPapers((prev) =>
+      prev.map((p) =>
+        p.doi === paperDoi ? { ...p, mdStatus: 'converting', mdProgress: 5 } : p,
+      ),
+    )
+
+    const abortController = new AbortController()
+    paperConvertAbortRef.current.set(paperDoi, abortController)
+
+    try {
+      const result = await runMineruSingleFile({
+        token: mineruToken,
+        workerUrl: mineruWorkerUrl,
+        file,
+        signal: abortController.signal,
+        onProgress: (p) => {
+          const stageProgress: Record<string, number> = {
+            applying: 10,
+            uploading: 25,
+            polling: 60,
+            downloading: 85,
+            extracting: 95,
+            done: 100,
+          }
+          const prog = stageProgress[p.stage] ?? 50
+          setPapers((prev) =>
+            prev.map((p) =>
+              p.doi === paperDoi ? { ...p, mdProgress: prog } : p,
+            ),
+          )
+        },
+      })
+
+      await savePaperMineruResult({
+        doi: paperDoi,
+        markdown: result.markdown,
+        images: result.images,
+      })
+
+      setPapers((prev) =>
+        prev.map((p) =>
+          p.doi === paperDoi ? { ...p, mdStatus: 'done', mdProgress: 100 } : p,
+        ),
+      )
+      toast.success(`PDF 转换完成：${result.fileName}`)
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        setPapers((prev) =>
+          prev.map((p) =>
+            p.doi === paperDoi ? { ...p, mdStatus: 'none', mdProgress: 0 } : p,
+          ),
+        )
+        return
+      }
+      console.error('[Management] 文献 PDF 转换失败:', err)
+      setPapers((prev) =>
+        prev.map((p) =>
+          p.doi === paperDoi ? { ...p, mdStatus: 'failed', mdProgress: 0 } : p,
+        ),
+      )
+      toast.error(`转换失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      paperConvertAbortRef.current.delete(paperDoi)
+    }
+  }
+
+  const startBookMineruConvert = async (bookId: string, file: File) => {
+    if (!mineruToken.trim()) {
+      toast.error('请先在设置页配置 MinerU Token')
+      return
+    }
+    if (!mineruWorkerUrl.trim()) {
+      toast.error('请先在设置页配置 MinerU 代理地址')
+      return
+    }
+
+    setBooks((prev) =>
+      prev.map((b) =>
+        b.id === bookId ? { ...b, status: 'converting', progress: 5 } : b,
+      ),
+    )
+
+    const abortController = new AbortController()
+    bookConvertAbortRef.current.set(bookId, abortController)
+
+    try {
+      const result = await runMineruSingleFile({
+        token: mineruToken,
+        workerUrl: mineruWorkerUrl,
+        file,
+        signal: abortController.signal,
+        onProgress: (p) => {
+          const stageProgress: Record<string, number> = {
+            applying: 10,
+            uploading: 25,
+            polling: 60,
+            downloading: 85,
+            extracting: 95,
+            done: 100,
+          }
+          const prog = stageProgress[p.stage] ?? 50
+          setBooks((prev) =>
+            prev.map((b) =>
+              b.id === bookId ? { ...b, progress: prog } : b,
+            ),
+          )
+        },
+      })
+
+      await saveTextbookMineruResult({
+        textbookId: bookId,
+        markdown: result.markdown,
+        images: result.images,
+      })
+
+      let chapterCount = 0
+      try {
+        const splitResult = await splitAndSaveTextbookChapters(bookId, result.markdown)
+        chapterCount = splitResult.totalChapters
+      } catch (splitErr) {
+        console.warn('[Management] 章节切分失败（不影响主流程）:', splitErr)
+      }
+
+      setBooks((prev) =>
+        prev.map((b) =>
+          b.id === bookId
+            ? {
+                ...b,
+                status: 'done' as const,
+                progress: 100,
+                pages: 0,
+                isSplit: chapterCount > 1,
+                volumes: undefined,
+              }
+            : b,
+        ),
+      )
+      saveBooks(
+        books.map((b) =>
+          b.id === bookId
+            ? {
+                ...b,
+                status: 'done',
+                progress: 100,
+              }
+            : b,
+        ),
+      )
+      toast.success(
+        `PDF 转换完成：${result.fileName}${chapterCount > 1 ? `，已切分为 ${chapterCount} 章` : ''}`,
+      )
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        setBooks((prev) =>
+          prev.map((b) =>
+            b.id === bookId ? { ...b, status: 'failed', progress: 0 } : b,
+          ),
+        )
+        return
+      }
+      console.error('[Management] 课本 PDF 转换失败:', err)
+      setBooks((prev) =>
+        prev.map((b) =>
+          b.id === bookId ? { ...b, status: 'failed', progress: 0 } : b,
+        ),
+      )
+      toast.error(`转换失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      bookConvertAbortRef.current.delete(bookId)
+    }
+  }
+
   // 知识库操作
   const handleBookUpload = (files: FileList | null) => {
     if (!files) return
-    const newBooks: BookItem[] = Array.from(files).map((f, i) => {
-      const estimatedPages = Math.floor(Math.random() * 800) + 100
-      const isSplit = estimatedPages > 200
-      const volumeCount = isSplit ? Math.ceil(estimatedPages / 180) : 0
-      const volumes: BookVolume[] = []
-      for (let v = 0; v < volumeCount; v++) {
-        const start = v * 180 + 1
-        const end = Math.min((v + 1) * 180, estimatedPages)
-        volumes.push({
-          id: `v${v + 1}`,
-          volume: v + 1,
-          pageRange: `第${start}-${end}页`,
-          status: v === 0 ? 'converting' : 'converting',
-          progress: v === 0 ? 30 : 0,
-        })
-      }
-      return {
-        id: String(Date.now() + i),
-        title: f.name.replace('.pdf', ''),
-        author: '未知',
-        publisher: '未知',
-        pages: estimatedPages,
-        status: 'converting' as const,
-        progress: 10,
-        isSplit,
-        volumes: isSplit ? volumes : undefined,
-        categoryIds: uploadBookCategories,
-      }
-    })
+    const fileArray = Array.from(files)
+    const newBooks: BookItem[] = fileArray.map((f, i) => ({
+      id: String(Date.now() + i),
+      title: f.name.replace('.pdf', ''),
+      author: '未知',
+      publisher: '未知',
+      pages: 0,
+      status: 'converting' as const,
+      progress: 5,
+      isSplit: false,
+      volumes: undefined,
+      categoryIds: uploadBookCategories,
+    }))
     const updated = [...newBooks, ...books]
     setBooks(updated)
     saveBooks(updated)
     setShowUploadBookModal(false)
     setUploadBookCategories([])
+
+    fileArray.forEach((file, i) => {
+      const bookId = newBooks[i].id
+      setTimeout(() => startBookMineruConvert(bookId, file), i * 1000)
+    })
   }
 
   const handleDeleteBook = (id: string) => {
@@ -2057,7 +2237,19 @@ export default function ManagementPage() {
                     <label className="flex items-center justify-center gap-1 mt-2 px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-md cursor-pointer transition">
                       <Upload className="w-3.5 h-3.5" />
                       上传PDF转MD
-                      <input type="file" accept=".pdf" className="hidden" />
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file && editingPaper) {
+                            setEditingPaper({ ...editingPaper, mdStatus: 'converting', mdProgress: 5 })
+                            startPaperMineruConvert(editingPaper.doi, file)
+                          }
+                          e.target.value = ''
+                        }}
+                      />
                     </label>
                   )}
                 </div>

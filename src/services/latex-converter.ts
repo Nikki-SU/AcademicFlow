@@ -120,6 +120,25 @@ function buildAI1UserPrompt(markdown: string): string {
   ].join('\n')
 }
 
+function buildAI1FixPrompt(
+  currentLatex: string,
+  issues: Array<{ type: string; description: string; suggestion: string }>,
+): string {
+  const issueList = issues
+    .map((issue, i) => `${i + 1}. [${issue.type}] ${issue.description}\n   建议：${issue.suggestion}`)
+    .join('\n')
+  return [
+    '【当前 LaTeX 正文】',
+    currentLatex,
+    '',
+    '【格式审查发现的问题】',
+    issueList,
+    '',
+    '请根据上述问题修复 LaTeX 代码，输出修复后的完整 LaTeX 正文。',
+    '注意：[@doi:xxx] 形式的引用标记保持原样，不要替换。',
+  ].join('\n')
+}
+
 // ============================================================
 // AI-2: 格式核查
 // ============================================================
@@ -359,30 +378,78 @@ export async function convertMarkdownToLatex(
       latexBody = fenceMatch[1].trim()
     }
 
-    // ---- 阶段 4: AI-2 审查（可选） ----
+    // ---- 阶段 4: AI-2 审查 + 自动修复（最多 2 轮） ----
     let ai2RawOutput = ''
+    let reviewPassed = true
+    let reviewIssues: Array<{ type: string; description: string; suggestion: string }> = []
+
     if (enableReview) {
-      onProgress?.({ stage: 'ai_reviewing', message: 'AI-2: 格式审查中...' })
-      try {
-        const ai2Resp = await callAI({
-          baseUrl: ai2.baseUrl,
-          apiKey: ai2.apiKey,
-          model: ai2.model,
-          messages: [
-            { role: 'system', content: buildAI2SystemPrompt(template) },
-            { role: 'user', content: buildAI2UserPrompt(latexBody) },
-          ],
-          temperature: 0.1,
-          maxTokens: 2048,
+      const MAX_REVIEW_ROUNDS = 2
+      let currentLatex = latexBody
+
+      for (let round = 0; round <= MAX_REVIEW_ROUNDS; round++) {
+        onProgress?.({
+          stage: 'ai_reviewing' as const,
+          message: `AI-2: 第 ${round + 1} 轮格式审查${round > 0 ? '（修复后复审）' : ''}...`,
         })
-        ai2RawOutput = ai2Resp.content
-        // TODO: 如果审查不通过，可以触发重写（演示版暂不做自动重写）
-        const review = parseAI2Review(ai2RawOutput)
-        if (!review.passed) {
-          console.warn('[latex-converter] AI-2 review not passed:', review.summary)
+
+        try {
+          const ai2Resp = await callAI({
+            baseUrl: ai2.baseUrl,
+            apiKey: ai2.apiKey,
+            model: ai2.model,
+            messages: [
+              { role: 'system', content: buildAI2SystemPrompt(template) },
+              { role: 'user', content: buildAI2UserPrompt(currentLatex) },
+            ],
+            temperature: 0.1,
+            maxTokens: 2048,
+          })
+          ai2RawOutput = ai2Resp.content
+
+          const review = parseAI2Review(ai2RawOutput)
+          reviewIssues = review.issues.map(({ type, description, suggestion }) => ({
+            type,
+            description,
+            suggestion,
+          }))
+
+          if (review.passed || round === MAX_REVIEW_ROUNDS) {
+            reviewPassed = review.passed
+            latexBody = currentLatex
+            break
+          }
+
+          onProgress?.({
+            stage: 'ai_converting' as const,
+            message: `AI-1: 根据审查意见修复（第 ${round + 1} 轮）...`,
+          })
+
+          const fixPrompt = buildAI1FixPrompt(currentLatex, reviewIssues)
+          const fixResp = await callAI({
+            baseUrl: ai1.baseUrl,
+            apiKey: ai1.apiKey,
+            model: ai1.model,
+            messages: [
+              { role: 'system', content: buildAI1SystemPrompt(template) },
+              { role: 'user', content: fixPrompt },
+            ],
+            temperature: 0.2,
+            maxTokens: 4096,
+          })
+
+          let fixed = fixResp.content.trim()
+          const fenceMatch2 = fixed.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
+          if (fenceMatch2) fixed = fenceMatch2[1].trim()
+          currentLatex = fixed
+        } catch (err) {
+          console.warn('[latex-converter] AI-2 review round failed:', err)
+          if (round === 0) {
+            reviewPassed = true
+            reviewIssues = []
+          }
+          break
         }
-      } catch (err) {
-        console.warn('[latex-converter] AI-2 review failed:', err)
       }
     }
 
@@ -414,6 +481,8 @@ export async function convertMarkdownToLatex(
       ai_raw_output: ai1Resp.content,
       duration_ms: duration,
       journal_template_id: template.id,
+      review_passed: enableReview ? reviewPassed : undefined,
+      review_issues: enableReview ? reviewIssues : undefined,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

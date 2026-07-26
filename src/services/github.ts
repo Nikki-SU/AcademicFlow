@@ -635,3 +635,113 @@ export async function writeRepoTextFile(
   const result = (await res.json()) as { content: { sha: string } }
   return result.content.sha
 }
+
+export interface BatchFileOp {
+  path: string
+  content: string
+  encoding?: 'utf-8' | 'base64'
+}
+
+export interface BatchWriteResult {
+  commitSha: string
+  treeSha: string
+}
+
+/**
+ * 批量写入文件（使用 Git Trees API，一次 commit）
+ */
+export async function writeFileBatch(
+  ops: BatchFileOp[],
+  message: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<BatchWriteResult> {
+  assertCanWrite()
+
+  // 1. 获取当前 HEAD 的 commit sha
+  const refRes = await githubFetch(`/repos/${owner}/${repo}/git/ref/heads/main`, token)
+  if (!refRes.ok) {
+    const err = await refRes.text().catch(() => '')
+    throw new GitHubAPIError(refRes.status, err, '获取 main 分支引用失败')
+  }
+  const refData = (await refRes.json()) as { object: { sha: string } }
+  const latestCommitSha = refData.object.sha
+
+  // 2. 获取当前 commit 的 tree sha
+  const commitRes = await githubFetch(
+    `/repos/${owner}/${repo}/git/commits/${latestCommitSha}`,
+    token,
+  )
+  if (!commitRes.ok) {
+    const err = await commitRes.text().catch(() => '')
+    throw new GitHubAPIError(commitRes.status, err, '获取最新 commit 失败')
+  }
+  const commitData = (await commitRes.json()) as { tree: { sha: string } }
+  const baseTreeSha = commitData.tree.sha
+
+  // 3. 构造 tree 节点
+  const treeItems = ops.map((op) => {
+    const content = op.encoding === 'base64' ? op.content : utf8ToBase64(op.content)
+    return {
+      path: op.path,
+      mode: '100644' as const,
+      type: 'blob' as const,
+      content,
+      encoding: 'base64' as const,
+    }
+  })
+
+  // 4. 创建新 tree
+  const treeRes = await githubFetch(`/repos/${owner}/${repo}/git/trees`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      base_tree: baseTreeSha,
+      tree: treeItems,
+    }),
+  })
+  if (!treeRes.ok) {
+    const err = await treeRes.text().catch(() => '')
+    throw new GitHubAPIError(treeRes.status, err, '创建 tree 失败')
+  }
+  const treeData = (await treeRes.json()) as { sha: string }
+  const newTreeSha = treeData.sha
+
+  // 5. 创建新 commit
+  const newCommitRes = await githubFetch(`/repos/${owner}/${repo}/git/commits`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      tree: newTreeSha,
+      parents: [latestCommitSha],
+    }),
+  })
+  if (!newCommitRes.ok) {
+    const err = await newCommitRes.text().catch(() => '')
+    throw new GitHubAPIError(newCommitRes.status, err, '创建 commit 失败')
+  }
+  const newCommitData = (await newCommitRes.json()) as { sha: string }
+  const newCommitSha = newCommitData.sha
+
+  // 6. 更新 main 分支引用
+  const updateRes = await githubFetch(
+    `/repos/${owner}/${repo}/git/refs/heads/main`,
+    token,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sha: newCommitSha }),
+    },
+  )
+  if (!updateRes.ok) {
+    const err = await updateRes.text().catch(() => '')
+    throw new GitHubAPIError(updateRes.status, err, '更新 main 分支失败')
+  }
+
+  return {
+    commitSha: newCommitSha,
+    treeSha: newTreeSha,
+  }
+}

@@ -162,8 +162,309 @@ jobs:
   track:
     runs-on: ubuntu-latest
     steps:
-      - name: Placeholder
-        run: echo "Daily tracking script will be implemented in M8/M9."
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run daily tracking
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/daily_tracking.py
+
+      - name: Commit and push if changes
+        run: |
+          git config user.name "academicflow-bot"
+          git config user.email "bot@academicflow.local"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "chore: daily tracking - \$(date +%Y-%m-%d)"
+            git push
+            echo "Tracking results committed and pushed."
+          else
+            echo "No changes from daily tracking."
+          fi
+`
+
+const DAILY_TRACKING_SCRIPT = `#!/usr/bin/env python3
+"""
+AcademicFlow Daily Tracking Script
+-------------------------------------------------
+从 keyword_groups/keyword_groups.csv 读取关键词组，
+调用 OpenAlex API 搜索近7天的新文献，
+与现有 literatures/literatures.csv 去重后，
+将新文献追加到 CSV，并在 logs/tracking/{date}.md 写入追踪报告。
+"""
+
+import csv
+import json
+import os
+import sys
+import time
+import requests
+from datetime import datetime, timedelta
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+LITERATURES_CSV = BASE_DIR / "literatures" / "literatures.csv"
+KEYWORD_GROUPS_CSV = BASE_DIR / "keyword_groups" / "keyword_groups.csv"
+LOGS_DIR = BASE_DIR / "logs" / "tracking"
+
+OPENALEX_API = "https://api.openalex.org/works"
+CROSSREF_API = "https://api.crossref.org/works"
+USER_AGENT = "AcademicFlow/1.0 (mailto:bot@academicflow.local)"
+
+
+def load_keyword_groups():
+    """从 CSV 加载启用的关键词组"""
+    groups = []
+    if not KEYWORD_GROUPS_CSV.exists():
+        print(f"[WARN] 关键词组文件不存在: {KEYWORD_GROUPS_CSV}")
+        return groups
+
+    with open(KEYWORD_GROUPS_CSV, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("enabled", "").lower() in ("true", "1", "yes"):
+                groups.append({
+                    "id": row.get("group_id", ""),
+                    "name": row.get("group_name", ""),
+                    "expression": row.get("expression", ""),
+                    "translate_abstract": row.get("translate_abstract", "").lower() in ("true", "1", "yes"),
+                })
+    return groups
+
+
+def load_existing_dois():
+    """加载已有文献的 DOI 集合用于去重"""
+    dois = set()
+    if not LITERATURES_CSV.exists():
+        return dois
+
+    with open(LITERATURES_CSV, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            doi = row.get("doi", "").strip().lower()
+            if doi:
+                dois.add(doi)
+    return dois
+
+
+def search_openalex(keyword, from_date, to_date, per_page=50):
+    """调用 OpenAlex API 搜索文献"""
+    params = {
+        "search": keyword,
+        "filter": f"from_publication_date:{from_date},to_publication_date:{to_date}",
+        "per-page": per_page,
+        "sort": "publication_date:desc",
+    }
+    headers = {"User-Agent": USER_AGENT}
+
+    try:
+        resp = requests.get(OPENALEX_API, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("results", [])
+    except Exception as e:
+        print(f"[ERROR] OpenAlex search failed for '{keyword}': {e}")
+        return []
+
+
+def openalex_to_literature(work, tracking_group=""):
+    """将 OpenAlex work 对象转为 Literature 行"""
+    doi = (work.get("doi") or "").replace("https://doi.org/", "")
+    title = work.get("title", "") or ""
+
+    # 期刊名
+    primary_loc = work.get("primary_location") or {}
+    source = primary_loc.get("source") or {}
+    journal = source.get("display_name", "") or ""
+
+    # 年份
+    year = work.get("publication_year", 0) or 0
+
+    # 作者
+    authorships = work.get("authorships", []) or []
+    author_names = []
+    for a in authorships[:10]:
+        author = a.get("author") or {}
+        name = author.get("display_name", "")
+        if name:
+            author_names.append(name)
+    authors = "; ".join(author_names)
+    if len(authorships) > 10:
+        authors += f" et al. ({len(authorships)} authors)"
+
+    # 关键词（从 concepts 提取）
+    concepts = work.get("concepts", []) or []
+    keywords = "; ".join([c.get("display_name", "") for c in concepts[:5] if c.get("display_name")])
+
+    # 摘要
+    abstract_inverted = work.get("abstract_inverted_index") or {}
+    abstract_en = ""
+    if abstract_inverted:
+        # 从倒排索引重建摘要
+        word_positions = []
+        for word, positions in abstract_inverted.items():
+            for pos in positions:
+                word_positions.append((pos, word))
+        word_positions.sort()
+        abstract_en = " ".join([w for _, w in word_positions])
+
+    now = int(time.time())
+
+    return {
+        "doi": doi,
+        "title": title,
+        "journal": journal,
+        "year": str(year),
+        "authors": authors,
+        "keywords": keywords,
+        "abstract_en": abstract_en,
+        "abstract_cn": "",
+        "tier": "1",
+        "has_graphical_abstract": "false",
+        "added_at": str(now),
+        "pdf_added_at": "0",
+        "source": "openalex",
+        "tracking_group": tracking_group,
+    }
+
+
+def append_literatures(new_papers):
+    """追加新文献到 CSV"""
+    fieldnames = [
+        "doi", "title", "journal", "year", "authors", "keywords",
+        "abstract_en", "abstract_cn", "tier", "has_graphical_abstract",
+        "added_at", "pdf_added_at", "source", "tracking_group",
+    ]
+
+    file_exists = LITERATURES_CSV.exists()
+    with open(LITERATURES_CSV, "a", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        for paper in new_papers:
+            writer.writerow(paper)
+
+
+def write_log(date_str, group_results):
+    """写入追踪日志"""
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOGS_DIR / f"{date_str}.md"
+
+    total_new = sum(len(r["new_papers"]) for r in group_results)
+
+    content = f"# 每日追踪报告 - {date_str}\\n\\n"
+    content += f"- 追踪时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\\n"
+    content += f"- 关键词组：{len(group_results)} 个\\n"
+    content += f"- 新文献：{total_new} 篇\\n\\n"
+    content += "---\\n\\n"
+
+    for grp in group_results:
+        content += f"## {grp['name']}\\n\\n"
+        content += f"- 搜索表达式：\`{grp['expression']}\`\\n"
+        content += f"- 检索到：{grp['total_found']} 篇\\n"
+        content += f"- 新增：{len(grp['new_papers'])} 篇\\n\\n"
+
+        if grp["new_papers"]:
+            content += "### 新增文献\\n\\n"
+            for p in grp["new_papers"]:
+                doi = p["doi"] or "no-doi"
+                title = p["title"] or "(无标题)"
+                content += f"- **{title}**\\n"
+                content += f"  - DOI: [{doi}](https://doi.org/{doi})\\n"
+                content += f"  - 期刊：{p.get('journal', '')}\\n"
+                content += f"  - 年份：{p.get('year', '')}\\n\\n"
+
+    content += "\\n---\\n\\n*Generated by AcademicFlow Daily Tracking*\\n"
+
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print(f"[INFO] 日志已写入: {log_path}")
+
+
+def main():
+    print("=" * 60)
+    print("AcademicFlow Daily Tracking")
+    print("=" * 60)
+
+    today = datetime.now()
+    date_str = today.strftime("%Y-%m-%d")
+    from_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+
+    print(f"[INFO] 追踪日期范围: {from_date} ~ {to_date}")
+
+    # 加载关键词组
+    groups = load_keyword_groups()
+    print(f"[INFO] 已启用的关键词组: {len(groups)} 个")
+    if not groups:
+        print("[INFO] 没有启用的关键词组，跳过追踪。")
+        return 0
+
+    # 加载已有 DOI
+    existing_dois = load_existing_dois()
+    print(f"[INFO] 已有文献数: {len(existing_dois)}")
+
+    # 逐组搜索
+    group_results = []
+    all_new_papers = []
+
+    for grp in groups:
+        print(f"\\n[INFO] 搜索关键词组: {grp['name']}")
+        print(f"       表达式: {grp['expression']}")
+
+        works = search_openalex(grp["expression"], from_date, to_date)
+        print(f"       检索到: {len(works)} 篇")
+
+        new_papers = []
+        for work in works:
+            paper = openalex_to_literature(work, grp["name"])
+            doi = paper["doi"].strip().lower()
+            if doi and doi not in existing_dois:
+                existing_dois.add(doi)
+                new_papers.append(paper)
+
+        print(f"       新增: {len(new_papers)} 篇")
+
+        group_results.append({
+            "id": grp["id"],
+            "name": grp["name"],
+            "expression": grp["expression"],
+            "total_found": len(works),
+            "new_papers": new_papers,
+        })
+        all_new_papers.extend(new_papers)
+
+        # OpenAlex 礼貌等待
+        time.sleep(0.5)
+
+    # 保存新文献
+    if all_new_papers:
+        print(f"\\n[INFO] 共新增 {len(all_new_papers)} 篇文献，写入 CSV...")
+        append_literatures(all_new_papers)
+    else:
+        print("\\n[INFO] 没有新文献。")
+
+    # 写日志
+    write_log(date_str, group_results)
+
+    print("\\n[INFO] 每日追踪完成。")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 `
 
 const MONTHLY_CLEANUP_YML = `# AcademicFlow monthly PDF cleanup workflow
@@ -260,6 +561,7 @@ export const WORKSPACE_SKELETON: SkeletonFile[] = [
 
   { path: '.github/workflows/daily-tracking.yml', content: DAILY_TRACKING_YML },
   { path: '.github/workflows/monthly-cleanup.yml', content: MONTHLY_CLEANUP_YML },
+  { path: '.github/scripts/daily_tracking.py', content: DAILY_TRACKING_SCRIPT },
 ]
 
 export const DEFAULT_WORKSPACE_REPO_NAME = 'academicflow-workspace'

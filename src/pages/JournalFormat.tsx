@@ -35,6 +35,11 @@ import { DEMO_SAMPLE_MARKDOWN } from '../data/demo-content'
 import { DoiLink } from '../components/DoiLink'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import {
+  compileLatexToPdf,
+  fallbackExportPdf,
+  type CompileProgress,
+} from '../services/tectonic-compiler'
 
 /** 示例 Markdown — 演示用示例论文（不出厂任何真实期刊） */
 const SAMPLE_MARKDOWN = DEMO_SAMPLE_MARKDOWN
@@ -62,6 +67,8 @@ function JournalFormatPage() {
   const [sortMode, setSortMode] = useState<'appearance' | 'author-year' | 'alphabetical'>('appearance')
   const [showQuickSettings, setShowQuickSettings] = useState(false)
   const [tempApiKey, setTempApiKey] = useState('')
+  const [isCompilingPdf, setIsCompilingPdf] = useState(false)
+  const [pdfCompileProgress, setPdfCompileProgress] = useState<CompileProgress | null>(null)
 
   // 加载模板列表
   useEffect(() => {
@@ -231,47 +238,46 @@ function JournalFormatPage() {
     return `<div class="latex-preview"><p>${body}</p></div>`
   }
 
-  // PDF 导出：打开打印对话框
-  const handleExportPDF = () => {
+  // PDF 导出：使用 Tectonic WASM 编译，失败时降级为浏览器打印
+  const handleExportPDF = useCallback(async () => {
     if (!result) return
-    const previewHtml = renderLatexPreview(result.latex)
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) {
-      toast.error('请允许弹出窗口以导出 PDF')
-      return
+    if (isCompilingPdf) return
+
+    setIsCompilingPdf(true)
+    setPdfCompileProgress({ status: 'loading', message: '准备编译...' })
+
+    try {
+      const compileResult = await compileLatexToPdf(
+        result.latex,
+        result.bibtex,
+        (p) => setPdfCompileProgress(p),
+      )
+
+      const url = URL.createObjectURL(compileResult.pdfBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'manuscript.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+
+      toast.success(
+        `PDF 编译成功！${(compileResult.sizeBytes / 1024).toFixed(1)} KB`,
+      )
+    } catch (err) {
+      console.warn('[JournalFormat] Tectonic 编译失败，使用降级方案:', err)
+      toast.warning('WASM 编译失败，使用浏览器打印模式...')
+      try {
+        fallbackExportPdf(result.latex, 'manuscript')
+      } catch (fallbackErr) {
+        toast.error(
+          `PDF 导出失败：${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`,
+        )
+      }
+    } finally {
+      setIsCompilingPdf(false)
+      setTimeout(() => setPdfCompileProgress(null), 2000)
     }
-    const katexUrl = `${window.location.origin}${import.meta.env.BASE_URL}katex.min.css`
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>AcademicFlow - LaTeX Preview</title>
-        <link rel="stylesheet" href="${katexUrl}">
-        <style>
-          body { font-family: 'Times New Roman', serif; max-width: 50rem; margin: 2.5rem auto; padding: 1.25rem; line-height: 1.6; }
-          h1 { text-align: center; font-size: 1.5rem; margin-bottom: 1.25rem; }
-          h2 { font-size: 1.125rem; margin-top: 1.5rem; margin-bottom: 0.75rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
-          h3 { font-size: 1rem; margin-top: 1rem; margin-bottom: 0.5rem; }
-          p { margin: 0.5rem 0; text-align: justify; }
-          .katex { font-size: 1.1em; }
-          sup { color: #4f46e5; }
-          @media print { body { margin: 0; padding: 1.25rem; } }
-        </style>
-      </head>
-      <body>
-        ${previewHtml}
-        <div style="margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid #ddd; font-size: 0.75rem; color: #666;">
-          <p><strong>References (BibTeX):</strong></p>
-          <pre style="white-space: pre-wrap; font-size: 0.625rem; background: #f5f5f5; padding: 0.625rem; border-radius: 0.25rem;">${result.bibtex.replace(/</g, '&lt;')}</pre>
-        </div>
-      </body>
-      </html>
-    `)
-    printWindow.document.close()
-    setTimeout(() => printWindow.print(), 800)
-    toast.success('PDF 预览已打开，请使用浏览器的"另存为 PDF"功能下载')
-  }
+  }, [result, isCompilingPdf])
 
   const stageLabels: Record<string, string> = {
     extracting_citations: '提取引用',
@@ -651,11 +657,16 @@ function JournalFormatPage() {
                   {activeTab === 'preview' && result && (
                     <button
                       onClick={handleExportPDF}
-                      className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition"
+                      disabled={isCompilingPdf}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition disabled:opacity-50"
                       title="导出 PDF"
                     >
-                      <FileDown className="w-3.5 h-3.5" />
-                      PDF
+                      {isCompilingPdf ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <FileDown className="w-3.5 h-3.5" />
+                      )}
+                      {isCompilingPdf ? '编译中...' : 'PDF'}
                     </button>
                   )}
                   <button
@@ -690,7 +701,28 @@ function JournalFormatPage() {
               </div>
 
               {/* 内容区 */}
-              <div className="h-[31.25rem] overflow-auto">
+              <div className="h-[31.25rem] overflow-auto relative">
+                {/* PDF 编译进度覆盖层 */}
+                {isCompilingPdf && pdfCompileProgress && activeTab === 'preview' && (
+                  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center">
+                    <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mb-3" />
+                    <p className="text-sm font-medium text-slate-700">{pdfCompileProgress.message}</p>
+                    {pdfCompileProgress.progress !== undefined && (
+                      <div className="w-64 mt-3">
+                        <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-indigo-600 transition-all duration-300"
+                            style={{ width: `${pdfCompileProgress.progress}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 text-center">
+                          {pdfCompileProgress.progress}%
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {result ? (
                   activeTab === 'preview' ? (
                     <div
