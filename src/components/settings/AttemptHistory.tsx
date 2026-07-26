@@ -25,12 +25,15 @@ interface AttemptHistoryProps {
 function reasonLabel(reason: AttemptReason): string {
   if (reason === 'first_run') return '首次运行'
   if (reason === 'ai1_rewrite') return 'AI-1 重写'
+  if (reason === 'ai1_evidence_failed') return 'AI-1 编造原文'
   return 'AI-2 自纠'
 }
 
 function reasonColor(reason: AttemptReason): string {
   if (reason === 'ai1_rewrite')
     return 'bg-amber-100 text-amber-800 border-amber-300'
+  if (reason === 'ai1_evidence_failed')
+    return 'bg-red-100 text-red-800 border-red-300'
   if (reason === 'ai2_self_correct')
     return 'bg-purple-100 text-purple-800 border-purple-300'
   return 'bg-slate-100 text-slate-700 border-slate-300'
@@ -67,9 +70,15 @@ function AttemptHistory({
           // out_of_scope 归化：UI 层视觉上等同于 supported（静默通过），
           // 不单独显示徽章或计数（详见 dual-engine.ts M3.6.2-a-fix 注释）
           const ec = a.ai2Feedback.evidenceCheck
+          const ai1ec = a.ai1EvidenceCheck
           const evidenceLine = ec.checked
             ? `引证 ${ec.matched}/${ec.checked}`
             : '无需引证'
+          const ai1EvidenceLine = ai1ec
+            ? ai1ec.checked > 0
+              ? `AI-1 引证 ${ai1ec.matched}/${ai1ec.checked}`
+              : 'AI-1 无引用'
+            : ''
 
           return (
             <details
@@ -102,6 +111,11 @@ function AttemptHistory({
                 <span className="font-mono text-slate-500">
                   ⊕{added} ✗{contradicted} · {evidenceLine}
                 </span>
+                {ai1EvidenceLine && (
+                  <span className={`font-mono ${ai1ec?.ok ? 'text-green-600' : 'text-red-600'}`}>
+                    {ai1EvidenceLine}
+                  </span>
+                )}
               </summary>
               <div className="p-2 space-y-2 bg-white text-xs">
                 {/* AI-1 输出（本轮版本） */}

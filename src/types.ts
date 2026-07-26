@@ -276,9 +276,10 @@ export interface FaithfulnessFeedback {
  *
  *  - first_run: 首轮，直接跑 AI-1 → AI-2
  *  - ai1_rewrite: 上一轮 AI-2 抓出 added/contradicted（AI-1 加戏），且引证锚定 ok；本轮打回 AI-1 重写 + AI-2 重审
+ *  - ai1_evidence_failed: 上一轮 AI-1 引证锚定失败（AI-1 编造原文 span），本轮打回 AI-1 重写，不调 AI-2
  *  - ai2_self_correct: 上一轮引证锚定失败（AI-2 编造 span），本轮 AI-1 输出保留不变，只让 AI-2 自我纠错
  */
-export type AttemptReason = 'first_run' | 'ai1_rewrite' | 'ai2_self_correct'
+export type AttemptReason = 'first_run' | 'ai1_rewrite' | 'ai1_evidence_failed' | 'ai2_self_correct'
 
 /** SPEC §9.2 (M3.6): 单轮尝试的完整记录 —— 用于 5 轮重写循环的历史留痕
  *
@@ -300,6 +301,9 @@ export interface DualEngineAttempt {
   ai1Usage: AIResponse['usage']
   /** AI-1 耗时（ms；未调用时为 0） */
   ai1Ms: number
+  /** 第一次引证锚定：校验 AI-1 标注的原文引用是否真实存在于源材料（防 AI-1 编造原文）。
+   *  null 表示本轮未做 AI-1 引证锚定（ai2_self_correct 时 AI-1 未重调，沿用上一轮结果）。 */
+  ai1EvidenceCheck: EvidenceCheck | null
   /** AI-2 结构化反馈 */
   ai2Feedback: FaithfulnessFeedback
   /** AI-2 原始文本（JSON 解析失败时的兜底） */

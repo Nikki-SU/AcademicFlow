@@ -110,11 +110,13 @@ function reasonLabel(reason: AttemptReason | undefined): string {
   if (!reason) return ''
   if (reason === 'first_run') return '首次运行'
   if (reason === 'ai1_rewrite') return 'AI-1 重写'
+  if (reason === 'ai1_evidence_failed') return 'AI-1 编造原文'
   return 'AI-2 自纠'
 }
 
 function reasonColor(reason: AttemptReason | undefined): string {
   if (reason === 'ai1_rewrite') return 'bg-amber-100 text-amber-800 border-amber-300'
+  if (reason === 'ai1_evidence_failed') return 'bg-red-100 text-red-800 border-red-300'
   if (reason === 'ai2_self_correct')
     return 'bg-purple-100 text-purple-800 border-purple-300'
   return 'bg-slate-100 text-slate-700 border-slate-300'

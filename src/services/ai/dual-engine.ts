@@ -92,6 +92,22 @@ const NOT_IN_SOURCE_INSTRUCTIONS = [
   '- 源材料说"2015 年" → 不能改写为"约 2015 年前后"（曲解）',
   '- 源材料没提某作者，指令要求列出作者 → 必须写 `[NOT_IN_SOURCE] 作者信息`；',
   '  禁止编造"该研究是 XX 团队做的"，也禁止写自然语言"原文未提及作者"（tag 必须原样保留）',
+  '',
+  '【引用原文标注（第一次引证锚定用）】',
+  '9. 在正文输出完毕后，你**必须**在末尾附加一个引用标注块，列出你在正文中引用的所有原文片段。',
+  '   格式如下（严格遵守）：',
+  '     @@EVIDENCE@@',
+  '     原文片段1（≥10字符，必须是源材料中的逐字原文）',
+  '     ---',
+  '     原文片段2',
+  '     ---',
+  '     ...（每条之间用 --- 分隔）',
+  '     @@END_EVIDENCE@@',
+  '10. 每条原文片段必须是从【源材料】中**逐字复制**的连续文本（≥10字符），不得改写、省略或拼接。',
+  '11. 如果你没有引用任何原文（纯归纳性总结），仍然必须输出空的引用块：',
+  '     @@EVIDENCE@@',
+  '     @@END_EVIDENCE@@',
+  '12. 该引用块是给系统做引证锚定校验用的内部标记，前端会自动去掉，不影响你的正文输出。',
 ].join('\n')
 
 /** 默认 AI-1 角色描述（faithfulness_check 任务用） */
@@ -452,6 +468,76 @@ function isMetaClaim(c: FaithfulnessClaim): boolean {
   )
 }
 
+// ============================================================
+// AI-1 引证锚定：第一次校验（防 AI-1 编造原文引用）
+// ============================================================
+
+const EVIDENCE_START = '@@EVIDENCE@@'
+const EVIDENCE_END = '@@END_EVIDENCE@@'
+
+/** 从 AI-1 的原始输出中解析出正文和引用标注块
+ *  - 正文 = 去掉 @@EVIDENCE@@ 到 @@END_EVIDENCE@@ 之间的内容
+ *  - evidence = 从标注块中提取的原文片段列表
+ */
+function parseAI1Evidence(rawOutput: string): {
+  content: string
+  evidenceSpans: string[]
+} {
+  const startIdx = rawOutput.indexOf(EVIDENCE_START)
+  const endIdx = rawOutput.indexOf(EVIDENCE_END)
+
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    // AI-1 没有输出引用标注块（格式不合规），降级处理：全部当作正文，无引用
+    return { content: rawOutput.trim(), evidenceSpans: [] }
+  }
+
+  const content = (rawOutput.slice(0, startIdx) + rawOutput.slice(endIdx + EVIDENCE_END.length)).trim()
+  const evidenceBlock = rawOutput.slice(startIdx + EVIDENCE_START.length, endIdx).trim()
+
+  if (!evidenceBlock) {
+    return { content, evidenceSpans: [] }
+  }
+
+  const evidenceSpans = evidenceBlock
+    .split(/\n---\n|\n---|\n-{3}\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 10)
+
+  return { content, evidenceSpans }
+}
+
+/** 第一次引证锚定：校验 AI-1 标注的原文引用是否真实存在于源材料中
+ *  如果 AI-1 编造了不存在的原文片段，这里会检测到。
+ */
+function verifyAI1Evidence(
+  sourceMaterial: string,
+  evidenceSpans: string[],
+): EvidenceCheck {
+  const failedIndices: number[] = []
+  let checked = 0
+  let matched = 0
+
+  evidenceSpans.forEach((span, idx) => {
+    checked++
+    if (sourceMaterial.includes(span)) {
+      matched++
+    } else {
+      failedIndices.push(idx)
+    }
+  })
+
+  return {
+    ok: failedIndices.length === 0,
+    checked,
+    matched,
+    failedIndices,
+  }
+}
+
+// ============================================================
+// AI-2 引证锚定：第二次校验（防 AI-2 编造引用）
+// ============================================================
+
 function verifyEvidence(
   sourceMaterial: string,
   claims: FaithfulnessClaim[],
@@ -493,17 +579,22 @@ function verifyEvidence(
 /**
  * 归因函数：给定上一轮结果，决定下一轮的触发原因
  *
- * 规则：
- * - 上一轮 passed & ok → 不需要下一轮（外部循环会退出）
- * - ok=false（AI-2 编造引用） → 下一轮走 ai2_self_correct（不管 passed 是啥，先修引证）
- * - ok=true & passed=false（AI-1 加戏）→ 下一轮走 ai1_rewrite
+ * 规则（优先级从高到低）：
+ * 1. AI-1 引证锚定失败（AI-1 编造原文）→ 下一轮走 ai1_evidence_failed（打回 AI-1 重写，不调 AI-2）
+ * 2. AI-2 引证锚定失败（AI-2 编造 span）→ 下一轮走 ai2_self_correct（AI-1 不变，AI-2 自纠）
+ * 3. 两轮引证都 ok 但 passed=false（AI-1 加戏）→ 下一轮走 ai1_rewrite
+ * 4. passed=true → 不需要下一轮（外部循环会退出）
  */
 function decideNextReason(previous: DualEngineAttempt): AttemptReason {
+  // 第一次引证锚定失败 → AI-1 编造了原文，打回 AI-1 重写
+  if (previous.ai1EvidenceCheck && !previous.ai1EvidenceCheck.ok) {
+    return 'ai1_evidence_failed'
+  }
+  // 第二次引证锚定失败 → AI-2 编造 span，AI-2 自纠
   if (!previous.ai2Feedback.evidenceCheck.ok) {
-    // AI-2 引证不实 → AI-2 自纠优先（哪怕 passed=false，AI-2 的 verdict 也不可信）
     return 'ai2_self_correct'
   }
-  // 引证 ok 但 passed=false → AI-1 加戏
+  // 两轮引证都 ok 但 passed=false → AI-1 加戏
   return 'ai1_rewrite'
 }
 
@@ -511,10 +602,11 @@ function decideNextReason(previous: DualEngineAttempt): AttemptReason {
 // 单轮执行
 // ============================================================
 
-/** 单轮执行：根据 reason 分别处理三种情况
- *  - first_run: 首次跑 AI-1 → AI-2
- *  - ai1_rewrite: 只调 AI-1 重写 + AI-2 重审（走 ai2_running）
- *  - ai2_self_correct: AI-1 输出保留，只调 AI-2 自我纠错（走 ai2_self_correct_running）
+/** 单轮执行：根据 reason 分别处理四种情况
+ *  - first_run: 首次跑 AI-1 → 第一次引证锚定 → AI-2 → 第二次引证锚定
+ *  - ai1_rewrite: AI-1 加戏，打回重写 → 第一次引证锚定 → AI-2 → 第二次引证锚定
+ *  - ai1_evidence_failed: AI-1 编造原文，打回重写 → 第一次引证锚定（通过才继续 AI-2）
+ *  - ai2_self_correct: AI-1 输出保留，只调 AI-2 自我纠错 → 第二次引证锚定
  */
 async function runSingleAttempt(
   params: DualEngineRunParams,
@@ -530,22 +622,24 @@ async function runSingleAttempt(
     reason,
   })
 
+  let ai1RawOutput: string
   let ai1Output: string
   let ai1Usage = EMPTY_USAGE
   let ai1Ms = 0
   let ai1Invoked = false
+  let ai1EvidenceCheck: EvidenceCheck | null = null
 
-  // ------ AI-1 阶段（first_run / ai1_rewrite 会真跑；ai2_self_correct 保留上一轮） ------
+  // ------ AI-1 阶段 ------
   if (reason === 'ai2_self_correct') {
-    // AI-2 自纠：AI-1 输出不变，直接沿用上一轮
+    // AI-2 自纠：AI-1 输出不变，直接沿用上一轮（包括引证锚定结果）
     if (!previousAttempt) {
-      throw new Error(
-        'AI-2 self-correct requires a previous attempt but got null',
-      )
+      throw new Error('AI-2 self-correct requires a previous attempt but got null')
     }
     ai1Output = previousAttempt.ai1Output
+    ai1RawOutput = previousAttempt.ai1Output
+    ai1EvidenceCheck = previousAttempt.ai1EvidenceCheck
   } else {
-    // first_run 或 ai1_rewrite：都要真调 AI-1
+    // first_run / ai1_rewrite / ai1_evidence_failed：都要真调 AI-1
     params.onProgress?.({
       stage: 'ai1_running',
       attempt: attemptIndex,
@@ -572,22 +666,62 @@ async function runSingleAttempt(
       maxTokens: 2048,
     })
     ai1Ms = Date.now() - ai1T0
-    ai1Output = ai1Resp.content
+    ai1RawOutput = ai1Resp.content
     ai1Usage = ai1Resp.usage
     ai1Invoked = true
+
+    // ------ 第一次引证锚定：校验 AI-1 标注的原文引用 ------
+    const parsed = parseAI1Evidence(ai1RawOutput)
+    ai1Output = parsed.content // 去掉 @@EVIDENCE@@ 块后的正文
+    ai1EvidenceCheck = verifyAI1Evidence(params.sourceMaterial, parsed.evidenceSpans)
+
     params.onProgress?.({
       stage: 'ai1_done',
       attempt: attemptIndex,
       maxAttempts,
       reason,
-      ai1Output: ai1Resp.content,
+      ai1Output,
       ai1Model: params.ai1.model,
       ai1Usage: ai1Resp.usage,
       ai1Ms,
     })
+
+    // 如果 AI-1 引证锚定失败，不调 AI-2，直接返回
+    if (!ai1EvidenceCheck.ok) {
+      params.onProgress?.({
+        stage: 'verifying',
+        attempt: attemptIndex,
+        maxAttempts,
+        reason,
+        ai1Ms,
+      })
+
+      const emptyFeedback: FaithfulnessFeedback = {
+        passed: false,
+        claims: [],
+        summary: `AI-1 引证锚定失败：你在上一版中标注的 ${ai1EvidenceCheck.failedIndices.length} 条原文引用在源材料中找不到（你可能编造了不存在的原文）。请重新生成，确保 @@EVIDENCE@@ 块中的每条原文片段都是从【源材料】中逐字复制的。`,
+        evidenceCheck: { ok: false, checked: 0, matched: 0, failedIndices: [] },
+      }
+
+      return {
+        attempt: attemptIndex,
+        reason,
+        ai1Output,
+        ai1Invoked,
+        ai1Usage,
+        ai1Ms,
+        ai1EvidenceCheck,
+        ai2Feedback: emptyFeedback,
+        ai2RawOutput: '',
+        ai2Usage: EMPTY_USAGE,
+        ai2Ms: 0,
+        passed: false,
+        previousAI1Output: previousAttempt?.ai1Output ?? null,
+      }
+    }
   }
 
-  // ------ AI-2 阶段（三种模式都会调 AI-2） ------
+  // ------ AI-2 阶段（AI-1 引证锚定通过后才调） ------
   const ai2Stage =
     reason === 'ai2_self_correct' ? 'ai2_self_correct_running' : 'ai2_running'
   params.onProgress?.({
@@ -627,7 +761,7 @@ async function runSingleAttempt(
     ai2Ms,
   })
 
-  // ------ 引证锚定 ------
+  // ------ 第二次引证锚定：校验 AI-2 给出的 source_span ------
   params.onProgress?.({
     stage: 'verifying',
     attempt: attemptIndex,
@@ -654,6 +788,7 @@ async function runSingleAttempt(
     ai1Invoked,
     ai1Usage,
     ai1Ms,
+    ai1EvidenceCheck,
     ai2Feedback,
     ai2RawOutput: ai2Resp.content,
     ai2Usage: ai2Resp.usage,
