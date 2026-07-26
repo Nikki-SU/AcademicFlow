@@ -57,13 +57,22 @@ import {
 } from 'lucide-react'
 import TableGridPicker from '../components/TableGridPicker'
 import { toast } from 'sonner'
-import { readMdFile, writeMdFile } from '../services/userData'
 import { getAllTemplates } from '../services/journal-templates'
 import { useSettingsStore } from '../stores/settings'
 import type { JournalTemplate } from '../types'
 import { DoiLink } from '../components/DoiLink'
-
-const PROJECT_DOC_PATH = 'projects/default/manuscript.md'
+import {
+  loadProjects,
+  saveProjects,
+  loadManuscript,
+  saveManuscript,
+  loadReferences,
+  savePaperReferences,
+  saveBookReferences,
+  type Project,
+  type CitationRef as ServiceCitationRef,
+} from '../services/projectData'
+import { loadLiteratures, type Literature } from '../services/literatureData'
 
 const STAGES = [
   { value: 'topic', label: '选题', leftPanel: 'outline', rightPanel: 'knowledge' },
@@ -110,29 +119,17 @@ const PANEL_RATIOS = [
   { value: '3:7', label: '3 : 7', left: 30 },
 ]
 
-interface Project {
-  id: string
-  name: string
-  stage: string
-  litCount: number
-}
-
-interface CitationRef {
-  doi: string
-  title: string
-  authors: string
-  year: number
-  journal: string
-  projectId?: string
-  type?: 'paper' | 'book'
-}
-
 interface BookChapter {
   id: string
   bookId: string
   title: string
   pageStart: number
   pageEnd: number
+}
+
+interface CitationRef extends ServiceCitationRef {
+  projectId?: string
+  chapters?: BookChapter[]
 }
 
 interface BookRef extends CitationRef {
@@ -157,95 +154,15 @@ interface OutlineItem {
 type LeftPanelMode = 'editor' | 'outline' | 'references'
 type RightPanelMode = 'ai' | 'library' | 'knowledge' | 'typesetting'
 
-const DEFAULT_PROJECT: Project = { id: 'default', name: '默认项目', stage: 'writing', litCount: 0 }
+const DEFAULT_MD = `# 引言
 
-// 保留最小 fallback，使 UI 在无数据时仍可渲染；真实数据在组件挂载后从 GitHub 私库加载
-const DEMO_PROJECTS: Project[] = [DEFAULT_PROJECT]
-
-const DEMO_CITATIONS: CitationRef[] = [
-  {
-    doi: '10.1000/sample.00000001',
-    title: '示例论文：学术研究方法综述',
-    authors: 'Author A, Author B',
-    year: 2024,
-    journal: 'Sample Journal',
-    projectId: 'default',
-    type: 'paper',
-  },
-]
-
-// 真实文献数据在组件挂载时从 GitHub 私库加载
-
-const DEMO_BOOKS: BookRef[] = [
-  {
-    doi: '10.1000/sample.00000020',
-    title: '示例教材：学术研究方法导论',
-    authors: 'Author A, Author B',
-    year: 2023,
-    journal: 'Sample Publisher',
-    type: 'book',
-    projectId: '1',
-    chapters: [
-      { id: 'ch1', bookId: '10.1000/sample.00000020', title: '第一章 研究问题与选题', pageStart: 1, pageEnd: 45 },
-      { id: 'ch2', bookId: '10.1000/sample.00000020', title: '第二章 文献检索与综述', pageStart: 46, pageEnd: 98 },
-      { id: 'ch3', bookId: '10.1000/sample.00000020', title: '第三章 研究设计与方法', pageStart: 99, pageEnd: 145 },
-      { id: 'ch4', bookId: '10.1000/sample.00000020', title: '第四章 数据分析基础', pageStart: 146, pageEnd: 210 },
-    ],
-  },
-  {
-    doi: '10.1000/sample.00000021',
-    title: '示例教材：科学写作与发表',
-    authors: 'Author C, Author D',
-    year: 2022,
-    journal: 'Sample Publisher',
-    type: 'book',
-    projectId: '2',
-    chapters: [
-      { id: 'ch1', bookId: '10.1000/sample.00000021', title: '第一章 论文结构与逻辑', pageStart: 1, pageEnd: 60 },
-      { id: 'ch2', bookId: '10.1000/sample.00000021', title: '第二章 摘要与引言写作', pageStart: 61, pageEnd: 120 },
-      { id: 'ch3', bookId: '10.1000/sample.00000021', title: '第三章 结果与讨论呈现', pageStart: 121, pageEnd: 200 },
-    ],
-  },
-]
-
-const ALL_REFERENCES: CitationRef[] = [...DEMO_CITATIONS, ...DEMO_BOOKS]
-
-const DEMO_MD = `# 引言
-
-这是一份示例手稿，用于展示 AcademicFlow 的写作界面。请从文献库引入真实文献后替换此内容[1]。
+在此处开始撰写你的论文...
 
 ## 研究背景
 
-在此处描述你的研究背景：
-
-- **核心问题**：本研究试图解决什么科学问题？
-- *现有方法*：前人是如何处理的？
-- **创新点**：本文的主要增量是什么？
-
-> 提示：选中任意段落后，可在右侧 AI 助手面板请求润色、扩写或翻译。
-
-## 示例表格
-
-| 样品 | 指标 A | 指标 B | 指标 C |
-|-----|--------|--------|--------|
-| 对照组 | 10.0 | 0.85 | 95 |
-| 实验组 1 | 12.5 | 0.88 | 97 |
-| 实验组 2 | 11.8 | 0.86 | 96 |
-
-## 示例代码
-
-\`\`\`python
-def example_analysis():
-    data = load_data()
-    results = process(data)
-    return summarize(results)
-\`\`\`
-
-更多细节请参考 [原始文献](https://doi.org/10.1000/sample.00000001)。
+描述你的研究背景。
 `
 
-// SPEC §1.3/§1.6：AI 不可用时明确告知，禁止用随机数/占位内容伪造。
-// 真实 AI 写作助手接入前，所有快捷动作统一返回"功能开发中"提示。
 const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRef[] }> = {}
 
 function escapeHtml(text: string): string {
@@ -566,9 +483,9 @@ ${tex.replace(/\\title\{.*?\}\n?/, '')}
 }
 
 export default function WritingPage() {
-  const [projects, setProjects] = useState<Project[]>(DEMO_PROJECTS)
-  const [activeProjectId, setActiveProjectId] = useState<string | null>('1')
-  const [mdContent, setMdContent] = useState(DEMO_MD)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const [mdContent, setMdContent] = useState('')
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [lastSaved, setLastSaved] = useState<number | null>(null)
   const [editorLoaded, setEditorLoaded] = useState(false)
@@ -576,6 +493,7 @@ export default function WritingPage() {
   const [inputValue, setInputValue] = useState('')
   const [isAiGenerating, setIsAiGenerating] = useState(false)
   const [isAiReviewing, setIsAiReviewing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [leftPanelMode, setLeftPanelMode] = useState<LeftPanelMode>('editor')
@@ -606,7 +524,7 @@ export default function WritingPage() {
   const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [showNewProjectInput, setShowNewProjectInput] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
-  const [citations, setCitations] = useState<CitationRef[]>(ALL_REFERENCES)
+  const [citations, setCitations] = useState<CitationRef[]>([])
   const [showAddCitationForm, setShowAddCitationForm] = useState(false)
   const [newCitation, setNewCitation] = useState({
     title: '',
@@ -624,6 +542,10 @@ export default function WritingPage() {
   const [showBookSelector, setShowBookSelector] = useState(false)
   const [showChapterSelector, setShowChapterSelector] = useState(false)
 
+  void saveBookReferences
+  void loadLiteratures
+  void ({} as Literature)
+
   const editorRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const leftDropdownRef = useRef<HTMLDivElement>(null)
@@ -636,7 +558,20 @@ export default function WritingPage() {
   const dragStartRatio = useRef(70)
   const savedRangeRef = useRef<Range | null>(null)
 
-  const activeProject = projects.find((p) => p.id === activeProjectId)
+  const [projectStages, setProjectStages] = useState<Record<string, string>>({})
+
+  const activeProject = projects.find((p) => p.projectId === activeProjectId)
+
+  const activeProjectStage = activeProjectId ? projectStages[activeProjectId] || 'writing' : 'writing'
+
+  const setActiveProjectStage = useCallback((stage: string) => {
+    if (!activeProjectId) return
+    setProjectStages((prev) => ({ ...prev, [activeProjectId]: stage }))
+  }, [activeProjectId])
+
+  const getProjectLitCount = useCallback((projectId: string) => {
+    return citations.filter((c) => c.projectId === projectId).length
+  }, [citations])
 
   const scopedCitations = useMemo(() => {
     let list = citations
@@ -663,7 +598,7 @@ export default function WritingPage() {
       )
     }
     return list
-  }, [citationScope, citationSearch, activeProjectId, selectedPaperIds, selectedBookIds, selectedBookForChapters])
+  }, [citationScope, citationSearch, activeProjectId, selectedPaperIds, selectedBookIds, selectedBookForChapters, citations])
 
   const projectCitations = useMemo(() => {
     if (!activeProjectId) return []
@@ -690,26 +625,79 @@ export default function WritingPage() {
 
   const wordCount = mdContent.replace(/\s/g, '').length
 
-  // 从 GitHub 私库加载文档内容
   useEffect(() => {
     let cancelled = false
-    async function loadDocument() {
+    async function initData() {
       try {
-        const doc = await readMdFile(PROJECT_DOC_PATH)
+        const loadedProjects = await loadProjects()
         if (cancelled) return
-        if (doc?.content) {
-          setMdContent(doc.content)
-          setLastSaved(Date.now())
+
+        setProjects(loadedProjects)
+
+        if (loadedProjects.length > 0) {
+          const firstProject = loadedProjects[0]
+          setActiveProjectId(firstProject.projectId)
+        } else {
+          const defaultProject: Project = {
+            projectId: 'default',
+            title: '默认项目',
+            targetJournal: '',
+            textbookRefs: '',
+            status: 'draft',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+          const newProjects = [defaultProject]
+          setProjects(newProjects)
+          setActiveProjectId('default')
+          await saveProjects(newProjects)
         }
+
+        setIsLoading(false)
       } catch (err) {
-        console.warn('[Writing] 加载文档失败:', err)
+        console.warn('[Writing] 初始化数据失败:', err)
+        setIsLoading(false)
       }
     }
-    loadDocument()
+    initData()
     return () => { cancelled = true }
   }, [])
 
-  // 加载用户维护的期刊模板（零硬编码期刊名）
+  useEffect(() => {
+    if (!activeProjectId) return
+    const projectId = activeProjectId
+    let cancelled = false
+
+    async function loadProjectData() {
+      try {
+        const [manuscript, refs] = await Promise.all([
+          loadManuscript(projectId),
+          loadReferences(projectId),
+        ])
+        if (cancelled) return
+
+        const refsWithProjectId: CitationRef[] = refs.map((r) => ({
+          ...r,
+          projectId,
+          chapters: r.type === 'book' ? [] : undefined,
+        }))
+
+        setMdContent(manuscript || DEFAULT_MD)
+        setCitations((prev) => {
+          const filtered = prev.filter((c) => c.projectId !== projectId)
+          return [...filtered, ...refsWithProjectId]
+        })
+        setLastSaved(Date.now())
+        setEditorLoaded(false)
+      } catch (err) {
+        console.warn('[Writing] 加载项目数据失败:', err)
+      }
+    }
+
+    loadProjectData()
+    return () => { cancelled = true }
+  }, [activeProjectId])
+
   useEffect(() => {
     let cancelled = false
     async function loadTemplates() {
@@ -751,12 +739,11 @@ export default function WritingPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // 自动保存到 GitHub 私库
   useEffect(() => {
-    if (saveStatus !== 'unsaved') return
+    if (saveStatus !== 'unsaved' || !activeProjectId) return
     const timer = setTimeout(() => {
       setSaveStatus('saving')
-      writeMdFile(PROJECT_DOC_PATH, mdContent, 'Auto-save document')
+      saveManuscript(activeProjectId, mdContent)
         .then(() => {
           setSaveStatus('saved')
           setLastSaved(Date.now())
@@ -767,7 +754,7 @@ export default function WritingPage() {
         })
     }, 1000)
     return () => clearTimeout(timer)
-  }, [mdContent, saveStatus])
+  }, [mdContent, saveStatus, activeProjectId])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -802,15 +789,13 @@ export default function WritingPage() {
 
   const handleStageChange = useCallback((stage: string) => {
     if (!activeProjectId) return
-    setProjects((prev) =>
-      prev.map((p) => (p.id === activeProjectId ? { ...p, stage } : p))
-    )
+    setActiveProjectStage(stage)
     const stageConfig = STAGES.find(s => s.value === stage)
     if (stageConfig) {
       setLeftPanelMode(stageConfig.leftPanel as LeftPanelMode)
       setRightPanelMode(stageConfig.rightPanel as RightPanelMode)
     }
-  }, [activeProjectId])
+  }, [activeProjectId, setActiveProjectStage])
 
   const handleEditorInput = () => {
     if (!editorRef.current) return
@@ -1013,7 +998,7 @@ export default function WritingPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${activeProject?.name || 'document'}.md`
+    a.download = `${activeProject?.title || 'document'}.md`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -1157,7 +1142,24 @@ export default function WritingPage() {
   const handleCreateProject = () => {
     const name = newProjectName.trim()
     if (name) {
-      setProjects((prev) => [...prev, { id: String(Date.now()), name, stage: 'topic', litCount: 0 }])
+      const projectId = String(Date.now())
+      const newProject: Project = {
+        projectId,
+        title: name,
+        targetJournal: '',
+        textbookRefs: '',
+        status: 'draft',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      setProjects((prev) => {
+        const updated = [...prev, newProject]
+        saveProjects(updated).catch(() => {
+          toast.error('保存项目失败，请检查 GitHub 配置')
+        })
+        return updated
+      })
+      setActiveProjectId(projectId)
       setNewProjectName('')
       setShowNewProjectInput(false)
     }
@@ -1166,20 +1168,40 @@ export default function WritingPage() {
   const handleAddCitation = () => {
     if (!newCitation.title.trim() || !newCitation.doi.trim()) return
     const citation: CitationRef = {
+      id: newCitation.doi.trim(),
       title: newCitation.title.trim(),
       authors: newCitation.authors.trim(),
       year: parseInt(newCitation.year) || new Date().getFullYear(),
       journal: newCitation.journal.trim(),
       doi: newCitation.doi.trim(),
+      type: 'paper',
       projectId: activeProjectId || undefined,
     }
-    setCitations((prev) => [citation, ...prev])
+    setCitations((prev) => {
+      const updated = [citation, ...prev]
+      if (activeProjectId) {
+        const projectRefs = updated.filter((c) => c.projectId === activeProjectId)
+        savePaperReferences(activeProjectId, projectRefs).catch(() => {
+          toast.error('保存文献失败，请检查 GitHub 配置')
+        })
+      }
+      return updated
+    })
     setNewCitation({ title: '', authors: '', year: '', journal: '', doi: '' })
     setShowAddCitationForm(false)
   }
 
   const handleDeleteCitation = (doi: string) => {
-    setCitations((prev) => prev.filter((c) => c.doi !== doi))
+    setCitations((prev) => {
+      const updated = prev.filter((c) => c.doi !== doi)
+      if (activeProjectId) {
+        const projectRefs = updated.filter((c) => c.projectId === activeProjectId)
+        savePaperReferences(activeProjectId, projectRefs).catch(() => {
+          toast.error('保存文献失败，请检查 GitHub 配置')
+        })
+      }
+      return updated
+    })
   }
 
   const handleImportBibtex = () => {
@@ -1247,22 +1269,33 @@ export default function WritingPage() {
             )}
           </div>
           <div className="flex-1 overflow-y-auto">
+            {projects.length === 0 && !isLoading && (
+              <div className="p-4 text-center">
+                <div className="text-sm text-slate-500 mb-2">暂无项目</div>
+                <button
+                  onClick={() => setShowNewProjectInput(true)}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  点击创建第一个项目
+                </button>
+              </div>
+            )}
             {projects.map((p) => (
               <button
-                key={p.id}
-                onClick={() => setActiveProjectId(p.id)}
+                key={p.projectId}
+                onClick={() => setActiveProjectId(p.projectId)}
                 className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
-                  activeProjectId === p.id ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
+                  activeProjectId === p.projectId ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
                 }`}
               >
-                <div className="text-sm font-medium text-slate-700 truncate">{p.name}</div>
+                <div className="text-sm font-medium text-slate-700 truncate">{p.title}</div>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">
-                    {STAGES.find((s) => s.value === p.stage)?.label}
+                    {STAGES.find((s) => s.value === (projectStages[p.projectId] || 'writing'))?.label}
                   </span>
                   <span className="text-xs text-slate-400 flex items-center gap-1">
                     <BookOpen className="w-3 h-3" />
-                    {p.litCount}篇
+                    {getProjectLitCount(p.projectId)}篇
                   </span>
                 </div>
               </button>
@@ -1275,8 +1308,8 @@ export default function WritingPage() {
             </div>
             <div className="space-y-1">
               {STAGES.map((s, idx) => {
-                const cur = activeProject?.stage === s.value
-                const isPast = STAGES.findIndex((st) => st.value === activeProject?.stage) > idx
+                const cur = activeProjectStage === s.value
+                const isPast = STAGES.findIndex((st) => st.value === activeProjectStage) > idx
                 return (
                   <button
                     key={s.value}
@@ -1367,10 +1400,10 @@ export default function WritingPage() {
                 <>
                   <ChevronRight className="w-4 h-4 text-slate-300" />
                   <span className="text-sm font-semibold text-slate-700 truncate max-w-40">
-                    {activeProject.name}
+                    {activeProject.title}
                   </span>
                   <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium flex-shrink-0">
-                    {STAGES.find((s) => s.value === activeProject.stage)?.label}
+                    {STAGES.find((s) => s.value === activeProjectStage)?.label}
                   </span>
                 </>
               )}
@@ -1756,7 +1789,7 @@ export default function WritingPage() {
                       >
                         <span className="text-slate-700 truncate">
                           {CITATION_SCOPES.find((s) => s.value === citationScope)?.label}
-                          {citationScope === 'project' && activeProject && ` (${activeProject.name})`}
+                          {citationScope === 'project' && activeProject && ` (${activeProject.title})`}
                           {citationScope === 'selected' && selectedPaperIds.length > 0 && ` (${selectedPaperIds.length}篇)`}
                           {citationScope === 'books' && selectedBookIds.length > 0 && ` (${selectedBookIds.length}本)`}
                           {citationScope === 'chapters' && selectedChapterIds.length > 0 && ` (${selectedChapterIds.length}章)`}
@@ -2291,7 +2324,7 @@ export default function WritingPage() {
                   综述文章
                 </div>
                 <div className="space-y-2">
-                  {DEMO_CITATIONS.slice(0, 2).map((cit, idx) => (
+                  {citations.slice(0, 2).map((cit, idx) => (
                     <div
                       key={idx}
                       className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer"
@@ -2419,7 +2452,7 @@ export default function WritingPage() {
                           const url = URL.createObjectURL(blob)
                           const a = document.createElement('a')
                           a.href = url
-                          a.download = `${activeProject?.name || 'paper'}.tex`
+                          a.download = `${activeProject?.title || 'paper'}.tex`
                           document.body.appendChild(a)
                           a.click()
                           document.body.removeChild(a)
@@ -2808,7 +2841,7 @@ export default function WritingPage() {
               <div className="max-w-2xl mx-auto bg-white shadow-xl p-12 min-h-[50rem]">
                 <div className="text-center mb-8">
                   <h1 className="text-2xl font-bold text-slate-900 mb-2">
-                    {activeProject?.name || 'Research Paper'}
+                    {activeProject?.title || 'Research Paper'}
                   </h1>
                   <p className="text-sm text-slate-600">Author Name · University / Institution</p>
                   <p className="text-xs text-slate-400 mt-1">{currentTemplate?.name || ''}</p>
@@ -2838,7 +2871,7 @@ export default function WritingPage() {
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url
-                    a.download = `${activeProject?.name || 'paper'}.tex`
+                    a.download = `${activeProject?.title || 'paper'}.tex`
                     document.body.appendChild(a)
                     a.click()
                     document.body.removeChild(a)

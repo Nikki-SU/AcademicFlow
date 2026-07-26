@@ -28,8 +28,10 @@ import {
   Heading3,
   Check,
   Edit3,
+  Plus,
 } from 'lucide-react'
-import { readMdFile, writeMdFile, readCsvFile, writeCsvFile } from '../services/userData'
+import { loadLiteratures, loadFulltext, loadNotes, saveNotes, type Literature } from '../services/literatureData'
+import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { DoiLink } from '../components/DoiLink'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
@@ -38,7 +40,6 @@ type FilterType = 'all' | 'has-md' | 'no-md'
 
 interface Annotation {
   id: string
-  paperId: string
   text: string
   color: HighlightColor
   note: string
@@ -57,13 +58,23 @@ interface Paper {
   markdownContent?: string
 }
 
-interface PaperNotes {
-  [paperId: string]: string
-}
-
 interface SaveState {
   status: 'saved' | 'saving' | 'idle'
   lastSaved: number | null
+}
+
+function literatureToPaper(lit: Literature): Paper {
+  return {
+    id: lit.doi,
+    title: lit.title,
+    authors: lit.authors,
+    journal: lit.journal,
+    year: String(lit.year),
+    keywords: lit.keywords ? lit.keywords.split(',').map(k => k.trim()).filter(Boolean) : [],
+    doi: lit.doi,
+    hasMarkdown: false,
+    markdownContent: undefined,
+  }
 }
 
 const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; border: string; text: string; dot: string; ring: string }[] = [
@@ -74,130 +85,7 @@ const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; bord
   { value: 'red', label: '红色', bg: 'bg-red-200/70', border: 'border-l-red-400 bg-red-50', text: 'text-red-700', dot: 'bg-red-400', ring: 'ring-red-400' },
 ]
 
-const DEMO_PAPERS: Paper[] = [
-  {
-    id: '1',
-    title: '示例论文：学术研究方法综述',
-    authors: 'Author A, Author B, Author C',
-    journal: 'Sample Journal',
-    year: '2024',
-    keywords: ['methodology', 'review', 'academic writing'],
-    doi: '10.1000/sample.00000001',
-    hasMarkdown: true,
-    markdownContent: `# 示例论文：学术研究方法综述
 
-## 摘要
-
-本文是一份通用示例文档，用于展示 AcademicFlow 阅读模块的 Markdown 渲染、批注与高亮功能。用户可将自己的真实文献替换此示例内容。
-
-## 1. 引言
-
-学术研究需要系统的方法论支撑。从文献追踪、阅读批注到写作投稿，每个环节都需要可靠的工具与流程。
-
-### 1.1 研究问题
-
-一个好的研究问题应当具体、可检验，并在现有文献中存在可填补的空白。
-
-### 1.2 工作流程
-
-典型的学术 workflow 包括以下步骤：
-1. 文献追踪与筛选
-2. 深度阅读与批注
-3. 知识整理与笔记
-4. 学术写作与引用
-5. 期刊排版与投稿
-
-## 2. 方法
-
-### 2.1 文献管理
-
-使用 DOI 作为唯一标识符，保证文献的去重与可追溯性。
-
-### 2.2 笔记系统
-
-批注以独立 Markdown 文件保存，锚定在原文对应位置，本体文件保持不变。
-
-## 3. 讨论
-
-- **数据可复现**：所有分析步骤应可重复
-- **引用规范**：引用格式应符合目标期刊要求
-- **协作安全**：个人数据存储在用户自己的私有仓库中
-
-## 4. 结论
-
- AcademicFlow 提供了一套以 Markdown + CSV 为落盘格式、以 GitHub 私库为后端的个人学术工作流方案。
-
-> "好的研究工具应当隐形，让研究者专注于思考本身。" — 示例评论
-
-## 参考文献
-
-1. Author A, et al. Best practices in academic workflow. Sample Journal, 2024.
-`,
-  },
-  {
-    id: '2',
-    title: '示例论文：数据分析入门',
-    authors: 'Author D, Author E',
-    journal: 'Sample Journal',
-    year: '2023',
-    keywords: ['data analysis', 'statistics', 'tutorial'],
-    doi: '10.1000/sample.00000002',
-    hasMarkdown: false,
-  },
-]
-
-const DEMO_ANNOTATIONS: Annotation[] = [
-  {
-    id: 'anno1',
-    paperId: '1',
-    text: '学术研究需要系统的方法论支撑',
-    color: 'yellow',
-    note: '**核心观点**\n\n方法论是研究质量的保证。\n\n- 明确研究问题\n- 选择合适方法\n- 记录分析过程',
-    createdAt: Date.now() - 86400000 * 3,
-  },
-  {
-    id: 'anno2',
-    paperId: '1',
-    text: '使用 DOI 作为唯一标识符',
-    color: 'green',
-    note: 'DOI 的重要性：\n\n- 全球唯一\n- 长期稳定\n- 便于引用与复现',
-    createdAt: Date.now() - 86400000 * 2,
-  },
-  {
-    id: 'anno3',
-    paperId: '1',
-    text: '个人数据存储在用户自己的私有仓库中',
-    color: 'red',
-    note: '隐私设计要点：\n\n1. 数据主权归用户\n2. 不经过第三方服务器\n3. 跨设备通过 GitHub 私库同步',
-    createdAt: Date.now() - 86400000,
-  },
-]
-
-const DEMO_NOTES_INITIAL: PaperNotes = {
-  '1': `# 阅读笔记：示例论文
-
-## 核心要点
-
-这是一份示例阅读笔记，展示如何记录文献阅读过程中的关键信息。
-
-## 关键概念
-
-- DOI 作为文献唯一标识
-- Markdown 格式的批注与笔记
-- 数据存储在用户私有仓库
-
-## 待深入研究
-
-1. 相关方法论的更多文献
-2. 目标期刊的投稿要求
-3. 引用格式的具体规范
-
-## 相关文献
-
-- [[10.1000/sample.00000001]] 本文
-- 待补充...
-`,
-}
 
 function formatDate(timestamp: number): string {
   const d = new Date(timestamp)
@@ -401,20 +289,17 @@ function getWordCountFromHtml(html: string): number {
   return (tmp.textContent || '').replace(/\s/g, '').length
 }
 
-const DEMO_NOTES_HTML: PaperNotes = {
-  '1': renderMarkdownToHtml(DEMO_NOTES_INITIAL['1'] || ''),
-  '3': renderMarkdownToHtml(DEMO_NOTES_INITIAL['3'] || ''),
-}
-
 export default function ReadingPage() {
-  const [selectedPaperId, setSelectedPaperId] = useState<string | null>('1')
+  const [papers, setPapers] = useState<Paper[]>([])
+  const [papersLoading, setPapersLoading] = useState(true)
+  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null)
   const [activeSideTab, setActiveSideTab] = useState<SideTab>('notes')
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [fontSize, setFontSize] = useState(16)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
-  const [notesHtml, setNotesHtml] = useState<PaperNotes>({})
-  const [notesLoaded, setNotesLoaded] = useState(false)
+  const [currentNoteHtml, setCurrentNoteHtml] = useState('')
+  const [noteLoaded, setNoteLoaded] = useState(false)
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null)
   const [showToolbar, setShowToolbar] = useState(false)
@@ -432,91 +317,136 @@ export default function ReadingPage() {
 
   useEffect(() => {
     let cancelled = false
-    async function loadData() {
-      // 加载批注
+    async function loadPapers() {
       try {
-        const annData = await readCsvFile(
-          `annotations/annotations.csv`,
-          (rows) => {
-            if (rows.length <= 1) return []
-            return rows.slice(1).map((r) => ({
-              id: r[0] || '',
-              paperId: r[1] || '',
-              text: r[2] || '',
-              color: r[3] || 'yellow',
-              note: r[4] || '',
-              timestamp: parseInt(r[5] || '0', 10),
-            }))
+        const lits = await loadLiteratures()
+        if (!cancelled) {
+          const paperList = lits.map(literatureToPaper)
+          setPapers(paperList)
+          if (paperList.length > 0) {
+            setSelectedPaperId(paperList[0].id)
           }
-        )
-        if (!cancelled && annData.length > 0) {
-          setAnnotations(annData as any[])
-        } else if (!cancelled) {
-          setAnnotations(DEMO_ANNOTATIONS)
         }
-      } catch {
-        if (!cancelled) setAnnotations(DEMO_ANNOTATIONS)
+      } catch (err) {
+        console.error('[Reading] 加载文献列表失败:', err)
+      } finally {
+        if (!cancelled) setPapersLoading(false)
       }
-
-      // 加载笔记（存储为 HTML 格式，所见即所得）
-      try {
-        const noteResult = await readMdFile('notes/notes.json')
-        if (!cancelled && noteResult) {
-          setNotesHtml(JSON.parse(noteResult.content))
-        } else if (!cancelled) {
-          setNotesHtml(DEMO_NOTES_HTML)
-        }
-      } catch {
-        if (!cancelled) setNotesHtml(DEMO_NOTES_HTML)
-      }
-      if (!cancelled) setNotesLoaded(true)
     }
-    loadData()
+    loadPapers()
     return () => { cancelled = true }
   }, [])
 
-  // 仅在切换文献或首次加载时设置 innerHTML，不在每次输入时重置（避免光标跳转）
   useEffect(() => {
-    if (noteEditorRef.current && selectedPaperId && notesLoaded) {
-      noteEditorRef.current.innerHTML = notesHtml[selectedPaperId] || ''
+    if (!selectedPaperId) {
+      setAnnotations([])
+      setCurrentNoteHtml('')
+      setNoteLoaded(false)
+      setSelectedAnnotationId(null)
+      setEditingAnnotationId(null)
+      return
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPaperId, notesLoaded])
+
+    let cancelled = false
+    const doi = selectedPaperId
+
+    async function loadPaperData() {
+      try {
+        const fulltext = await loadFulltext(doi)
+        if (!cancelled) {
+          setPapers(prev => prev.map(p =>
+            p.id === doi
+              ? { ...p, hasMarkdown: fulltext.length > 0, markdownContent: fulltext }
+              : p
+          ))
+        }
+      } catch (err) {
+        console.error('[Reading] 加载全文失败:', err)
+      }
+
+      try {
+        const annData = await loadAnnotations(doi)
+        if (!cancelled) {
+          const mapped: Annotation[] = annData.map(a => ({
+            id: a.id,
+            text: a.text,
+            color: a.color as HighlightColor,
+            note: a.note,
+            createdAt: a.createdAt,
+          }))
+          setAnnotations(mapped)
+        }
+      } catch (err) {
+        console.error('[Reading] 加载批注失败:', err)
+        if (!cancelled) setAnnotations([])
+      }
+
+      try {
+        const noteContent = await loadNotes(doi)
+        if (!cancelled) {
+          const html = renderMarkdownToHtml(noteContent)
+          setCurrentNoteHtml(html)
+          setNoteLoaded(true)
+        }
+      } catch (err) {
+        console.error('[Reading] 加载笔记失败:', err)
+        if (!cancelled) {
+          setCurrentNoteHtml('')
+          setNoteLoaded(true)
+        }
+      }
+    }
+
+    loadPaperData()
+    return () => { cancelled = true }
+  }, [selectedPaperId])
+
+  useEffect(() => {
+    if (noteEditorRef.current && noteLoaded) {
+      noteEditorRef.current.innerHTML = currentNoteHtml
+    }
+  }, [noteLoaded, currentNoteHtml])
 
   const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
+    if (!selectedPaperId) return
     if (annotationSaveTimerRef.current) {
       clearTimeout(annotationSaveTimerRef.current)
     }
     setAnnotationSaveState({ status: 'saving', lastSaved: null })
     annotationSaveTimerRef.current = setTimeout(() => {
-      writeCsvFile(
-        'annotations/annotations.csv',
-        newAnnotations as any[],
-        ['id', 'paper_id', 'text', 'color', 'note', 'timestamp'],
-        (a: any) => [a.id, a.paperId, a.text, a.color, a.note, String(a.timestamp)]
-      ).catch(err => console.error('[Reading] 保存批注到 GitHub 失败:', err))
+      const data: AnnotationData[] = newAnnotations.map(a => ({
+        id: a.id,
+        type: 'highlight',
+        color: a.color as AnnotationData['color'],
+        text: a.text,
+        note: a.note,
+        createdAt: a.createdAt,
+        updatedAt: Date.now(),
+      }))
+      saveAnnotations(selectedPaperId, data).catch(err => console.error('[Reading] 保存批注到 GitHub 失败:', err))
       setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setAnnotationSaveState((prev) => ({ ...prev, status: 'idle' }))
       }, 2000)
     }, 500)
-  }, [])
+  }, [selectedPaperId])
 
-  const saveNoteToStorage = useCallback((paperId: string, html: string) => {
+  const saveNoteToStorage = useCallback((html: string) => {
+    if (!selectedPaperId) return
     if (noteSaveTimerRef.current) {
       clearTimeout(noteSaveTimerRef.current)
     }
     setNoteSaveState({ status: 'saving', lastSaved: null })
     noteSaveTimerRef.current = setTimeout(() => {
-      const newNotes = { ...notesHtml, [paperId]: html }
-      setNotesHtml(newNotes)
-      writeMdFile('notes/notes.json', JSON.stringify(newNotes), 'Update reading notes').catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
+      setCurrentNoteHtml(html)
+      const md = htmlToMarkdown(html)
+      saveNotes(selectedPaperId, md).catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
       setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setNoteSaveState((prev) => ({ ...prev, status: 'idle' }))
       }, 2000)
     }, 800)
-  }, [notesHtml])
+  }, [selectedPaperId])
 
   const handleTextSelection = useCallback(() => {
     const selection = window.getSelection()
@@ -555,7 +485,6 @@ export default function ReadingPage() {
 
     const newAnnotation: Annotation = {
       id: `anno-${Date.now()}`,
-      paperId: selectedPaperId,
       text: selectedText,
       color,
       note: '',
@@ -593,7 +522,7 @@ export default function ReadingPage() {
     saveAnnotationsToStorage(newAnnotations)
   }
 
-  const filteredPapers = DEMO_PAPERS.filter((paper) => {
+  const filteredPapers = papers.filter((paper) => {
     const matchesFilter =
       filterType === 'all' ||
       (filterType === 'has-md' && paper.hasMarkdown) ||
@@ -614,9 +543,8 @@ export default function ReadingPage() {
     )
   })
 
-  const selectedPaper = DEMO_PAPERS.find((p) => p.id === selectedPaperId)
-  const paperAnnotations = annotations.filter((a) => a.paperId === selectedPaperId)
-  const currentNoteHtml = selectedPaperId ? (notesHtml[selectedPaperId] || '') : ''
+  const selectedPaper = papers.find((p) => p.id === selectedPaperId)
+  const paperAnnotations = annotations
 
   const focusNoteEditor = () => {
     if (noteEditorRef.current) {
@@ -627,7 +555,7 @@ export default function ReadingPage() {
   const handleNoteInput = () => {
     if (!selectedPaperId || !noteEditorRef.current) return
     const html = noteEditorRef.current.innerHTML
-    saveNoteToStorage(selectedPaperId, html)
+    saveNoteToStorage(html)
   }
 
   const execNoteCommand = (command: string, value?: string) => {
@@ -875,7 +803,25 @@ export default function ReadingPage() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredPapers.length === 0 ? (
+          {papersLoading ? (
+            <div className="text-center py-8 text-slate-400 text-sm">
+              <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+              <p>加载中...</p>
+            </div>
+          ) : papers.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 text-sm px-4">
+              <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="text-slate-500 font-medium mb-1">还没有添加文献</p>
+              <p className="text-xs text-slate-400 mb-3">请到文献管理页添加文献后开始阅读</p>
+              <button
+                onClick={() => window.location.hash = '#/literature'}
+                className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                去添加文献
+              </button>
+            </div>
+          ) : filteredPapers.length === 0 ? (
             <div className="text-center py-8 text-slate-400 text-sm">
               <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
               <p>没有找到匹配的文献</p>

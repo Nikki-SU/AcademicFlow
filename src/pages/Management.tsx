@@ -1,4 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
+import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
+import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
 import {
   FolderCog,
   BookMarked,
@@ -113,78 +116,93 @@ const subTabs: { id: SubTabId; label: string; icon: typeof BookMarked }[] = [
   { id: 'import-export', label: '导入导出', icon: ArrowLeftRight },
 ]
 
-const DEMO_PAPER_CATEGORIES: PaperCategory[] = [
-  { id: 'all', name: '全部文献' },
-  {
-    id: 'my-categories',
-    name: '我的分类',
-    children: [
-      { id: 'category-a', name: '示例分类 A' },
-      { id: 'category-b', name: '示例分类 B' },
-      { id: 'category-c', name: '示例分类 C' },
-    ],
-  },
-]
-
-const DEMO_BOOK_CATEGORIES: BookCategory[] = [
+const DEFAULT_BOOK_CATEGORIES: BookCategory[] = [
   { id: 'all', name: '全部图书' },
-  { id: 'textbook-a', name: '示例教材 A' },
-  { id: 'textbook-b', name: '示例教材 B' },
-]
-
-const DEMO_PAPERS: Paper[] = [
-  { id: '1', title: '示例论文：学术研究方法综述', authors: 'Author A, Author B, Author C', year: '2024', journal: 'Sample Journal', keywords: ['methodology', 'review', 'academic writing'], doi: '10.1000/sample.00000001', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20academic%20research%20methodology%20cover%20minimal&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-a'] },
-  { id: '2', title: '示例论文：文献综述写作指南', authors: 'Author D, Author E', year: '2023', journal: 'Sample Journal', keywords: ['literature review', 'writing'], doi: '10.1000/sample.00000002', tier: 1, hasNotes: false, mdStatus: 'converting', mdProgress: 65, categoryIds: ['category-a', 'category-b'] },
-  { id: '3', title: '示例论文：数据可视化最佳实践', authors: 'Author F, Author G, Author H', year: '2024', journal: 'Sample Journal', keywords: ['visualization', 'data', 'communication'], doi: '10.1000/sample.00000003', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20data%20visualization%20charts%20cover%20minimal&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
-  { id: '4', title: '示例论文：学术诚信与引用规范', authors: 'Author I, Author J', year: '2023', journal: 'Sample Journal', keywords: ['ethics', 'citation', 'scholarship'], doi: '10.1000/sample.00000004', tier: 1, hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['category-b', 'category-c'] },
-  { id: '5', title: '示例论文：实验设计与可复现性', authors: 'Author K, Author L, Author M', year: '2024', journal: 'Sample Journal', keywords: ['experiment', 'reproducibility'], doi: '10.1000/sample.00000005', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20laboratory%20experiment%20reproducibility%20cover%20minimal&image_size=square', hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: [] },
-  { id: '6', title: '示例论文：学术演讲与海报设计', authors: 'Author N, Author O', year: '2023', journal: 'Sample Journal', keywords: ['presentation', 'poster', 'communication'], doi: '10.1000/sample.00000006', tier: 1, hasNotes: false, mdStatus: 'failed', mdProgress: 40, categoryIds: ['category-c'] },
-  { id: '7', title: '示例论文：科研项目管理入门', authors: 'Author P, Author Q, Author R', year: '2024', journal: 'Sample Journal', keywords: ['project management', 'workflow'], doi: '10.1000/sample.00000007', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20project%20management%20workflow%20cover%20minimal&image_size=square', hasNotes: false, mdStatus: 'converting', mdProgress: 30, categoryIds: [] },
-  { id: '8', title: '示例论文：统计方法基础', authors: 'Author S, Author T', year: '2023', journal: 'Sample Journal', keywords: ['statistics', 'methods'], doi: '10.1000/sample.00000008', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-b'] },
-  { id: '9', title: '示例论文：科学写作中的逻辑结构', authors: 'Author U, Author V, Author W', year: '2024', journal: 'Sample Journal', keywords: ['writing', 'logic', 'structure'], doi: '10.1000/sample.00000009', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20scientific%20writing%20logic%20structure%20cover%20minimal&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: ['textbook-a'] },
-  { id: '10', title: '示例论文：开放科学与数据共享', authors: 'Author X, Author Y', year: '2023', journal: 'Sample Journal', keywords: ['open science', 'data sharing'], doi: '10.1000/sample.00000010', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-a', 'category-b'] },
-  { id: '11', title: '示例论文：同行评审流程解析', authors: 'Author Z, Author AA', year: '2024', journal: 'Sample Journal', keywords: ['peer review', 'publishing'], doi: '10.1000/sample.00000011', tier: 2, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=abstract%20peer%20review%20publishing%20cover%20minimal&image_size=square', hasNotes: false, mdStatus: 'none', mdProgress: 0, categoryIds: [] },
-  { id: '12', title: '示例论文：跨学科研究的方法论挑战', authors: 'Author AB, Author AC, Author AD', year: '2023', journal: 'Sample Journal', keywords: ['interdisciplinary', 'methods'], doi: '10.1000/sample.00000012', tier: 1, hasNotes: true, mdStatus: 'done', mdProgress: 100, categoryIds: ['category-c', 'textbook-b'] },
-]
-
-const DEMO_TEMPLATES: JournalTemplateItem[] = [
-  { id: '1', name: '示例期刊 A', publisher: '示例出版社', issn: '0000-0000', lastUpdated: '2024-03-15', isDefault: true, formatSummary: '摘要250字以内，正文含引言/结果/讨论/方法四部分，参考文献采用通用格式，图表嵌入正文对应位置。' },
-  { id: '2', name: '示例期刊 B', publisher: '示例出版社', issn: '0000-0001', lastUpdated: '2024-02-28', isDefault: false, formatSummary: '通讯类限于3页，全文含摘要/引言/结果/结论，参考文献采用通用格式，支持补充材料。' },
-  { id: '3', name: '示例期刊 C', publisher: '示例出版社', issn: '0000-0002', lastUpdated: '2024-03-10', isDefault: false, formatSummary: '通讯类限4页，全文有严格字数限制，参考文献采用通用格式，图表标题需详细说明实验条件。' },
-  { id: '4', name: '示例期刊 D', publisher: '示例出版社', issn: '0000-0003', lastUpdated: '2024-01-20', isDefault: false, formatSummary: '长文格式，摘要结构化（背景/结果/结论），正文多小节，参考文献采用通用格式，需附作者贡献。' },
-]
-
-const DEMO_BOOKS: BookItem[] = [
-  { id: '1', title: '深度学习', author: 'Ian Goodfellow', publisher: '人民邮电出版社', pages: 788, status: 'done', progress: 100, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=deep%20learning%20book%20cover%20neural%20network&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a'], volumes: [
-    { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
-    { id: 'v2', volume: 2, pageRange: '第181-360页', status: 'done', progress: 100 },
-    { id: 'v3', volume: 3, pageRange: '第361-540页', status: 'done', progress: 100 },
-    { id: 'v4', volume: 4, pageRange: '第541-720页', status: 'done', progress: 100 },
-    { id: 'v5', volume: 5, pageRange: '第721-788页', status: 'done', progress: 100 },
-  ]},
-  { id: '2', title: '统计学习方法', author: '李航', publisher: '清华大学出版社', pages: 432, status: 'converting', progress: 72, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=statistical%20learning%20book%20cover%20math%20data%20science&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a'], volumes: [
-    { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
-    { id: 'v2', volume: 2, pageRange: '第181-360页', status: 'converting', progress: 72 },
-    { id: 'v3', volume: 3, pageRange: '第361-432页', status: 'converting', progress: 15 },
-  ]},
-  { id: '3', title: '机器学习实战', author: 'Peter Harrington', publisher: '机械工业出版社', pages: 368, status: 'done', progress: 100, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=machine%20learning%20action%20book%20cover%20programming&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a'], volumes: [
-    { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
-    { id: 'v2', volume: 2, pageRange: '第181-368页', status: 'done', progress: 100 },
-  ]},
-  { id: '4', title: '模式识别与机器学习', author: 'Christopher Bishop', publisher: 'Springer', pages: 738, status: 'converting', progress: 45, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=pattern%20recognition%20machine%20learning%20book%20cover&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a', 'textbook-b'], volumes: [
-    { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
-    { id: 'v2', volume: 2, pageRange: '第181-360页', status: 'done', progress: 100 },
-    { id: 'v3', volume: 3, pageRange: '第361-540页', status: 'converting', progress: 85 },
-    { id: 'v4', volume: 4, pageRange: '第541-720页', status: 'converting', progress: 35 },
-    { id: 'v5', volume: 5, pageRange: '第721-738页', status: 'converting', progress: 10 },
-  ]},
-  { id: '5', title: 'Python数据分析', author: 'Wes McKinney', publisher: '机械工业出版社', pages: 560, status: 'uploading', progress: 35, isSplit: false, categoryIds: [] },
-  { id: '6', title: '算法导论', author: 'Thomas H. Cormen', publisher: 'MIT Press', pages: 1292, status: 'failed', progress: 20, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=algorithms%20book%20cover%20computer%20science&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-b'], volumes: [
-    { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'failed', progress: 20 },
-  ]},
 ]
 
 const PAGE_SIZE = 10
+
+function literatureToPaper(lit: Literature): Paper {
+  return {
+    id: lit.doi || String(lit.addedAt),
+    title: lit.title,
+    authors: lit.authors,
+    year: String(lit.year),
+    journal: lit.journal,
+    keywords: lit.keywords ? lit.keywords.split(',').map((k) => k.trim()).filter(Boolean) : [],
+    doi: lit.doi,
+    tier: (lit.tier === 1 || lit.tier === 2 ? lit.tier : 1) as 1 | 2,
+    hasNotes: false,
+    mdStatus: 'none',
+    mdProgress: 0,
+    categoryIds: lit.trackingGroup ? [lit.trackingGroup] : [],
+  }
+}
+
+function paperToLiterature(paper: Paper): Literature {
+  return {
+    doi: paper.doi,
+    title: paper.title,
+    journal: paper.journal,
+    year: parseInt(paper.year, 10) || 0,
+    authors: paper.authors,
+    keywords: paper.keywords.join(', '),
+    abstractEn: '',
+    abstractCn: '',
+    tier: paper.tier,
+    hasGraphicalAbstract: !!paper.coverImage,
+    addedAt: Date.now(),
+    pdfAddedAt: 0,
+    source: 'manual',
+    trackingGroup: paper.categoryIds[0] || '',
+  }
+}
+
+function keywordGroupToPaperCategory(kg: KeywordGroup): PaperCategory {
+  return {
+    id: kg.groupId,
+    name: kg.groupName,
+  }
+}
+
+function paperCategoryToKeywordGroup(cat: PaperCategory): KeywordGroup {
+  return {
+    groupId: cat.id,
+    groupName: cat.name,
+    expression: '',
+    enabled: true,
+    translateAbstract: false,
+    createdAt: Date.now(),
+  }
+}
+
+function textbookToBookItem(tb: Textbook): BookItem {
+  return {
+    id: tb.textbookId,
+    title: tb.title,
+    author: tb.author,
+    publisher: '',
+    pages: tb.pages,
+    status: 'done',
+    progress: 100,
+    isSplit: false,
+    categoryIds: [],
+  }
+}
+
+function bookItemToTextbook(book: BookItem): Textbook {
+  return {
+    textbookId: book.id,
+    title: book.title,
+    author: book.author,
+    edition: '',
+    pages: book.pages,
+    addedAt: Date.now(),
+    scope: '',
+    chapters: '',
+    includedChapters: '',
+  }
+}
 
 function StatusBadge({ status }: { status: Paper['mdStatus'] }) {
   const config = {
@@ -257,12 +275,12 @@ export default function ManagementPage() {
   const [showEditPaperModal, setShowEditPaperModal] = useState(false)
   const [showImageLightbox, setShowImageLightbox] = useState<string | null>(null)
   const [editingPaper, setEditingPaper] = useState<Paper | null>(null)
-  const [papers, setPapers] = useState<Paper[]>(DEMO_PAPERS)
+  const [papers, setPapers] = useState<Paper[]>([])
   const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1' as '1' | '2', categoryIds: [] as string[] })
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
-  const [paperCategories, setPaperCategories] = useState<PaperCategory[]>(DEMO_PAPER_CATEGORIES)
+  const [paperCategories, setPaperCategories] = useState<PaperCategory[]>([{ id: 'all', name: '全部文献' }])
   const [activePaperCategory, setActivePaperCategory] = useState<string>('all')
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['my-categories']))
   const [showBatchMoveModal, setShowBatchMoveModal] = useState(false)
@@ -271,22 +289,101 @@ export default function ManagementPage() {
   const [showCategoryModal, setShowCategoryModal] = useState(false)
 
   // 期刊模板状态
-  const [templates, setTemplates] = useState<JournalTemplateItem[]>(DEMO_TEMPLATES)
+  const [templates, setTemplates] = useState<JournalTemplateItem[]>([])
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<JournalTemplateItem | null>(null)
   const [newTemplate, setNewTemplate] = useState({ name: '', issn: '', publisher: '', guidelines: '' })
   const [isExtracting, setIsExtracting] = useState(false)
 
   // 知识库状态
-  const [books, setBooks] = useState<BookItem[]>(DEMO_BOOKS)
+  const [books, setBooks] = useState<BookItem[]>([])
   const [showBookDetail, setShowBookDetail] = useState<BookItem | null>(null)
   const [isDragOverBook, setIsDragOverBook] = useState(false)
-  const [bookCategories, setBookCategories] = useState<BookCategory[]>(DEMO_BOOK_CATEGORIES)
+  const [bookCategories, setBookCategories] = useState<BookCategory[]>(DEFAULT_BOOK_CATEGORIES)
   const [activeBookCategory, setActiveBookCategory] = useState<string>('all')
   const [editingBookCategory, setEditingBookCategory] = useState<{ id?: string; name: string } | null>(null)
   const [showBookCategoryModal, setShowBookCategoryModal] = useState(false)
   const [showUploadBookModal, setShowUploadBookModal] = useState(false)
   const [uploadBookCategories, setUploadBookCategories] = useState<string[]>([])
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const lits = await loadLiteratures()
+        setPapers(lits.map(literatureToPaper))
+      } catch (err) {
+        console.error('加载文献失败:', err)
+      }
+    }
+    loadData()
+  }, [])
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const groups = await loadKeywordGroups()
+        const cats = groups.map(keywordGroupToPaperCategory)
+        setPaperCategories([{ id: 'all', name: '全部文献' }, ...cats])
+      } catch (err) {
+        console.error('加载关键词组失败:', err)
+      }
+    }
+    loadData()
+  }, [])
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const tbs = await loadTextbooks()
+        setBooks(tbs.map(textbookToBookItem))
+      } catch (err) {
+        console.error('加载教材失败:', err)
+      }
+    }
+    loadData()
+  }, [])
+
+  // 保存文献（防抖）
+  const savePapers = async (updatedPapers: Paper[]) => {
+    try {
+      const lits = updatedPapers.map(paperToLiterature)
+      await saveLiteratures(lits)
+    } catch (err) {
+      console.error('保存文献失败:', err)
+    }
+  }
+
+  // 保存关键词组（文献分类）
+  const savePaperCategories = async (updatedCats: PaperCategory[]) => {
+    try {
+      const leafCats: PaperCategory[] = []
+      const traverse = (cats: PaperCategory[]) => {
+        for (const cat of cats) {
+          if (cat.children && cat.children.length > 0) {
+            traverse(cat.children)
+          } else if (cat.id !== 'all') {
+            leafCats.push(cat)
+          }
+        }
+      }
+      traverse(updatedCats)
+      const groups = leafCats.map(paperCategoryToKeywordGroup)
+      await saveKeywordGroups(groups)
+    } catch (err) {
+      console.error('保存关键词组失败:', err)
+    }
+  }
+
+  // 保存教材（图书）
+  const saveBooks = async (updatedBooks: BookItem[]) => {
+    try {
+      const tbs = updatedBooks.map(bookItemToTextbook)
+      await saveTextbooks(tbs)
+    } catch (err) {
+      console.error('保存教材失败:', err)
+    }
+  }
 
   // 文献分类树 - 展开关闭
   const toggleCategoryExpand = (id: string) => {
@@ -371,7 +468,7 @@ export default function ManagementPage() {
   const handleAddPaper = () => {
     if (!newPaper.title.trim()) return
     const paper: Paper = {
-      id: String(Date.now()),
+      id: newPaper.doi || String(Date.now()),
       title: newPaper.title,
       authors: newPaper.authors,
       year: newPaper.year,
@@ -384,13 +481,17 @@ export default function ManagementPage() {
       mdProgress: 0,
       categoryIds: newPaper.categoryIds,
     }
-    setPapers([paper, ...papers])
+    const updated = [paper, ...papers]
+    setPapers(updated)
+    savePapers(updated)
     setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: [] })
     setShowAddPaperModal(false)
   }
 
   const handleDeletePaper = (id: string) => {
-    setPapers(papers.filter((p) => p.id !== id))
+    const updated = papers.filter((p) => p.id !== id)
+    setPapers(updated)
+    savePapers(updated)
   }
 
   const handleEditPaper = (paper: Paper) => {
@@ -400,13 +501,17 @@ export default function ManagementPage() {
 
   const handleSavePaper = () => {
     if (!editingPaper) return
-    setPapers(papers.map((p) => (p.id === editingPaper.id ? editingPaper : p)))
+    const updated = papers.map((p) => (p.id === editingPaper.id ? editingPaper : p))
+    setPapers(updated)
+    savePapers(updated)
     setShowEditPaperModal(false)
     setEditingPaper(null)
   }
 
   const handleBatchDelete = () => {
-    setPapers(papers.filter((p) => !selectedPapers.has(p.id)))
+    const updated = papers.filter((p) => !selectedPapers.has(p.id))
+    setPapers(updated)
+    savePapers(updated)
     setSelectedPapers(new Set())
     setBatchMode(false)
   }
@@ -430,12 +535,14 @@ export default function ManagementPage() {
   }
 
   const handleBatchMove = () => {
-    setPapers(papers.map((p) => {
+    const updated = papers.map((p) => {
       if (selectedPapers.has(p.id)) {
         return { ...p, categoryIds: [...new Set([...p.categoryIds, ...batchMoveTargetIds])] }
       }
       return p
-    }))
+    })
+    setPapers(updated)
+    savePapers(updated)
     setSelectedPapers(new Set())
     setBatchMode(false)
     setShowBatchMoveModal(false)
@@ -462,13 +569,18 @@ export default function ManagementPage() {
           children: c.children ? removeFromTree(c.children) : undefined,
         }))
     }
-    setPaperCategories(removeFromTree(paperCategories))
-    setPapers(papers.map((p) => ({ ...p, categoryIds: p.categoryIds.filter((cid) => cid !== id) })))
+    const updatedCats = removeFromTree(paperCategories)
+    const updatedPapers = papers.map((p) => ({ ...p, categoryIds: p.categoryIds.filter((cid) => cid !== id) }))
+    setPaperCategories(updatedCats)
+    setPapers(updatedPapers)
+    savePaperCategories(updatedCats)
+    savePapers(updatedPapers)
     if (activePaperCategory === id) setActivePaperCategory('all')
   }
 
   const handleSaveCategory = () => {
     if (!editingCategory || !editingCategory.name.trim()) return
+    let updatedCats: PaperCategory[]
     if (editingCategory.id) {
       const updateInTree = (cats: PaperCategory[]): PaperCategory[] => {
         return cats.map((c) => {
@@ -481,7 +593,8 @@ export default function ManagementPage() {
           }
         })
       }
-      setPaperCategories(updateInTree(paperCategories))
+      updatedCats = updateInTree(paperCategories)
+      setPaperCategories(updatedCats)
     } else {
       const newCat: PaperCategory = {
         id: String(Date.now()),
@@ -499,14 +612,17 @@ export default function ManagementPage() {
             }
           })
         }
-        setPaperCategories(addToTree(paperCategories))
+        updatedCats = addToTree(paperCategories)
+        setPaperCategories(updatedCats)
         if (!expandedCategories.has(editingCategory.parentId)) {
           setExpandedCategories(new Set([...expandedCategories, editingCategory.parentId]))
         }
       } else {
-        setPaperCategories([...paperCategories, newCat])
+        updatedCats = [...paperCategories, newCat]
+        setPaperCategories(updatedCats)
       }
     }
+    savePaperCategories(updatedCats)
     setEditingCategory(null)
     setShowCategoryModal(false)
   }
@@ -586,13 +702,17 @@ export default function ManagementPage() {
         categoryIds: uploadBookCategories,
       }
     })
-    setBooks([...newBooks, ...books])
+    const updated = [...newBooks, ...books]
+    setBooks(updated)
+    saveBooks(updated)
     setShowUploadBookModal(false)
     setUploadBookCategories([])
   }
 
   const handleDeleteBook = (id: string) => {
-    setBooks(books.filter((b) => b.id !== id))
+    const updated = books.filter((b) => b.id !== id)
+    setBooks(updated)
+    saveBooks(updated)
   }
 
   // 图书分类管理
@@ -607,20 +727,25 @@ export default function ManagementPage() {
   }
 
   const handleDeleteBookCategory = (id: string) => {
-    setBookCategories(bookCategories.filter((c) => c.id !== id))
-    setBooks(books.map((b) => ({ ...b, categoryIds: b.categoryIds.filter((cid) => cid !== id) })))
+    const updatedCats = bookCategories.filter((c) => c.id !== id)
+    const updatedBooks = books.map((b) => ({ ...b, categoryIds: b.categoryIds.filter((cid) => cid !== id) }))
+    setBookCategories(updatedCats)
+    setBooks(updatedBooks)
+    saveBooks(updatedBooks)
     if (activeBookCategory === id) setActiveBookCategory('all')
   }
 
   const handleSaveBookCategory = () => {
     if (!editingBookCategory || !editingBookCategory.name.trim()) return
+    let updatedCats: BookCategory[]
     if (editingBookCategory.id) {
-      setBookCategories(bookCategories.map((c) =>
+      updatedCats = bookCategories.map((c) =>
         c.id === editingBookCategory.id ? { ...c, name: editingBookCategory.name } : c
-      ))
+      )
     } else {
-      setBookCategories([...bookCategories, { id: String(Date.now()), name: editingBookCategory.name }])
+      updatedCats = [...bookCategories, { id: String(Date.now()), name: editingBookCategory.name }]
     }
+    setBookCategories(updatedCats)
     setEditingBookCategory(null)
     setShowBookCategoryModal(false)
   }
@@ -1026,8 +1151,21 @@ export default function ManagementPage() {
                       ))}
                       {pagedPapers.length === 0 && (
                         <tr>
-                          <td colSpan={batchMode ? 10 : 9} className="px-4 py-16 text-center text-slate-400">
-                            暂无文献数据
+                          <td colSpan={batchMode ? 10 : 9} className="px-4 py-16 text-center">
+                            <div className="text-slate-400 mb-3">
+                              <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                              <p className="text-sm">暂无文献数据</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                                setShowAddPaperModal(true)
+                              }}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
+                            >
+                              <Plus className="w-4 h-4" />
+                              添加第一篇文献
+                            </button>
                           </td>
                         </tr>
                       )}
@@ -1118,8 +1256,21 @@ export default function ManagementPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="py-16 text-center text-slate-400">
-                      暂无文献数据
+                    <div className="py-16 text-center">
+                      <div className="text-slate-400 mb-3">
+                        <LayoutGrid className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">暂无文献数据</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                          setShowAddPaperModal(true)
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
+                      >
+                        <Plus className="w-4 h-4" />
+                        添加第一篇文献
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1252,6 +1403,26 @@ export default function ManagementPage() {
               </div>
             ))}
           </div>
+          {templates.length === 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+              <div className="text-slate-400 mb-3">
+                <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">暂无期刊模板</p>
+                <p className="text-xs mt-1">创建期刊模板，用于规范投稿格式</p>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingTemplate(null)
+                  setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '' })
+                  setShowTemplateModal(true)
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
+              >
+                <Plus className="w-4 h-4" />
+                创建第一个模板
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1364,91 +1535,111 @@ export default function ManagementPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredBooks.map((book) => (
-                <div
-                  key={book.id}
-                  className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden group cursor-pointer"
-                  onClick={() => setShowBookDetail(book)}
-                >
-                  <div className="aspect-[3/4] bg-slate-100 relative overflow-hidden">
-                    {book.coverImage ? (
-                      <img src={book.coverImage} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-300">
-                        <Book className="w-12 h-12" />
-                      </div>
-                    )}
-                    <div className="absolute top-2 right-2">
-                      <BookStatusBadge status={book.status} />
-                    </div>
-                    {book.isSplit && book.status === 'done' && (
-                      <div className="absolute top-2 left-2">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-medium rounded-full">
-                          <Layers className="w-3 h-3" />
-                          共{book.volumes?.length || 0}卷
-                        </span>
-                      </div>
-                    )}
-                    {(book.status === 'converting' || book.status === 'uploading') && (
-                      <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-black/50 backdrop-blur-sm">
-                        <div className="h-1 bg-white/30 rounded-full overflow-hidden mb-1">
-                          <div
-                            className="h-full bg-white rounded-full transition-all"
-                            style={{ width: `${book.progress}%` }}
-                          />
+            {filteredBooks.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {filteredBooks.map((book) => (
+                  <div
+                    key={book.id}
+                    className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden group cursor-pointer"
+                    onClick={() => setShowBookDetail(book)}
+                  >
+                    <div className="aspect-[3/4] bg-slate-100 relative overflow-hidden">
+                      {book.coverImage ? (
+                        <img src={book.coverImage} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-300">
+                          <Book className="w-12 h-12" />
                         </div>
-                        <p className="text-xs text-white text-right">{book.progress}%</p>
+                      )}
+                      <div className="absolute top-2 right-2">
+                        <BookStatusBadge status={book.status} />
                       </div>
-                    )}
-                  </div>
-                  <div className="p-3">
-                    <h3 className="font-medium text-slate-800 text-sm line-clamp-1 mb-0.5">{book.title}</h3>
-                    <p className="text-xs text-slate-500 line-clamp-1 mb-1">{book.author}</p>
-                    <p className="text-xs text-slate-400 line-clamp-1">{book.publisher} · {book.pages} 页</p>
-                    {book.categoryIds.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {book.categoryIds.slice(0, 2).map((cid) => {
-                          const cat = bookCategories.find((c) => c.id === cid)
-                          return cat ? (
-                            <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-xs rounded">
-                              {cat.name}
-                            </span>
-                          ) : null
-                        })}
-                      </div>
-                    )}
-                  </div>
-                  <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setShowBookDetail(book)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
-                        title="详情"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      {book.isSplit && book.status === 'done' && (
+                        <div className="absolute top-2 left-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-medium rounded-full">
+                            <Layers className="w-3 h-3" />
+                            共{book.volumes?.length || 0}卷
+                          </span>
+                        </div>
+                      )}
                       {(book.status === 'converting' || book.status === 'uploading') && (
-                        <button
-                          onClick={() => setShowBookDetail(book)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
-                          title="查看转换进度"
-                        >
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        </button>
+                        <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-black/50 backdrop-blur-sm">
+                          <div className="h-1 bg-white/30 rounded-full overflow-hidden mb-1">
+                            <div
+                              className="h-full bg-white rounded-full transition-all"
+                              style={{ width: `${book.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-white text-right">{book.progress}%</p>
+                        </div>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleDeleteBook(book.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                      title="删除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="p-3">
+                      <h3 className="font-medium text-slate-800 text-sm line-clamp-1 mb-0.5">{book.title}</h3>
+                      <p className="text-xs text-slate-500 line-clamp-1 mb-1">{book.author}</p>
+                      <p className="text-xs text-slate-400 line-clamp-1">{book.publisher} · {book.pages} 页</p>
+                      {book.categoryIds.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {book.categoryIds.slice(0, 2).map((cid) => {
+                            const cat = bookCategories.find((c) => c.id === cid)
+                            return cat ? (
+                              <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-xs rounded">
+                                {cat.name}
+                              </span>
+                            ) : null
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setShowBookDetail(book)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
+                          title="详情"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {(book.status === 'converting' || book.status === 'uploading') && (
+                          <button
+                            onClick={() => setShowBookDetail(book)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                            title="查看转换进度"
+                          >
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleDeleteBook(book.id)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+                <div className="text-slate-400 mb-3">
+                  <BookCopy className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">暂无图书数据</p>
+                  <p className="text-xs mt-1">上传 PDF 图书，自动转换为 Markdown</p>
                 </div>
-              ))}
-            </div>
+                <button
+                  onClick={() => {
+                    setUploadBookCategories(activeBookCategory !== 'all' ? [activeBookCategory] : [])
+                    setShowUploadBookModal(true)
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
+                >
+                  <Upload className="w-4 h-4" />
+                  上传第一本图书
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

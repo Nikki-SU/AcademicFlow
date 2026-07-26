@@ -761,13 +761,13 @@ function WordSection({ words, setWords, studyStats, onReview }: WordSectionProps
         <button
           onClick={handleMastered}
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-            currentWord?.mastered
+            currentWord?.status === 'mastered'
               ? 'bg-green-100 text-green-700 hover:bg-green-200'
               : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
           }`}
         >
           <Check className="w-4 h-4" />
-          {currentWord?.mastered ? '已掌握' : '掌握'}
+          {currentWord?.status === 'mastered' ? '已掌握' : '掌握'}
         </button>
         <button
           onClick={goToNext}
@@ -784,8 +784,8 @@ function WordSection({ words, setWords, studyStats, onReview }: WordSectionProps
 }
 
 interface QuestionProps {
-  word: Word
-  words: Word[]
+  word: WordData
+  words: WordData[]
   onCorrect: () => void
   onWrong: () => void
 }
@@ -876,7 +876,7 @@ function WordQuestion({ word, words, onCorrect, onWrong }: QuestionProps) {
 }
 
 interface SpellingProps {
-  word: Word
+  word: WordData
   onCorrect: () => void
   onWrong: () => void
 }
@@ -1314,7 +1314,7 @@ function EnToZhQuestion({ word, onCorrect, onWrong }: Omit<QuestionProps, 'words
 }
 
 interface WordDetailProps {
-  word: Word
+  word: WordData
   onNext: () => void
   onMastered: () => void
 }
@@ -1340,13 +1340,13 @@ function WordDetail({ word, onNext, onMastered }: WordDetailProps) {
           <button
             onClick={onMastered}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              word.mastered
+              word.status === 'mastered'
                 ? 'bg-green-100 text-green-700'
                 : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
             }`}
           >
             <Check className="w-3.5 h-3.5" />
-            {word.mastered ? '已掌握' : '标记掌握'}
+            {word.status === 'mastered' ? '已掌握' : '标记掌握'}
           </button>
         </div>
 
@@ -1384,21 +1384,17 @@ function WordDetail({ word, onNext, onMastered }: WordDetailProps) {
           <div className="bg-blue-50 rounded-xl p-4">
             <div className="text-xs font-medium text-blue-600 mb-2">学习记录</div>
             <div className="flex flex-wrap gap-4 text-sm">
-              {word.proficiency !== undefined && (
-                <div>
-                  <span className="text-blue-500">熟练度：</span>
-                  <span className="text-blue-700 font-medium">{word.proficiency}/5</span>
-                </div>
-              )}
-              {word.errorCount !== undefined && (
-                <div>
-                  <span className="text-blue-500">错误次数：</span>
-                  <span className="text-blue-700 font-medium">{word.errorCount}</span>
-                </div>
-              )}
+              <div>
+                <span className="text-blue-500">复习次数：</span>
+                <span className="text-blue-700 font-medium">{word.reviewCount}</span>
+              </div>
               <div>
                 <span className="text-blue-500">上次学习：</span>
-                <span className="text-blue-700 font-medium">{formatTime(word.lastStudyTime)}</span>
+                <span className="text-blue-700 font-medium">{formatTime(word.lastReview)}</span>
+              </div>
+              <div>
+                <span className="text-blue-500">学习状态：</span>
+                <span className="text-blue-700 font-medium">{word.status === 'mastered' ? '已掌握' : word.status === 'learning' ? '学习中' : word.status}</span>
               </div>
             </div>
           </div>
@@ -1542,27 +1538,7 @@ function SentenceSection({ sentences, setSentences }: { sentences: SentenceData[
             }}
           >
             <div className="text-xs font-medium text-indigo-500 mb-3">中文翻译</div>
-            <p className="text-base text-slate-800 leading-relaxed mb-6">{currentSentence?.zh}</p>
-
-            {currentSentence?.structure && (
-              <div className="space-y-3">
-                <div className="text-xs font-medium text-slate-400">结构分析</div>
-                <div className="bg-blue-50 rounded-lg p-3">
-                  <div className="text-xs font-medium text-blue-600 mb-1">主语</div>
-                  <p className="text-sm text-blue-800">{currentSentence.structure.subject}</p>
-                </div>
-                <div className="bg-green-50 rounded-lg p-3">
-                  <div className="text-xs font-medium text-green-600 mb-1">谓语</div>
-                  <p className="text-sm text-green-800">{currentSentence.structure.predicate}</p>
-                </div>
-                {currentSentence.structure.object && (
-                  <div className="bg-amber-50 rounded-lg p-3">
-                    <div className="text-xs font-medium text-amber-600 mb-1">宾语/状语</div>
-                    <p className="text-sm text-amber-800">{currentSentence.structure.object}</p>
-                  </div>
-                )}
-              </div>
-            )}
+            <p className="text-base text-slate-800 leading-relaxed mb-6">{currentSentence?.sentenceCn}</p>
 
             <div className="mt-4 text-xs text-slate-400 text-center">点击卡片翻回正面</div>
           </div>
@@ -1580,13 +1556,13 @@ function SentenceSection({ sentences, setSentences }: { sentences: SentenceData[
         <button
           onClick={toggleMastered}
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-            currentSentence?.mastered
+            currentSentence?.status === 'mastered'
               ? 'bg-green-100 text-green-700 hover:bg-green-200'
               : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
           }`}
         >
           <Check className="w-4 h-4" />
-          {currentSentence?.mastered ? '已掌握' : '标记掌握'}
+          {currentSentence?.status === 'mastered' ? '已掌握' : '标记掌握'}
         </button>
         <button
           onClick={handleNext}
@@ -1643,13 +1619,15 @@ function TranslationSection({ translations, setTranslations }: { translations: T
   const toggleMastered = () => {
     setTranslations((prev) =>
       prev.map((t, i) =>
-        i === currentIndex % translations.length ? { ...t, mastered: !t.mastered } : t
+        i === currentIndex % translations.length
+          ? { ...t, status: t.status === 'completed' ? 'pending' : 'completed' }
+          : t
       )
     )
-    toast.success(currentItem?.mastered ? '已取消标记' : '已标记为已掌握')
+    toast.success(currentItem?.status === 'completed' ? '已取消标记' : '已标记为已完成')
   }
 
-  const handleAddTranslation = (item: TranslationItem) => {
+  const handleAddTranslation = (item: TranslationData) => {
     setTranslations((prev) => [...prev, item])
     setShowAddModal(false)
     toast.success('翻译练习已添加')
@@ -1710,7 +1688,7 @@ function TranslationSection({ translations, setTranslations }: { translations: T
             style={{ backfaceVisibility: 'hidden' }}
           >
             <div className="text-xs font-medium text-slate-400 mb-3">中文句子（请翻译为英文）</div>
-            <p className="text-lg text-slate-800 leading-relaxed">{currentItem?.source}</p>
+            <p className="text-lg text-slate-800 leading-relaxed">{currentItem?.originalText}</p>
             <div className="mt-6 text-xs text-slate-400 text-center">点击卡片查看参考译文</div>
           </div>
 
@@ -1722,7 +1700,7 @@ function TranslationSection({ translations, setTranslations }: { translations: T
             }}
           >
             <div className="text-xs font-medium text-indigo-500 mb-3">参考译文</div>
-            <p className="text-base text-slate-800 leading-relaxed">{currentItem?.reference}</p>
+            <p className="text-base text-slate-800 leading-relaxed">{currentItem?.latestUserTranslation}</p>
             <div className="mt-6 text-xs text-slate-400 text-center">点击卡片翻回正面</div>
           </div>
         </div>
@@ -1739,13 +1717,13 @@ function TranslationSection({ translations, setTranslations }: { translations: T
         <button
           onClick={toggleMastered}
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-            currentItem?.mastered
+            currentItem?.status === 'completed'
               ? 'bg-green-100 text-green-700 hover:bg-green-200'
               : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
           }`}
         >
           <Check className="w-4 h-4" />
-          {currentItem?.mastered ? '已掌握' : '标记掌握'}
+          {currentItem?.status === 'completed' ? '已完成' : '标记完成'}
         </button>
         <button
           onClick={handleNext}
@@ -1777,7 +1755,7 @@ function ModalBackdrop({ onClose, children }: { onClose: () => void; children: R
   )
 }
 
-function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: Word) => void }) {
+function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: WordData) => void }) {
   const [word, setWord] = useState('')
   const [phonetic, setPhonetic] = useState('')
   const [meaning, setMeaning] = useState('')
@@ -1791,15 +1769,21 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
       toast.error('请填写单词和释义')
       return
     }
-    const newWord: Word = {
+    const newWord: WordData = {
       id: `w_${Date.now()}`,
       word: word.trim(),
       phonetic: phonetic.trim() || '',
       meaning: meaning.trim(),
       exampleEn: exampleEn.trim() || '',
       exampleZh: exampleZh.trim() || '',
-      root: root.trim() || undefined,
-      seenCount: 0,
+      root: root.trim(),
+      sourceDoi: '',
+      status: 'learning',
+      addedAt: Date.now(),
+      lastReview: 0,
+      reviewCount: 0,
+      sm2Interval: 0,
+      sm2Ease: 2.5,
     }
     onAdd(newWord)
   }
@@ -1905,12 +1889,9 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
   )
 }
 
-function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sentence: Sentence) => void }) {
+function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sentence: SentenceData) => void }) {
   const [en, setEn] = useState('')
   const [zh, setZh] = useState('')
-  const [subject, setSubject] = useState('')
-  const [predicate, setPredicate] = useState('')
-  const [object, setObject] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1918,18 +1899,18 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
       toast.error('请填写英文和中文')
       return
     }
-    const newSentence: Sentence = {
+    const newSentence: SentenceData = {
       id: `s_${Date.now()}`,
-      en: en.trim(),
-      zh: zh.trim(),
-      structure:
-        subject.trim() || predicate.trim()
-          ? {
-              subject: subject.trim(),
-              predicate: predicate.trim(),
-              object: object.trim() || undefined,
-            }
-          : undefined,
+      sentenceEn: en.trim(),
+      sentenceCn: zh.trim(),
+      aiReferenceCn: '',
+      sourceDoi: '',
+      status: 'learning',
+      addedAt: Date.now(),
+      lastReview: 0,
+      reviewCount: 0,
+      sm2Interval: 0,
+      sm2Ease: 2.5,
     }
     onAdd(newSentence)
   }
@@ -1970,42 +1951,6 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
             />
           </div>
 
-          <div className="pt-2 border-t border-slate-100">
-            <div className="text-sm font-medium text-slate-700 mb-3">结构分析（可选）</div>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">主语</label>
-                <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="主语部分"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">谓语</label>
-                <input
-                  type="text"
-                  value={predicate}
-                  onChange={(e) => setPredicate(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="谓语部分"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">宾语/状语</label>
-                <input
-                  type="text"
-                  value={object}
-                  onChange={(e) => setObject(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder="宾语或状语部分"
-                />
-              </div>
-            </div>
-          </div>
-
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -2027,7 +1972,7 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
   )
 }
 
-function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (item: TranslationItem) => void }) {
+function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (item: TranslationData) => void }) {
   const [source, setSource] = useState('')
   const [reference, setReference] = useState('')
 
@@ -2037,10 +1982,17 @@ function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (
       toast.error('请填写中文和参考译文')
       return
     }
-    const newItem: TranslationItem = {
+    const newItem: TranslationData = {
       id: `t_${Date.now()}`,
-      source: source.trim(),
-      reference: reference.trim(),
+      originalText: source.trim(),
+      sourceDoi: '',
+      latestUserTranslation: reference.trim(),
+      latestAiFeedback: '',
+      latestErrorWords: '',
+      status: 'pending',
+      addedAt: Date.now(),
+      lastPractice: 0,
+      practiceCount: 0,
     }
     onAdd(newItem)
   }
