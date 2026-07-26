@@ -194,8 +194,11 @@ export interface AIResponse {
   modelId: string
 }
 
-/** SPEC §9.2 (M3.5): 双引擎任务类型 —— 忠实性核查（面向"总结不加戏"场景） */
-export type DualEngineTaskType = 'faithfulness_check'
+/** SPEC §9.2 (M3.5): 双引擎任务类型
+ *  - faithfulness_check: 忠实性核查（面向"总结不加戏"场景）
+ *  - latex_conversion: LaTeX 转换（Markdown → LaTeX，复用同一套引证锚定 + [NOT_IN_SOURCE] 机制）
+ */
+export type DualEngineTaskType = 'faithfulness_check' | 'latex_conversion'
 
 /** SPEC §9.2 (M3.5 · M3.6.3 回到三分类 + 固定 tag 硬编码): 单条 claim 的核查结论
  *  - supported: 源材料明确支撑该 claim

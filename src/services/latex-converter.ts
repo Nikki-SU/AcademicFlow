@@ -3,13 +3,14 @@
  * -------------------------------------------------
  * 核心流程：
  * 1. 提取 Markdown 中的引用（DOI）
- * 2. 调用 AI-1 将 Markdown 转换为 LaTeX 正文（期刊模板感知）
- * 3. 调用 AI-2 做格式核查（确保符合期刊要求）
- * 4. 将引用标记替换为 \cite{key}
- * 5. 根据期刊模板组装完整 LaTeX 文档
- * 6. 生成 BibTeX
+ * 2. 调用 runDualEngine（AI-1 转换 + AI-2 忠实性核查 + 引证锚定 + [NOT_IN_SOURCE] tag）
+ *    复用 dual-engine.ts 的完整双引擎基础设施，确保所有 AI 可信检索场景逻辑一致
+ * 3. 将引用标记替换为 \cite{key}
+ * 4. 根据期刊模板组装完整 LaTeX 文档
+ * 5. 生成 BibTeX
  */
-import { callAI } from './ai/client'
+import { runDualEngine } from './ai/dual-engine'
+import type { DualEngineProgressCallback } from '../types'
 import {
   extractCitationsFromMarkdown,
   getCitationEntries,
@@ -118,101 +119,6 @@ function buildAI1UserPrompt(markdown: string): string {
     '请将上述 Markdown 论文转换为 LaTeX 正文代码。',
     '注意：[@doi:xxx] 或 [@10.xxx/xxx] 形式的引用标记保持原样，不要替换。',
   ].join('\n')
-}
-
-function buildAI1FixPrompt(
-  currentLatex: string,
-  issues: Array<{ type: string; description: string; suggestion: string }>,
-): string {
-  const issueList = issues
-    .map((issue, i) => `${i + 1}. [${issue.type}] ${issue.description}\n   建议：${issue.suggestion}`)
-    .join('\n')
-  return [
-    '【当前 LaTeX 正文】',
-    currentLatex,
-    '',
-    '【格式审查发现的问题】',
-    issueList,
-    '',
-    '请根据上述问题修复 LaTeX 代码，输出修复后的完整 LaTeX 正文。',
-    '注意：[@doi:xxx] 形式的引用标记保持原样，不要替换。',
-  ].join('\n')
-}
-
-// ============================================================
-// AI-2: 格式核查
-// ============================================================
-
-function buildAI2SystemPrompt(template: JournalTemplate): string {
-  return [
-    '你是一名严格的 LaTeX 格式审查助手。你的任务是检查 AI 生成的 LaTeX 正文',
-    '是否符合目标期刊的排版要求。',
-    '',
-    '【目标期刊模板】',
-    `- 期刊名称：${template.name}`,
-    `- 文档类：${template.document_class}`,
-    `- 引用样式：${template.bibtex_style}`,
-    `- 双栏：${template.two_column ? '是' : '否'}`,
-    '',
-    '【审查清单】',
-    '1. 标题层级是否正确（\\section / \\subsection 等）',
-    '2. 摘要是否在 abstract 环境中',
-    '3. 公式环境是否正确',
-    '4. 表格和图片环境是否正确（双栏是否用了 figure* / table*）',
-    '5. 引用标记 [@...] 是否保持原样未被修改',
-    '6. 是否有 Markdown 语法残留（如 **、*、# 等）',
-    '7. 特殊字符是否正确转义（%, &, _, # 等）',
-    '',
-    '【输出格式】严格 JSON',
-    '{',
-    '  "passed": boolean,',
-    '  "issues": [',
-    '    { "type": "error"|"warning", "line": number|null, "description": "问题描述", "suggestion": "修改建议" }',
-    '  ],',
-    '  "summary": "整体评价（中文）"',
-    '}',
-  ].join('\n')
-}
-
-function buildAI2UserPrompt(latexBody: string): string {
-  return [
-    '【待审查的 LaTeX 正文】',
-    latexBody,
-    '',
-    '请按 system 指令审查这段 LaTeX 代码，输出 JSON。',
-  ].join('\n')
-}
-
-function parseAI2Review(rawOutput: string): {
-  passed: boolean
-  issues: Array<{ type: string; line: number | null; description: string; suggestion: string }>
-  summary: string
-} {
-  let jsonText = rawOutput.trim()
-
-  const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fenceMatch) jsonText = fenceMatch[1].trim()
-
-  const firstBrace = jsonText.indexOf('{')
-  const lastBrace = jsonText.lastIndexOf('}')
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    jsonText = jsonText.slice(firstBrace, lastBrace + 1)
-  }
-
-  try {
-    const parsed = JSON.parse(jsonText)
-    return {
-      passed: Boolean(parsed.passed),
-      issues: Array.isArray(parsed.issues) ? parsed.issues : [],
-      summary: String(parsed.summary || ''),
-    }
-  } catch {
-    return {
-      passed: false,
-      issues: [],
-      summary: rawOutput.slice(0, 500),
-    }
-  }
 }
 
 // ============================================================
@@ -357,100 +263,91 @@ export async function convertMarkdownToLatex(
     })
     const { entries, failed } = await getCitationEntries(citedDois)
 
-    // ---- 阶段 3: AI-1 转换 ----
+    // ---- 阶段 3+4: 调用 runDualEngine（AI-1 转换 + AI-2 忠实性核查 + 引证锚定 + [NOT_IN_SOURCE]） ----
+    // 复用 dual-engine.ts 的完整双引擎基础设施，确保所有 AI 可信检索场景逻辑一致：
+    //   - AI-1 基于 Markdown 源材料生成 LaTeX，缺失字段用 [NOT_IN_SOURCE] tag 诚实标注
+    //   - 引证锚定：AI-2 给出的 source_span 必须能在源材料中 grep 到
+    //   - 分层归因重试：引证失败→AI-2自纠；忠实性失败→AI-1重写；最多 5 轮
     onProgress?.({ stage: 'ai_converting', message: 'AI-1: Markdown → LaTeX 转换中...' })
-    const ai1Resp = await callAI({
-      baseUrl: ai1.baseUrl,
-      apiKey: ai1.apiKey,
-      model: ai1.model,
-      messages: [
-        { role: 'system', content: buildAI1SystemPrompt(template) },
-        { role: 'user', content: buildAI1UserPrompt(markdown) },
-      ],
-      temperature: 0.2,
-      maxTokens: 4096,
-    })
-    let latexBody = ai1Resp.content.trim()
+
+    const dualEngineProgress: DualEngineProgressCallback = (event) => {
+      switch (event.stage) {
+        case 'ai1_running':
+          onProgress?.({ stage: 'ai_converting', message: `AI-1: Markdown → LaTeX 转换中（第 ${event.attempt} 轮）...` })
+          break
+        case 'ai1_done':
+          onProgress?.({ stage: 'ai_converting', message: 'AI-1 转换完成，准备 AI-2 核查...' })
+          break
+        case 'ai2_running':
+          onProgress?.({ stage: 'ai_reviewing', message: `AI-2: 忠实性核查中（第 ${event.attempt} 轮）...` })
+          break
+        case 'ai2_self_correct_running':
+          onProgress?.({ stage: 'ai_reviewing', message: `AI-2: 引证锚定自纠中（第 ${event.attempt} 轮）...` })
+          break
+        case 'verifying':
+          onProgress?.({ stage: 'ai_reviewing', message: '引证锚定校验中...' })
+          break
+        case 'attempt_failed_retry':
+          onProgress?.({ stage: 'ai_reviewing', message: `第 ${event.attempt} 轮未通过，准备重试...` })
+          break
+        case 'finished':
+          onProgress?.({ stage: 'ai_reviewing', message: '双引擎核查完成' })
+          break
+        case 'error':
+          onProgress?.({ stage: 'error', message: `双引擎错误：${event.errorMessage}` })
+          break
+      }
+    }
+
+    const ai1RolePrompt = buildAI1SystemPrompt(template)
+    const ai1Instruction = buildAI1UserPrompt(markdown)
+
+    let latexBody: string
+    let reviewPassed: boolean | undefined
+    let reviewIssues: Array<{ type: string; description: string; suggestion: string }> | undefined
+    let ai1RawOutput = ''
+
+    if (enableReview) {
+      const dualResult = await runDualEngine({
+        taskType: 'latex_conversion',
+        sourceMaterial: markdown,
+        ai1Instruction,
+        ai1,
+        ai2,
+        onProgress: dualEngineProgress,
+        ai1RolePrompt,
+      })
+
+      latexBody = dualResult.ai1Output.trim()
+      ai1RawOutput = dualResult.ai1Output
+      reviewPassed = dualResult.finalPassed
+      reviewIssues = dualResult.ai2Feedback.claims
+        .filter((c) => c.verdict !== 'supported')
+        .map((c) => ({
+          type: c.verdict,
+          description: c.claim,
+          suggestion: c.explanation,
+        }))
+    } else {
+      // 不启用审查时，直接调 AI-1（通过 runDualEngine 的 maxAttempts=1 退化为单次调用）
+      const dualResult = await runDualEngine({
+        taskType: 'latex_conversion',
+        sourceMaterial: markdown,
+        ai1Instruction,
+        ai1,
+        ai2,
+        onProgress: dualEngineProgress,
+        ai1RolePrompt,
+        maxAttempts: 1,
+      })
+      latexBody = dualResult.ai1Output.trim()
+      ai1RawOutput = dualResult.ai1Output
+    }
 
     // 去掉可能的代码块包裹
     const fenceMatch = latexBody.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
     if (fenceMatch) {
       latexBody = fenceMatch[1].trim()
-    }
-
-    // ---- 阶段 4: AI-2 审查 + 自动修复（最多 2 轮） ----
-    let ai2RawOutput = ''
-    let reviewPassed = true
-    let reviewIssues: Array<{ type: string; description: string; suggestion: string }> = []
-
-    if (enableReview) {
-      const MAX_REVIEW_ROUNDS = 2
-      let currentLatex = latexBody
-
-      for (let round = 0; round <= MAX_REVIEW_ROUNDS; round++) {
-        onProgress?.({
-          stage: 'ai_reviewing' as const,
-          message: `AI-2: 第 ${round + 1} 轮格式审查${round > 0 ? '（修复后复审）' : ''}...`,
-        })
-
-        try {
-          const ai2Resp = await callAI({
-            baseUrl: ai2.baseUrl,
-            apiKey: ai2.apiKey,
-            model: ai2.model,
-            messages: [
-              { role: 'system', content: buildAI2SystemPrompt(template) },
-              { role: 'user', content: buildAI2UserPrompt(currentLatex) },
-            ],
-            temperature: 0.1,
-            maxTokens: 2048,
-          })
-          ai2RawOutput = ai2Resp.content
-
-          const review = parseAI2Review(ai2RawOutput)
-          reviewIssues = review.issues.map(({ type, description, suggestion }) => ({
-            type,
-            description,
-            suggestion,
-          }))
-
-          if (review.passed || round === MAX_REVIEW_ROUNDS) {
-            reviewPassed = review.passed
-            latexBody = currentLatex
-            break
-          }
-
-          onProgress?.({
-            stage: 'ai_converting' as const,
-            message: `AI-1: 根据审查意见修复（第 ${round + 1} 轮）...`,
-          })
-
-          const fixPrompt = buildAI1FixPrompt(currentLatex, reviewIssues)
-          const fixResp = await callAI({
-            baseUrl: ai1.baseUrl,
-            apiKey: ai1.apiKey,
-            model: ai1.model,
-            messages: [
-              { role: 'system', content: buildAI1SystemPrompt(template) },
-              { role: 'user', content: fixPrompt },
-            ],
-            temperature: 0.2,
-            maxTokens: 4096,
-          })
-
-          let fixed = fixResp.content.trim()
-          const fenceMatch2 = fixed.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
-          if (fenceMatch2) fixed = fenceMatch2[1].trim()
-          currentLatex = fixed
-        } catch (err) {
-          console.warn('[latex-converter] AI-2 review round failed:', err)
-          if (round === 0) {
-            reviewPassed = true
-            reviewIssues = []
-          }
-          break
-        }
-      }
     }
 
     // ---- 阶段 5: 生成 BibTeX + 替换引用标记 ----
@@ -478,11 +375,11 @@ export async function convertMarkdownToLatex(
       citation_entries: entries,
       failed_dois: failed,
       bibtex,
-      ai_raw_output: ai1Resp.content,
+      ai_raw_output: ai1RawOutput,
       duration_ms: duration,
       journal_template_id: template.id,
-      review_passed: enableReview ? reviewPassed : undefined,
-      review_issues: enableReview ? reviewIssues : undefined,
+      review_passed: reviewPassed,
+      review_issues: reviewIssues,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
