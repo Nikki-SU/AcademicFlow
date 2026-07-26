@@ -94,34 +94,11 @@ const TRACKING_SOURCES = [
 const DEMO_TRACKED_PAPERS: TrackedPaper[] = []
 
 // ============================================================
-// localStorage 工具函数
+// SPEC §0/§2.3：用户数据全部存 GitHub 私库，不使用 localStorage。
+// 搜索源是用户配置 → GitHub CSV；折叠状态是纯 UI 态 → 内存。
 // ============================================================
 
-const STORAGE_KEYS = {
-  SEARCH_SITES: 'tracking_search_sites',
-  KEYWORD_GROUPS_COLLAPSED: 'tracking_kw_groups_collapsed',
-  JOURNALS_COLLAPSED: 'tracking_journals_collapsed',
-}
-
-function loadFromStorage<T>(key: string, defaultValue: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    if (raw) {
-      return JSON.parse(raw) as T
-    }
-  } catch {
-    // ignore
-  }
-  return defaultValue
-}
-
-function saveToStorage<T>(key: string, value: T): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // ignore
-  }
-}
+const SEARCH_SITES_PATH = 'settings/search_sites.csv'
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -138,9 +115,7 @@ export default function TrackingPage() {
 
   // ---------- 关键词组 ----------
   const [keywordGroups, setKeywordGroups] = useState<KeywordGroup[]>([])
-  const [keywordGroupsCollapsed, setKeywordGroupsCollapsed] = useState(() =>
-    loadFromStorage<boolean>(STORAGE_KEYS.KEYWORD_GROUPS_COLLAPSED, true),
-  )
+  const [keywordGroupsCollapsed, setKeywordGroupsCollapsed] = useState(true)
   const [showKeywordModal, setShowKeywordModal] = useState(false)
   const [editingKeywordGroup, setEditingKeywordGroup] = useState<KeywordGroup | null>(null)
   const [keywordFormName, setKeywordFormName] = useState('')
@@ -149,9 +124,7 @@ export default function TrackingPage() {
 
   // ---------- 期刊 ----------
   const [journals, setJournals] = useState<JournalItem[]>([])
-  const [journalsCollapsed, setJournalsCollapsed] = useState(() =>
-    loadFromStorage<boolean>(STORAGE_KEYS.JOURNALS_COLLAPSED, true),
-  )
+  const [journalsCollapsed, setJournalsCollapsed] = useState(true)
   const [showJournalModal, setShowJournalModal] = useState(false)
   const [editingJournal, setEditingJournal] = useState<JournalItem | null>(null)
   const [journalFormName, setJournalFormName] = useState('')
@@ -160,13 +133,8 @@ export default function TrackingPage() {
   const [journalFormRssUrl, setJournalFormRssUrl] = useState('')
 
   // ---------- 搜索 ----------
-  const [searchSites, setSearchSites] = useState<SearchSite[]>(() =>
-    loadFromStorage<SearchSite[]>(STORAGE_KEYS.SEARCH_SITES, DEFAULT_SEARCH_SITES),
-  )
-  const [selectedSearchSiteId, setSelectedSearchSiteId] = useState(() => {
-    const saved = loadFromStorage<SearchSite[]>(STORAGE_KEYS.SEARCH_SITES, DEFAULT_SEARCH_SITES)
-    return saved.length > 0 ? saved[0].id : DEFAULT_SEARCH_SITES[0].id
-  })
+  const [searchSites, setSearchSites] = useState<SearchSite[]>(DEFAULT_SEARCH_SITES)
+  const [selectedSearchSiteId, setSelectedSearchSiteId] = useState(DEFAULT_SEARCH_SITES[0].id)
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearchDropdown, setShowSearchDropdown] = useState(false)
   const [showSearchManager, setShowSearchManager] = useState(false)
@@ -181,23 +149,10 @@ export default function TrackingPage() {
   const [trackedPapers, setTrackedPapers] = useState<TrackedPaper[]>(DEMO_TRACKED_PAPERS)
 
   // ============================================================
-  // 持久化
+  // 持久化（全部存 GitHub 私库，不使用 localStorage —— SPEC §0/§2.3）
   // ============================================================
 
-  // UI 偏好（搜索源、折叠状态）暂存 localStorage；业务数据（关键词组、期刊）只存 GitHub 私库 CSV
-  useEffect(() => {
-    saveToStorage(STORAGE_KEYS.SEARCH_SITES, searchSites)
-  }, [searchSites])
-
-  useEffect(() => {
-    saveToStorage(STORAGE_KEYS.KEYWORD_GROUPS_COLLAPSED, keywordGroupsCollapsed)
-  }, [keywordGroupsCollapsed])
-
-  useEffect(() => {
-    saveToStorage(STORAGE_KEYS.JOURNALS_COLLAPSED, journalsCollapsed)
-  }, [journalsCollapsed])
-
-  // 关键词组 & 期刊从 GitHub 私库加载
+  // 关键词组 & 期刊 & 搜索源从 GitHub 私库加载
   const dataLoadedRef = useRef(false)
   useEffect(() => {
     let cancelled = false
@@ -241,6 +196,29 @@ export default function TrackingPage() {
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载期刊失败:', err)
       }
+
+      // 搜索源从 GitHub 私库加载
+      try {
+        const loadedSites = await readCsvFile<SearchSite>(
+          SEARCH_SITES_PATH,
+          (rows) => {
+            if (rows.length <= 1) return []
+            return rows.slice(1).map((r) => ({
+              id: r[0] || '',
+              name: r[1] || '',
+              urlTemplate: r[2] || '',
+              color: r[3] || 'bg-indigo-50 text-indigo-600',
+            }))
+          },
+        )
+        if (!cancelled && loadedSites.length > 0) {
+          setSearchSites(loadedSites)
+          setSelectedSearchSiteId(loadedSites[0].id)
+        }
+      } catch (err) {
+        console.warn('[Tracking] 从 GitHub 加载搜索源失败，使用默认值:', err)
+      }
+
       if (!cancelled) dataLoadedRef.current = true
     }
     loadData()
@@ -292,6 +270,28 @@ export default function TrackingPage() {
       if (journalsSaveTimerRef.current) clearTimeout(journalsSaveTimerRef.current)
     }
   }, [journals])
+
+  // 搜索源变化时防抖保存到 GitHub
+  const searchSitesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!dataLoadedRef.current) return
+    if (searchSitesSaveTimerRef.current) clearTimeout(searchSitesSaveTimerRef.current)
+    searchSitesSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await writeCsvFile(
+          SEARCH_SITES_PATH,
+          searchSites,
+          ['id', 'name', 'url_template', 'color'],
+          (s) => [s.id, s.name, s.urlTemplate, s.color],
+        )
+      } catch (err) {
+        console.error('[Tracking] 保存搜索源到 GitHub 失败:', err)
+      }
+    }, 2000)
+    return () => {
+      if (searchSitesSaveTimerRef.current) clearTimeout(searchSitesSaveTimerRef.current)
+    }
+  }, [searchSites])
 
   // 点击外部关闭搜索下拉
   useEffect(() => {

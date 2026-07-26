@@ -25,7 +25,7 @@ import { toast } from 'sonner'
 import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
 import type { WordData } from '../services/learningData'
-import { getSetting, putSetting } from '../services/db'
+import { loadProgress, updateProgress } from '../services/learningProgress'
 
 type TabId = 'words' | 'sentences' | 'translation'
 type QuestionType = 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
@@ -89,37 +89,6 @@ const DEFAULT_SENTENCES: Sentence[] = []
 const DEFAULT_TRANSLATIONS: TranslationItem[] = []
 const AI_GENERATE_OPTIONS: { value: string; label: string }[] = []
 
-/** 学习进度存储 key（IndexedDB settings 表） */
-const LEARN_KEYS = {
-  activeTab: 'learn_active_tab',
-  stats: 'learn_stats',
-  wordCurrentIndex: 'learn_word_current_index',
-  wordCurrentId: 'learn_word_current_id',
-  wordCurrentType: 'learn_word_current_type',
-  wordRandomMode: 'learn_word_random_mode',
-  wordEnabledTypes: 'learn_word_enabled_types',
-  sentenceCurrentIndex: 'learn_sentence_current_index',
-  translationCurrentIndex: 'learn_translation_current_index',
-}
-
-async function loadSetting<T>(key: string, defaultValue: T): Promise<T> {
-  try {
-    const raw = await getSetting(key)
-    if (raw) return JSON.parse(raw) as T
-  } catch (err) {
-    console.error(`[Learn] 读取进度失败 (${key}):`, err)
-  }
-  return defaultValue
-}
-
-async function saveSetting<T>(key: string, data: T) {
-  try {
-    await putSetting(key, JSON.stringify(data))
-  } catch (err) {
-    console.error(`[Learn] 保存进度失败 (${key}):`, err)
-  }
-}
-
 function shuffleArray<T>(arr: T[]): T[] {
   const result = [...arr]
   for (let i = result.length - 1; i > 0; i--) {
@@ -171,22 +140,19 @@ export default function LearnPage() {
   })
   const [dataLoaded, setDataLoaded] = useState(false)
 
-  // 从 IndexedDB 恢复标签页和学习统计
+  // 从 GitHub 私库恢复标签页和学习统计（SPEC §0：用户数据存 GitHub）
   useEffect(() => {
     let cancelled = false
-    async function loadProgress() {
+    async function loadLearnProgress() {
       try {
-        const [savedTab, savedStats] = await Promise.all([
-          loadSetting<TabId>(LEARN_KEYS.activeTab, 'words'),
-          loadSetting<StudyStats | null>(LEARN_KEYS.stats, null),
-        ])
+        const saved = await loadProgress()
         if (cancelled) return
-        if (savedTab) setActiveTab(savedTab)
-        if (savedStats) {
+        if (saved.activeTab) setActiveTab(saved.activeTab as TabId)
+        if (saved.todayLearned || saved.totalLearned) {
           const today = getTodayString()
           setStudyStats({
-            todayLearned: savedStats.lastStudyDate === today ? savedStats.todayLearned : [],
-            totalLearned: savedStats.totalLearned || [],
+            todayLearned: saved.lastStudyDate === today ? (saved.todayLearned || []) : [],
+            totalLearned: saved.totalLearned || [],
             lastStudyDate: today,
           })
         }
@@ -194,7 +160,7 @@ export default function LearnPage() {
         console.error('[Learn] 恢复标签页/统计失败:', err)
       }
     }
-    loadProgress()
+    loadLearnProgress()
     return () => { cancelled = true }
   }, [])
 
@@ -243,13 +209,17 @@ export default function LearnPage() {
     }
   }, [words, sentences, translations, dataLoaded])
 
-  // 持久化标签页和学习统计到 IndexedDB
+  // 持久化标签页和学习统计到 GitHub 私库（防抖写入）
   useEffect(() => {
-    saveSetting(LEARN_KEYS.activeTab, activeTab)
+    updateProgress({ activeTab })
   }, [activeTab])
 
   useEffect(() => {
-    saveSetting(LEARN_KEYS.stats, studyStats)
+    updateProgress({
+      todayLearned: studyStats.todayLearned,
+      totalLearned: studyStats.totalLearned,
+      lastStudyDate: studyStats.lastStudyDate,
+    })
   }, [studyStats])
 
   const markWordLearned = useCallback((wordId: string) => {
@@ -468,19 +438,18 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
 
   const currentWord = studyWords[currentIndex % Math.max(studyWords.length, 1)]
 
-  // 从 IndexedDB 恢复单词学习进度
+  // 从 GitHub 私库恢复单词学习进度
   useEffect(() => {
     let cancelled = false
-    async function loadProgress() {
+    async function loadWordProgress() {
       try {
-        const [idx, wordId, type, random, enabled] = await Promise.all([
-          loadSetting<number>(LEARN_KEYS.wordCurrentIndex, 0),
-          loadSetting<string | null>(LEARN_KEYS.wordCurrentId, null),
-          loadSetting<QuestionType>(LEARN_KEYS.wordCurrentType, 'word'),
-          loadSetting<boolean>(LEARN_KEYS.wordRandomMode, false),
-          loadSetting<QuestionType[]>(LEARN_KEYS.wordEnabledTypes, ['word', 'spelling', 'listening', 'zhToEn', 'enToZh']),
-        ])
+        const saved = await loadProgress()
         if (cancelled) return
+        const idx = saved.wordCurrentIndex ?? 0
+        const wordId = saved.wordCurrentId ?? null
+        const type = (saved.wordCurrentType as QuestionType) || 'word'
+        const random = saved.wordRandomMode ?? false
+        const enabled = (saved.wordEnabledTypes as QuestionType[]) || ['word', 'spelling', 'listening', 'zhToEn', 'enToZh']
         // 优先用保存的单词 ID 在词表中定位；找不到再回退到索引
         let restoredIdx = idx
         if (wordId) {
@@ -496,27 +465,27 @@ function WordSection({ words, setWords, studyStats, onMarkLearned, onMarkError }
         console.error('[Learn] WordSection 加载进度失败:', err)
       }
     }
-    loadProgress()
+    loadWordProgress()
     return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
-    saveSetting(LEARN_KEYS.wordCurrentIndex, currentIndex)
+    updateProgress({ wordCurrentIndex: currentIndex })
     if (currentWord?.id) {
-      saveSetting(LEARN_KEYS.wordCurrentId, currentWord.id)
+      updateProgress({ wordCurrentId: currentWord.id })
     }
   }, [currentIndex, currentWord?.id])
 
   useEffect(() => {
-    saveSetting(LEARN_KEYS.wordCurrentType, currentType)
+    updateProgress({ wordCurrentType: currentType })
   }, [currentType])
 
   useEffect(() => {
-    saveSetting(LEARN_KEYS.wordRandomMode, randomMode)
+    updateProgress({ wordRandomMode: randomMode })
   }, [randomMode])
 
   useEffect(() => {
-    saveSetting(LEARN_KEYS.wordEnabledTypes, enabledTypes)
+    updateProgress({ wordEnabledTypes: enabledTypes })
   }, [enabledTypes])
 
   useEffect(() => {
@@ -1509,22 +1478,23 @@ function SentenceSection({ sentences, setSentences }: { sentences: Sentence[]; s
 
   useEffect(() => {
     let cancelled = false
-    async function loadProgress() {
+    async function loadSentenceProgress() {
       try {
-        const idx = await loadSetting<number>(LEARN_KEYS.sentenceCurrentIndex, 0)
+        const saved = await loadProgress()
         if (cancelled) return
+        const idx = saved.sentenceCurrentIndex ?? 0
         const safeIdx = sentences.length > 0 ? idx % sentences.length : 0
         setCurrentIndex(safeIdx)
       } catch (err) {
         console.error('[Learn] SentenceSection 加载进度失败:', err)
       }
     }
-    loadProgress()
+    loadSentenceProgress()
     return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
-    saveSetting(LEARN_KEYS.sentenceCurrentIndex, currentIndex)
+    updateProgress({ sentenceCurrentIndex: currentIndex })
   }, [currentIndex])
 
   const currentSentence = sentences.length > 0 ? sentences[currentIndex % sentences.length] : undefined
@@ -1688,22 +1658,23 @@ function TranslationSection({ translations, setTranslations }: { translations: T
 
   useEffect(() => {
     let cancelled = false
-    async function loadProgress() {
+    async function loadTranslationProgress() {
       try {
-        const idx = await loadSetting<number>(LEARN_KEYS.translationCurrentIndex, 0)
+        const saved = await loadProgress()
         if (cancelled) return
+        const idx = saved.translationCurrentIndex ?? 0
         const safeIdx = translations.length > 0 ? idx % translations.length : 0
         setCurrentIndex(safeIdx)
       } catch (err) {
         console.error('[Learn] TranslationSection 加载进度失败:', err)
       }
     }
-    loadProgress()
+    loadTranslationProgress()
     return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
-    saveSetting(LEARN_KEYS.translationCurrentIndex, currentIndex)
+    updateProgress({ translationCurrentIndex: currentIndex })
   }, [currentIndex])
 
   const currentItem = translations.length > 0 ? translations[currentIndex % translations.length] : undefined

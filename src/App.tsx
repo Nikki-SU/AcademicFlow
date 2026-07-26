@@ -22,7 +22,9 @@ import { useWorkspaceStore } from './stores/workspace'
 function App() {
   const initAuth = useAuthStore((s) => s.init)
   const initSettings = useSettingsStore((s) => s.init)
+  const syncSettingsFromGitHub = useSettingsStore((s) => s.syncFromGitHub)
   const initWorkspace = useWorkspaceStore((s) => s.checkAndMaybeInit)
+  const { isChecked, repo } = useWorkspaceStore()
 
   useEffect(() => {
     initAuth()
@@ -35,6 +37,13 @@ function App() {
       initWorkspace()
     }
   }, [initWorkspace])
+
+  // workspace 就绪后从 GitHub 私库加载非敏感设置（SPEC §4.8）
+  useEffect(() => {
+    if (isChecked && repo) {
+      syncSettingsFromGitHub()
+    }
+  }, [isChecked, repo, syncSettingsFromGitHub])
 
   return (
     <Routes>

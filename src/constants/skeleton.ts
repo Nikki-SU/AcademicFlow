@@ -28,6 +28,8 @@ const README_MD = `# academicflow-workspace
 - \`textbooks/textbooks.csv\` — 课本索引
 - \`projects/projects.csv\` — 项目索引
 - \`settings/global.md\` — 全局设置
+- \`settings/learning_progress.md\` — 学习进度
+- \`settings/search_sites.csv\` — 搜索源配置
 - \`templates/journals/_sample-generic/\` — 期刊样板
 - \`templates/citations/_sample-generic.csl\` — 引用样式样板
 - \`.github/workflows/daily-tracking.yml\` — 每日追踪
@@ -217,9 +219,18 @@ jobs:
           fi
 `
 
+const LEARNING_PROGRESS_MD = `# 学习进度
+
+*Managed by AcademicFlow.*
+`
+
+const SEARCH_SITES_CSV = 'id,name,url_template,color\n'
+
 export const WORKSPACE_SKELETON: SkeletonFile[] = [
   { path: 'README.md', content: README_MD },
   { path: 'settings/global.md', content: SETTINGS_GLOBAL_MD },
+  { path: 'settings/learning_progress.md', content: LEARNING_PROGRESS_MD },
+  { path: 'settings/search_sites.csv', content: SEARCH_SITES_CSV },
 
   { path: 'literatures/literatures.csv', content: CSV_HEADERS.literatures + '\n' },
   { path: 'vocabulary/vocabulary.csv', content: CSV_HEADERS.vocabulary + '\n' },

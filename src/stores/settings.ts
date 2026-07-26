@@ -1,16 +1,17 @@
 /**
  * 设置状态管理 (Zustand)
  * -------------------------------------------------
- * 对应 SPEC v0.3 §6 / §7.3 / §9.2。存储所有 API keys / AI 模型选择 / 高级模式开关。
- * 数据持久层：IndexedDB via ../services/db.ts（settings KV store）。
+ * 对应 SPEC v0.3 §6 / §7.3 / §9.2 / §4.8。
+ *
+ * 存储分层（SPEC §2.3 硬性禁忌 + §4.8）：
+ * - 敏感凭据（API key / Token）→ IndexedDB settings object store（本机，不进 md）
+ * - 非敏感设置（AI 模型选择 / 模式开关等）→ GitHub 私库 settings/global.md
  *
  * 关键设计：
- * - 每个字段单独一行 KV，方便未来扩展与迁移
- * - updateSettings(patch) 支持局部更新，写入 state + 同步落 IndexedDB
- * - init() 从 IndexedDB rehydrate 所有字段，未存过的走 DEFAULT_SETTINGS
+ * - init() 只从 IndexedDB 恢复敏感凭据，非敏感字段走默认值
+ * - syncFromGitHub() 在 workspace 就绪后从私库加载非敏感设置
+ * - updateSettings(patch) 敏感→IndexedDB，非敏感→防抖写 GitHub global.md
  * - refreshModels() 拉 /v1/models + 缓存（TTL 24h，与 SPEC §9.3 对齐）
- * - runFactCheckTest() 走 dual-engine（AI-1 生成 + AI-2 忠实性核查）
- *   · M3.5.1: 增加可选 onProgress 回调，透传给 runDualEngine
  */
 import { create } from 'zustand'
 import {
@@ -22,6 +23,7 @@ import {
 } from '../services/ai/models'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
+import { loadGlobalSettings, saveGlobalSettings } from '../services/globalSettings'
 import type {
   AIModel,
   DualEngineProgressCallback,
@@ -49,23 +51,20 @@ const DEFAULT_SETTINGS: SettingsData = {
   mineruDebugMode: true,
 }
 
-/** SettingsData 字段 → SETTING_KEYS 映射 */
-const KEY_MAP: Record<keyof SettingsData, string> = {
-  advancedMode: SETTING_KEYS.ADVANCED_MODE,
-  aiProviderMode: SETTING_KEYS.AI_PROVIDER_MODE,
+/** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
+const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
+  'siliconflowApiKey',
+  'customAi1ApiKey',
+  'customAi2ApiKey',
+  'mineruToken',
+]
+
+/** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
+const SENSITIVE_KEY_MAP: Record<string, string> = {
   siliconflowApiKey: SETTING_KEYS.SILICONFLOW_API_KEY,
-  ai1Model: SETTING_KEYS.AI_1_MODEL,
-  ai2Model: SETTING_KEYS.AI_2_MODEL,
-  customAi1BaseUrl: SETTING_KEYS.CUSTOM_AI_1_BASE_URL,
   customAi1ApiKey: SETTING_KEYS.CUSTOM_AI_1_API_KEY,
-  customAi1Model: SETTING_KEYS.CUSTOM_AI_1_MODEL,
-  customAi2BaseUrl: SETTING_KEYS.CUSTOM_AI_2_BASE_URL,
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
-  customAi2Model: SETTING_KEYS.CUSTOM_AI_2_MODEL,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
-  mineruWorkerUrl: SETTING_KEYS.MINERU_WORKER_URL,
-  extractCoverImage: SETTING_KEYS.EXTRACT_COVER_IMAGE,
-  mineruDebugMode: SETTING_KEYS.MINERU_DEBUG_MODE,
 }
 
 /** 字段 → 序列化/反序列化（boolean 需转字符串） */
@@ -114,9 +113,11 @@ function detectPatContamination(
 }
 
 interface SettingsActions {
-  /** 应用启动时调用：从 IndexedDB 恢复所有设置 + 加载模型清单缓存 */
+  /** 应用启动时调用：从 IndexedDB 恢复敏感凭据 + 加载模型清单缓存 */
   init: () => Promise<void>
-  /** 局部更新：state + IndexedDB 同步 */
+  /** workspace 就绪后调用：从 GitHub 私库 settings/global.md 加载非敏感设置 */
+  syncFromGitHub: () => Promise<void>
+  /** 局部更新：敏感→IndexedDB，非敏感→防抖写 GitHub global.md */
   updateSettings: (patch: Partial<SettingsData>) => Promise<void>
   /** 拉取硅基流动 /v1/models（force=true 忽略 24h 缓存） */
   refreshModels: (force?: boolean) => Promise<AIModel[]>
@@ -143,6 +144,35 @@ const initialState: SettingsState = {
   error: null,
 }
 
+/** 非敏感设置防抖写 GitHub global.md（避免频繁 API 调用） */
+let globalSettingsSyncTimer: ReturnType<typeof setTimeout> | null = null
+const GLOBAL_SETTINGS_SYNC_DEBOUNCE_MS = 2000
+
+function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActions): void {
+  if (globalSettingsSyncTimer) clearTimeout(globalSettingsSyncTimer)
+  globalSettingsSyncTimer = setTimeout(async () => {
+    globalSettingsSyncTimer = null
+    try {
+      const s = getState()
+      await saveGlobalSettings({
+        advancedMode: s.advancedMode,
+        aiProviderMode: s.aiProviderMode,
+        ai1Model: s.ai1Model,
+        ai2Model: s.ai2Model,
+        customAi1BaseUrl: s.customAi1BaseUrl,
+        customAi1Model: s.customAi1Model,
+        customAi2BaseUrl: s.customAi2BaseUrl,
+        customAi2Model: s.customAi2Model,
+        mineruWorkerUrl: s.mineruWorkerUrl,
+        extractCoverImage: s.extractCoverImage,
+        mineruDebugMode: s.mineruDebugMode,
+      })
+    } catch (err) {
+      console.error('[settings] 保存非敏感设置到 GitHub 失败:', err)
+    }
+  }, GLOBAL_SETTINGS_SYNC_DEBOUNCE_MS)
+}
+
 /** M3.5 默认 AI-1 指令 */
 const DEFAULT_AI1_INSTRUCTION =
   '用 2-3 句话简洁忠实地总结上述源材料，保留关键事实。'
@@ -152,31 +182,27 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
     ...initialState,
 
     init: async () => {
-      // 1. rehydrate 所有 SettingsData 字段
-      const entries = await Promise.all(
-        (Object.keys(KEY_MAP) as (keyof SettingsData)[]).map(async (field) => {
-          const raw = await getSetting(KEY_MAP[field])
+      // 1. 只从 IndexedDB 恢复敏感凭据（SPEC §2.3：API key/Token 只存 IndexedDB）
+      const sensitiveEntries = await Promise.all(
+        SENSITIVE_FIELDS.map(async (field) => {
+          const raw = await getSetting(SENSITIVE_KEY_MAP[field])
           return [field, deserialize(field, raw)] as const
         }),
       )
       const patch: Partial<SettingsData> = {}
-      for (const [field, value] of entries) {
+      for (const [field, value] of sensitiveEntries) {
         // @ts-expect-error runtime-safe: field 与 value 一一对应
         patch[field] = value
       }
 
       // 1.5. 数据清洗：修复历史上被浏览器密码管理器 autofill 污染的字段
-      //     现象：F5 后 SiliconFlow / MinerU 等 API Key 字段被填成 GitHub PAT
-      //     根因：过去的 APIKeyInput 用 type=password，触发浏览器密码管理器
-      //     修复：v2 起改用 text + text-security，但已污染的 IndexedDB 值需清理
       const contamination = detectPatContamination(patch)
       if (contamination.length > 0) {
         for (const field of contamination) {
           // @ts-expect-error 清空受污染的 string 字段
           patch[field] = ''
-          await putSetting(KEY_MAP[field], '')
+          await putSetting(SENSITIVE_KEY_MAP[field], '')
         }
-        // 用 window 事件通知 UI 层弹 toast（settings store 不直接依赖 sonner，避免循环）
         if (typeof window !== 'undefined') {
           window.dispatchEvent(
             new CustomEvent('af:credential-cleaned', {
@@ -186,7 +212,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         }
       }
 
-      // 2. 加载模型清单缓存
+      // 2. 加载模型清单缓存（IndexedDB，TTL 24h）
       const cachedModels = await loadCachedModels()
       const fetchedAt = await loadCachedModelsFetchedAt()
 
@@ -198,13 +224,52 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       })
     },
 
+    syncFromGitHub: async () => {
+      // 从 GitHub 私库 settings/global.md 加载非敏感设置（SPEC §4.8）
+      try {
+        const loaded = await loadGlobalSettings()
+        if (loaded) {
+          const patch: Partial<SettingsData> = {}
+          if (loaded.advancedMode !== undefined) patch.advancedMode = loaded.advancedMode
+          if (loaded.aiProviderMode !== undefined) patch.aiProviderMode = loaded.aiProviderMode as 'siliconflow' | 'custom'
+          if (loaded.ai1Model !== undefined) patch.ai1Model = loaded.ai1Model
+          if (loaded.ai2Model !== undefined) patch.ai2Model = loaded.ai2Model
+          if (loaded.customAi1BaseUrl !== undefined) patch.customAi1BaseUrl = loaded.customAi1BaseUrl
+          if (loaded.customAi1Model !== undefined) patch.customAi1Model = loaded.customAi1Model
+          if (loaded.customAi2BaseUrl !== undefined) patch.customAi2BaseUrl = loaded.customAi2BaseUrl
+          if (loaded.customAi2Model !== undefined) patch.customAi2Model = loaded.customAi2Model
+          if (loaded.mineruWorkerUrl !== undefined) patch.mineruWorkerUrl = loaded.mineruWorkerUrl
+          if (loaded.extractCoverImage !== undefined) patch.extractCoverImage = loaded.extractCoverImage
+          if (loaded.mineruDebugMode !== undefined) patch.mineruDebugMode = loaded.mineruDebugMode
+          set(patch)
+        }
+      } catch (err) {
+        console.warn('[settings] 从 GitHub 同步非敏感设置失败，使用默认值:', err)
+      }
+    },
+
     updateSettings: async (patch) => {
       set(patch)
-      await Promise.all(
-        (Object.keys(patch) as (keyof SettingsData)[]).map((field) =>
-          putSetting(KEY_MAP[field], serialize(field, patch[field])),
-        ),
+
+      // 敏感字段 → IndexedDB（立即写）
+      const sensitivePatches = (Object.keys(patch) as (keyof SettingsData)[]).filter(
+        (field) => SENSITIVE_FIELDS.includes(field),
       )
+      if (sensitivePatches.length > 0) {
+        await Promise.all(
+          sensitivePatches.map((field) =>
+            putSetting(SENSITIVE_KEY_MAP[field], serialize(field, patch[field])),
+          ),
+        )
+      }
+
+      // 非敏感字段 → 防抖写 GitHub global.md
+      const nonSensitivePatches = (Object.keys(patch) as (keyof SettingsData)[]).filter(
+        (field) => !SENSITIVE_FIELDS.includes(field),
+      )
+      if (nonSensitivePatches.length > 0) {
+        scheduleGlobalSettingsSync(get)
+      }
     },
 
     refreshModels: async (force = false) => {
@@ -314,11 +379,32 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }
       set(merged)
+
+      // 敏感字段 → IndexedDB
       await Promise.all(
-        (Object.keys(merged) as (keyof SettingsData)[]).map((field) =>
-          putSetting(KEY_MAP[field], serialize(field, merged[field])),
+        SENSITIVE_FIELDS.map((field) =>
+          putSetting(SENSITIVE_KEY_MAP[field], serialize(field, merged[field])),
         ),
       )
+
+      // 非敏感字段 → GitHub global.md
+      try {
+        await saveGlobalSettings({
+          advancedMode: merged.advancedMode,
+          aiProviderMode: merged.aiProviderMode,
+          ai1Model: merged.ai1Model,
+          ai2Model: merged.ai2Model,
+          customAi1BaseUrl: merged.customAi1BaseUrl,
+          customAi1Model: merged.customAi1Model,
+          customAi2BaseUrl: merged.customAi2BaseUrl,
+          customAi2Model: merged.customAi2Model,
+          mineruWorkerUrl: merged.mineruWorkerUrl,
+          extractCoverImage: merged.extractCoverImage,
+          mineruDebugMode: merged.mineruDebugMode,
+        })
+      } catch (err) {
+        console.error('[settings] 重置后保存到 GitHub 失败:', err)
+      }
     },
   }),
 )
