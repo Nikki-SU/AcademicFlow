@@ -1874,7 +1874,7 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
               value={word}
               onChange={(e) => setWord(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="例如：perovskite"
+              placeholder="例如：example"
             />
           </div>
 
@@ -1896,7 +1896,7 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
               value={meaning}
               onChange={(e) => setMeaning(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="例如：钙钛矿"
+              placeholder="例如：示例单词"
             />
           </div>
 

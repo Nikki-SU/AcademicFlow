@@ -155,23 +155,23 @@ const DEMO_TEMPLATES: JournalTemplateItem[] = [
 ]
 
 const DEMO_BOOKS: BookItem[] = [
-  { id: '1', title: '深度学习', author: 'Ian Goodfellow', publisher: '人民邮电出版社', pages: 788, status: 'done', progress: 100, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=deep%20learning%20book%20cover%20neural%20network&image_size=portrait_4_3', isSplit: true, categoryIds: ['material'], volumes: [
+  { id: '1', title: '深度学习', author: 'Ian Goodfellow', publisher: '人民邮电出版社', pages: 788, status: 'done', progress: 100, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=deep%20learning%20book%20cover%20neural%20network&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a'], volumes: [
     { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
     { id: 'v2', volume: 2, pageRange: '第181-360页', status: 'done', progress: 100 },
     { id: 'v3', volume: 3, pageRange: '第361-540页', status: 'done', progress: 100 },
     { id: 'v4', volume: 4, pageRange: '第541-720页', status: 'done', progress: 100 },
     { id: 'v5', volume: 5, pageRange: '第721-788页', status: 'done', progress: 100 },
   ]},
-  { id: '2', title: '统计学习方法', author: '李航', publisher: '清华大学出版社', pages: 432, status: 'converting', progress: 72, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=statistical%20learning%20book%20cover%20math%20data%20science&image_size=portrait_4_3', isSplit: true, categoryIds: ['phys-chem'], volumes: [
+  { id: '2', title: '统计学习方法', author: '李航', publisher: '清华大学出版社', pages: 432, status: 'converting', progress: 72, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=statistical%20learning%20book%20cover%20math%20data%20science&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a'], volumes: [
     { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
     { id: 'v2', volume: 2, pageRange: '第181-360页', status: 'converting', progress: 72 },
     { id: 'v3', volume: 3, pageRange: '第361-432页', status: 'converting', progress: 15 },
   ]},
-  { id: '3', title: '机器学习实战', author: 'Peter Harrington', publisher: '机械工业出版社', pages: 368, status: 'done', progress: 100, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=machine%20learning%20action%20book%20cover%20programming&image_size=portrait_4_3', isSplit: true, categoryIds: ['material'], volumes: [
+  { id: '3', title: '机器学习实战', author: 'Peter Harrington', publisher: '机械工业出版社', pages: 368, status: 'done', progress: 100, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=machine%20learning%20action%20book%20cover%20programming&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a'], volumes: [
     { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
     { id: 'v2', volume: 2, pageRange: '第181-368页', status: 'done', progress: 100 },
   ]},
-  { id: '4', title: '模式识别与机器学习', author: 'Christopher Bishop', publisher: 'Springer', pages: 738, status: 'converting', progress: 45, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=pattern%20recognition%20machine%20learning%20book%20cover&image_size=portrait_4_3', isSplit: true, categoryIds: ['phys-chem', 'semiconductor'], volumes: [
+  { id: '4', title: '模式识别与机器学习', author: 'Christopher Bishop', publisher: 'Springer', pages: 738, status: 'converting', progress: 45, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=pattern%20recognition%20machine%20learning%20book%20cover&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-a', 'textbook-b'], volumes: [
     { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'done', progress: 100 },
     { id: 'v2', volume: 2, pageRange: '第181-360页', status: 'done', progress: 100 },
     { id: 'v3', volume: 3, pageRange: '第361-540页', status: 'converting', progress: 85 },
@@ -179,7 +179,7 @@ const DEMO_BOOKS: BookItem[] = [
     { id: 'v5', volume: 5, pageRange: '第721-738页', status: 'converting', progress: 10 },
   ]},
   { id: '5', title: 'Python数据分析', author: 'Wes McKinney', publisher: '机械工业出版社', pages: 560, status: 'uploading', progress: 35, isSplit: false, categoryIds: [] },
-  { id: '6', title: '算法导论', author: 'Thomas H. Cormen', publisher: 'MIT Press', pages: 1292, status: 'failed', progress: 20, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=algorithms%20book%20cover%20computer%20science&image_size=portrait_4_3', isSplit: true, categoryIds: ['semiconductor'], volumes: [
+  { id: '6', title: '算法导论', author: 'Thomas H. Cormen', publisher: 'MIT Press', pages: 1292, status: 'failed', progress: 20, coverImage: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=algorithms%20book%20cover%20computer%20science&image_size=portrait_4_3', isSplit: true, categoryIds: ['textbook-b'], volumes: [
     { id: 'v1', volume: 1, pageRange: '第1-180页', status: 'failed', progress: 20 },
   ]},
 ]

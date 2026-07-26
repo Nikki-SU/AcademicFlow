@@ -1108,7 +1108,7 @@ export default function TrackingPage() {
                   type="text"
                   value={keywordFormName}
                   onChange={(e) => setKeywordFormName(e.target.value)}
-                  placeholder="如：钙钛矿太阳能电池"
+                  placeholder="如：学术研究方法"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
