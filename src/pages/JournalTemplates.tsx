@@ -40,13 +40,12 @@ import {
   type ExtractedGuidelines,
 } from '../services/guideline-extractor'
 import type { JournalTemplate } from '../types'
-import { SILICONFLOW_BASE_URL } from '../services/ai/models'
 import { DEMO_ANGEW_GUIDELINES } from '../data/demo-content'
 
 type View = 'list' | 'create' | 'edit'
 
 function JournalTemplatesPage() {
-  const { siliconflowApiKey, ai1Model } = useSettingsStore()
+  const { siliconflowApiKey, getDualEngineConfig } = useSettingsStore()
   const [view, setView] = useState<View>('list')
   const [templates, setTemplates] = useState<JournalTemplate[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<JournalTemplate | null>(null)
@@ -142,7 +141,7 @@ function JournalTemplatesPage() {
     setView('edit')
   }
 
-  // AI 提取
+  // AI 提取（双引擎：AI-1 提取 + AI-2 核查 + 引证锚定）
   const handleExtract = async () => {
     if (!formGuidelinesContent.trim()) {
       toast.error('请先粘贴投稿须知内容')
@@ -155,11 +154,11 @@ function JournalTemplatesPage() {
 
     setIsExtracting(true)
     try {
+      const { ai1, ai2 } = getDualEngineConfig()
       const result = await extractGuidelinesWithAI({
         guidelinesText: formGuidelinesContent,
-        baseUrl: SILICONFLOW_BASE_URL,
-        apiKey: siliconflowApiKey,
-        model: ai1Model,
+        ai1,
+        ai2,
       })
 
       setExtracted(result)
@@ -179,7 +178,7 @@ function JournalTemplatesPage() {
       setFormRefNote(result.reference_format_note || '')
       setFormCustomPreamble(result.custom_preamble || '')
 
-      toast.success('AI 提取完成，请核对结果')
+      toast.success('AI 双引擎提取完成，请核对结果')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`提取失败：${msg}`)
@@ -567,7 +566,7 @@ function JournalTemplatesPage() {
               ) : (
                 <Sparkles className="w-4 h-4" />
               )}
-              {isExtracting ? 'AI 提取中...' : 'AI 提取格式规范'}
+              {isExtracting ? 'AI-1 提取 / AI-2 核查中…' : 'AI 双引擎提取格式规范'}
             </button>
           </div>
 

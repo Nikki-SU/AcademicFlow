@@ -127,6 +127,13 @@ interface SettingsActions {
     ai1Instruction?: string,
     onProgress?: DualEngineProgressCallback,
   ) => Promise<DualEngineResult>
+  /** 解析当前设置 → 双引擎两侧端点配置（AI-1 / AI-2）。
+   *  供写作页 / 学习页 / 期刊模板提取 / 题图识别等所有"AI 可信检索"场景复用，
+   *  确保各场景走同一套凭据来源（硅基流动或自定义端点）。 */
+  getDualEngineConfig: () => {
+    ai1: { baseUrl: string; apiKey: string; model: string }
+    ai2: { baseUrl: string; apiKey: string; model: string }
+  }
   /** 清空错误提示 */
   clearError: () => void
   /** 重置为默认值（保留 API keys 不清，避免误伤） */
@@ -309,6 +316,34 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       }
     },
 
+    getDualEngineConfig: () => {
+      const state = get()
+      if (state.aiProviderMode === 'custom' && state.advancedMode) {
+        const ai1BaseUrl = state.customAi1BaseUrl.trim()
+        const ai1ApiKey = state.customAi1ApiKey.trim()
+        const ai1Model = state.customAi1Model.trim()
+        const ai2BaseUrl = state.customAi2BaseUrl.trim()
+        const ai2ApiKey = state.customAi2ApiKey.trim()
+        const ai2Model = state.customAi2Model.trim()
+        if (!ai1BaseUrl || !ai1ApiKey || !ai1Model) {
+          throw new Error('高级模式下 AI-1 端点/Key/模型均需填写')
+        }
+        if (!ai2BaseUrl || !ai2ApiKey || !ai2Model) {
+          throw new Error('高级模式下 AI-2 端点/Key/模型均需填写')
+        }
+        return {
+          ai1: { baseUrl: ai1BaseUrl, apiKey: ai1ApiKey, model: ai1Model },
+          ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
+        }
+      }
+      const apiKey = state.siliconflowApiKey.trim()
+      if (!apiKey) throw new Error('请先填写硅基流动 API Key')
+      return {
+        ai1: { baseUrl: SILICONFLOW_BASE_URL, apiKey, model: state.ai1Model },
+        ai2: { baseUrl: SILICONFLOW_BASE_URL, apiKey, model: state.ai2Model },
+      }
+    },
+
     runFactCheckTest: async (
       sourceMaterial,
       ai1Instruction = DEFAULT_AI1_INSTRUCTION,
@@ -319,36 +354,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         throw new Error('双引擎测试正在运行中，请等待完成')
       }
 
-      let ai1BaseUrl: string
-      let ai1ApiKey: string
-      let ai1Model: string
-      let ai2BaseUrl: string
-      let ai2ApiKey: string
-      let ai2Model: string
-
-      if (state.aiProviderMode === 'custom' && state.advancedMode) {
-        ai1BaseUrl = state.customAi1BaseUrl.trim()
-        ai1ApiKey = state.customAi1ApiKey.trim()
-        ai1Model = state.customAi1Model.trim()
-        ai2BaseUrl = state.customAi2BaseUrl.trim()
-        ai2ApiKey = state.customAi2ApiKey.trim()
-        ai2Model = state.customAi2Model.trim()
-        if (!ai1BaseUrl || !ai1ApiKey || !ai1Model) {
-          throw new Error('高级模式下 AI-1 端点/Key/模型均需填写')
-        }
-        if (!ai2BaseUrl || !ai2ApiKey || !ai2Model) {
-          throw new Error('高级模式下 AI-2 端点/Key/模型均需填写')
-        }
-      } else {
-        const apiKey = state.siliconflowApiKey.trim()
-        if (!apiKey) throw new Error('请先填写硅基流动 API Key')
-        ai1BaseUrl = SILICONFLOW_BASE_URL
-        ai1ApiKey = apiKey
-        ai1Model = state.ai1Model
-        ai2BaseUrl = SILICONFLOW_BASE_URL
-        ai2ApiKey = apiKey
-        ai2Model = state.ai2Model
-      }
+      const { ai1, ai2 } = get().getDualEngineConfig()
 
       set({ isRunningDualEngine: true, error: null })
       try {
@@ -356,8 +362,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           taskType: 'faithfulness_check',
           sourceMaterial,
           ai1Instruction,
-          ai1: { baseUrl: ai1BaseUrl, apiKey: ai1ApiKey, model: ai1Model },
-          ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
+          ai1,
+          ai2,
           onProgress,
         })
         set({ isRunningDualEngine: false, lastDualEngineResult: result })

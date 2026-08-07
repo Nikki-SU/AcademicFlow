@@ -61,6 +61,8 @@ import { getAllTemplates } from '../services/journal-templates'
 import { useSettingsStore } from '../stores/settings'
 import type { JournalTemplate } from '../types'
 import { DoiLink } from '../components/DoiLink'
+import { runDualEngine } from '../services/ai/dual-engine'
+import { loadFulltext } from '../services/literatureData'
 import {
   loadProjects,
   saveProjects,
@@ -162,8 +164,6 @@ const DEFAULT_MD = `# 引言
 
 描述你的研究背景。
 `
-
-const DEMO_AI_RESPONSES: Record<string, { content: string; citations: CitationRef[] }> = {}
 
 function escapeHtml(text: string): string {
   return text
@@ -1005,7 +1005,7 @@ export default function WritingPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleSendMessage = (prompt?: string) => {
+  const handleSendMessage = async (prompt?: string) => {
     const text = prompt || inputValue.trim()
     if (!text) return
 
@@ -1019,40 +1019,125 @@ export default function WritingPage() {
     setIsAiGenerating(true)
     setIsAiReviewing(false)
 
-    setTimeout(() => {
-      const { siliconflowApiKey } = useSettingsStore.getState()
-      const aiAvailable = DEMO_AI_RESPONSES.search && siliconflowApiKey.trim()
-      let content: string
-      if (!siliconflowApiKey.trim()) {
-        content = '**AI 服务未配置**\n\n请先在设置页填写 AI API Key，届时写作助手才能正常工作。'
-      } else if (!aiAvailable) {
-        content = '**AI 写作助手正在接入真实模型**\n\n当前尚未接入 AI-1/Ai-2 双引擎，无法生成或审阅内容。'
-      } else {
-        content = DEMO_AI_RESPONSES.search.content
+    // 预先插入 AI 助手占位消息，方便后续按 id 增量更新内容/审阅状态
+    const genMsgId = String(Date.now() + 1)
+    const genMsg: AIMessage = {
+      id: genMsgId,
+      role: 'assistant',
+      content: '正在调用 AI-1 生成内容…',
+      citations: undefined,
+      reviewStatus: 'pending',
+    }
+    setMessages((prev) => [...prev, genMsg])
+
+    try {
+      // 1. 解析当前 AI 服务配置（硅基流动 / 自定义端点）
+      const { getDualEngineConfig } = useSettingsStore.getState()
+      const { ai1, ai2 } = getDualEngineConfig()
+
+      // 2. 构建源材料 = 当前手稿 + 引用文献全文（基于 citationScope / selectedPaperIds / trustedSearch）
+      let literatureContext = ''
+      if (trustedSearch) {
+        const sourceDois = scopedCitations
+          .filter((c) => c.type === 'paper' && c.doi)
+          .slice(0, 5)
+          .map((c) => c.doi)
+        if (sourceDois.length > 0) {
+          try {
+            const fulltexts = await Promise.all(
+              sourceDois.map(async (doi) => {
+                try {
+                  const t = await loadFulltext(doi)
+                  return t ? `--- ${doi} ---\n${t.slice(0, 4000)}` : ''
+                } catch {
+                  return ''
+                }
+              }),
+            )
+            literatureContext = fulltexts.filter(Boolean).join('\n\n')
+          } catch (err) {
+            console.warn('[Writing] 加载文献全文失败:', err)
+          }
+        }
       }
 
-      const genMsg: AIMessage = {
-        id: String(Date.now() + 1),
-        role: 'assistant',
-        content,
-        citations: undefined,
-        reviewStatus: 'pending',
-      }
-      setMessages((prev) => [...prev, genMsg])
+      const sourceMaterial = [
+        '【当前手稿】',
+        mdContent || '（手稿为空）',
+        '',
+        literatureContext
+          ? `【引用文献全文（共 ${scopedCitations.filter((c) => c.type === 'paper' && c.doi).slice(0, 5).length} 篇，作为事实来源）】\n${literatureContext}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+
+      // 3. 调用双引擎（AI-1 生成 + AI-2 忠实性核查 + 引证锚定 + 分层归因重试）
+      const result = await runDualEngine({
+        taskType: 'faithfulness_check',
+        sourceMaterial,
+        ai1Instruction: text,
+        ai1,
+        ai2,
+        onProgress: (event) => {
+          // AI-1 完成后立即把生成内容回填到消息（提升体感速度）
+          if (event.stage === 'ai1_done' && event.ai1Output) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === genMsgId
+                  ? { ...m, content: event.ai1Output || m.content }
+                  : m
+              )
+            )
+          }
+          // 进入 AI-2 阶段：切到"审阅中"状态
+          if (event.stage === 'ai2_running' || event.stage === 'ai2_self_correct_running') {
+            setIsAiGenerating(false)
+            setIsAiReviewing(true)
+          }
+          // 重试轮次提示
+          if (event.stage === 'attempt_failed_retry') {
+            setIsAiReviewing(true)
+          }
+        },
+      })
+
+      // 4. 写回最终内容 + 审阅结论
       setIsAiGenerating(false)
-      setIsAiReviewing(true)
+      setIsAiReviewing(false)
 
-      setTimeout(() => {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === genMsg.id
-              ? { ...m, reviewStatus: 'pass' as const }
-              : m
-          )
+      const passed = result.finalPassed
+      const reviewNote = passed
+        ? ''
+        : `\n\n---\n*AI-2 审阅未通过（${result.attempts.length} 轮）：${result.ai2Feedback.summary || '存在忠实性问题，请人工核对'}*`
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === genMsgId
+            ? {
+                ...m,
+                content: (result.ai1Output || '（AI-1 未返回内容）') + reviewNote,
+                reviewStatus: passed ? ('pass' as const) : ('fail' as const),
+              }
+            : m
         )
-        setIsAiReviewing(false)
-      }, 1200)
-    }, 1000)
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setIsAiGenerating(false)
+      setIsAiReviewing(false)
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === genMsgId
+            ? {
+                ...m,
+                content: `**AI 服务调用失败**\n\n${msg}\n\n请检查设置页的 AI 配置后重试。`,
+                reviewStatus: 'fail' as const,
+              }
+            : m
+        )
+      )
+    }
   }
 
   const handleQuickAction = (action: string) => {

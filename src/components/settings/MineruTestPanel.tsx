@@ -23,6 +23,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { toast } from 'sonner'
 import { useSettingsStore } from '../../stores/settings'
 import { parseMineruJwt, runMineruSingleFile, severity } from '../../services/mineru'
+import {
+  identifyCoverFigure,
+  renameCoverImage,
+  type CoverFigureIdentificationResult,
+} from '../../services/cover-figure-identifier'
 import type {
   MineruDebugEvent,
   MineruProgressEvent,
@@ -53,6 +58,8 @@ export default function MineruTestPanel() {
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<MineruTestResult | null>(null)
+  const [coverFigureResult, setCoverFigureResult] = useState<CoverFigureIdentificationResult | null>(null)
+  const [isIdentifyingCover, setIsIdentifyingCover] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const jwtInfo = useMemo(() => parseMineruJwt(mineruToken), [mineruToken])
@@ -69,6 +76,7 @@ export default function MineruTestPanel() {
     setDebugEvents([])
     setCurrentStage('idle')
     setRunStartedAt(null)
+    setCoverFigureResult(null)
   }
 
   const onProgress = useCallback((ev: MineruProgressEvent) => {
@@ -101,6 +109,7 @@ export default function MineruTestPanel() {
     setIsRunning(true)
     setError(null)
     setResult(null)
+    setCoverFigureResult(null)
     setProgressLog([])
     setDebugEvents([])
     setCurrentStage('applying')
@@ -119,6 +128,36 @@ export default function MineruTestPanel() {
       setResult(res)
       setCurrentStage('done')
       toast.success('MinerU 全流程测试通过')
+
+      // 题图识别兜底（双引擎）：开关开启 + 文献有多张图片时自动跑
+      if (extractCoverImage && Object.keys(res.images).length > 0) {
+        setIsIdentifyingCover(true)
+        try {
+          const { getDualEngineConfig } = useSettingsStore.getState()
+          const { ai1, ai2 } = getDualEngineConfig()
+          const coverRes = await identifyCoverFigure({
+            markdown: res.markdown,
+            ai1,
+            ai2,
+          })
+          setCoverFigureResult(coverRes)
+          if (coverRes.chosenImage) {
+            // 演示重命名效果（不修改 result.images，只展示识别结果）
+            const { renamedFrom } = renameCoverImage(res.images, coverRes.chosenImage)
+            toast.success(
+              `题图识别命中：${renamedFrom} → graphical-abstract` +
+              `（AI-2 ${coverRes.reviewPassed ? '通过' : '未通过'}，${coverRes.attempts} 轮）`,
+            )
+          } else {
+            toast.info(`题图识别：未找到合适候选（${coverRes.reason.slice(0, 80)}）`)
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          toast.error(`题图识别失败：${msg}`)
+        } finally {
+          setIsIdentifyingCover(false)
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
@@ -213,7 +252,7 @@ export default function MineruTestPanel() {
         </div>
       </label>
 
-      {/* 提取题图开关（设置默认值 · 测试面板不消费此开关） */}
+      {/* 提取题图开关（双引擎兜底：AI-1 判断 + AI-2 审 + 引证锚定） */}
       <label className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-md cursor-pointer">
         <input
           type="checkbox"
@@ -225,16 +264,37 @@ export default function MineruTestPanel() {
           <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
             提取题图（cover figure）
-            <span className="ml-1 px-1.5 py-0.5 text-[0.625rem] font-normal bg-amber-100 text-amber-700 rounded">
-              Import 时生效
+            <span className="ml-1 px-1.5 py-0.5 text-[0.625rem] font-normal bg-emerald-100 text-emerald-700 rounded">
+              双引擎兜底
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
             论文里最能代表全文核心的那张单图，通常是第一张但不必然；
-            理工科需要、社科可关。此处只保存默认值到本机 IndexedDB，
-            实际的题图挑选逻辑（AI 参与）在后续 Import 功能里启用；
-            当前测试面板固定返回全部图片，不消费本开关。
+            理工科需要、社科可关。开启后，MinerU 解析完成会自动跑双引擎：
+            AI-1 基于 markdown 中的图片 caption/位置/上下文判断哪张是题图，
+            AI-2 核查判断理由是否真实来自原文（引证锚定），命中后重命名为 graphical-abstract。
           </p>
+          {isIdentifyingCover && (
+            <p className="text-xs text-indigo-600 mt-1.5 flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              AI-1 判断 + AI-2 审阅中…
+            </p>
+          )}
+          {coverFigureResult && !isIdentifyingCover && (
+            <div className="mt-2 p-2 bg-white border border-slate-200 rounded text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className={`px-1.5 py-0.5 rounded ${coverFigureResult.reviewPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  AI-2 {coverFigureResult.reviewPassed ? '通过' : '未通过'}（{coverFigureResult.attempts} 轮）
+                </span>
+                <span className="text-slate-700">
+                  命中：{coverFigureResult.chosenImage || '（无合适候选）'}
+                </span>
+              </div>
+              {coverFigureResult.reason && (
+                <p className="text-slate-500 mt-1 line-clamp-3">{coverFigureResult.reason}</p>
+              )}
+            </div>
+          )}
         </div>
       </label>
 

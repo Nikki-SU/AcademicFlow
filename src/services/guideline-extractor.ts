@@ -5,11 +5,13 @@
  * 输出：结构化的期刊模板配置（document class / 引用样式 / 双栏 / 字号 等）
  *
  * 设计原则：
- * - 用户粘贴投稿须知 → AI 提取 → 生成可复用模板
+ * - 用户粘贴投稿须知 → AI-1 提取结构化参数 → AI-2 忠实性核查 + 引证锚定 → 生成可复用模板
+ * - 复用 dual-engine.ts 的完整双引擎基础设施，确保所有 AI 可信检索场景逻辑一致
+ * - 投稿须知原文 = 唯一 ground truth（sourceMaterial）；AI-1 的提取结果必须可在原文中找到 span 支撑
  * - 提取结果供用户确认和修改，不做 100% 准确保证
- * - 提取时同时生成 "格式说明" 字段，告诉 AI 排版时的注意事项
  */
-import { callAI } from './ai/client'
+import { runDualEngine } from './ai/dual-engine'
+import type { DualEngineProgressCallback } from '../types'
 import type { JournalTemplate } from '../types'
 
 /** AI 提取结果 */
@@ -57,84 +59,102 @@ export interface ExtractedGuidelines {
   key_points: string[]
 }
 
-const SYSTEM_PROMPT = `你是一名专业的学术期刊格式分析助手。你的任务是从投稿须知中提取期刊排版的关键参数。
-
-请仔细阅读投稿须知，提取以下信息并以 JSON 格式输出：
-
-{
-  "name": "期刊全称",
-  "short_name": "期刊简称/缩写（如有）",
-  "publisher": "出版社名称",
-  "document_class": "推荐的 LaTeX 文档类，如 article / elsarticle / IEEEtran / acmart 等。如果没有明确说明，用 article",
-  "document_options": "文档类选项，如 twocolumn,12pt 等",
-  "packages": ["需要的宏包列表，如 amsmath, graphicx, booktabs 等"],
-  "bibtex_style": "BibTeX 引用样式，如 unsrt / apalike / ieeetr / plain / IEEEtran 等。如果不确定，用 unsrt",
-  "two_column": true/false,
-  "font_size": 正文字号（数字，单位 pt）,
-  "margins": {
-    "top": "上边距，如 2.5cm",
-    "bottom": "下边距",
-    "left": "左边距",
-    "right": "右边距"
-  },
-  "title_format_note": "标题格式的详细说明（给排版 AI 看），包括层级、字体、大小写要求等",
-  "abstract_format_note": "摘要格式说明，包括位置、字数限制等",
-  "reference_format_note": "参考文献格式说明，包括排序方式、引用编号格式等",
-  "figure_table_note": "图表格式说明，包括位置、编号、标题位置等",
-  "custom_preamble": "建议的自定义 LaTeX 前置代码（如果有特殊要求）",
-  "word_limit_note": "字数限制说明（如果有）",
-  "confidence_note": "你对提取结果的置信度说明，哪些信息是确定的，哪些是推断的",
-  "key_points": ["提取的关键格式点列表，用简洁中文列出，供用户快速核对"]
-}
-
-提取规则：
-1. 只基于投稿须知中的明确信息，不确定的字段留空或用最保守的默认值
-2. document_class：如果期刊提供了 LaTeX 模板，用对应的文档类；否则用 article
-3. two_column：如果明确说双栏/two-column/twocolumn 就是 true，否则默认 false
-4. font_size：如果提到用 10pt/11pt/12pt，提取数字；没有明确说明默认 12pt
-5. bibtex_style：根据期刊常用样式推断，不确定时用 unsrt
-6. packages：只列必要的宏包，如 amsmath, graphicx, amssymb, booktabs, hyperref
-7. key_points：列出 5-10 个最重要的格式要点，让用户能快速核对
-
-输出要求：
-- 严格 JSON 格式，不要任何额外文字
-- 不要用 markdown 代码块包裹
-- 中文输出说明性内容（key_points, confidence_note 等）`
-
 /**
- * 从投稿须知文本中提取期刊格式规范
+ * 从投稿须知文本中提取期刊格式规范（双引擎版）
+ * -------------------------------------------------
+ * - AI-1：拿投稿须知原文（ground truth）→ 提取结构化参数 JSON
+ * - AI-2：拿 (投稿须知原文, AI-1 JSON) → 核查每个字段是否真实来自原文
+ * - 引证锚定：AI-2 给出的 source_span 必须能在投稿须知原文中 grep 到
+ * - 分层归因重试：AI-1 加戏→重写；AI-2 编造 span→自纠；最多 5 轮
+ *
+ * @param params.guidelinesText 投稿须知原文（唯一 ground truth）
+ * @param params.ai1 AI-1 端点配置
+ * @param params.ai2 AI-2 端点配置
+ * @param params.onProgress 可选的双引擎进度回调
  */
 export async function extractGuidelinesWithAI(params: {
   guidelinesText: string
-  baseUrl: string
-  apiKey: string
-  model: string
+  ai1: { baseUrl: string; apiKey: string; model: string }
+  ai2: { baseUrl: string; apiKey: string; model: string }
+  onProgress?: DualEngineProgressCallback
 }): Promise<ExtractedGuidelines> {
-  const { guidelinesText, baseUrl, apiKey, model } = params
+  const { guidelinesText, ai1, ai2, onProgress } = params
 
   // 截取前 8000 字符（避免 token 超限，投稿须知的关键信息一般在前半部分）
   const truncated = guidelinesText.slice(0, 8000)
+  const sourceMaterial = guidelinesText.length > 8000
+    ? `${truncated}\n\n（注：原文共 ${guidelinesText.length} 字，已截取前 8000 字作为核查范围）`
+    : guidelinesText
 
-  const userPrompt = `【投稿须知内容】
-${truncated}
+  // AI-1 角色 prompt：替换默认的"学术总结助手"为"期刊规范提取助手"
+  // [NOT_IN_SOURCE] tag 指令由 dual-engine 自动追加，确保投稿须知未提及的字段被诚实标注
+  const ai1RolePrompt = [
+    '你是一名专业的学术期刊格式分析助手。用户会提供一段【源材料】（投稿须知原文）和一条【任务指令】，',
+    '你需要按指令提取期刊排版的关键参数，并以 JSON 格式输出。',
+    '',
+    '【核心约束（必须严格遵守）】',
+    '1. 只使用【源材料】中的信息，禁止引入源材料未提及的外部知识、常识、推测或对其他期刊的记忆。',
+    '2. 若源材料信息不足以确定某字段，宁可留空或用最保守的默认值（如 document_class 默认 article），也不要猜测/补全/编造。',
+    '3. 忠于原文字面含义，不泛化、不外推、不改写数字/字号/边距/期刊名。',
+    '4. 输出严格 JSON 格式，不要任何额外文字、不要 markdown 代码块包裹。',
+    '5. 中文输出说明性内容（key_points, confidence_note 等）。',
+  ].join('\n')
 
-${guidelinesText.length > 8000 ? `\n（注：原文共 ${guidelinesText.length} 字，已截取前 8000 字进行分析）\n` : ''}
+  // AI-1 任务指令：定义输出 JSON schema + 提取规则
+  const ai1Instruction = [
+    '请仔细阅读上述源材料（投稿须知），提取期刊排版的关键参数，严格按以下 JSON 结构输出：',
+    '',
+    '{',
+    '  "name": "期刊全称",',
+    '  "short_name": "期刊简称/缩写（如有）",',
+    '  "publisher": "出版社名称",',
+    '  "document_class": "推荐的 LaTeX 文档类，如 article / elsarticle / IEEEtran / acmart 等。如果没有明确说明，用 article",',
+    '  "document_options": "文档类选项，如 twocolumn,12pt 等",',
+    '  "packages": ["需要的宏包列表，如 amsmath, graphicx, booktabs 等"],',
+    '  "bibtex_style": "BibTeX 引用样式，如 unsrt / apalike / ieeetr / plain / IEEEtran 等。如果不确定，用 unsrt",',
+    '  "two_column": true/false,',
+    '  "font_size": 正文字号（数字，单位 pt）,',
+    '  "margins": {"top": "上边距，如 2.5cm", "bottom": "下边距", "left": "左边距", "right": "右边距"},',
+    '  "title_format_note": "标题格式的详细说明（给排版 AI 看）",',
+    '  "abstract_format_note": "摘要格式说明",',
+    '  "reference_format_note": "参考文献格式说明",',
+    '  "figure_table_note": "图表格式说明",',
+    '  "custom_preamble": "建议的自定义 LaTeX 前置代码（如果有特殊要求）",',
+    '  "word_limit_note": "字数限制说明（如果有）",',
+    '  "confidence_note": "你对提取结果的置信度说明，哪些信息是确定的，哪些是推断的",',
+    '  "key_points": ["提取的关键格式点列表，用简洁中文列出，供用户快速核对"]',
+    '}',
+    '',
+    '【提取规则】',
+    '1. 只基于投稿须知中的明确信息，不确定的字段留空或用最保守的默认值。',
+    '2. document_class：如果期刊提供了 LaTeX 模板，用对应的文档类；否则用 article。',
+    '3. two_column：如果明确说双栏/two-column/twocolumn 就是 true，否则默认 false。',
+    '4. font_size：如果提到用 10pt/11pt/12pt，提取数字；没有明确说明默认 12。',
+    '5. bibtex_style：根据期刊常用样式推断，不确定时用 unsrt。',
+    '6. packages：只列必要的宏包，如 amsmath, graphicx, amssymb, booktabs, hyperref。',
+    '7. key_points：列出 5-10 个最重要的格式要点，让用户能快速核对。',
+  ].join('\n')
 
-请从上述投稿须知中提取期刊排版参数，按 system 指令输出 JSON。`
-
-  const resp = await callAI({
-    baseUrl,
-    apiKey,
-    model,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ],
-    temperature: 0.1,
-    maxTokens: 2048,
+  // 调用双引擎（AI-1 提取 + AI-2 核查 + 引证锚定 + 分层归因重试）
+  const dualResult = await runDualEngine({
+    taskType: 'faithfulness_check',
+    sourceMaterial,
+    ai1Instruction,
+    ai1: ai1,
+    ai2: ai2,
+    ai1RolePrompt,
+    onProgress,
   })
 
-  return parseExtractionResult(resp.content)
+  const extracted = parseExtractionResult(dualResult.ai1Output)
+
+  // 把双引擎审阅结果附加到 confidence_note（让用户看到 AI-2 的核查结论）
+  const reviewSummary = dualResult.finalPassed
+    ? 'AI-2 忠实性核查通过：所有字段均可锚定到投稿须知原文。'
+    : `AI-2 忠实性核查未通过（${dualResult.attempts.length} 轮）：${dualResult.ai2Feedback.summary || '部分字段可能未严格来自原文，请人工核对'}。`
+  extracted.confidence_note = `${reviewSummary}\n\n${extracted.confidence_note}`
+
+  return extracted
 }
 
 /**

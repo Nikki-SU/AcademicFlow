@@ -26,6 +26,8 @@ import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, s
 import { useSettingsStore } from '../stores/settings'
 import type { WordData, SentenceData, TranslationData } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
+import { runDualEngine } from '../services/ai/dual-engine'
+import { loadLiteratures, loadFulltext, type Literature } from '../services/literatureData'
 
 type TabId = 'words' | 'sentences' | 'translation'
 type QuestionType = 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
@@ -53,7 +55,6 @@ const subTabs = [
 const DEFAULT_WORDS: WordData[] = []
 const DEFAULT_SENTENCES: SentenceData[] = []
 const DEFAULT_TRANSLATIONS: TranslationData[] = []
-const AI_GENERATE_OPTIONS: { value: string; label: string }[] = []
 
 function shuffleArray<T>(arr: T[]): T[] {
   const result = [...arr]
@@ -82,7 +83,7 @@ function formatTime(timestamp?: number): string {
   const diffMins = Math.floor(diffMs / 60000)
   const diffHours = Math.floor(diffMs / 3600000)
   const diffDays = Math.floor(diffMs / 86400000)
-  
+
   if (diffMins < 1) return '刚刚'
   if (diffMins < 60) return `${diffMins}分钟前`
   if (diffHours < 24) return `${diffHours}小时前`
@@ -90,11 +91,40 @@ function formatTime(timestamp?: number): string {
   return date.toLocaleDateString('zh-CN')
 }
 
+/** 解析 AI-1 输出的学习内容 JSON（容错：去掉代码块包裹 / 提取首尾花括号） */
+interface ParsedLearningJSON {
+  words: Array<{ word?: string; phonetic?: string; meaning?: string; exampleEn?: string; exampleZh?: string }>
+  sentences: Array<{ sentenceEn?: string; sentenceCn?: string; aiReferenceCn?: string }>
+  translations: Array<{ originalText?: string }>
+}
+function parseLearningJSON(raw: string): ParsedLearningJSON {
+  let text = raw.trim()
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenceMatch) text = fenceMatch[1].trim()
+  const firstBrace = text.indexOf('{')
+  const lastBrace = text.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    text = text.slice(firstBrace, lastBrace + 1)
+  }
+  try {
+    const parsed = JSON.parse(text) as Partial<ParsedLearningJSON>
+    return {
+      words: Array.isArray(parsed.words) ? parsed.words : [],
+      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+      translations: Array.isArray(parsed.translations) ? parsed.translations : [],
+    }
+  } catch {
+    return { words: [], sentences: [], translations: [] }
+  }
+}
+
 export default function LearnPage() {
   const [activeTab, setActiveTab] = useState<TabId>('words')
   const [aiGenOpen, setAiGenOpen] = useState(false)
   const [selectedPaper, setSelectedPaper] = useState('')
   const [genTypes, setGenTypes] = useState({ words: true, sentences: true, translation: true })
+  const [literatures, setLiteratures] = useState<Literature[]>([])
+  const [isAiGenerating, setIsAiGenerating] = useState(false)
 
   const [words, setWords] = useState<WordData[]>(DEFAULT_WORDS)
   const [sentences, setSentences] = useState<SentenceData[]>(DEFAULT_SENTENCES)
@@ -127,6 +157,25 @@ export default function LearnPage() {
       }
     }
     loadLearnProgress()
+    return () => { cancelled = true }
+  }, [])
+
+  // 加载文献列表用于"AI 补充生成"下拉选项
+  useEffect(() => {
+    let cancelled = false
+    async function loadLitList() {
+      try {
+        const list = await loadLiteratures()
+        if (cancelled) return
+        setLiteratures(list)
+        if (list.length > 0 && !selectedPaper) {
+          setSelectedPaper(list[0].doi)
+        }
+      } catch (err) {
+        console.warn('[Learn] 加载文献列表失败:', err)
+      }
+    }
+    loadLitList()
     return () => { cancelled = true }
   }, [])
 
@@ -231,13 +280,142 @@ export default function LearnPage() {
       toast.error('请至少选择一种生成类型')
       return
     }
-    const { siliconflowApiKey } = useSettingsStore.getState()
-    if (!siliconflowApiKey.trim()) {
-      toast.error('请先在设置页填写 AI API Key')
+
+    const lit = literatures.find((l) => l.doi === selectedPaper)
+    if (!lit) {
+      toast.error('未找到选定文献的元数据')
       return
     }
-    // SPEC §1.3/§1.6：AI 不可用时明确告知，禁止伪造数据
-    toast.info('AI 学习内容生成功能正在接入真实模型，当前不可用')
+
+    setIsAiGenerating(true)
+    try {
+      // 1. 解析双引擎配置（硅基流动 / 自定义端点）
+      const { getDualEngineConfig } = useSettingsStore.getState()
+      const { ai1, ai2 } = getDualEngineConfig()
+
+      // 2. 加载文献全文作为源材料（唯一 ground truth）
+      let fulltext = ''
+      try {
+        fulltext = await loadFulltext(selectedPaper)
+      } catch (err) {
+        console.warn('[Learn] 加载文献全文失败:', err)
+      }
+      if (!fulltext.trim()) {
+        // 兜底：用摘要作为源材料
+        fulltext = [lit.abstractEn, lit.abstractCn].filter(Boolean).join('\n\n') || '（文献无可用全文）'
+      }
+      // 截断保护 token 上限
+      const sourceMaterial = fulltext.slice(0, 10000)
+
+      // 3. 构造生成指令：根据勾选的类型组合
+      const tasks: string[] = []
+      if (genTypes.words) {
+        tasks.push('生词卡片：从原文中挑选 5-8 个学术核心单词，每条含 word/phonetic/meaning(中文)/exampleEn(原文中含该词的句子)/exampleZh(中文译文)')
+      }
+      if (genTypes.sentences) {
+        tasks.push('长难句：从原文中挑选 3-5 个有学习价值的长难句，每条含 sentenceEn(原文逐字)/sentenceCn(中文翻译)/aiReferenceCn(参考译文)')
+      }
+      if (genTypes.translation) {
+        tasks.push('翻译练习：从原文中挑选 2-3 段适合做翻译练习的段落，每条含 originalText(原文逐字)')
+      }
+      const ai1Instruction = [
+        `请基于上述源材料生成以下学习内容：`,
+        tasks.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+        '',
+        '【输出格式（严格 JSON，不要 markdown 代码块包裹）】',
+        '{',
+        '  "words": [{"word":"...","phonetic":"...","meaning":"...","exampleEn":"...","exampleZh":"..."}],',
+        '  "sentences": [{"sentenceEn":"...","sentenceCn":"...","aiReferenceCn":"..."}],',
+        '  "translations": [{"originalText":"..."}]',
+        '}',
+        '',
+        '【严格要求】',
+        '- word/exampleEn/sentenceEn/originalText 等英文片段必须**逐字复制**自源材料，禁止改写或编造',
+        '- 不确定的内容（如音标/中文释义）允许基于学术常识给出，但原文片段必须严格逐字对齐',
+        '- 源材料未涉及的字段用 [NOT_IN_SOURCE] <字段名> 标注',
+        '- 输出语言：英文片段保持原文，中文释义/翻译用中文',
+      ].join('\n')
+
+      // 4. 调用双引擎：AI-1 生成 + AI-2 核查 + 引证锚定 + 分层归因重试
+      const result = await runDualEngine({
+        taskType: 'faithfulness_check',
+        sourceMaterial,
+        ai1Instruction,
+        ai1,
+        ai2,
+      })
+
+      // 5. 解析 AI-1 输出的 JSON
+      const ai1Output = result.ai1Output || ''
+      const parsed = parseLearningJSON(ai1Output)
+
+      const now = Date.now()
+      let addedCount = 0
+
+      if (genTypes.words && parsed.words.length > 0) {
+        const newWords: WordData[] = parsed.words.map((w) => ({
+          id: `ai_${now}_${addedCount++}`,
+          word: w.word || '',
+          phonetic: w.phonetic || '',
+          meaning: w.meaning || '',
+          exampleEn: w.exampleEn || '',
+          exampleZh: w.exampleZh || '',
+          root: '',
+          sourceDoi: selectedPaper,
+          status: 'new',
+          addedAt: now,
+          lastReview: 0,
+          reviewCount: 0,
+          sm2Interval: 1,
+          sm2Ease: 2.5,
+        }))
+        setWords((prev) => [...prev, ...newWords])
+      }
+
+      if (genTypes.sentences && parsed.sentences.length > 0) {
+        const newSentences: SentenceData[] = parsed.sentences.map((s) => ({
+          id: `ai_${now}_${addedCount++}`,
+          sentenceEn: s.sentenceEn || '',
+          sentenceCn: s.sentenceCn || '',
+          aiReferenceCn: s.aiReferenceCn || '',
+          sourceDoi: selectedPaper,
+          status: 'new',
+          addedAt: now,
+          lastReview: 0,
+          reviewCount: 0,
+          sm2Interval: 1,
+          sm2Ease: 2.5,
+        }))
+        setSentences((prev) => [...prev, ...newSentences])
+      }
+
+      if (genTypes.translation && parsed.translations.length > 0) {
+        const newTranslations: TranslationData[] = parsed.translations.map((t) => ({
+          id: `ai_${now}_${addedCount++}`,
+          originalText: t.originalText || '',
+          sourceDoi: selectedPaper,
+          latestUserTranslation: '',
+          latestAiFeedback: '',
+          latestErrorWords: '',
+          status: 'pending',
+          addedAt: now,
+          lastPractice: 0,
+          practiceCount: 0,
+        }))
+        setTranslations((prev) => [...prev, ...newTranslations])
+      }
+
+      const reviewNote = result.finalPassed
+        ? 'AI-2 审阅通过'
+        : `AI-2 审阅未通过：${result.ai2Feedback.summary || '存在忠实性问题，请人工核对'}`
+      toast.success(`AI 生成完成（${addedCount} 条），${reviewNote}`)
+      setAiGenOpen(false)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`AI 生成失败：${msg}`)
+    } finally {
+      setIsAiGenerating(false)
+    }
   }
 
   return (
@@ -296,10 +474,13 @@ export default function LearnPage() {
                   value={selectedPaper}
                   onChange={(e) => setSelectedPaper(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  disabled={isAiGenerating}
                 >
                   <option value="">请选择...</option>
-                  {AI_GENERATE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  {literatures.map((lit) => (
+                    <option key={lit.doi} value={lit.doi}>
+                      {lit.title ? lit.title.slice(0, 60) : lit.doi}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -338,10 +519,11 @@ export default function LearnPage() {
               </button>
               <button
                 onClick={handleAIGenerate}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition flex items-center justify-center gap-2"
+                disabled={isAiGenerating}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <Sparkles className="w-4 h-4" />
-                开始生成
+                <Sparkles className={`w-4 h-4 ${isAiGenerating ? 'animate-pulse' : ''}`} />
+                {isAiGenerating ? 'AI-1 生成 / AI-2 审阅中…' : '开始生成'}
               </button>
             </div>
           </div>
