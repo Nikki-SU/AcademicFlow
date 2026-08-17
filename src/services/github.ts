@@ -11,90 +11,133 @@
 import { GitHubAPIError, type GitHubUser, type PATVerifyResult } from '../types'
 import { assertCanWrite, setGlobalAuthError } from './authError'
 
-const API_BASE = 'https://api.github.com'
+const API_BASE_PRIMARY = 'https://api.github.com'
+const API_BASE_FALLBACK = 'https://github.com/api/v3'
+
+let resolvedApiBase = API_BASE_PRIMARY
+
+export function getApiBase(): string {
+  return resolvedApiBase
+}
+
+export function setApiBase(base: string) {
+  resolvedApiBase = base
+}
 
 /** M1 阶段最小 scope 要求（M2 起会用到 workflow / delete_repo 等） */
 export const REQUIRED_SCOPE = 'repo'
 
 export interface ConnectivityResult {
-  /** github.com 基础连通（Cookie 级请求，不触发 CORS 预检） */
+  /** github.com 基础连通 */
   githubDotCom: 'ok' | 'fail'
-  /** api.github.com 连通（API 级请求，会触发 CORS 预检） */
+  /** api.github.com 连通 */
   apiGithubDotCom: 'ok' | 'fail'
-  /** 失败的具体原因（可读） */
+  /** github.com/api/v3 连通（fallback 端点） */
+  githubApiV3: 'ok' | 'fail'
+  /** CORS 预检是否被拦 */
+  corsPreflightBlocked: boolean
+  /** 可读的诊断结论 */
   detail: string
 }
 
+async function probe(url: string, headers?: Record<string, string>): Promise<boolean> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 8000)
+  try {
+    const init: RequestInit = { method: 'GET', signal: ctrl.signal, cache: 'no-store' }
+    if (headers) init.headers = headers
+    await fetch(url, init)
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
- * GitHub 连通性诊断
+ * GitHub 连通性诊断（5 维探测）
  * -------------------------------------------------
- * 1. 先测 github.com（无自定义头，不触发 CORS 预检）→ 判断基础网络可达性
- * 2. 再测 api.github.com/user（带 Authorization 头，必触发 CORS 预检）→ 判断 API 可达性
+ * 针对学术/校园网环境的 5 个关键探测：
+ *   1. github.com 主页（简单请求，无预检）
+ *   2. api.github.com + 自定义头（预检请求模式）
+ *   3. api.github.com + Query 参数（绕过预检）
+ *   4. github.com/api/v3 + Query 参数（域名 fallback）
+ *   5. github.com/api/v3 + 自定义头（完整预检）
  *
- * 两个结果对比：
- *   github.com OK + api.github.com FAIL → 大概率是 CORS 预检被拦 / api.github.com 被封
- *   两者都 OK → 不是网络问题，可能是 token 本身
- *   两者都 FAIL → 完全无外网或 DNS 问题
+ * 根据结果组合精准定位问题：
+ *   1 OK + 2/3/4 FAIL → 完全无 GitHub 访问
+ *   1 OK + 2 FAIL + 3 OK → CORS 预检被拦，Query 参数可用
+ *   1/2 FAIL + 3/4/5 OK → api.github.com 被域名封锁，github.com/api/v3 可用
+ *   1 OK + 2/3 FAIL + 4 OK → 同上，更细分
+ *   全部 OK → 网络无问题，排查 token
  */
 export async function testGitHubConnectivity(): Promise<ConnectivityResult> {
-  let githubOk = false
-  let apiOk = false
+  const h = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+
+  const [githubOk, apiHeaderOk, apiQueryOk, ghV3QueryOk, ghV3HeaderOk] = await Promise.all([
+    probe('https://github.com'),
+    probe('https://api.github.com/user', h),
+    probe('https://api.github.com/user?x=1'),
+    probe('https://github.com/api/v3/user?x=1'),
+    probe('https://github.com/api/v3/user', h),
+  ])
+
+  const corsBlocked = githubOk && !apiHeaderOk && apiQueryOk
+  const primaryBlocked = githubOk && !apiHeaderOk && !apiQueryOk && ghV3QueryOk
+
   let detail = ''
-
-  // Test 1: github.com — 简单 GET，无自定义头，不触发预检
-  try {
-    const ctrl1 = new AbortController()
-    const timer1 = setTimeout(() => ctrl1.abort(), 10000)
-    await fetch('https://github.com', {
-      method: 'GET',
-      mode: 'no-cors',
-      signal: ctrl1.signal,
-      cache: 'no-store',
-    })
-    clearTimeout(timer1)
-    githubOk = true
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    detail += `github.com 不通：${msg}。`
-  }
-
-  // Test 2: api.github.com — 带自定义头，触发 CORS 预检
-  try {
-    const ctrl2 = new AbortController()
-    const timer2 = setTimeout(() => ctrl2.abort(), 10000)
-    await fetch('https://api.github.com/user', {
-      method: 'GET',
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      signal: ctrl2.signal,
-      cache: 'no-store',
-    })
-    clearTimeout(timer2)
-    apiOk = true
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    detail += `api.github.com 不通：${msg}。这通常是 CORS 预检（OPTIONS）被你的网络/代理拦截，或 api.github.com 被 DNS 层面屏蔽。`
-  }
-
-  if (githubOk && apiOk) {
-    detail = 'GitHub 连通性正常。如果仍然登录失败，可能是 token 本身的问题。'
-  } else if (githubOk && !apiOk) {
-    detail = '你能访问 github.com 但不能访问 api.github.com 的浏览器 API。这通常是因为：\n' +
-      '① 你的网络/代理/防火墙拦截了 CORS 预检请求（OPTIONS 方法）\n' +
-      '② api.github.com 被单独屏蔽（有些公司/校园网只放行 github.com 主站）\n' +
-      '建议：开启能访问 api.github.com 的 VPN，或换一个网络环境重试。'
-  } else if (!githubOk && !apiOk) {
-    detail = '完全无法连接到 GitHub。请检查：\n' +
+  if (githubOk && apiHeaderOk) {
+    detail = 'GitHub 连通性完全正常。如果登录仍失败，可能是 token 本身的问题（格式、scope、过期等）。'
+  } else if (corsBlocked) {
+    detail = '✅ github.com 可达\n' +
+      '✅ api.github.com + Query 参数 可达\n' +
+      '❌ api.github.com + Header 被拦\n\n' +
+      '你的网络环境拦截了 CORS 预检请求（OPTIONS）。\n' +
+      '系统已自动降级为 Query 参数认证，登录应当正常。\n' +
+      '如果仍失败，请联系管理员确认校园网是否允许 api.github.com 的 HTTP 请求。'
+  } else if (primaryBlocked) {
+    detail = '✅ github.com 可达\n' +
+      '❌ api.github.com 完全不可达\n' +
+      '✅ github.com/api/v3 可达\n\n' +
+      '你的校园网在域名层面封锁了 api.github.com。\n' +
+      '系统已自动切换到 github.com/api/v3 作为 API 端点，登录应当正常。\n' +
+      '这是高校网络的常见策略（只放行主站，封锁 API）。'
+  } else if (githubOk && !apiHeaderOk && !apiQueryOk && !ghV3QueryOk && ghV3HeaderOk) {
+    detail = '✅ github.com 可达\n' +
+      '❌ api.github.com 完全不可达\n' +
+      '❌ github.com/api/v3 + Query 参数 被拦\n' +
+      '✅ github.com/api/v3 + Header 可达\n\n' +
+      '你的校园网既封了 api.github.com，又拦了 Query 参数认证。\n' +
+      '系统已自动使用 github.com/api/v3 + Header 模式。'
+  } else if (githubOk && !apiHeaderOk && !apiQueryOk && !ghV3QueryOk && !ghV3HeaderOk) {
+    detail = '✅ github.com 可达\n' +
+      '❌ 所有 GitHub API 端点均不可达\n\n' +
+      '你的校园网可能在 HTTPS/TLS 层面做了深度检查，拦截了所有发往 GitHub API 的请求。\n' +
+      '建议尝试：\n' +
+      '① 使用 VPN\n' +
+      '② 切换到手机热点\n' +
+      '③ 联系校园网管理员确认是否允许 api.github.com 和 github.com/api/v3 的出站 HTTPS 请求'
+  } else if (!githubOk) {
+    detail = '❌ github.com 不可达\n\n' +
+      '完全无法连接到 GitHub。请检查：\n' +
       '① 是否已连外网\n' +
       '② DNS 是否能解析 github.com\n' +
-      '③ 是否需要配置代理'
+      '③ 是否需要配置代理或 VPN'
+  } else {
+    detail = `诊断结果：github.com=${githubOk ? 'OK' : 'FAIL'}, ` +
+      `api+Header=${apiHeaderOk ? 'OK' : 'FAIL'}, ` +
+      `api+Query=${apiQueryOk ? 'OK' : 'FAIL'}, ` +
+      `v3+Query=${ghV3QueryOk ? 'OK' : 'FAIL'}, ` +
+      `v3+Header=${ghV3HeaderOk ? 'OK' : 'FAIL'}\n\n` +
+      '如果登录仍有问题，请联系管理员或开启 VPN。'
   }
 
   return {
     githubDotCom: githubOk ? 'ok' : 'fail',
-    apiGithubDotCom: apiOk ? 'ok' : 'fail',
+    apiGithubDotCom: apiHeaderOk ? 'ok' : 'fail',
+    githubApiV3: ghV3QueryOk || ghV3HeaderOk ? 'ok' : 'fail',
+    corsPreflightBlocked: corsBlocked,
     detail,
   }
 }
@@ -124,20 +167,6 @@ export function getResolvedAuthMode(): AuthMode {
   return resolvedAuthMode
 }
 
-const CORS_NETWORK_PATTERNS = [
-  'Failed to fetch',
-  'NetworkError',
-  'Load failed',
-  'ERR_BLOCKED',
-  'ERR_NETWORK',
-  'TypeError: fetch',
-]
-
-function isCorsOrNetworkError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  return CORS_NETWORK_PATTERNS.some((p) => msg.includes(p))
-}
-
 export async function githubFetch(
   path: string,
   token: string,
@@ -145,7 +174,7 @@ export async function githubFetch(
   authMode?: AuthMode,
 ): Promise<Response> {
   const mode = authMode ?? resolvedAuthMode
-  const baseUrl = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const baseUrl = path.startsWith('http') ? path : `${resolvedApiBase}${path}`
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/vnd.github+json')
   headers.set('X-GitHub-Api-Version', '2022-11-28')
@@ -205,52 +234,82 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
     )
   }
 
-  let res: Response
+  let res: Response | null = null
   let usedAuthMode: AuthMode = 'header'
-  try {
-    res = await githubFetch('/user', trimmed, {}, 'header')
-  } catch (e) {
-    if (!isCorsOrNetworkError(e)) {
-      throw new Error(`请求失败：${e instanceof Error ? e.message : String(e)}`)
-    }
-    // Header 模式触发了 CORS 预检被拦 → 自动降级为 Query 参数
+  let usedApiBase = API_BASE_PRIMARY
+
+  // 4 步降级策略，覆盖所有校园网场景：
+  // 1. api.github.com + Authorization Header（标准方式）
+  // 2. api.github.com + ?access_token Query（绕开 OPTIONS 预检）
+  // 3. github.com/api/v3 + Query（api.github.com 被域名级封锁时的替代域名）
+  // 4. github.com/api/v3 + Header（最后兜底）
+  const attempts: Array<{ base: string; mode: AuthMode; label: string }> = [
+    { base: API_BASE_PRIMARY, mode: 'header', label: 'api.github.com + Header' },
+    { base: API_BASE_PRIMARY, mode: 'query', label: 'api.github.com + Query' },
+    { base: API_BASE_FALLBACK, mode: 'query', label: 'github.com/api/v3 + Query' },
+    { base: API_BASE_FALLBACK, mode: 'header', label: 'github.com/api/v3 + Header' },
+  ]
+
+  let lastError: unknown = null
+  for (const { base, mode } of attempts) {
     try {
-      res = await githubFetch('/user', trimmed, {}, 'query')
-      usedAuthMode = 'query'
-      setResolvedAuthMode('query')
-    } catch (e2) {
-      throw new Error(
-        `无法连接到 GitHub API (api.github.com)。\n` +
-        `Header 模式错误：${e instanceof Error ? e.message : String(e)}\n` +
-        `Query 模式错误：${e2 instanceof Error ? e2.message : String(e2)}\n\n` +
-        `两种认证方式均失败，请检查网络是否能访问 github.com / api.github.com。`,
-      )
+      // 临时切换 base URL 做请求
+      const prevBase = resolvedApiBase
+      resolvedApiBase = base
+      try {
+        res = await githubFetch('/user', trimmed, {}, mode)
+      } finally {
+        resolvedApiBase = prevBase
+      }
+      // 成功 → 记住配置，后续请求直接使用
+      usedApiBase = base
+      usedAuthMode = mode
+      setResolvedAuthMode(mode)
+      setApiBase(base)
+      break
+    } catch (e) {
+      lastError = e
     }
   }
 
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`
+  if (lastError || !res) {
+    const errMsg = lastError instanceof Error ? lastError.message : String(lastError)
+    throw new Error(
+      `所有 GitHub API 访问方式均失败。\n` +
+      `已尝试：api.github.com（Header/Query）、github.com/api/v3（Header/Query）\n` +
+      `最后错误：${errMsg || '未知错误'}\n\n` +
+      `这通常意味着：\n` +
+      `① 你的校园网/公司网 DNS 层面完全封锁了 GitHub API 域名\n` +
+      `② 或 SSL/TLS 检查拦截了所有出站连接\n` +
+      `建议：使用 VPN 或切换到手机热点重试。`,
+    )
+  }
+
+  const response = res
+
+  if (!response.ok) {
+    let msg = `HTTP ${response.status}`
     try {
-      const data = await res.json()
+      const data = await response.json()
       if (data?.message) msg = data.message
     } catch {
       // ignore json parse error
     }
 
-    if (res.status === 401) {
+    if (response.status === 401) {
       throw new GitHubAPIError(
         401,
         msg,
         'PAT 无效或已过期。请去 GitHub 重新生成，或检查是否粘贴完整。',
       )
     }
-    if (res.status === 403) {
+    if (response.status === 403) {
       throw new GitHubAPIError(403, msg, `GitHub 拒绝请求：${msg}`)
     }
-    throw new GitHubAPIError(res.status, msg)
+    throw new GitHubAPIError(response.status, msg)
   }
 
-  const scopes = parseScopes(res)
+  const scopes = parseScopes(response)
 
   // 检查最小 scope 要求
   if (!scopes.includes(REQUIRED_SCOPE)) {
@@ -261,21 +320,21 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
     )
   }
 
-  const user = (await res.json()) as GitHubUser
+  const user = (await response.json()) as GitHubUser
   const rateLimitRemaining = parseInt(
-    res.headers.get('X-RateLimit-Remaining') || '0',
+    response.headers.get('X-RateLimit-Remaining') || '0',
     10,
   )
 
   // GitHub 在部分场景下通过响应头返回 token 过期时间（Fine-grained PAT 创建/校验）
   let expiresAt: number | undefined
-  const tokenExpiration = res.headers.get('github-authentication-token-expiration')
+  const tokenExpiration = response.headers.get('github-authentication-token-expiration')
   if (tokenExpiration) {
     const parsed = new Date(tokenExpiration).getTime()
     if (!isNaN(parsed)) expiresAt = parsed
   }
 
-  return { user, scopes, rateLimitRemaining, expiresAt, authMode: usedAuthMode }
+  return { user, scopes, rateLimitRemaining, expiresAt, authMode: usedAuthMode, apiBase: usedApiBase }
 }
 
 /** 生成 Fine-grained PAT 创建页 URL（预填名称/描述/过期时间/仓库权限）

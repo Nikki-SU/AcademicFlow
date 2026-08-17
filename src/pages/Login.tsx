@@ -130,7 +130,10 @@ function Login() {
       const result = await testGitHubConnectivity()
       const summary =
         `github.com → ${result.githubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
-        `api.github.com → ${result.apiGithubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n\n` +
+        `api.github.com → ${result.apiGithubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
+        `github.com/api/v3 → ${result.githubApiV3 === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
+        `CORS 预检 → ${result.corsPreflightBlocked ? '⚠️ 被拦截' : '✅ 正常'}\n` +
+        `\n` +
         result.detail
       setDiagnosticResult(summary)
     } catch (e) {
@@ -373,7 +376,7 @@ function Login() {
             </button>
           </div>
           {diagnosticResult && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 whitespace-pre-wrap break-words font-mono leading-relaxed">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 whitespace-pre-wrap break-words leading-relaxed">
               {diagnosticResult}
             </div>
           )}
