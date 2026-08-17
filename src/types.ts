@@ -35,6 +35,8 @@ export interface AuthState {
   error: string | null
   /** 全局认证错误（401/403），触发后冻结写操作 */
   authError: string | null
+  /** 认证模式：header（标准）或 query（降级，用 ?access_token 参数） */
+  authMode: 'header' | 'query'
 }
 
 /** PAT 验证成功后的返回结果 */
@@ -45,6 +47,8 @@ export interface PATVerifyResult {
   rateLimitRemaining: number
   /** PAT 过期时间（Unix ms），当 GitHub 响应头提供时才有 */
   expiresAt?: number
+  /** 实际使用的认证模式 */
+  authMode: 'header' | 'query'
 }
 
 /** GitHub API 错误 */

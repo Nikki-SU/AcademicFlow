@@ -100,35 +100,79 @@ export async function testGitHubConnectivity(): Promise<ConnectivityResult> {
 }
 
 /**
- * 通用请求封装：自动带鉴权头、统一错误处理、返回原始 Response（便于读 headers）
+ * 通用请求封装：自动带鉴权、统一错误处理、返回原始 Response
+ * -------------------------------------------------
+ * 双认证策略：
+ *   1. 优先 Authorization Header（标准、安全，但触发 CORS 预检）
+ *   2. 若预检被拦（NetworkError），自动降级为 ?access_token= Query 参数（不触发预检）
+ *
+ * 这样无论用户网络环境如何，都能通过至少一种方式访问 GitHub API。
  */
+export type AuthMode = 'header' | 'query'
+
+/**
+ * 全局认证模式：由 verifyPAT 写入，所有后续请求自动采用已验证通过的模式。
+ * 默认为 'header'（标准 Authorization 头方式），降级后自动切换为 'query'。
+ */
+let resolvedAuthMode: AuthMode = 'header'
+
+export function setResolvedAuthMode(mode: AuthMode) {
+  resolvedAuthMode = mode
+}
+
+export function getResolvedAuthMode(): AuthMode {
+  return resolvedAuthMode
+}
+
+const CORS_NETWORK_PATTERNS = [
+  'Failed to fetch',
+  'NetworkError',
+  'Load failed',
+  'ERR_BLOCKED',
+  'ERR_NETWORK',
+  'TypeError: fetch',
+]
+
+function isCorsOrNetworkError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return CORS_NETWORK_PATTERNS.some((p) => msg.includes(p))
+}
+
 export async function githubFetch(
   path: string,
   token: string,
   init: RequestInit = {},
+  authMode?: AuthMode,
 ): Promise<Response> {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const mode = authMode ?? resolvedAuthMode
+  const baseUrl = path.startsWith('http') ? path : `${API_BASE}${path}`
   const headers = new Headers(init.headers)
-  headers.set('Authorization', `Bearer ${token}`)
   headers.set('Accept', 'application/vnd.github+json')
   headers.set('X-GitHub-Api-Version', '2022-11-28')
 
-  const res = await fetch(url, { ...init, headers })
-
-  if (res.status === 401 || res.status === 403) {
-    let detail = `GitHub 返回 ${res.status}`
-    try {
-      const data = await res.clone().json()
-      if (data?.message) detail = data.message
-    } catch {
-      // ignore
+  if (mode === 'header') {
+    headers.set('Authorization', `Bearer ${token}`)
+    const res = await fetch(baseUrl, { ...init, headers })
+    if (res.status === 401 || res.status === 403) {
+      handleAuthError(res)
     }
-    setGlobalAuthError(
-      `Token 失效或权限不足（${res.status}：${detail}）。请重新登录或检查 PAT 权限。`,
-    )
+    return res
   }
 
+  // Query 参数模式：不使用 Authorization 头，避免 CORS 预检
+  const sep = baseUrl.includes('?') ? '&' : '?'
+  const urlWithToken = `${baseUrl}${sep}access_token=${encodeURIComponent(token)}`
+  const res = await fetch(urlWithToken, { ...init, headers })
+  if (res.status === 401 || res.status === 403) {
+    handleAuthError(res)
+  }
   return res
+}
+
+function handleAuthError(res: Response) {
+  setGlobalAuthError(
+    `Token 失效或权限不足（${res.status}）。请重新登录或检查 PAT 权限。`,
+  )
 }
 
 /**
@@ -162,27 +206,26 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
   }
 
   let res: Response
+  let usedAuthMode: AuthMode = 'header'
   try {
-    res = await githubFetch('/user', trimmed)
+    res = await githubFetch('/user', trimmed, {}, 'header')
   } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e)
-    const isCorsOrNetwork =
-      errMsg.includes('Failed to fetch') ||
-      errMsg.includes('NetworkError') ||
-      errMsg.includes('Load failed') ||
-      errMsg.includes('ERR_BLOCKED') ||
-      errMsg.includes('ERR_NETWORK') ||
-      errMsg.includes('DNS')
-
-    if (isCorsOrNetwork) {
+    if (!isCorsOrNetworkError(e)) {
+      throw new Error(`请求失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+    // Header 模式触发了 CORS 预检被拦 → 自动降级为 Query 参数
+    try {
+      res = await githubFetch('/user', trimmed, {}, 'query')
+      usedAuthMode = 'query'
+      setResolvedAuthMode('query')
+    } catch (e2) {
       throw new Error(
         `无法连接到 GitHub API (api.github.com)。\n` +
-        `详情：${errMsg}\n\n` +
-        `这通常是因为你的网络/代理拦截了 CORS 预检请求（OPTIONS 方法），或 api.github.com 被屏蔽。\n` +
-        `建议点击登录页的「网络诊断」按钮确认问题，或开启 VPN/换网络重试。`,
+        `Header 模式错误：${e instanceof Error ? e.message : String(e)}\n` +
+        `Query 模式错误：${e2 instanceof Error ? e2.message : String(e2)}\n\n` +
+        `两种认证方式均失败，请检查网络是否能访问 github.com / api.github.com。`,
       )
     }
-    throw new Error(`请求失败：${errMsg}`)
   }
 
   if (!res.ok) {
@@ -232,7 +275,7 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
     if (!isNaN(parsed)) expiresAt = parsed
   }
 
-  return { user, scopes, rateLimitRemaining, expiresAt }
+  return { user, scopes, rateLimitRemaining, expiresAt, authMode: usedAuthMode }
 }
 
 /** 生成 Fine-grained PAT 创建页 URL（预填名称/描述/过期时间/仓库权限）
