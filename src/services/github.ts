@@ -16,6 +16,89 @@ const API_BASE = 'https://api.github.com'
 /** M1 阶段最小 scope 要求（M2 起会用到 workflow / delete_repo 等） */
 export const REQUIRED_SCOPE = 'repo'
 
+export interface ConnectivityResult {
+  /** github.com 基础连通（Cookie 级请求，不触发 CORS 预检） */
+  githubDotCom: 'ok' | 'fail'
+  /** api.github.com 连通（API 级请求，会触发 CORS 预检） */
+  apiGithubDotCom: 'ok' | 'fail'
+  /** 失败的具体原因（可读） */
+  detail: string
+}
+
+/**
+ * GitHub 连通性诊断
+ * -------------------------------------------------
+ * 1. 先测 github.com（无自定义头，不触发 CORS 预检）→ 判断基础网络可达性
+ * 2. 再测 api.github.com/user（带 Authorization 头，必触发 CORS 预检）→ 判断 API 可达性
+ *
+ * 两个结果对比：
+ *   github.com OK + api.github.com FAIL → 大概率是 CORS 预检被拦 / api.github.com 被封
+ *   两者都 OK → 不是网络问题，可能是 token 本身
+ *   两者都 FAIL → 完全无外网或 DNS 问题
+ */
+export async function testGitHubConnectivity(): Promise<ConnectivityResult> {
+  let githubOk = false
+  let apiOk = false
+  let detail = ''
+
+  // Test 1: github.com — 简单 GET，无自定义头，不触发预检
+  try {
+    const ctrl1 = new AbortController()
+    const timer1 = setTimeout(() => ctrl1.abort(), 10000)
+    await fetch('https://github.com', {
+      method: 'GET',
+      mode: 'no-cors',
+      signal: ctrl1.signal,
+      cache: 'no-store',
+    })
+    clearTimeout(timer1)
+    githubOk = true
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    detail += `github.com 不通：${msg}。`
+  }
+
+  // Test 2: api.github.com — 带自定义头，触发 CORS 预检
+  try {
+    const ctrl2 = new AbortController()
+    const timer2 = setTimeout(() => ctrl2.abort(), 10000)
+    await fetch('https://api.github.com/user', {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      signal: ctrl2.signal,
+      cache: 'no-store',
+    })
+    clearTimeout(timer2)
+    apiOk = true
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    detail += `api.github.com 不通：${msg}。这通常是 CORS 预检（OPTIONS）被你的网络/代理拦截，或 api.github.com 被 DNS 层面屏蔽。`
+  }
+
+  if (githubOk && apiOk) {
+    detail = 'GitHub 连通性正常。如果仍然登录失败，可能是 token 本身的问题。'
+  } else if (githubOk && !apiOk) {
+    detail = '你能访问 github.com 但不能访问 api.github.com 的浏览器 API。这通常是因为：\n' +
+      '① 你的网络/代理/防火墙拦截了 CORS 预检请求（OPTIONS 方法）\n' +
+      '② api.github.com 被单独屏蔽（有些公司/校园网只放行 github.com 主站）\n' +
+      '建议：开启能访问 api.github.com 的 VPN，或换一个网络环境重试。'
+  } else if (!githubOk && !apiOk) {
+    detail = '完全无法连接到 GitHub。请检查：\n' +
+      '① 是否已连外网\n' +
+      '② DNS 是否能解析 github.com\n' +
+      '③ 是否需要配置代理'
+  }
+
+  return {
+    githubDotCom: githubOk ? 'ok' : 'fail',
+    apiGithubDotCom: apiOk ? 'ok' : 'fail',
+    detail,
+  }
+}
+
 /**
  * 通用请求封装：自动带鉴权头、统一错误处理、返回原始 Response（便于读 headers）
  */
@@ -82,10 +165,24 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
   try {
     res = await githubFetch('/user', trimmed)
   } catch (e) {
-    // 网络错误、CORS 错误、DNS 错误等
-    throw new Error(
-      `网络请求失败：${e instanceof Error ? e.message : String(e)}。请检查网络或 VPN。`,
-    )
+    const errMsg = e instanceof Error ? e.message : String(e)
+    const isCorsOrNetwork =
+      errMsg.includes('Failed to fetch') ||
+      errMsg.includes('NetworkError') ||
+      errMsg.includes('Load failed') ||
+      errMsg.includes('ERR_BLOCKED') ||
+      errMsg.includes('ERR_NETWORK') ||
+      errMsg.includes('DNS')
+
+    if (isCorsOrNetwork) {
+      throw new Error(
+        `无法连接到 GitHub API (api.github.com)。\n` +
+        `详情：${errMsg}\n\n` +
+        `这通常是因为你的网络/代理拦截了 CORS 预检请求（OPTIONS 方法），或 api.github.com 被屏蔽。\n` +
+        `建议点击登录页的「网络诊断」按钮确认问题，或开启 VPN/换网络重试。`,
+      )
+    }
+    throw new Error(`请求失败：${errMsg}`)
   }
 
   if (!res.ok) {
@@ -186,19 +283,37 @@ export interface TokenError {
  * POST https://github.com/login/device/code
  */
 export async function getDeviceCode(): Promise<DeviceCodeResponse> {
-  const res = await fetch('https://github.com/login/device/code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      scope: 'repo',
-    }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as TokenError
-    throw new Error(err.error_description || `Device Flow 失败: ${err.error}`)
+  try {
+    const res = await fetch('https://github.com/login/device/code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        scope: 'repo',
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as TokenError
+      throw new Error(err.error_description || `Device Flow 失败: ${err.error}`)
+    }
+    return (await res.json()) as DeviceCodeResponse
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    const isCorsOrNetwork =
+      errMsg.includes('Failed to fetch') ||
+      errMsg.includes('NetworkError') ||
+      errMsg.includes('Load failed') ||
+      errMsg.includes('ERR_BLOCKED') ||
+      errMsg.includes('ERR_NETWORK')
+    if (isCorsOrNetwork) {
+      throw new Error(
+        `无法连接到 GitHub (github.com)。\n` +
+        `详情：${errMsg}\n\n` +
+        `可能是网络/代理拦截了 CORS 预检请求。请检查网络连接，或使用登录页的「网络诊断」按钮排查。`,
+      )
+    }
+    throw e
   }
-  return (await res.json()) as DeviceCodeResponse
 }
 
 /** 轮询结果：成功返回 token；pending 时返回下一次轮询间隔（秒） */
@@ -217,29 +332,47 @@ export async function pollDeviceToken(
   deviceCode: string,
   currentInterval: number,
 ): Promise<PollDeviceTokenResult> {
-  const res = await fetch('https://github.com/login/oauth/access_token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      device_code: deviceCode,
-      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-    }),
-  })
-  const data = (await res.json()) as TokenResponse | TokenError
-  if ('error' in data) {
-    if (data.error === 'authorization_pending') {
-      return { type: 'pending', interval: currentInterval }
+  try {
+    const res = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        device_code: deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      }),
+    })
+    const data = (await res.json()) as TokenResponse | TokenError
+    if ('error' in data) {
+      if (data.error === 'authorization_pending') {
+        return { type: 'pending', interval: currentInterval }
+      }
+      if (data.error === 'slow_down') {
+        // GitHub 要求遇到 slow_down 时把轮询间隔增加 5 秒
+        return { type: 'pending', interval: currentInterval + 5 }
+      }
+      if (data.error === 'expired_token') throw new Error('授权码已过期，请重新获取')
+      if (data.error === 'access_denied') throw new Error('你拒绝了授权')
+      throw new Error(data.error_description || `Token 获取失败: ${data.error}`)
     }
-    if (data.error === 'slow_down') {
-      // GitHub 要求遇到 slow_down 时把轮询间隔增加 5 秒
-      return { type: 'pending', interval: currentInterval + 5 }
+    return { type: 'token', token: data }
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    const isCorsOrNetwork =
+      errMsg.includes('Failed to fetch') ||
+      errMsg.includes('NetworkError') ||
+      errMsg.includes('Load failed') ||
+      errMsg.includes('ERR_BLOCKED') ||
+      errMsg.includes('ERR_NETWORK')
+    if (isCorsOrNetwork) {
+      throw new Error(
+        `与 GitHub 断开连接 (github.com)。\n` +
+        `详情：${errMsg}\n\n` +
+        `授权轮询被网络中断。请确认网络/代理能访问 github.com，然后重试。`,
+      )
     }
-    if (data.error === 'expired_token') throw new Error('授权码已过期，请重新获取')
-    if (data.error === 'access_denied') throw new Error('你拒绝了授权')
-    throw new Error(data.error_description || `Token 获取失败: ${data.error}`)
+    throw e
   }
-  return { type: 'token', token: data }
 }
 
 // ═════════════════════════════════════════════════════════════════════════

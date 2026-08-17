@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   ArrowRight,
   Circle,
+  Wifi,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
@@ -22,6 +23,7 @@ import {
   buildPATCreateURL,
   getDeviceCode,
   pollDeviceToken,
+  testGitHubConnectivity,
   type DeviceCodeResponse,
 } from '../services/github'
 
@@ -41,6 +43,8 @@ function Login() {
   const [deviceCode, setDeviceCode] = useState<DeviceCodeResponse | null>(null)
   const [isPolling, setIsPolling] = useState(false)
   const [countdown, setCountdown] = useState(0)
+  const [diagnosing, setDiagnosing] = useState(false)
+  const [diagnosticResult, setDiagnosticResult] = useState<string | null>(null)
 
   if (token) {
     const from =
@@ -118,6 +122,23 @@ function Login() {
       // error already set in store
     }
   }
+
+  const handleRunDiagnostics = useCallback(async () => {
+    setDiagnosing(true)
+    setDiagnosticResult(null)
+    try {
+      const result = await testGitHubConnectivity()
+      const summary =
+        `github.com → ${result.githubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
+        `api.github.com → ${result.apiGithubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n\n` +
+        result.detail
+      setDiagnosticResult(summary)
+    } catch (e) {
+      setDiagnosticResult(`诊断出错：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setDiagnosing(false)
+    }
+  }, [])
 
   const formatCountdown = (seconds: number) => {
     const m = Math.floor(seconds / 60)
@@ -328,6 +349,35 @@ function Login() {
             </button>
           </div>
         )}
+
+        {/* 网络诊断 */}
+        <div className="mb-4 pt-4 border-t border-slate-200">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+              <Wifi className="w-3.5 h-3.5" />
+              网络诊断
+            </p>
+            <button
+              onClick={handleRunDiagnostics}
+              disabled={diagnosing}
+              className="text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:text-slate-400 flex items-center gap-1"
+            >
+              {diagnosing ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  检测中…
+                </>
+              ) : (
+                '检测 GitHub 连通性'
+              )}
+            </button>
+          </div>
+          {diagnosticResult && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 whitespace-pre-wrap break-words font-mono leading-relaxed">
+              {diagnosticResult}
+            </div>
+          )}
+        </div>
 
         {/* 底部信息（spec §5.0.1） */}
         <div className="mt-6 pt-6 border-t border-slate-200 space-y-3">
