@@ -49,8 +49,6 @@ export interface PATVerifyResult {
   expiresAt?: number
   /** 实际使用的认证模式 */
   authMode: 'header' | 'query'
-  /** 实际使用的 API 端点 */
-  apiBase: string
 }
 
 /** GitHub API 错误 */
