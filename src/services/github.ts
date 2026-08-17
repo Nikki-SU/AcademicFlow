@@ -159,13 +159,14 @@ export async function githubFetch(
     return res
   }
 
-  // Query 参数模式：只发 Accept（简单头），不发任何会触发预检的自定义头
-  // 目的：彻底绕开 CORS 预检请求
-  const headers = new Headers(init.headers)
-  headers.set('Accept', 'application/vnd.github+json')
+  // Query 参数模式：彻底零自定义头，保证不触发任何 CORS 预检
+  // GitHub API 默认返回 JSON，不需要 Accept 头
+  // 这是在严格网络环境下唯一可靠的方式
   const sep = baseUrl.includes('?') ? '&' : '?'
   const urlWithToken = `${baseUrl}${sep}access_token=${encodeURIComponent(token)}`
-  const res = await fetch(urlWithToken, { ...init, headers })
+  // 只保留 method/signal/body，完全丢弃 headers
+  const { headers: _omit, ...safeInit } = init
+  const res = await fetch(urlWithToken, safeInit)
   if (res.status === 401 || res.status === 403) {
     handleAuthError(res)
   }
