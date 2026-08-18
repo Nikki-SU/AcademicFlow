@@ -130,7 +130,9 @@ function Login() {
       const result = await testGitHubConnectivity()
       const summary =
         `github.com → ${result.githubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
-        `api.github.com → ${result.apiGithubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n\n` +
+        `Header 模式 → ${result.apiWithHeader === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
+        `Query 模式 → ${result.apiWithQuery === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
+        `\n` +
         result.detail
       setDiagnosticResult(summary)
     } catch (e) {

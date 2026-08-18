@@ -4,6 +4,11 @@
  * 所有请求都从浏览器直接打到 api.github.com（该端点支持 CORS，允许 *）。
  * 请求头带用户自持的 PAT（Personal Access Token）。
  *
+ * 认证策略：
+ *   1. Header 模式（标准）：Authorization: Bearer <token> + 自定义头 → 触发 CORS 预检
+ *   2. Query 模式（降级）：?access_token=<token> + 零自定义头 → 不触发 CORS 预检
+ *      当 Header 模式被网络/VPN/防火墙拦截时，自动降级到 Query 模式。
+ *
  * 相关文档：
  * - https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api
  * - https://docs.github.com/en/rest/users/users#get-the-authenticated-user
@@ -16,105 +21,139 @@ const API_BASE = 'https://api.github.com'
 /** M1 阶段最小 scope 要求（M2 起会用到 workflow / delete_repo 等） */
 export const REQUIRED_SCOPE = 'repo'
 
+// ═════════════════════════════════════════════════════════════════════════
+// 认证模式管理
+// ═════════════════════════════════════════════════════════════════════════
+
+export type AuthMode = 'header' | 'query'
+
+let resolvedAuthMode: AuthMode = 'header'
+
+export function setResolvedAuthMode(mode: AuthMode) {
+  resolvedAuthMode = mode
+}
+
+export function getResolvedAuthMode(): AuthMode {
+  return resolvedAuthMode
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// 连通性诊断
+// ═════════════════════════════════════════════════════════════════════════
+
 export interface ConnectivityResult {
-  /** github.com 基础连通（Cookie 级请求，不触发 CORS 预检） */
   githubDotCom: 'ok' | 'fail'
-  /** api.github.com 连通（API 级请求，会触发 CORS 预检） */
-  apiGithubDotCom: 'ok' | 'fail'
-  /** 失败的具体原因（可读） */
+  apiWithHeader: 'ok' | 'fail'
+  apiWithQuery: 'ok' | 'fail'
   detail: string
 }
 
-/**
- * GitHub 连通性诊断
- * -------------------------------------------------
- * 1. 先测 github.com（无自定义头，不触发 CORS 预检）→ 判断基础网络可达性
- * 2. 再测 api.github.com/user（带 Authorization 头，必触发 CORS 预检）→ 判断 API 可达性
- *
- * 两个结果对比：
- *   github.com OK + api.github.com FAIL → 大概率是 CORS 预检被拦 / api.github.com 被封
- *   两者都 OK → 不是网络问题，可能是 token 本身
- *   两者都 FAIL → 完全无外网或 DNS 问题
- */
-export async function testGitHubConnectivity(): Promise<ConnectivityResult> {
-  let githubOk = false
-  let apiOk = false
-  let detail = ''
-
-  // Test 1: github.com — 简单 GET，无自定义头，不触发预检
+async function probe(url: string, corsMode: boolean = false): Promise<boolean> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 8000)
   try {
-    const ctrl1 = new AbortController()
-    const timer1 = setTimeout(() => ctrl1.abort(), 10000)
-    await fetch('https://github.com', {
+    const init: RequestInit = {
       method: 'GET',
-      mode: 'no-cors',
-      signal: ctrl1.signal,
+      signal: ctrl.signal,
       cache: 'no-store',
-    })
-    clearTimeout(timer1)
-    githubOk = true
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    detail += `github.com 不通：${msg}。`
-  }
-
-  // Test 2: api.github.com — 带自定义头，触发 CORS 预检
-  try {
-    const ctrl2 = new AbortController()
-    const timer2 = setTimeout(() => ctrl2.abort(), 10000)
-    await fetch('https://api.github.com/user', {
-      method: 'GET',
-      headers: {
+    }
+    if (corsMode) {
+      init.headers = {
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-      },
-      signal: ctrl2.signal,
-      cache: 'no-store',
-    })
-    clearTimeout(timer2)
-    apiOk = true
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    detail += `api.github.com 不通：${msg}。这通常是 CORS 预检（OPTIONS）被你的网络/代理拦截，或 api.github.com 被 DNS 层面屏蔽。`
+      }
+    } else {
+      init.mode = 'no-cors'
+    }
+    await fetch(url, init)
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
   }
+}
 
-  if (githubOk && apiOk) {
-    detail = 'GitHub 连通性正常。如果仍然登录失败，可能是 token 本身的问题。'
-  } else if (githubOk && !apiOk) {
-    detail = '你能访问 github.com 但不能访问 api.github.com 的浏览器 API。这通常是因为：\n' +
-      '① 你的网络/代理/防火墙拦截了 CORS 预检请求（OPTIONS 方法）\n' +
-      '② api.github.com 被单独屏蔽（有些公司/校园网只放行 github.com 主站）\n' +
-      '建议：开启能访问 api.github.com 的 VPN，或换一个网络环境重试。'
-  } else if (!githubOk && !apiOk) {
-    detail = '完全无法连接到 GitHub。请检查：\n' +
-      '① 是否已连外网\n' +
+export async function testGitHubConnectivity(): Promise<ConnectivityResult> {
+  const [githubOk, headerOk, queryOk] = await Promise.all([
+    probe('https://github.com', false),
+    probe('https://api.github.com/user', true),
+    probe('https://api.github.com/user', false),
+  ])
+
+  let detail = ''
+  if (githubOk && headerOk) {
+    detail = 'GitHub 连通性完全正常。如果登录仍失败，可能是 token 本身的问题（格式、scope、过期等）。'
+  } else if (githubOk && !headerOk && queryOk) {
+    detail = '✅ github.com 可达\n' +
+      '✅ api.github.com 可达\n' +
+      '❌ CORS 预检被拦截\n\n' +
+      '你的网络/VPN 拦截了带自定义头的 CORS 预检请求。\n' +
+      '系统已自动降级为 Query 参数认证，登录应当正常。'
+  } else if (githubOk && !headerOk && !queryOk) {
+    detail = '✅ github.com 可达\n' +
+      '❌ api.github.com 完全不可达\n\n' +
+      '你的网络/VPN 完全阻断了对 api.github.com 的访问。\n' +
+      '请确认 VPN 配置，或联系网络管理员。'
+  } else if (!githubOk) {
+    detail = '❌ github.com 不可达\n\n' +
+      '完全无法连接到 GitHub。请检查：\n' +
+      '① 是否已连外网 / VPN\n' +
       '② DNS 是否能解析 github.com\n' +
-      '③ 是否需要配置代理'
+      '③ 防火墙是否放行 HTTPS 出站连接'
+  } else {
+    detail = `诊断结果：github.com=${githubOk ? 'OK' : 'FAIL'}, ` +
+      `Header=${headerOk ? 'OK' : 'FAIL'}, Query=${queryOk ? 'OK' : 'FAIL'}`
   }
 
   return {
     githubDotCom: githubOk ? 'ok' : 'fail',
-    apiGithubDotCom: apiOk ? 'ok' : 'fail',
+    apiWithHeader: headerOk ? 'ok' : 'fail',
+    apiWithQuery: queryOk ? 'ok' : 'fail',
     detail,
   }
 }
 
-/**
- * 通用请求封装：自动带鉴权头、统一错误处理、返回原始 Response（便于读 headers）
- */
+// ═════════════════════════════════════════════════════════════════════════
+// 核心 API 请求
+// ═════════════════════════════════════════════════════════════════════════
+
 export async function githubFetch(
   path: string,
   token: string,
   init: RequestInit = {},
+  authMode?: AuthMode,
 ): Promise<Response> {
+  const mode = authMode ?? resolvedAuthMode
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
-  const headers = new Headers(init.headers)
-  headers.set('Authorization', `Bearer ${token}`)
-  headers.set('Accept', 'application/vnd.github+json')
-  headers.set('X-GitHub-Api-Version', '2022-11-28')
 
-  const res = await fetch(url, { ...init, headers })
+  if (mode === 'header') {
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${token}`)
+    headers.set('Accept', 'application/vnd.github+json')
+    headers.set('X-GitHub-Api-Version', '2022-11-28')
+    const res = await fetch(url, { ...init, headers })
+    if (res.status === 401 || res.status === 403) {
+      let detail = `GitHub 返回 ${res.status}`
+      try {
+        const data = await res.clone().json()
+        if (data?.message) detail = data.message
+      } catch {
+        // ignore
+      }
+      setGlobalAuthError(
+        `Token 失效或权限不足（${res.status}：${detail}）。请重新登录或检查 PAT 权限。`,
+      )
+    }
+    return res
+  }
 
+  // Query 参数模式：零自定义头 → 绝对不触发 CORS 预检
+  const sep = url.includes('?') ? '&' : '?'
+  const urlWithToken = `${url}${sep}access_token=${encodeURIComponent(token)}`
+  const safeInit = { ...init }
+  delete safeInit.headers
+  const res = await fetch(urlWithToken, safeInit)
   if (res.status === 401 || res.status === 403) {
     let detail = `GitHub 返回 ${res.status}`
     try {
@@ -127,14 +166,9 @@ export async function githubFetch(
       `Token 失效或权限不足（${res.status}：${detail}）。请重新登录或检查 PAT 权限。`,
     )
   }
-
   return res
 }
 
-/**
- * 从响应头解析 scope 列表
- * X-OAuth-Scopes: "repo, workflow" -> ["repo", "workflow"]
- */
 export function parseScopes(res: Response): string[] {
   const raw = res.headers.get('X-OAuth-Scopes') || ''
   return raw
@@ -143,14 +177,11 @@ export function parseScopes(res: Response): string[] {
     .filter(Boolean)
 }
 
-/**
- * 验证 PAT 有效性 + scope 权限
- *
- * @throws GitHubAPIError 401 = token 无效/过期，403 = 速率限制或权限不足
- * @throws Error(scope 不足) = token 有效但缺 repo scope
- */
+// ═════════════════════════════════════════════════════════════════════════
+// PAT 验证
+// ═════════════════════════════════════════════════════════════════════════
+
 export async function verifyPAT(token: string): Promise<PATVerifyResult> {
-  // 基础格式校验：GitHub PAT 一般以 ghp_ / github_pat_ / gho_ / ghu_ 开头
   const trimmed = token.trim()
   if (!trimmed) {
     throw new Error('PAT 不能为空')
@@ -161,55 +192,56 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
     )
   }
 
-  let res: Response
-  try {
-    res = await githubFetch('/user', trimmed)
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e)
-    const isCorsOrNetwork =
-      errMsg.includes('Failed to fetch') ||
-      errMsg.includes('NetworkError') ||
-      errMsg.includes('Load failed') ||
-      errMsg.includes('ERR_BLOCKED') ||
-      errMsg.includes('ERR_NETWORK') ||
-      errMsg.includes('DNS')
+  let res: Response | null = null
+  let usedAuthMode: AuthMode = 'header'
 
-    if (isCorsOrNetwork) {
+  // 自动降级：先试 Header，失败自动转 Query
+  try {
+    res = await githubFetch('/user', trimmed, {}, 'header')
+  } catch {
+    try {
+      res = await githubFetch('/user', trimmed, {}, 'query')
+      usedAuthMode = 'query'
+      setResolvedAuthMode('query')
+    } catch (e2) {
+      const errMsg = e2 instanceof Error ? e2.message : String(e2)
       throw new Error(
-        `无法连接到 GitHub API (api.github.com)。\n` +
-        `详情：${errMsg}\n\n` +
-        `这通常是因为你的网络/代理拦截了 CORS 预检请求（OPTIONS 方法），或 api.github.com 被屏蔽。\n` +
-        `建议点击登录页的「网络诊断」按钮确认问题，或开启 VPN/换网络重试。`,
+        `无法连接到 GitHub API。\n` +
+        `最后错误：${errMsg}\n\n` +
+        `可能原因：\n` +
+        `① 你的网络/VPN 完全阻断了对 api.github.com 的访问\n` +
+        `② GitHub 服务临时不可用\n` +
+        `请确认 VPN 已开启，并尝试刷新页面或切换网络。`,
       )
     }
-    throw new Error(`请求失败：${errMsg}`)
   }
 
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`
+  const response = res!
+
+  if (!response.ok) {
+    let msg = `HTTP ${response.status}`
     try {
-      const data = await res.json()
+      const data = await response.json()
       if (data?.message) msg = data.message
     } catch {
-      // ignore json parse error
+      // ignore
     }
 
-    if (res.status === 401) {
+    if (response.status === 401) {
       throw new GitHubAPIError(
         401,
         msg,
         'PAT 无效或已过期。请去 GitHub 重新生成，或检查是否粘贴完整。',
       )
     }
-    if (res.status === 403) {
+    if (response.status === 403) {
       throw new GitHubAPIError(403, msg, `GitHub 拒绝请求：${msg}`)
     }
-    throw new GitHubAPIError(res.status, msg)
+    throw new GitHubAPIError(response.status, msg)
   }
 
-  const scopes = parseScopes(res)
+  const scopes = parseScopes(response)
 
-  // 检查最小 scope 要求
   if (!scopes.includes(REQUIRED_SCOPE)) {
     throw new Error(
       `PAT 缺少必需的 "${REQUIRED_SCOPE}" 权限（当前 scope: [${
@@ -218,27 +250,26 @@ export async function verifyPAT(token: string): Promise<PATVerifyResult> {
     )
   }
 
-  const user = (await res.json()) as GitHubUser
+  const user = (await response.json()) as GitHubUser
   const rateLimitRemaining = parseInt(
-    res.headers.get('X-RateLimit-Remaining') || '0',
+    response.headers.get('X-RateLimit-Remaining') || '0',
     10,
   )
 
-  // GitHub 在部分场景下通过响应头返回 token 过期时间（Fine-grained PAT 创建/校验）
   let expiresAt: number | undefined
-  const tokenExpiration = res.headers.get('github-authentication-token-expiration')
+  const tokenExpiration = response.headers.get('github-authentication-token-expiration')
   if (tokenExpiration) {
     const parsed = new Date(tokenExpiration).getTime()
     if (!isNaN(parsed)) expiresAt = parsed
   }
 
-  return { user, scopes, rateLimitRemaining, expiresAt }
+  return { user, scopes, rateLimitRemaining, expiresAt, authMode: usedAuthMode }
 }
 
-/** 生成 Fine-grained PAT 创建页 URL（预填名称/描述/过期时间/仓库权限）
- * 说明：GitHub  Fine-grained PAT 创建页支持通过 URL 参数预填字段，
- * 仓库选择需要用户手动勾选（首次登录时目标私库可能尚未创建）。
- */
+// ═════════════════════════════════════════════════════════════════════════
+// PAT 创建 URL
+// ═════════════════════════════════════════════════════════════════════════
+
 export function buildPATCreateURL(): string {
   const params = new URLSearchParams({
     name: 'AcademicFlow',
@@ -253,7 +284,7 @@ export function buildPATCreateURL(): string {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// Device Flow 认证（主路径，无后端无密钥）
+// Device Flow 认证
 // ═════════════════════════════════════════════════════════════════════════
 
 const GITHUB_CLIENT_ID = 'Ov23li6yK83u4S1YxNnP'
@@ -278,10 +309,6 @@ export interface TokenError {
   error_uri?: string
 }
 
-/**
- * 获取 Device Code
- * POST https://github.com/login/device/code
- */
 export async function getDeviceCode(): Promise<DeviceCodeResponse> {
   try {
     const res = await fetch('https://github.com/login/device/code', {
@@ -316,18 +343,10 @@ export async function getDeviceCode(): Promise<DeviceCodeResponse> {
   }
 }
 
-/** 轮询结果：成功返回 token；pending 时返回下一次轮询间隔（秒） */
 export type PollDeviceTokenResult =
   | { type: 'token'; token: TokenResponse }
   | { type: 'pending'; interval: number }
 
-/**
- * 轮询获取 Access Token
- * POST https://github.com/login/oauth/access_token
- * @param deviceCode 设备码
- * @param currentInterval 当前轮询间隔（秒）
- * @returns TokenResponse 成功时；pending 时返回新的轮询间隔
- */
 export async function pollDeviceToken(
   deviceCode: string,
   currentInterval: number,
@@ -348,7 +367,6 @@ export async function pollDeviceToken(
         return { type: 'pending', interval: currentInterval }
       }
       if (data.error === 'slow_down') {
-        // GitHub 要求遇到 slow_down 时把轮询间隔增加 5 秒
         return { type: 'pending', interval: currentInterval + 5 }
       }
       if (data.error === 'expired_token') throw new Error('授权码已过期，请重新获取')
@@ -382,10 +400,6 @@ export async function pollDeviceToken(
 import type { GitHubRepo } from '../types'
 import type { SkeletonFile } from '../constants/skeleton'
 
-/**
- * 检查用户名下某个私库是否存在
- * @returns 存在时返回 GitHubRepo；不存在时返回 null；其它错误抛出
- */
 export async function checkRepoExists(
   owner: string,
   repo: string,
@@ -406,11 +420,6 @@ export async function checkRepoExists(
   return (await res.json()) as GitHubRepo
 }
 
-/**
- * 创建私库
- * POST /user/repos  Body: {name, private:true, auto_init:false, description}
- * v0.3 §10.3 明确不用 auto_init，我们自控首 commit。
- */
 export async function createPrivateRepo(
   name: string,
   description: string,
@@ -445,10 +454,6 @@ export async function createPrivateRepo(
   return (await res.json()) as GitHubRepo
 }
 
-/**
- * 将文本内容 base64 编码（UTF-8 安全）
- * 浏览器 btoa 只能处理 latin1，中文会抛错，用 TextEncoder 走一遍
- */
 function utf8ToBase64(text: string): string {
   const bytes = new TextEncoder().encode(text)
   let bin = ''
@@ -456,10 +461,6 @@ function utf8ToBase64(text: string): string {
   return btoa(bin)
 }
 
-/**
- * 将 base64 内容解码为文本（UTF-8 安全）
- * 浏览器 atob 只能处理 latin1，中文会乱码，用 TextDecoder 走一遍
- */
 function base64ToUtf8(base64: string): string {
   const bin = atob(base64)
   const bytes = new Uint8Array(bin.length)
@@ -469,12 +470,6 @@ function base64ToUtf8(base64: string): string {
   return new TextDecoder('utf-8').decode(bytes)
 }
 
-/**
- * 检测仓库是否为空（无任何 commit / 无默认分支）
- * -------------------------------------------------
- * 空仓库的判定信号：`GET /repos/{owner}/{repo}/branches` 返回空数组。
- * 空仓库不能直接 POST /git/blobs（GitHub 会返回 409 "Git Repository is empty."）。
- */
 export async function isRepoEmpty(
   owner: string,
   repo: string,
@@ -489,25 +484,6 @@ export async function isRepoEmpty(
   return branches.length === 0
 }
 
-/**
- * 用 Git Data API 给仓库写入初始骨架 commit
- * -------------------------------------------------
- * 兼容两种起始状态：
- *   A. **完全空仓库**（无任何 commit / 无 main 分支）
- *      GitHub 的 POST /git/blobs 会返回 409 "Git Repository is empty."
- *      → 先用 Contents API PUT 引导第一个文件（触发 initial commit + 自动建 main）
- *      → 剩余 11 个文件走 Git Data API 追加模式（有 base_tree + parents + PATCH refs）
- *   B. **已有 initial commit**（比如上次骨架初始化失败，但仓库已被引导过）
- *      → 直接走 Git Data API 追加模式，把所有骨架文件补齐
- *
- * @param owner   仓库 owner 用户名
- * @param repo    仓库名
- * @param files   骨架文件列表
- * @param message commit message
- * @param token   PAT
- * @param onProgress 进度回调（可选）
- * @returns 最终 commit 的 sha
- */
 export async function initEmptyRepoSkeleton(
   owner: string,
   repo: string,
@@ -518,7 +494,6 @@ export async function initEmptyRepoSkeleton(
 ): Promise<string> {
   const base = `/repos/${owner}/${repo}`
 
-  // Step 0: 判定是否需要引导 commit
   onProgress?.('检测仓库状态…')
   const empty = await isRepoEmpty(owner, repo, token)
 
@@ -527,7 +502,6 @@ export async function initEmptyRepoSkeleton(
   let filesToUpload: SkeletonFile[]
 
   if (empty) {
-    // 空仓库：用 Contents API PUT 引导第一个文件（自动创建 main 分支 + initial commit）
     if (files.length === 0) {
       throw new Error('骨架文件列表为空，无法初始化')
     }
@@ -555,10 +529,8 @@ export async function initEmptyRepoSkeleton(
     }
     baseCommitSha = putResult.commit.sha
     baseTreeSha = putResult.commit.tree.sha
-    // 骨架剩余项（除去已引导的第一个）
     filesToUpload = files.slice(1)
   } else {
-    // 已有 initial commit：拿 main HEAD 作为 base
     onProgress?.('拉取 main HEAD…')
     const refRes = await githubFetch(`${base}/git/ref/heads/main`, token)
     if (!refRes.ok) {
@@ -578,17 +550,14 @@ export async function initEmptyRepoSkeleton(
     }
     const c = (await commitRes.json()) as { tree: { sha: string } }
     baseTreeSha = c.tree.sha
-    // 全量骨架都补
     filesToUpload = files
   }
 
-  // 如果引导已经把唯一骨架文件写完了（极端情况：骨架只有 1 项），直接返回
   if (filesToUpload.length === 0) {
     onProgress?.(`完成，commit：${baseCommitSha.slice(0, 8)}`)
     return baseCommitSha
   }
 
-  // Step 1: 剩余每个文件创建一个 blob
   const treeEntries: {
     path: string
     mode: '100644'
@@ -624,7 +593,6 @@ export async function initEmptyRepoSkeleton(
     })
   }
 
-  // Step 2: 创建 tree（追加模式，有 base_tree）
   onProgress?.('组装 tree 结构…')
   const treeRes = await githubFetch(`${base}/git/trees`, token, {
     method: 'POST',
@@ -640,7 +608,6 @@ export async function initEmptyRepoSkeleton(
   }
   const tree = (await treeRes.json()) as { sha: string }
 
-  // Step 3: 创建 commit（追加模式，有 parents）
   onProgress?.('创建骨架 commit…')
   const commitRes = await githubFetch(`${base}/git/commits`, token, {
     method: 'POST',
@@ -657,7 +624,6 @@ export async function initEmptyRepoSkeleton(
   }
   const newCommit = (await commitRes.json()) as { sha: string }
 
-  // Step 4: 更新 refs/heads/main（PATCH，因为分支已存在）
   onProgress?.('更新 main 分支…')
   const refUpdateRes = await githubFetch(
     `${base}/git/refs/heads/main`,
@@ -685,13 +651,9 @@ export async function initEmptyRepoSkeleton(
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// md/csv 文件读写（spec §1.2：只允许 Markdown + CSV 落盘）
+// md/csv 文件读写
 // ═════════════════════════════════════════════════════════════════════════
 
-/**
- * 从仓库读取文本文件（md/csv）
- * @returns 文件内容；文件不存在时返回 null
- */
 export async function readRepoTextFile(
   owner: string,
   repo: string,
@@ -712,10 +674,6 @@ export async function readRepoTextFile(
   return { content, sha: data.sha }
 }
 
-/**
- * 向仓库写入文本文件（md/csv）
- * @returns 写入后的文件 sha
- */
 export async function writeRepoTextFile(
   owner: string,
   repo: string,
@@ -780,9 +738,6 @@ export interface BatchWriteResult {
   treeSha: string
 }
 
-/**
- * 批量写入文件（使用 Git Trees API，一次 commit）
- */
 export async function writeFileBatch(
   ops: BatchFileOp[],
   message: string,
@@ -792,7 +747,6 @@ export async function writeFileBatch(
 ): Promise<BatchWriteResult> {
   assertCanWrite()
 
-  // 1. 获取当前 HEAD 的 commit sha
   const refRes = await githubFetch(`/repos/${owner}/${repo}/git/ref/heads/main`, token)
   if (!refRes.ok) {
     const err = await refRes.text().catch(() => '')
@@ -801,7 +755,6 @@ export async function writeFileBatch(
   const refData = (await refRes.json()) as { object: { sha: string } }
   const latestCommitSha = refData.object.sha
 
-  // 2. 获取当前 commit 的 tree sha
   const commitRes = await githubFetch(
     `/repos/${owner}/${repo}/git/commits/${latestCommitSha}`,
     token,
@@ -813,7 +766,6 @@ export async function writeFileBatch(
   const commitData = (await commitRes.json()) as { tree: { sha: string } }
   const baseTreeSha = commitData.tree.sha
 
-  // 3. 构造 tree 节点
   const treeItems = ops.map((op) => {
     const content = op.encoding === 'base64' ? op.content : utf8ToBase64(op.content)
     return {
@@ -825,7 +777,6 @@ export async function writeFileBatch(
     }
   })
 
-  // 4. 创建新 tree
   const treeRes = await githubFetch(`/repos/${owner}/${repo}/git/trees`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -841,7 +792,6 @@ export async function writeFileBatch(
   const treeData = (await treeRes.json()) as { sha: string }
   const newTreeSha = treeData.sha
 
-  // 5. 创建新 commit
   const newCommitRes = await githubFetch(`/repos/${owner}/${repo}/git/commits`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -858,7 +808,6 @@ export async function writeFileBatch(
   const newCommitData = (await newCommitRes.json()) as { sha: string }
   const newCommitSha = newCommitData.sha
 
-  // 6. 更新 main 分支引用
   const updateRes = await githubFetch(
     `/repos/${owner}/${repo}/git/refs/heads/main`,
     token,

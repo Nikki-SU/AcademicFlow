@@ -40,6 +40,7 @@ const initialState: AuthState = {
   isInitialized: false,
   error: null,
   authError: null,
+  authMode: 'header',
 }
 
 export const useAuthStore = create<AuthState & AuthActions>((set) => ({
