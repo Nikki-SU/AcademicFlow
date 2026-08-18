@@ -129,9 +129,8 @@ function Login() {
     try {
       const result = await testGitHubConnectivity()
       const summary =
-        `github.com → ${result.githubDotCom === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
-        `Header 模式 → ${result.apiWithHeader === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
-        `Query 模式 → ${result.apiWithQuery === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
+        `Header 模式 → ${result.apiHeader === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
+        `Query 模式 → ${result.apiSimple === 'ok' ? '✅ 可达' : '❌ 不可达'}\n` +
         `\n` +
         result.detail
       setDiagnosticResult(summary)
