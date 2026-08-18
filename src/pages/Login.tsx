@@ -375,7 +375,7 @@ function Login() {
             </button>
           </div>
           {diagnosticResult && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 whitespace-pre-wrap break-words leading-relaxed">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 whitespace-pre-wrap break-words font-mono leading-relaxed">
               {diagnosticResult}
             </div>
           )}

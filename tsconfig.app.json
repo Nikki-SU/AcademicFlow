@@ -18,12 +18,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    "baseUrl": ".",
-    "ignoreDeprecations": "5.0",
     "paths": {
-      "@/*": ["src/*"]
-    },
-    "types": ["node"]
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src"]
 }
