@@ -10,7 +10,7 @@ import {
   getAuth,
   putAuth,
 } from '../services/db'
-import { verifyPAT, setResolvedAuthMode } from '../services/github'
+import { verifyPAT } from '../services/github'
 import type { AuthState, GitHubUser } from '../types'
 import { useWorkspaceStore } from './workspace'
 
@@ -76,9 +76,8 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
       })
 
       try {
-        const { user, scopes, expiresAt, authMode } = await verifyPAT(authRow.access_token)
-        setResolvedAuthMode(authMode)
-        set({ user, scopes, authMode })
+        const { user, scopes, expiresAt } = await verifyPAT(authRow.access_token)
+        set({ user, scopes })
         await putAuth({
           method: authRow.method,
           access_token: authRow.access_token,
@@ -115,8 +114,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
   login: async (token: string, method: 'device_flow' | 'pat', expiresAt?: number) => {
     set({ isLoading: true, error: null })
     try {
-      const { user, scopes, expiresAt: detectedExpiresAt, authMode } = await verifyPAT(token)
-      setResolvedAuthMode(authMode)
+      const { user, scopes, expiresAt: detectedExpiresAt } = await verifyPAT(token)
       const finalExpiresAt = detectedExpiresAt ?? expiresAt
       const now = Date.now()
       await putAuth({
@@ -138,7 +136,6 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
         expiresAt: finalExpiresAt ?? null,
         isLoading: false,
         error: null,
-        authMode,
       })
       useWorkspaceStore.getState().checkAndMaybeInit()
     } catch (e) {

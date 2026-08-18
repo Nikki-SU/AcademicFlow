@@ -15,26 +15,17 @@ export interface GitHubUser {
 
 /** 登录态 */
 export interface AuthState {
-  /** GitHub Personal Access Token */
   token: string | null
-  /** 当前登录用户信息 */
   user: GitHubUser | null
-  /** PAT 授权的 scope 列表（从 X-OAuth-Scopes 响应头解析） */
   scopes: string[]
-  /** 认证方式：device_flow / pat */
   method: 'device_flow' | 'pat' | null
-  /** 登录时间 */
   loginAt: number | null
-  /** PAT 过期时间（仅 PAT 方式有值） */
   expiresAt: number | null
-  /** 是否正在初始化 / 校验中 */
   isLoading: boolean
-  /** 初始化时是否已尝试从 IndexedDB 读取过 token（用于避免首次渲染时误跳登录页） */
   isInitialized: boolean
-  /** 上次登录/验证的错误信息 */
   error: string | null
-  /** 全局认证错误（401/403），触发后冻结写操作 */
   authError: string | null
+  authMode: 'header' | 'query'
 }
 
 /** PAT 验证成功后的返回结果 */
