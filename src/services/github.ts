@@ -42,13 +42,14 @@ export function getResolvedAuthMode(): AuthMode {
 // ═════════════════════════════════════════════════════════════════════════
 
 export interface ConnectivityResult {
-  githubDotCom: 'ok' | 'fail'
-  apiWithHeader: 'ok' | 'fail'
-  apiWithQuery: 'ok' | 'fail'
+  /** api.github.com + 自定义头（触发 CORS 预检，测试 Header 模式） */
+  apiHeader: 'ok' | 'fail'
+  /** api.github.com + 零自定义头（不触发预检，测试 Query 模式路径） */
+  apiSimple: 'ok' | 'fail'
   detail: string
 }
 
-async function probe(url: string, corsMode: boolean = false): Promise<boolean> {
+async function probeApi(withHeaders: boolean): Promise<boolean> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 8000)
   try {
@@ -57,15 +58,16 @@ async function probe(url: string, corsMode: boolean = false): Promise<boolean> {
       signal: ctrl.signal,
       cache: 'no-store',
     }
-    if (corsMode) {
+    if (withHeaders) {
       init.headers = {
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       }
-    } else {
-      init.mode = 'no-cors'
     }
-    await fetch(url, init)
+    // withHeaders=true → 带自定义头 → 触发 CORS 预检
+    // withHeaders=false → 零自定义头 → 不触发预检
+    // GitHub API 对 api.github.com 返回 Access-Control-Allow-Origin: *，所以只要网络通就能读响应
+    await fetch(`${API_BASE}/user`, init)
     return true
   } catch {
     return false
@@ -75,41 +77,30 @@ async function probe(url: string, corsMode: boolean = false): Promise<boolean> {
 }
 
 export async function testGitHubConnectivity(): Promise<ConnectivityResult> {
-  const [githubOk, headerOk, queryOk] = await Promise.all([
-    probe('https://github.com', false),
-    probe('https://api.github.com/user', true),
-    probe('https://api.github.com/user', false),
+  const [headerOk, simpleOk] = await Promise.all([
+    probeApi(true),
+    probeApi(false),
   ])
 
   let detail = ''
-  if (githubOk && headerOk) {
-    detail = 'GitHub 连通性完全正常。如果登录仍失败，可能是 token 本身的问题（格式、scope、过期等）。'
-  } else if (githubOk && !headerOk && queryOk) {
-    detail = '✅ github.com 可达\n' +
-      '✅ api.github.com 可达\n' +
+  if (headerOk && simpleOk) {
+    detail = 'GitHub API 连通性完全正常。如果登录仍失败，可能是 token 本身的问题（格式、scope、过期等）。'
+  } else if (!headerOk && simpleOk) {
+    detail = '✅ api.github.com 可达\n' +
       '❌ CORS 预检被拦截\n\n' +
-      '你的网络/VPN 拦截了带自定义头的 CORS 预检请求。\n' +
-      '系统已自动降级为 Query 参数认证，登录应当正常。'
-  } else if (githubOk && !headerOk && !queryOk) {
-    detail = '✅ github.com 可达\n' +
-      '❌ api.github.com 完全不可达\n\n' +
+      '你的网络/VPN 拦截了带自定义头的 CORS 预检请求（OPTIONS 方法）。\n' +
+      '系统会自动降级为 Query 参数认证（token 放在 URL 中，不触发预检），登录应当正常。'
+  } else if (!headerOk && !simpleOk) {
+    detail = '❌ api.github.com 完全不可达\n\n' +
       '你的网络/VPN 完全阻断了对 api.github.com 的访问。\n' +
-      '请确认 VPN 配置，或联系网络管理员。'
-  } else if (!githubOk) {
-    detail = '❌ github.com 不可达\n\n' +
-      '完全无法连接到 GitHub。请检查：\n' +
-      '① 是否已连外网 / VPN\n' +
-      '② DNS 是否能解析 github.com\n' +
-      '③ 防火墙是否放行 HTTPS 出站连接'
+      '请确认 VPN 配置是否正确，或联系网络管理员放行 api.github.com 的 HTTPS 出站请求。'
   } else {
-    detail = `诊断结果：github.com=${githubOk ? 'OK' : 'FAIL'}, ` +
-      `Header=${headerOk ? 'OK' : 'FAIL'}, Query=${queryOk ? 'OK' : 'FAIL'}`
+    detail = '⚠️ 诊断异常：Header 模式可达但简单请求不可达，请联系管理员。'
   }
 
   return {
-    githubDotCom: githubOk ? 'ok' : 'fail',
-    apiWithHeader: headerOk ? 'ok' : 'fail',
-    apiWithQuery: queryOk ? 'ok' : 'fail',
+    apiHeader: headerOk ? 'ok' : 'fail',
+    apiSimple: simpleOk ? 'ok' : 'fail',
     detail,
   }
 }
