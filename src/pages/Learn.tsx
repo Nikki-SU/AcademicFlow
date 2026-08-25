@@ -304,8 +304,7 @@ export default function LearnPage() {
         // 兜底：用摘要作为源材料
         fulltext = [lit.abstractEn, lit.abstractCn].filter(Boolean).join('\n\n') || '（文献无可用全文）'
       }
-      // 截断保护 token 上限
-      const sourceMaterial = fulltext.slice(0, 10000)
+      const sourceMaterial = fulltext
 
       // 3. 构造生成指令：根据勾选的类型组合
       const tasks: string[] = []

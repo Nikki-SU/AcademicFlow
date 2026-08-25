@@ -80,11 +80,8 @@ export async function extractGuidelinesWithAI(params: {
 }): Promise<ExtractedGuidelines> {
   const { guidelinesText, ai1, ai2, onProgress } = params
 
-  // 截取前 8000 字符（避免 token 超限，投稿须知的关键信息一般在前半部分）
-  const truncated = guidelinesText.slice(0, 8000)
-  const sourceMaterial = guidelinesText.length > 8000
-    ? `${truncated}\n\n（注：原文共 ${guidelinesText.length} 字，已截取前 8000 字作为核查范围）`
-    : guidelinesText
+  // 投稿须知全文传入 AI，不做截断
+  const sourceMaterial = guidelinesText
 
   // AI-1 角色 prompt：替换默认的"学术总结助手"为"期刊规范提取助手"
   // [NOT_IN_SOURCE] tag 指令由 dual-engine 自动追加，确保投稿须知未提及的字段被诚实标注
