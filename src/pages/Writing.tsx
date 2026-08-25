@@ -1035,7 +1035,9 @@ export default function WritingPage() {
       const { getDualEngineConfig } = useSettingsStore.getState()
       const { ai1, ai2 } = getDualEngineConfig()
 
-      // 2. 构建源材料 = 当前手稿 + 引用文献全文（基于 citationScope / selectedPaperIds / trustedSearch）
+      // 2. 构建源材料 = 仅引用文献全文（用户手稿绝不传入 AI，防止未发表内容泄露）
+      //    安全红线：用户手稿属于未发表内容，不可作为 AI 的知识库 / ground truth。
+      //    可信检索模式下，sourceMaterial 只包含引用文献原文，AI 仅基于文献生成。
       let literatureContext = ''
       if (trustedSearch) {
         const sourceDois = scopedCitations
@@ -1048,7 +1050,7 @@ export default function WritingPage() {
               sourceDois.map(async (doi) => {
                 try {
                   const t = await loadFulltext(doi)
-                  return t ? `--- ${doi} ---\n${t.slice(0, 4000)}` : ''
+                  return t ? `--- ${doi} ---\n${t}` : ''
                 } catch {
                   return ''
                 }
@@ -1061,16 +1063,13 @@ export default function WritingPage() {
         }
       }
 
-      const sourceMaterial = [
-        '【当前手稿】',
-        mdContent || '（手稿为空）',
-        '',
-        literatureContext
-          ? `【引用文献全文（共 ${scopedCitations.filter((c) => c.type === 'paper' && c.doi).slice(0, 5).length} 篇，作为事实来源）】\n${literatureContext}`
-          : '',
-      ]
-        .filter(Boolean)
-        .join('\n')
+      if (!literatureContext) {
+        throw new Error(
+          '可信检索模式需要至少一篇引用文献的全文。请在引用范围中选择文献，或确保文献已通过 MinerU 提取全文。',
+        )
+      }
+
+      const sourceMaterial = literatureContext
 
       // 3. 调用双引擎（AI-1 生成 + AI-2 忠实性核查 + 引证锚定 + 分层归因重试）
       const result = await runDualEngine({

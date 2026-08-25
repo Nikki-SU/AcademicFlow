@@ -376,7 +376,7 @@ function buildAI2SelfCorrectMessages(
     ai1Output,
     '',
     '【你上一版的原始输出（供参考）】',
-    previousRawOutput.slice(0, 2000),
+    previousRawOutput,
     '',
     '【引证锚定失败的具体 claim】',
     failedSpans || '（未定位到具体失败的 claim，请重新做全量核查并给出可字面对齐的 span）',
