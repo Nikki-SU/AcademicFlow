@@ -36,12 +36,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    // Vditor 是 CJS/UMD 大依赖，单独 chunk 避免主包过大
     rollupOptions: {
       output: {
-        manualChunks: {
-          vditor: ['vditor'],
-          react: ['react', 'react-dom', 'react-router-dom'],
+        manualChunks(id) {
+          if (id.includes('vditor')) return 'vditor'
+          if (id.includes('react') || id.includes('react-router')) return 'react'
         },
       },
     },
