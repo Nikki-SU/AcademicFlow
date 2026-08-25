@@ -38,16 +38,16 @@ else
 fi
 
 # ---------- 3. 克隆仓库 ----------
-INSTALL_DIR="/opt/academicflow-worker"
+INSTALL_DIR="/opt/academicflow"
 if [ -d "$INSTALL_DIR/.git" ]; then
   echo "→ 更新已有仓库..."
   cd "$INSTALL_DIR" && git pull --quiet
 else
-  echo "→ 克隆 AcademicFlow-Worker..."
+  echo "→ 克隆 AcademicFlow..."
   rm -rf "$INSTALL_DIR"
-  git clone --quiet https://github.com/Nikki-SU/AcademicFlow-Worker.git "$INSTALL_DIR"
+  git clone --quiet https://github.com/Nikki-SU/AcademicFlow.git "$INSTALL_DIR"
 fi
-echo "✓ 代码就绪: $INSTALL_DIR"
+echo "✓ 代码就绪: $INSTALL_DIR/worker"
 
 # ---------- 4. 创建 systemd 服务 ----------
 echo "→ 配置系统服务..."
@@ -58,8 +58,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/root/.deno/bin/deno run --allow-net /opt/academicflow-worker/src/deno.js
-WorkingDirectory=/opt/academicflow-worker
+ExecStart=/root/.deno/bin/deno run --allow-net /opt/academicflow/worker/deno.js
+WorkingDirectory=/opt/academicflow/worker
 Restart=always
 RestartSec=5
 Environment=PATH=/root/.deno/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
