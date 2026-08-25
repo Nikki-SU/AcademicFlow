@@ -187,6 +187,29 @@ export async function loadCachedModelsFetchedAt(): Promise<number | null> {
   return Number.isFinite(at) ? at : null
 }
 
+/** M3.7.2: 识别硅基流动 /v1/user/info 已被废弃的响应文案。
+ *  官方停止服务公告（2026-08-14）返回：
+ *    "This endpoint is deprecated and is no longer available."
+ *  命中该文案时，上层应该将其呈现为"功能下线"而非"请求失败"。 */
+function isSiliconFlowUserInfoDeprecated(msg: string): boolean {
+  if (!msg) return false
+  const lower = msg.toLowerCase()
+  return (
+    lower.includes('this endpoint is deprecated') ||
+    lower.includes('is no longer available') ||
+    lower.includes('endpoint is deprecated')
+  )
+}
+
+/** M3.7.2: 硅基流动已于 2026-08-14 正式下线 /v1/user/info，官方新账户 API 尚未上线。
+ *  当该错误命中时，上层应友好提示用户前往官网查看余额，而非当作"请求失败"处理。 */
+export class SiliconFlowUserInfoDeprecatedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SiliconFlowUserInfoDeprecatedError'
+  }
+}
+
 /**
  * M3.5.1: 拉取硅基流动账户信息（余额 / 状态）
  *
@@ -197,7 +220,12 @@ export async function loadCachedModelsFetchedAt(): Promise<number | null> {
  *     status, introduction, role, chargeBalance, totalBalance, category, ... } }
  * 我们只关心 data.totalBalance / data.chargeBalance / data.status / data.name。
  *
- * @throws AIAuthError / AIQuotaError / AIPermissionError / AIRateLimitError / AINetworkError / AIClientError
+ * M3.7.2: 硅基流动 2026-08-14 公告该接口停止服务，新账户 API 尚未上线。
+ *   命中此场景时抛出 SiliconFlowUserInfoDeprecatedError，调用方需以
+ *   "功能下线"而非"请求失败"呈现给用户。
+ *
+ * @throws AIAuthError / AIQuotaError / AIPermissionError / AIRateLimitError / AINetworkError
+ *         / AIClientError / SiliconFlowUserInfoDeprecatedError
  */
 export async function fetchSiliconflowUserInfo(apiKey: string): Promise<{
   totalBalance: string
@@ -233,6 +261,11 @@ export async function fetchSiliconflowUserInfo(apiKey: string): Promise<{
 
   if (!res.ok) {
     const providerMsg = await parseErrorBody(res)
+    if (isSiliconFlowUserInfoDeprecated(providerMsg)) {
+      throw new SiliconFlowUserInfoDeprecatedError(
+        '硅基流动已于 2026-08-14 下线 /v1/user/info 余额查询接口，官方替代 API 尚未上线，请前往官网账户中心查看余额',
+      )
+    }
     if (res.status === 401) throw new AIAuthError(providerMsg)
     if (res.status === 402) throw new AIQuotaError(providerMsg)
     if (res.status === 403) throw new AIPermissionError(providerMsg)

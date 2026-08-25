@@ -20,6 +20,16 @@ interface Props {
   onRefresh: () => void
 }
 
+/** M3.7.2: 识别"端点已废弃"文案，呈现与普通请求失败不同的 UI。 */
+function isDeprecatedEndpointError(msg: string | null): boolean {
+  if (!msg) return false
+  return (
+    msg.includes('2026-08-14') ||
+    msg.includes('endpoint is deprecated') ||
+    msg.includes('no longer available')
+  )
+}
+
 /** 余额是否偏低（< 0.5 元，界定标准偏保守，避免临界抖动） */
 function isBalanceLow(totalBalance: string): boolean {
   const n = Number(totalBalance)
@@ -63,6 +73,29 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
   }
 
   if (error && !account) {
+    const deprecated = isDeprecatedEndpointError(error)
+    if (deprecated) {
+      return (
+        <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-900">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0 leading-relaxed">
+            <div className="font-medium">余额查询接口已下线</div>
+            <div className="mt-0.5 text-[0.6875rem] break-all">
+              硅基流动已于 2026-08-14 正式下线 /v1/user/info 接口，官方替代 API 尚未上线，模型调用不受影响。请点击右侧按钮前往官网账户中心查看余额。
+            </div>
+          </div>
+          <a
+            href="https://cloud.siliconflow.cn/account/balance"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-white border border-amber-300 rounded hover:bg-amber-100 text-amber-800 font-medium"
+          >
+            前往账户中心
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+      )
+    }
     return (
       <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-xs text-red-800">
         <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />

@@ -39,7 +39,7 @@ import {
   AIRateLimitError,
   AITimeoutError,
 } from '../../services/ai/client'
-import { fetchSiliconflowUserInfo } from '../../services/ai/models'
+import { fetchSiliconflowUserInfo, SiliconFlowUserInfoDeprecatedError } from '../../services/ai/models'
 import { useSettingsStore } from '../../stores/settings'
 import type {
   AttemptReason,
@@ -264,7 +264,12 @@ function DualEngineTestPanel() {
       })
     } catch (err) {
       setAccount(null)
-      setAccountError(err instanceof Error ? err.message : String(err))
+      if (err instanceof SiliconFlowUserInfoDeprecatedError) {
+        // M3.7.2: 接口已下线，把友好文案交给 BalanceBar 渲染，不再弹出 toast 误导
+        setAccountError(err.message)
+      } else {
+        setAccountError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setIsLoadingAccount(false)
     }
