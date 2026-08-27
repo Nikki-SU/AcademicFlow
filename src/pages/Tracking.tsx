@@ -34,6 +34,7 @@ import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
 import { DoiLink } from '../components/DoiLink'
 import { readCsvFile, writeCsvFile } from '../services/userData'
+import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
 
 // ============================================================
 // 类型定义
@@ -326,6 +327,26 @@ export default function TrackingPage() {
   // 快速入库
   // ============================================================
 
+  // 写入文献库（literatures/literatures.csv），按 DOI 去重
+  const addLiteratureToLibrary = async (lit: Literature): Promise<'added' | 'exists'> => {
+    const lits = await loadLiteratures()
+    if (lits.some((l) => l.doi === lit.doi)) {
+      return 'exists'
+    }
+    await saveLiteratures([...lits, lit])
+    return 'added'
+  }
+
+  const toastAdded = (title: string, status: 'added' | 'exists') => {
+    const short = title.slice(0, 40)
+    const suffix = title.length > 40 ? '...' : ''
+    if (status === 'exists') {
+      toast.message(`已在库中：${short}${suffix}`)
+    } else {
+      toast.success(`已入库：${short}${suffix}`)
+    }
+  }
+
   const handleAddByDoi = async () => {
     const result = normalizeDoi(doiInput)
     if (!result.valid || !result.doi) {
@@ -340,7 +361,24 @@ export default function TrackingPage() {
         return
       }
       const meta = entries[0]
-      toast.success(`已入库：${meta.title.slice(0, 40)}${meta.title.length > 40 ? '...' : ''}`)
+      const newLit: Literature = {
+        doi: meta.doi,
+        title: meta.title,
+        journal: meta.journal || '',
+        year: meta.year || 0,
+        authors: meta.authors.join(', '),
+        keywords: '',
+        abstractEn: '',
+        abstractCn: '',
+        tier: 0,
+        hasGraphicalAbstract: false,
+        addedAt: Date.now(),
+        pdfAddedAt: 0,
+        source: 'DOI',
+        trackingGroup: '',
+      }
+      const status = await addLiteratureToLibrary(newLit)
+      toastAdded(meta.title, status)
       setDoiInput('')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -615,8 +653,34 @@ export default function TrackingPage() {
     }, 1500)
   }
 
-  const handleAddPaperToLibrary = (paper: TrackedPaper) => {
-    toast.success(`已入库：${paper.title.slice(0, 40)}${paper.title.length > 40 ? '...' : ''}`)
+  const handleAddPaperToLibrary = async (paper: TrackedPaper) => {
+    if (!paper.doi) {
+      toast.error('该文献缺少 DOI，无法入库')
+      return
+    }
+    try {
+      const newLit: Literature = {
+        doi: paper.doi,
+        title: paper.title,
+        journal: paper.journal,
+        year: paper.year,
+        authors: paper.authors,
+        keywords: '',
+        abstractEn: '',
+        abstractCn: '',
+        tier: 0,
+        hasGraphicalAbstract: false,
+        addedAt: Date.now(),
+        pdfAddedAt: 0,
+        source: paper.source || '追踪',
+        trackingGroup: '',
+      }
+      const status = await addLiteratureToLibrary(newLit)
+      toastAdded(paper.title, status)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`入库失败：${msg}`)
+    }
   }
 
   // ============================================================
