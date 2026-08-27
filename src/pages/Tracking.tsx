@@ -57,8 +57,8 @@ interface JournalItem {
 
 // 常见搜索参数名，按优先级排序（长的优先避免误匹配）
 const SEARCH_PARAM_NAMES = [
-  'search_query', 'query', 'keyword', 'search', 'word',
-  'text', 'wd', 'qs', 'q', 'k',
+  'search_query', 'query', 'keyword', 'search', 'option',
+  'word', 'text', 'wd', 'qs', 'q', 'k',
 ]
 
 /** 自动检测搜索网址中的查询参数，把值替换为 {query} */
