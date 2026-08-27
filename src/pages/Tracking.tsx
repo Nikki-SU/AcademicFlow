@@ -96,7 +96,7 @@ interface TrackedPaper {
 
 const DEFAULT_SEARCH_SITES: SearchSite[] = [
   { id: 'cnki', name: '中国知网', urlTemplate: 'https://kns.cnki.net/kns8s/defaultresult/index?kw={query}', color: 'bg-red-50 text-red-600' },
-  { id: 'xmol', name: 'X-MOL', urlTemplate: 'https://www.x-mol.com/paper/search?q={query}', color: 'bg-blue-50 text-blue-600' },
+  { id: 'xmol', name: 'X-MOL', urlTemplate: 'https://www.x-mol.com/paper/search/q?option={query}', color: 'bg-blue-50 text-blue-600' },
   { id: 'scholar', name: 'Google Scholar', urlTemplate: 'https://scholar.google.com/scholar?q={query}', color: 'bg-slate-50 text-slate-600' },
   { id: 'pubmed', name: 'PubMed', urlTemplate: 'https://pubmed.ncbi.nlm.nih.gov/?term={query}', color: 'bg-indigo-50 text-indigo-600' },
   { id: 'arxiv', name: 'arXiv', urlTemplate: 'https://arxiv.org/search/?query={query}&searchtype=all', color: 'bg-slate-100 text-slate-600' },
