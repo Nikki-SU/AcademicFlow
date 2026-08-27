@@ -141,6 +141,7 @@ export default function TrackingPage() {
   const [editingSearchSite, setEditingSearchSite] = useState<SearchSite | null>(null)
   const [searchFormName, setSearchFormName] = useState('')
   const [searchFormUrlTemplate, setSearchFormUrlTemplate] = useState('')
+  const [searchFormKeyword, setSearchFormKeyword] = useState('')
   const [searchFormColor, setSearchFormColor] = useState('bg-indigo-50 text-indigo-600')
   const searchDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -500,6 +501,7 @@ export default function TrackingPage() {
     setEditingSearchSite(null)
     setSearchFormName('')
     setSearchFormUrlTemplate('')
+    setSearchFormKeyword('')
     setSearchFormColor('bg-indigo-50 text-indigo-600')
     setShowSearchManager(true)
   }
@@ -508,6 +510,7 @@ export default function TrackingPage() {
     setEditingSearchSite(site)
     setSearchFormName(site.name)
     setSearchFormUrlTemplate(site.urlTemplate)
+    setSearchFormKeyword('')
     setSearchFormColor(site.color)
     setShowSearchManager(true)
   }
@@ -517,8 +520,33 @@ export default function TrackingPage() {
       toast.error('请输入网站名称')
       return
     }
-    if (!searchFormUrlTemplate.trim() || !searchFormUrlTemplate.includes('{query}')) {
-      toast.error('请输入包含 {query} 占位符的搜索URL模板')
+    if (!searchFormUrlTemplate.trim()) {
+      toast.error('请粘贴搜索网址')
+      return
+    }
+
+    // 两种方式生成模板：
+    // 1. 用户粘贴了带关键词的网址 + 填了关键词 → 自动替换为 {query}
+    // 2. 网址中已包含 {query}（编辑已有搜索源）→ 直接使用
+    let template = searchFormUrlTemplate.trim()
+    const keyword = searchFormKeyword.trim()
+
+    if (keyword) {
+      // 方式 1：用关键词在网址中定位，替换为 {query}
+      // 同时处理 URL 编码和未编码两种情况
+      const encodedKeyword = encodeURIComponent(keyword)
+      if (template.includes(keyword)) {
+        template = template.split(keyword).join('{query}')
+      } else if (template.includes(encodedKeyword)) {
+        template = template.split(encodedKeyword).join('{query}')
+      } else {
+        toast.error(`在网址中未找到关键词「${keyword}」，请确认你粘贴的网址是用这个关键词搜索出来的`)
+        return
+      }
+    }
+
+    if (!template.includes('{query}')) {
+      toast.error('请在"你搜索的关键词"中填入你刚才搜索的词，系统会自动生成搜索模板')
       return
     }
 
@@ -526,7 +554,7 @@ export default function TrackingPage() {
       setSearchSites((prev) =>
         prev.map((s) =>
           s.id === editingSearchSite.id
-            ? { ...s, name: searchFormName.trim(), urlTemplate: searchFormUrlTemplate.trim(), color: searchFormColor }
+            ? { ...s, name: searchFormName.trim(), urlTemplate: template, color: searchFormColor }
             : s,
         ),
       )
@@ -535,7 +563,7 @@ export default function TrackingPage() {
       const newSite: SearchSite = {
         id: generateId(),
         name: searchFormName.trim(),
-        urlTemplate: searchFormUrlTemplate.trim(),
+        urlTemplate: template,
         color: searchFormColor,
       }
       setSearchSites((prev) => [...prev, newSite])
@@ -1335,19 +1363,35 @@ export default function TrackingPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
-                      搜索URL模板
+                      搜索网址
                     </label>
                     <input
                       type="text"
                       value={searchFormUrlTemplate}
                       onChange={(e) => setSearchFormUrlTemplate(e.target.value)}
-                      placeholder="https://xueshu.baidu.com/s?wd={query}"
+                      placeholder={editingSearchSite
+                        ? '搜索URL模板（含 {query}）'
+                        : '去搜索网站搜一个词，把网址粘贴到这里'}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                     />
-                    <p className="text-xs text-slate-400 mt-1">
-                      用 <code className="px-1 py-0.5 bg-slate-100 rounded">{'{query}'}</code> 作为搜索关键词的占位符
-                    </p>
                   </div>
+                  {!editingSearchSite && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        你刚才搜索的关键词
+                      </label>
+                      <input
+                        type="text"
+                        value={searchFormKeyword}
+                        onChange={(e) => setSearchFormKeyword(e.target.value)}
+                        placeholder="如：深度学习"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        系统会自动把这个关键词替换成搜索模板，以后输入任何词都能用
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1.5">
                       图标颜色
