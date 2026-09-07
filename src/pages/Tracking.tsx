@@ -231,8 +231,19 @@ export default function TrackingPage() {
           },
         )
         if (!cancelled && loadedSites.length > 0) {
-          setSearchSites(loadedSites)
-          setSelectedSearchSiteId(loadedSites[0].id)
+          // 迁移：旧版 X-MOL 模板（?q=）→ 新版（/q?option=），用户无感知升级
+          let migrated = false
+          const migratedSites = loadedSites.map((s) => {
+            if (s.id === 'xmol' && s.urlTemplate === 'https://www.x-mol.com/paper/search?q={query}') {
+              migrated = true
+              return { ...s, urlTemplate: 'https://www.x-mol.com/paper/search/q?option={query}' }
+            }
+            return s
+          })
+          setSearchSites(migratedSites)
+          setSelectedSearchSiteId(migratedSites[0].id)
+          // 发生迁移时，标记 dataLoaded 让防抖 effect 把新模板写回 CSV
+          if (migrated) dataLoadedRef.current = true
         }
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载搜索源失败，使用默认值:', err)
