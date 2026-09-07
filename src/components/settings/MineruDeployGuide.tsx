@@ -43,7 +43,11 @@ export default function MineruDeployGuide() {
         </li>
 
         <li>
-          <span className="font-semibold">克隆代理仓库</span>
+          <span className="font-semibold">选择目录并克隆</span>
+          <p className="mt-1 text-[0.6875rem] text-amber-600">
+            ⚠️ 先 cd 到一个有写权限的目录（如 <code className="px-0.5 bg-amber-100 rounded">C:\Users\你的用户名\</code> 或 <code className="px-0.5 bg-amber-100 rounded">D:\</code>），
+            不要在 <code className="px-0.5 bg-amber-100 rounded">C:\WINDOWS\System32</code> 等系统目录下执行
+          </p>
           <div className="mt-1 relative">
             <pre className="px-2.5 py-1.5 bg-slate-900 text-green-400 text-[0.6875rem] font-mono rounded
                            overflow-x-auto whitespace-pre-wrap break-all">
