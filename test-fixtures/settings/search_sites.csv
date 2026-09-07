@@ -1,0 +1,6 @@
+id,name,url_template,color
+xmol,X-MOL,https://www.x-mol.com/paper/search/q?option={query},bg-blue-50 text-blue-600
+cnki,中国知网,https://kns.cnki.net/kns8s/defaultresult/index?kw={query},bg-red-50 text-red-600
+scholar,Google Scholar,https://scholar.google.com/scholar?q={query},bg-slate-50 text-slate-600
+pubmed,PubMed,https://pubmed.ncbi.nlm.nih.gov/?term={query},bg-indigo-50 text-indigo-600
+arxiv,arXiv,https://arxiv.org/search/?query={query}&searchtype=all,bg-slate-100 text-slate-600
