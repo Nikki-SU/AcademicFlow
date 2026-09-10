@@ -71,19 +71,26 @@ export default function MineruDeployGuide() {
 
         <li>
           <span className="font-semibold">启动代理</span>
-          <div className="mt-1 relative">
-            <pre className="px-2.5 py-1.5 bg-slate-900 text-green-400 text-[0.6875rem] font-mono rounded
-                           overflow-x-auto whitespace-pre-wrap break-all">
-              cd AcademicFlow{`\n`}{RUN_CMD}
-            </pre>
-            <button
-              onClick={() => handleCopy(`cd AcademicFlow\n${RUN_CMD}`)}
-              className="absolute top-1 right-1 px-1.5 py-0.5 text-[0.625rem] bg-slate-700
-                         hover:bg-slate-600 text-slate-200 rounded transition-colors"
-            >
-              {copiedCmd === `cd AcademicFlow\n${RUN_CMD}` ? '✓ 已复制' : '复制'}
-            </button>
-          </div>
+          <p className="mt-1 text-[0.6875rem] text-slate-400">
+            <b>最简单：</b>进 <code className="px-1 py-0.5 bg-slate-100 rounded text-[0.625rem]">worker\</code> 目录，
+            双击 <code className="px-1 py-0.5 bg-slate-100 rounded text-[0.625rem]">start-proxy.bat</code> 即可
+          </p>
+          <details className="mt-1.5">
+            <summary className="text-[0.6875rem] text-indigo-600 cursor-pointer hover:underline">不想用 bat？手动命令方式</summary>
+            <div className="mt-1.5 relative">
+              <pre className="px-2.5 py-1.5 bg-slate-900 text-green-400 text-[0.6875rem] font-mono rounded
+                             overflow-x-auto whitespace-pre-wrap break-all">
+                cd AcademicFlow{`\n`}{RUN_CMD}
+              </pre>
+              <button
+                onClick={() => handleCopy(`cd AcademicFlow\n${RUN_CMD}`)}
+                className="absolute top-1 right-1 px-1.5 py-0.5 text-[0.625rem] bg-slate-700
+                           hover:bg-slate-600 text-slate-200 rounded transition-colors"
+              >
+                {copiedCmd === `cd AcademicFlow\n${RUN_CMD}` ? '✓ 已复制' : '复制'}
+              </button>
+            </div>
+          </details>
           <p className="mt-1 text-[0.6875rem] text-slate-400">
             浏览器打开 <code className="px-1 py-0.5 bg-slate-100 rounded text-[0.625rem]">http://localhost:8000/</code>
             ，看到 "AcademicFlow 代理已启动" 就是好的
