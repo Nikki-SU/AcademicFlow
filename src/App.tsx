@@ -25,18 +25,20 @@ function App() {
   const syncSettingsFromGitHub = useSettingsStore((s) => s.syncFromGitHub)
   const initWorkspace = useWorkspaceStore((s) => s.checkAndMaybeInit)
   const { isChecked, repo } = useWorkspaceStore()
+  const token = useAuthStore((s) => s.token)
 
   useEffect(() => {
     initAuth()
     initSettings()
   }, [initAuth, initSettings])
 
+  // 当 token 从 IndexedDB 恢复出来（或登录成功）后，检测/初始化 workspace 私库
+  // 关键：依赖 token 本身，而不是只在 mount 时读一次 getState()
   useEffect(() => {
-    const token = useAuthStore.getState().token
     if (token) {
       initWorkspace()
     }
-  }, [initWorkspace])
+  }, [token, initWorkspace])
 
   // workspace 就绪后从 GitHub 私库加载非敏感设置（SPEC §4.8）
   useEffect(() => {

@@ -104,8 +104,11 @@ export async function writeCsvFile<T>(
   assertCanWrite()
   const ctx = getRepoContext()
   if (!ctx) {
-    setCache(path, data, '')
-    return
+    // 不再静默丢弃到内存缓存——直接报错让调用方知道持久化失败
+    // 之前静默 return 会导致用户以为写成功了（toast "已入库"），但 F5 刷新后数据丢失
+    throw new Error(
+      '工作区尚未就绪，无法保存数据。请等待页面加载完成后重试，或刷新页面。',
+    )
   }
 
   const rows = [headers, ...data.map(serializeFn)]
@@ -123,7 +126,6 @@ export async function writeCsvFile<T>(
     setCache(path, data, sha)
   } catch (err) {
     console.error('[userData] 写入失败:', path, err)
-    setCache(path, data, '')
     throw err
   }
 }
@@ -164,8 +166,9 @@ export async function writeMdFile(
   assertCanWrite()
   const ctx = getRepoContext()
   if (!ctx) {
-    setCache(path, content, '')
-    return null
+    throw new Error(
+      '工作区尚未就绪，无法保存数据。请等待页面加载完成后重试，或刷新页面。',
+    )
   }
 
   try {
@@ -181,7 +184,6 @@ export async function writeMdFile(
     return sha
   } catch (err) {
     console.error('[userData] 写入 md 失败:', path, err)
-    setCache(path, content, '')
     throw err
   }
 }
