@@ -43,6 +43,18 @@ async function pingWorker(
   if (!/^https?:\/\//i.test(trimmed)) {
     return { state: 'fail', message: '需要以 http:// 或 https:// 开头' }
   }
+
+  // 混合内容检测：HTTPS 页面不能 fetch HTTP URL（浏览器安全策略）
+  // 用户能在浏览器直接打开 localhost:8000 看到确认页，但前端 fetch 会被吞
+  const pageIsHttps = typeof location !== 'undefined' && location.protocol === 'https:'
+  const targetIsHttp = /^http:\/\//i.test(trimmed)
+  if (pageIsHttps && targetIsHttp) {
+    return {
+      state: 'fail',
+      message: 'HTTPS 页面无法访问 HTTP 本地代理（浏览器安全策略），但代理本身是好的——直接打开 http://localhost:8000 应能看到确认页。保存即可正常使用。',
+    }
+  }
+
   try {
     const res = await fetch(trimmed + HEALTH_PATH, { method: 'GET', signal })
     if (!res.ok) return { state: 'fail', message: `健康检查 HTTP ${res.status}` }
