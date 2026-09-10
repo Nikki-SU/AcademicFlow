@@ -59,6 +59,7 @@ import TableGridPicker from '../components/TableGridPicker'
 import { toast } from 'sonner'
 import { getAllTemplates } from '../services/journal-templates'
 import { useSettingsStore } from '../stores/settings'
+import { useWorkspaceStore } from '../stores/workspace'
 import type { JournalTemplate } from '../types'
 import { DoiLink } from '../components/DoiLink'
 import { runDualEngine } from '../services/ai/dual-engine'
@@ -483,6 +484,7 @@ ${tex.replace(/\\title\{.*?\}\n?/, '')}
 }
 
 export default function WritingPage() {
+  const { repo } = useWorkspaceStore()
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [mdContent, setMdContent] = useState('')
@@ -626,6 +628,7 @@ export default function WritingPage() {
   const wordCount = mdContent.replace(/\s/g, '').length
 
   useEffect(() => {
+    if (!repo) return
     let cancelled = false
     async function initData() {
       try {
@@ -661,7 +664,7 @@ export default function WritingPage() {
     }
     initData()
     return () => { cancelled = true }
-  }, [])
+  }, [repo])
 
   useEffect(() => {
     if (!activeProjectId) return
@@ -699,6 +702,7 @@ export default function WritingPage() {
   }, [activeProjectId])
 
   useEffect(() => {
+    if (!repo) return
     let cancelled = false
     async function loadTemplates() {
       try {
@@ -714,7 +718,7 @@ export default function WritingPage() {
     }
     loadTemplates()
     return () => { cancelled = true }
-  }, [])
+  }, [repo])
 
   useEffect(() => {
     if (editorRef.current && !editorLoaded) {

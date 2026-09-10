@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useSettingsStore } from '../stores/settings'
+import { useWorkspaceStore } from '../stores/workspace'
 import {
   getAllTemplates,
   createTemplate,
@@ -45,6 +46,7 @@ import { DEMO_ANGEW_GUIDELINES } from '../data/demo-content'
 type View = 'list' | 'create' | 'edit'
 
 function JournalTemplatesPage() {
+  const { repo } = useWorkspaceStore()
   const { siliconflowApiKey, getDualEngineConfig } = useSettingsStore()
   const [view, setView] = useState<View>('list')
   const [templates, setTemplates] = useState<JournalTemplate[]>([])
@@ -86,8 +88,9 @@ function JournalTemplatesPage() {
   }
 
   useEffect(() => {
+    if (!repo) return
     loadTemplates()
-  }, [])
+  }, [repo])
 
   // 重置表单
   const resetForm = () => {

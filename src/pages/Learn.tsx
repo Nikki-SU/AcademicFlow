@@ -24,6 +24,7 @@ import {
 import { toast } from 'sonner'
 import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, calcSm2, estimateRepetitions } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
+import { useWorkspaceStore } from '../stores/workspace'
 import type { WordData, SentenceData, TranslationData } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
 import { runDualEngine } from '../services/ai/dual-engine'
@@ -119,6 +120,7 @@ function parseLearningJSON(raw: string): ParsedLearningJSON {
 }
 
 export default function LearnPage() {
+  const { repo } = useWorkspaceStore()
   const [activeTab, setActiveTab] = useState<TabId>('words')
   const [aiGenOpen, setAiGenOpen] = useState(false)
   const [selectedPaper, setSelectedPaper] = useState('')
@@ -162,6 +164,7 @@ export default function LearnPage() {
 
   // 加载文献列表用于"AI 补充生成"下拉选项
   useEffect(() => {
+    if (!repo) return
     let cancelled = false
     async function loadLitList() {
       try {
@@ -177,10 +180,11 @@ export default function LearnPage() {
     }
     loadLitList()
     return () => { cancelled = true }
-  }, [])
+  }, [repo])
 
   // 从 GitHub 私库加载数据
   useEffect(() => {
+    if (!repo) return
     let cancelled = false
     async function loadData() {
       try {
@@ -201,7 +205,7 @@ export default function LearnPage() {
     }
     loadData()
     return () => { cancelled = true }
-  }, [])
+  }, [repo])
 
   // 防抖保存到 GitHub 私库
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)

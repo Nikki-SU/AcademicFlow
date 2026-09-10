@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadNotes, saveNotes, type Literature } from '../services/literatureData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
+import { useWorkspaceStore } from '../stores/workspace'
 import { DoiLink } from '../components/DoiLink'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
@@ -290,6 +291,7 @@ function getWordCountFromHtml(html: string): number {
 }
 
 export default function ReadingPage() {
+  const { repo } = useWorkspaceStore()
   const [papers, setPapers] = useState<Paper[]>([])
   const [papersLoading, setPapersLoading] = useState(true)
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null)
@@ -316,6 +318,7 @@ export default function ReadingPage() {
   const noteImageInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (!repo) return
     let cancelled = false
     async function loadPapers() {
       try {
@@ -335,7 +338,7 @@ export default function ReadingPage() {
     }
     loadPapers()
     return () => { cancelled = true }
-  }, [])
+  }, [repo])
 
   useEffect(() => {
     if (!selectedPaperId) {

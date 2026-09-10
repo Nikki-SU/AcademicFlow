@@ -35,6 +35,7 @@ import { normalizeDoi, getCitationEntries } from '../services/citation'
 import { DoiLink } from '../components/DoiLink'
 import { readCsvFile, writeCsvFile } from '../services/userData'
 import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
+import { useWorkspaceStore } from '../stores/workspace'
 
 // ============================================================
 // 类型定义
@@ -128,6 +129,8 @@ function generateId(): string {
 // ============================================================
 
 export default function TrackingPage() {
+  const { repo } = useWorkspaceStore()
+
   // ---------- 快速入库 ----------
   const [doiInput, setDoiInput] = useState('')
   const [isAdding, setIsAdding] = useState(false)
@@ -174,6 +177,7 @@ export default function TrackingPage() {
   // 关键词组 & 期刊 & 搜索源从 GitHub 私库加载
   const dataLoadedRef = useRef(false)
   useEffect(() => {
+    if (!repo) return
     let cancelled = false
     async function loadData() {
       try {
@@ -255,7 +259,7 @@ export default function TrackingPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [repo])
 
   // 关键词组变化时防抖保存到 GitHub
   const keywordGroupsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)

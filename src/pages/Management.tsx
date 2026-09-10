@@ -3,6 +3,7 @@ import { loadLiteratures, saveLiteratures, type Literature } from '../services/l
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
 import { useSettingsStore } from '../stores/settings'
+import { useWorkspaceStore } from '../stores/workspace'
 import { runMineruSingleFile } from '../services/mineru'
 import { savePaperMineruResult, saveTextbookMineruResult } from '../services/mineru-storage'
 import { splitAndSaveTextbookChapters } from '../services/chapterSplit'
@@ -270,6 +271,7 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
 }
 
 export default function ManagementPage() {
+  const { repo } = useWorkspaceStore()
   const [activeTab, setActiveTab] = useState<SubTabId>('library')
 
   // 文献库状态
@@ -313,6 +315,7 @@ export default function ManagementPage() {
 
   // 加载数据
   useEffect(() => {
+    if (!repo) return
     const loadData = async () => {
       try {
         const lits = await loadLiteratures()
@@ -322,9 +325,10 @@ export default function ManagementPage() {
       }
     }
     loadData()
-  }, [])
+  }, [repo])
 
   useEffect(() => {
+    if (!repo) return
     const loadData = async () => {
       try {
         const groups = await loadKeywordGroups()
@@ -335,9 +339,10 @@ export default function ManagementPage() {
       }
     }
     loadData()
-  }, [])
+  }, [repo])
 
   useEffect(() => {
+    if (!repo) return
     const loadData = async () => {
       try {
         const tbs = await loadTextbooks()
@@ -347,7 +352,7 @@ export default function ManagementPage() {
       }
     }
     loadData()
-  }, [])
+  }, [repo])
 
   // 保存文献（防抖）
   const savePapers = async (updatedPapers: Paper[]) => {
