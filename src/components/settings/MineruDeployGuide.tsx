@@ -114,15 +114,12 @@ export default function MineruDeployGuide() {
           </summary>
           <div className="mt-1.5 p-2 bg-blue-50 border border-blue-200 rounded text-[0.6875rem] text-blue-700 space-y-2">
             <p>
-              1) 创建文件 <code className="px-1 bg-white rounded text-[0.625rem]">start-proxy.bat</code>，内容：
+              代码里已经带好 <code className="px-1 bg-white rounded text-[0.625rem]">worker\start-proxy.bat</code>，双击就能启动，不用自己写。
             </p>
-            <pre className="px-2 py-1 bg-white border border-blue-200 rounded text-[0.625rem] font-mono whitespace-pre-wrap">
-{`@echo off
-cd /d "C:\\path\\to\\AcademicFlow"
-deno run --allow-net worker/deno.js`}
-            </pre>
-            <p>2) 按 <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">Win</kbd> + <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">R</kbd>，输入 <code className="px-1 bg-white rounded text-[0.625rem]">shell:startup</code> 回车</p>
-            <p>3) 把 <code className="px-1 bg-white rounded text-[0.625rem]">start-proxy.bat</code> 复制到打开的文件夹里 → 搞定</p>
+            <p>
+              1) 按 <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">Win</kbd> + <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">R</kbd>，输入 <code className="px-1 bg-white rounded text-[0.625rem]">shell:startup</code> 回车
+            </p>
+            <p>2) 把 <code className="px-1 bg-white rounded text-[0.625rem]">worker\start-proxy.bat</code> 复制到打开的文件夹里 → 开机自动启动</p>
           </div>
         </details>
 
