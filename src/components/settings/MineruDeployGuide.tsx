@@ -121,12 +121,14 @@ export default function MineruDeployGuide() {
           </summary>
           <div className="mt-1.5 p-2 bg-blue-50 border border-blue-200 rounded text-[0.6875rem] text-blue-700 space-y-2">
             <p>
-              代码里已经带好 <code className="px-1 bg-white rounded text-[0.625rem]">worker\start-proxy.bat</code>，双击就能启动，不用自己写。
+              1) 编辑 <code className="px-1 bg-white rounded text-[0.625rem]">worker\start-proxy.bat</code>，把第一行
+              <code className="px-1 bg-white rounded text-[0.625rem]">set MY_PROJECT_DIR=</code> 改成你的项目绝对路径，例如：
+              <code className="px-1 bg-white rounded text-[0.625rem]">set MY_PROJECT_DIR=C:\Users\你\AcademicFlow</code>
             </p>
             <p>
-              1) 按 <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">Win</kbd> + <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">R</kbd>，输入 <code className="px-1 bg-white rounded text-[0.625rem]">shell:startup</code> 回车
+              2) 按 <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">Win</kbd> + <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">R</kbd>，输入 <code className="px-1 bg-white rounded text-[0.625rem]">shell:startup</code> 回车
             </p>
-            <p>2) 把 <code className="px-1 bg-white rounded text-[0.625rem]">worker\start-proxy.bat</code> 复制到打开的文件夹里 → 开机自动启动</p>
+            <p>3) 把改好的 <code className="px-1 bg-white rounded text-[0.625rem]">start-proxy.bat</code> 复制到打开的文件夹里 → 开机自动启动</p>
           </div>
         </details>
 

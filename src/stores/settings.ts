@@ -46,7 +46,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   customAi2ApiKey: '',
   customAi2Model: '',
   mineruToken: '',
-  mineruWorkerUrl: '',
+  mineruWorkerUrl: 'http://localhost:8000',
   extractCoverImage: true,
   mineruDebugMode: true,
 }
@@ -57,6 +57,15 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'customAi1ApiKey',
   'customAi2ApiKey',
   'mineruToken',
+]
+
+/** 非敏感字段也存 IndexedDB 做本地备份
+ *  —— 没登录 GitHub / GitHub API 挂了也不丢，
+ *     syncFromGitHub 成功后会被覆盖（GitHub 是跨设备主存储） */
+const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] = [
+  { field: 'mineruWorkerUrl', key: SETTING_KEYS.MINERU_WORKER_URL },
+  { field: 'extractCoverImage', key: SETTING_KEYS.EXTRACT_COVER_IMAGE },
+  { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
 ]
 
 /** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
@@ -229,6 +238,20 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         siliconflowModelsFetchedAt: fetchedAt,
         isInitialized: true,
       })
+
+      // 3. 非敏感字段从 IndexedDB 本地备份恢复（没登录 GitHub 也不丢）
+      //    syncFromGitHub 成功后会覆盖这些值（GitHub 是跨设备主存储）
+      const localBackupPatch: Partial<SettingsData> = {}
+      for (const { field, key } of NON_SENSITIVE_LOCAL_BACKUP) {
+        const raw = await getSetting(key)
+        if (raw !== null && raw !== '') {
+          // @ts-expect-error runtime-safe
+          localBackupPatch[field] = deserialize(field, raw)
+        }
+      }
+      if (Object.keys(localBackupPatch).length > 0) {
+        set(localBackupPatch)
+      }
     },
 
     syncFromGitHub: async () => {
@@ -270,11 +293,19 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         )
       }
 
-      // 非敏感字段 → 防抖写 GitHub global.md
+      // 非敏感字段 → 防抖写 GitHub global.md + 立即写 IndexedDB 做本地备份
       const nonSensitivePatches = (Object.keys(patch) as (keyof SettingsData)[]).filter(
         (field) => !SENSITIVE_FIELDS.includes(field),
       )
       if (nonSensitivePatches.length > 0) {
+        // 本地备份：立即写 IndexedDB（没登录 GitHub 也不丢）
+        for (const { field, key } of NON_SENSITIVE_LOCAL_BACKUP) {
+          if ((nonSensitivePatches as string[]).includes(field)) {
+            // @ts-expect-error runtime-safe
+            await putSetting(key, serialize(field, patch[field]))
+          }
+        }
+        // GitHub 主存储：防抖写
         scheduleGlobalSettingsSync(get)
       }
     },
@@ -392,6 +423,12 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           putSetting(SENSITIVE_KEY_MAP[field], serialize(field, merged[field])),
         ),
       )
+
+      // 非敏感字段 → IndexedDB 本地备份
+      for (const { field, key } of NON_SENSITIVE_LOCAL_BACKUP) {
+        // @ts-expect-error runtime-safe
+        await putSetting(key, serialize(field, merged[field]))
+      }
 
       // 非敏感字段 → GitHub global.md
       try {
