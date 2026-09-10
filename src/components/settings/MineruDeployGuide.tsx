@@ -6,11 +6,56 @@
  */
 import { ExternalLink, Server, Terminal, Power } from 'lucide-react'
 import { useState } from 'react'
+import { toast } from 'sonner'
 
 const DENO_INSTALL_URL = 'https://deno.land/#install'
 const WORKER_DIR_URL = 'https://github.com/Nikki-SU/AcademicFlow/tree/main/worker'
 const RUN_CMD = 'deno run --allow-net worker/deno.js'
 const CLONE_CMD = 'git clone https://github.com/Nikki-SU/AcademicFlow.git'
+
+/** 生成开机自启用的 bat，把项目绝对路径硬编码进去（不再依赖 %~dp0） */
+function generateAutoStartBat(projectPath: string): string {
+  // 归一化：尾部反斜杠去掉，正斜杠改反斜杠
+  let p = projectPath.trim().replace(/\//g, '\\')
+  if (p.endsWith('\\')) p = p.slice(0, -1)
+
+  const DENOCMD_REF = '%DENO_CMD%'
+  const PROJECT_REF = '%MY_PROJECT_DIR%'
+  const USERPROFILE_REF = '%USERPROFILE%'
+  const LOCALAPPDATA_REF = '%LOCALAPPDATA%'
+
+  return [
+    '@echo off',
+    'rem ============================================================',
+    'rem AcademicFlow MinerU 代理开机自启脚本',
+    'rem 由 AcademicFlow 前端自动生成，项目路径已硬编码',
+    'rem ============================================================',
+    '',
+    'rem ---- 项目路径（已填好） ----',
+    `set MY_PROJECT_DIR=${p}`,
+    '',
+    'rem ---- 找 Deno ----',
+    'where deno >nul 2>&1',
+    'if %errorlevel%==0 (',
+    '    set "DENO_CMD=deno"',
+    `) else if exist "${USERPROFILE_REF}\\.deno\\bin\\deno.exe" (`,
+    `    set "DENO_CMD=${USERPROFILE_REF}\\.deno\\bin\\deno.exe"`,
+    `) else if exist "${LOCALAPPDATA_REF}\\deno\\bin\\deno.exe" (`,
+    `    set "DENO_CMD=${LOCALAPPDATA_REF}\\deno\\bin\\deno.exe"`,
+    ') else (',
+    '    echo.',
+    '    echo   [错误] 找不到 Deno！请先安装：https://deno.land/#install',
+    '    echo.',
+    '    pause',
+    '    exit /b 1',
+    ')',
+    '',
+    'rem ---- 启动 ----',
+    `cd /d "${PROJECT_REF}"`,
+    `start "" /min "${DENOCMD_REF}" run --allow-net worker\\deno.js`,
+    '',
+  ].join('\r\n')
+}
 
 export default function MineruDeployGuide() {
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
@@ -120,15 +165,44 @@ export default function MineruDeployGuide() {
             ▸ Windows
           </summary>
           <div className="mt-1.5 p-2 bg-blue-50 border border-blue-200 rounded text-[0.6875rem] text-blue-700 space-y-2">
-            <p>
-              1) 编辑 <code className="px-1 bg-white rounded text-[0.625rem]">worker\start-proxy.bat</code>，把第一行
-              <code className="px-1 bg-white rounded text-[0.625rem]">set MY_PROJECT_DIR=</code> 改成你的项目绝对路径，例如：
-              <code className="px-1 bg-white rounded text-[0.625rem]">set MY_PROJECT_DIR=C:\Users\你\AcademicFlow</code>
+            <p className="font-medium">一键生成开机启动脚本：</p>
+            <div className="flex gap-1.5">
+              <input
+                id="af-project-path"
+                type="text"
+                placeholder="C:\Users\你\AcademicFlow"
+                className="flex-1 px-2 py-1 text-[0.625rem] border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const p = (document.getElementById('af-project-path') as HTMLInputElement).value.trim()
+                  if (!p) {
+                    toast.error('请填写项目路径')
+                    return
+                  }
+                  const bat = generateAutoStartBat(p)
+                  const blob = new Blob([bat], { type: 'application/octet-stream' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'start-proxy-autostart.bat'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                  toast.success('已生成 start-proxy-autostart.bat')
+                }}
+                className="px-2 py-1 text-[0.625rem] bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium transition-colors"
+              >
+                生成并下载
+              </button>
+            </div>
+            <p className="text-[0.625rem] text-blue-600">
+              填你的 AcademicFlow 项目在电脑上的绝对路径（文件夹位置），浏览器会下载一个改好路径的 bat 文件
             </p>
-            <p>
-              2) 按 <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">Win</kbd> + <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">R</kbd>，输入 <code className="px-1 bg-white rounded text-[0.625rem]">shell:startup</code> 回车
+            <p className="pt-1 border-t border-blue-200">
+              1) 按 <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">Win</kbd> + <kbd className="px-1 bg-white rounded border border-blue-300 text-[0.625rem]">R</kbd>，输入 <code className="px-1 bg-white rounded text-[0.625rem]">shell:startup</code> 回车
             </p>
-            <p>3) 把改好的 <code className="px-1 bg-white rounded text-[0.625rem]">start-proxy.bat</code> 复制到打开的文件夹里 → 开机自动启动</p>
+            <p>2) 把下载的 <code className="px-1 bg-white rounded text-[0.625rem]">start-proxy-autostart.bat</code> 复制到打开的文件夹 → 开机自动启动</p>
           </div>
         </details>
 
