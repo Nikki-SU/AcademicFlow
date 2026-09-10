@@ -22,7 +22,7 @@ import MineruDeployGuide from './MineruDeployGuide'
 const REPO_URL = 'https://github.com/Nikki-SU/AcademicFlow-Worker'
 const HEALTH_PATH = '/__af_health'
 
-type PingState = 'idle' | 'checking' | 'ok' | 'fail'
+type PingState = 'idle' | 'checking' | 'ok' | 'warn' | 'fail'
 
 interface PingResult {
   state: PingState
@@ -50,8 +50,8 @@ async function pingWorker(
   const targetIsHttp = /^http:\/\//i.test(trimmed)
   if (pageIsHttps && targetIsHttp) {
     return {
-      state: 'fail',
-      message: 'HTTPS 页面无法访问 HTTP 本地代理（浏览器安全策略），但代理本身是好的——直接打开 http://localhost:8000 应能看到确认页。保存即可正常使用。',
+      state: 'warn',
+      message: 'HTTPS 页面无法 fetch HTTP 本地代理（浏览器安全策略），但代理本身是好的——直接打开 http://localhost:8000 应能看到确认页。保存即可正常使用。',
     }
   }
 
@@ -100,7 +100,7 @@ export default function MineruProxyConfig() {
       const result = await pingWorker(draft, ctl.signal)
       if (!ctl.signal.aborted) {
         setPing(result)
-        if (result.state === 'ok') {
+        if (result.state === 'ok' || result.state === 'warn') {
           setShowDeployGuide(false)
         }
       }
@@ -179,6 +179,12 @@ export default function MineruProxyConfig() {
               <>
                 <XCircle className="w-3.5 h-3.5 text-red-600" />
                 <span className="text-red-700">{ping.message}</span>
+              </>
+            )}
+            {ping.state === 'warn' && (
+              <>
+                <Loader2 className="w-3.5 h-3.5 text-amber-500" />
+                <span className="text-amber-700">{ping.message}</span>
               </>
             )}
           </div>
