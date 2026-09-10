@@ -61,7 +61,56 @@ function safeStringify(v: unknown): string {
 }
 
 /**
- * 构造 MinerU API 的 baseUrl。
+ * fetch 失败时的根因诊断 helper。
+ * 浏览器 fetch 失败经常只给 "Failed to fetch" / "NetworkError" 这种模糊信息，
+ * 但从 URL 模式和错误特征往往能推断出更具体的根因。
+ *
+ * 主要覆盖 3 类高频场景：
+ *   1. HTTPS 页面 fetch HTTP 代理 → 混合内容被浏览器策略拦截
+ *   2. localhost:8000 连接被拒 → 代理没启动
+ *   3. 代理是云 HTTPS 但 OSS 预签名 URL 有问题 → 让用户检查网络
+ */
+function diagnoseFetchError(url: string, err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+
+  // ---- 1. 混合内容：HTTPS 页面 fetch HTTP URL ----
+  const pageIsHttps = typeof location !== 'undefined' && location.protocol === 'https:'
+  const targetIsHttp = /^http:\/\//i.test(url)
+  if (pageIsHttps && targetIsHttp) {
+    const isLocalhost = /localhost|\b127\.0\.0\.1\b/.test(url)
+    if (isLocalhost) {
+      return (
+        `HTTPS 页面无法请求 HTTP localhost 代理（浏览器安全策略）。` +
+        `\n请改用以下方案之一：` +
+        `\n  ① 本地开发：http://localhost:5173 打开 AcademicFlow` +
+        `\n  ② 云端代理：Settings → MinerU 代理 → 部署 Deno Deploy / Cloudflare Workers（免费）`
+      )
+    }
+    return (
+      `HTTPS 页面无法请求 HTTP 代理。` +
+      `把代理地址改成 HTTPS（部署 Deno Deploy / Cloudflare Workers），` +
+      `或本地开发时用 http://localhost:5173 打开 AcademicFlow。`
+    )
+  }
+
+  // ---- 2. localhost 连接失败 → 代理没启动 ----
+  if (/localhost|\b127\.0\.0\.1\b/.test(url)) {
+    const seemsUnreachable =
+      msg.includes('Failed to fetch') ||
+      msg.includes('NetworkError') ||
+      msg.includes('ERR_CONNECTION_REFUSED') ||
+      msg.includes('ERR_CONNECTION_RESET') ||
+      msg.includes('ECONNREFUSED')
+    if (seemsUnreachable) {
+      return `localhost:8000 代理连接失败。请先双击 worker/start-proxy.bat 启动代理。`
+    }
+  }
+
+  // ---- 3. 其他网络错误 ----
+  return msg
+}
+
+/**
  * MinerU 服务端不返回 CORS 头，浏览器直连会 preflight 405，
  * 因此必须走用户在自己 VPS 上部署的透传代理。
  *
@@ -134,8 +183,11 @@ export class MineruRateLimitError extends MineruError {
 }
 
 export class MineruNetworkError extends MineruError {
-  constructor(providerMessage?: string) {
-    super('MinerU 网络错误 —— 检查网络或稍后重试', providerMessage)
+  constructor(providerMessage?: string, customMessage?: string) {
+    super(
+      customMessage ?? 'MinerU 网络错误 —— 检查网络或稍后重试',
+      providerMessage,
+    )
     this.name = 'MineruNetworkError'
   }
 }
@@ -257,7 +309,7 @@ export async function applyUploadUrls(opts: ApplyOptions): Promise<{
       errorName: err instanceof Error ? err.name : 'Unknown',
       detail: msg,
     })
-    throw new MineruNetworkError(msg)
+    const diag = diagnoseFetchError(url, err); throw new MineruNetworkError(diag, diag)
   }
 
   emitDebug(opts.onDebug, {
@@ -356,7 +408,7 @@ export async function uploadFile(
       errorName: err instanceof Error ? err.name : 'Unknown',
       detail: msg,
     })
-    throw new MineruNetworkError(msg)
+    const diag = diagnoseFetchError(proxied, err); throw new MineruNetworkError(diag, diag)
   }
 
   emitDebug(onDebug, {
@@ -484,7 +536,7 @@ export async function pollBatch(
         errorName: err instanceof Error ? err.name : 'Unknown',
         detail: `poll #${pollCount} fetch rejected: ${msg}`,
       })
-      throw new MineruNetworkError(msg)
+      const diag = diagnoseFetchError(pollUrl, err); throw new MineruNetworkError(diag, diag)
     }
 
     emitDebug(opts.onDebug, {
@@ -611,7 +663,7 @@ export async function downloadZip(
       errorName: err instanceof Error ? err.name : 'Unknown',
       detail: msg,
     })
-    throw new MineruNetworkError(msg)
+    const diag = diagnoseFetchError(proxied, err); throw new MineruNetworkError(diag, diag)
   }
 
   emitDebug(onDebug, {
