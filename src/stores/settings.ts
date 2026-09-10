@@ -301,7 +301,6 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         // 本地备份：立即写 IndexedDB（没登录 GitHub 也不丢）
         for (const { field, key } of NON_SENSITIVE_LOCAL_BACKUP) {
           if ((nonSensitivePatches as string[]).includes(field)) {
-            // @ts-expect-error runtime-safe
             await putSetting(key, serialize(field, patch[field]))
           }
         }
@@ -426,7 +425,6 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
 
       // 非敏感字段 → IndexedDB 本地备份
       for (const { field, key } of NON_SENSITIVE_LOCAL_BACKUP) {
-        // @ts-expect-error runtime-safe
         await putSetting(key, serialize(field, merged[field]))
       }
 
