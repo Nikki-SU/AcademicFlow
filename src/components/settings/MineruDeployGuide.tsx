@@ -78,7 +78,16 @@ export default function MineruDeployGuide() {
               {copiedCmd === `cd AcademicFlow\n${RUN_CMD}` ? '✓ 已复制' : '复制'}
             </button>
           </div>
-          <p className="mt-1 text-[0.6875rem] text-slate-400">启动后显示 <code className="px-1 py-0.5 bg-slate-100 rounded text-[0.625rem]">Listening on http://localhost:8000/</code></p>
+          <p className="mt-1 text-[0.6875rem] text-slate-400">
+            启动后显示 <code className="px-1 py-0.5 bg-slate-100 rounded text-[0.625rem]">Listening on http://localhost:8000/</code>
+          </p>
+          <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded text-[0.6875rem] text-amber-700">
+            <span className="font-medium">验证是否正常：</span>
+            浏览器打开 <code className="px-1 py-0.5 bg-white border border-amber-200 rounded text-[0.625rem]">http://localhost:8000/__af_health</code>，
+            看到 <code className="px-1 py-0.5 bg-white border border-amber-200 rounded text-[0.625rem]">{'{"ok":true,...}'}</code> 就是好的。
+            <br />
+            ⚠️ 直接打开根路径 <code className="px-1 py-0.5 bg-white border border-amber-200 rounded text-[0.625rem]">http://localhost:8000/</code> 显示 404 是<b>正常的</b>（安全设计，代理只对指定路径放行），不是坏了。
+          </div>
         </li>
       </ol>
 
