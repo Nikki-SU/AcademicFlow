@@ -95,7 +95,32 @@ export async function handleRequest(request, ctx = {}) {
     return handleApi(request, url)
   }
 
-  // 其他路径拒绝，防止被当通用代理滥用
+  // 根路径 → 友好页面（本地部署时只有自己能访问，不用防滥用）
+  if (url.pathname === '/') {
+    return new Response(
+      `<!doctype html><html lang="zh">
+<head><meta charset="utf-8"><title>AcademicFlow Proxy</title>
+<style>
+  body{font-family:-apple-system,"Segoe UI",sans-serif;max-width:480px;margin:80px auto;padding:0 24px;color:#1e293b}
+  h1{font-size:20px;margin:0 0 8px;color:#4f46e5}
+  .ok{color:#059669;font-size:14px;margin-bottom:24px}
+  .code{background:#f1f5f9;border-radius:6px;padding:12px 16px;font-family:monospace;font-size:13px;color:#334155;margin:8px 0}
+  .hint{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 16px;font-size:13px;color:#92400e;margin-top:24px}
+</style></head>
+<body>
+  <h1>✓ AcademicFlow 代理已启动</h1>
+  <div class="ok">MinerU 请求将通过此代理转发</div>
+  <div class="code">${UPSTREAM_API}</div>
+  <div class="hint">
+    代理地址：<b>${new URL(request.url).origin}</b><br>
+    把这个地址填到 AcademicFlow → 设置 → MinerU 代理 输入框即可。
+  </div>
+</body></html>`,
+      { headers: { ...corsHeaders(), 'Content-Type': 'text/html; charset=utf-8' } },
+    )
+  }
+
+  // 其他路径（非根非已登记路由）→ 404，防止被当通用代理滥用
   return json({ error: 'not found' }, corsHeaders(), 404)
 }
 
