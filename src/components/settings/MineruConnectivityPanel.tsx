@@ -1,13 +1,13 @@
 /**
  * MinerU 联通性检测面板 —— Settings 页
  * -------------------------------------------------
- * 挂在 MinerU API Token 输入框下方。点"检测"按钮做两件事：
- *   1. 本地解析 JWT → 校验 token 格式 / 是否过期 / 剩余天数
- *   2. 探活用户自部署的 worker 代理（mineruWorkerUrl）的 /__af_health
+ * 挂在 MinerU API Token 输入框下方。两个按钮：
+ *   1. 快速检测：本地解析 JWT + worker 代理探活（前端零网络开销）
+ *   2. 端到端测试：触发 GitHub Actions mineru-test workflow，
+ *      runner 上直接 POST MinerU file-urls/batch，真实验证
+ *      MINERU_API_TOKEN secret + runner→mineru.net 网络
  *
  * 架构说明：GitHub Actions runner 直接打 MinerU，前端不直连。
- * token 有效 → MinerU 就能用（overallOk=true）；
- * worker 探活是补充信息，Mixed Content / 未配置时跳过不影响整体判断。
  */
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -18,12 +18,20 @@ import {
   Wifi,
   WifiOff,
   Info,
+  Zap,
 } from 'lucide-react'
+import { useAuthStore } from '../../stores/auth'
+import { useWorkspaceStore } from '../../stores/workspace'
 import { useSettingsStore } from '../../stores/settings'
 import {
   checkMineruConnectivity,
   type MineruConnectivityReport,
 } from '../../services/mineruConnectivity'
+import {
+  dispatchMineruTest,
+  getLatestRun,
+  type RunStatus,
+} from '../../services/workflowClient'
 
 /** 把 timestamp（秒）转成可读时间字符串，undefined 返回 '—' */
 function fmtDate(d: Date | undefined): string {
@@ -33,11 +41,19 @@ function fmtDate(d: Date | undefined): string {
 
 export default function MineruConnectivityPanel() {
   const store = useSettingsStore()
+  const auth = useAuthStore()
+  const ws = useWorkspaceStore()
   const token = store.mineruToken
   const workerUrl = store.mineruWorkerUrl
+  const owner = auth.user?.login ?? ''
+  const repo = ws.repo?.name ?? ''
+  const ghToken = auth.token ?? ''
 
   const [checking, setChecking] = useState(false)
   const [report, setReport] = useState<MineruConnectivityReport | null>(null)
+
+  const [e2eRunning, setE2eRunning] = useState(false)
+  const [e2eRun, setE2eRun] = useState<RunStatus | null>(null)
 
   const runCheck = useCallback(async () => {
     if (!token.trim()) {
@@ -60,6 +76,40 @@ export default function MineruConnectivityPanel() {
       setChecking(false)
     }
   }, [token, workerUrl])
+
+  const runE2E = useCallback(async () => {
+    if (!owner || !repo || !ghToken) {
+      toast.error('未登录或私库未配置，无法端到端测试')
+      return
+    }
+    setE2eRunning(true)
+    setE2eRun(null)
+    try {
+      await dispatchMineruTest(owner, repo, ghToken)
+      toast.info('已触发 MinerU 端到端测试，runner 正在执行...')
+      // 轮询 run 状态，最多 1min（12 × 5s）
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 5000))
+        const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
+        if (!rs) continue
+        setE2eRun(rs)
+        if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') {
+          if (rs.conclusion === 'success') {
+            toast.success('端到端测试通过：MinerU 链路完整可达')
+          } else {
+            toast.error(`端到端测试失败：${rs.conclusion}（查看 runner 日志）`)
+          }
+          return
+        }
+      }
+      toast.info('端到端测试仍在执行中，请稍后查看 runner 日志')
+    } catch (e: any) {
+      const msg = e?.message || String(e)
+      toast.error(`端到端测试触发失败：${msg}`)
+    } finally {
+      setE2eRunning(false)
+    }
+  }, [owner, repo, ghToken])
 
   // 状态条配色：
   //   绿 = overallOk 且 tokenExpiringSoon=false
@@ -93,7 +143,7 @@ export default function MineruConnectivityPanel() {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           type="button"
           onClick={runCheck}
@@ -106,7 +156,22 @@ export default function MineruConnectivityPanel() {
           ) : (
             <Wifi className="w-3.5 h-3.5" />
           )}
-          检测 MinerU 联通
+          快速检测
+        </button>
+        <button
+          type="button"
+          onClick={runE2E}
+          disabled={e2eRunning || !owner || !repo}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-violet-300 bg-violet-50 text-violet-700 rounded-md
+                     hover:bg-violet-100 disabled:text-slate-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:border-slate-200"
+          title="触发 GitHub Actions，在 runner 上真调 MinerU POST /file-urls/batch"
+        >
+          {e2eRunning ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Zap className="w-3.5 h-3.5" />
+          )}
+          端到端测试
         </button>
         {workerUrl.trim() && (
           <span className="text-[11px] text-slate-500 truncate">
@@ -114,6 +179,23 @@ export default function MineruConnectivityPanel() {
           </span>
         )}
       </div>
+
+      {e2eRun && (
+        <a
+          href={e2eRun.html_url}
+          target="_blank"
+          rel="noreferrer"
+          className={`block p-2 rounded-md border text-[11px] truncate ${
+            e2eRun.conclusion === 'success'
+              ? 'bg-green-50 border-green-200 text-green-700'
+              : e2eRun.status === 'completed' || e2eRun.conclusion
+                ? 'bg-red-50 border-red-200 text-red-600'
+                : 'bg-blue-50 border-blue-200 text-blue-600'
+          }`}
+        >
+          runner 状态：{e2eRun.conclusion ?? e2eRun.status} · 查看日志 →
+        </a>
+      )}
 
       {report && (
         <div

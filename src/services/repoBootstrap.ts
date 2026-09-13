@@ -10,6 +10,7 @@
 import {
   PIPELINE_YML_B64, AI_SERVICE_YML_B64,
   PIPELINE_MJS_B64, AI_SERVICE_MJS_B64,
+  MINERU_TEST_YML_B64, MINERU_TEST_MJS_B64,
   PIPELINE_FILES,
 } from '../constants/skeleton'
 import { githubFetch, writeRepoTextFile } from './github'
@@ -67,6 +68,8 @@ export async function writePipelineFiles(
     'AI_SERVICE_YML_B64': AI_SERVICE_YML_B64,
     'PIPELINE_MJS_B64': PIPELINE_MJS_B64,
     'AI_SERVICE_MJS_B64': AI_SERVICE_MJS_B64,
+    'MINERU_TEST_YML_B64': MINERU_TEST_YML_B64,
+    'MINERU_TEST_MJS_B64': MINERU_TEST_MJS_B64,
   }
   const details: { path: string; ok: boolean; error?: string }[] = []
   const written: string[] = []
