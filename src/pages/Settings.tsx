@@ -24,6 +24,7 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
+import MineruConnectivityPanel from '../components/settings/MineruConnectivityPanel'
 
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
@@ -461,6 +462,8 @@ function Settings() {
               onChange={(e) => updateSettings({ mineruToken: e.target.value })}
               className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500"
             />
+            {/* 联通检测：本地 JWT 校验 + worker 代理探活，避免填错 token 要等 pipeline 跑挂才发现 */}
+            <MineruConnectivityPanel />
           </div>
 
           {/* AI Secrets 自动同步状态条 */}
