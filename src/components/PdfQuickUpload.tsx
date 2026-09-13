@@ -12,7 +12,6 @@ import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
 import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
-import { useSettingsStore } from '../stores/settings'
 
 interface UploadLogicProps {
   pdf: File | null

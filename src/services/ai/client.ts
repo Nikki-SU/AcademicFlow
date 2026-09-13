@@ -78,7 +78,7 @@ async function pollResult(
     try {
       const raw = await readRepoTextFile(owner, repo, outputPath, token)
       if (raw) {
-        const parsed = JSON.parse(raw)
+        const parsed = JSON.parse(raw.content)
         if (parsed.error) throw new Error(`后端 AI 失败: ${parsed.error}`)
         // ai-service.mjs chat handler 输出: { content, usage, finish_reason, model, done, completed_at }
         return {

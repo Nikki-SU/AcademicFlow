@@ -12,6 +12,7 @@
 
 import { readCsvFile, writeCsvFile, readMdFile, writeMdFile } from './userData'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useAuthStore } from '../stores/auth'
 import { githubFetch } from './github'
 
 export type MdStatus = 'none' | 'converting' | 'done' | 'failed'
@@ -52,11 +53,12 @@ export function doiToSlug(doi: string): string {
  */
 async function fetchLiteratureFileSet(): Promise<Set<string> | null> {
   const ws = useWorkspaceStore.getState()
-  if (!ws.repo || !ws.token) return null
+  const token = useAuthStore.getState().token
+  if (!ws.repo || !token) return null
   try {
     const res = await githubFetch(
       `/repos/${ws.repo.owner.login}/${ws.repo.name}/git/trees/main?recursive=1`,
-      ws.token,
+      token,
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -94,7 +96,6 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
 
   if (!rows || rows.length <= 1) return []
 
-  const headerCols = rows[0].length
   // 旧 CSV 可能没有 md_status 列（第 15 列），容错处理
   const MD_STATUS_COL = 14 // 0-based: doi(0) ... tracking_group(13), md_status(14)
 
@@ -223,13 +224,14 @@ export async function cleanupLegacyMd(doi: string): Promise<void> {
     `literatures/${slug}/aligned.md`,
   ]
   const ws = useWorkspaceStore.getState()
-  if (!ws.repo) return
+  const token = useAuthStore.getState().token
+  if (!ws.repo || !token) return
 
   // 逐个尝试删除，404 跳过（文件本来就不存在），其他错误警告
   const { deleteRepoFiles } = await import('./github')
   for (const p of paths) {
     try {
-      await deleteRepoFiles([p], `chore: cleanup legacy ${p}`, ws.repo.owner.login, ws.repo.name, ws.token)
+      await deleteRepoFiles([p], `chore: cleanup legacy ${p}`, ws.repo.owner.login, ws.repo.name, token)
       console.log(`[cleanupLegacyMd] 已删除 ${p}`)
     } catch (e: any) {
       // 404 = 文件不存在，正常跳过；其他错误才警告

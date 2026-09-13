@@ -54,9 +54,9 @@ async function pollResultFile(
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, 3000))
     try {
-      const content = await readRepoTextFile(owner, repo, outputPath, token)
-      if (content) {
-        return parseBackendResult(content)
+      const result = await readRepoTextFile(owner, repo, outputPath, token)
+      if (result) {
+        return parseBackendResult(result.content)
       }
     } catch {
       // 文件还没 commit，继续等

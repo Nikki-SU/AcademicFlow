@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AcademicFlow 全局类型定义
  */
 
@@ -172,6 +172,7 @@ export interface AIRequest {
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[]
   temperature?: number
   maxTokens?: number
+  signal?: AbortSignal
 }
 
 /** SPEC §9.1: OpenAI 兼容对话响应 */
@@ -191,6 +192,21 @@ export interface AIResponse {
  *  - latex_conversion: LaTeX 转换（Markdown → LaTeX，复用同一套引证锚定 + [NOT_IN_SOURCE] 机制）
  */
 export type DualEngineTaskType = 'faithfulness_check' | 'latex_conversion'
+
+/** 双引擎运行参数（供 dual-engine.ts 使用） */
+export interface DualEngineRunParams {
+  taskType: DualEngineTaskType
+  sourceMaterial: string
+  ai1Instruction: string
+  ai1RolePrompt?: string
+  maxAttempts?: number
+  ai1?: { baseUrl: string; apiKey: string; model: string }
+  ai2?: { baseUrl: string; apiKey: string; model: string }
+  onProgress?: DualEngineProgressCallback
+}
+
+/** 后台任务类型（taskQueue.ts 使用） */
+export type TaskType = 'paper_convert' | 'mineru_pdf' | 'ai_batch' | 'book_convert'
 
 /** SPEC §9.2 (M3.5 · M3.6.3 回到三分类 + 固定 tag 硬编码): 单条 claim 的核查结论
  *  - supported: 源材料明确支撑该 claim

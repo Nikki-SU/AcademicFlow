@@ -391,6 +391,7 @@ export default function TrackingPage() {
         pdfAddedAt: 0,
         source: 'DOI',
         trackingGroup: '',
+        mdStatus: 'none',
       }
       const status = await addLiteratureToLibrary(newLit)
       toastAdded(meta.title, status)
@@ -689,6 +690,7 @@ export default function TrackingPage() {
         pdfAddedAt: 0,
         source: paper.source || '追踪',
         trackingGroup: '',
+        mdStatus: 'none',
       }
       const status = await addLiteratureToLibrary(newLit)
       toastAdded(paper.title, status)

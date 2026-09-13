@@ -541,7 +541,7 @@ const [aligned_content, set_aligned_content] = useState('')
   const paperAnnotations = annotations
 
   const rendered_html = useMemo(() => {
-    const opts = { imageBaseUrl: getImageBaseUrl(selectedPaperId) }
+    const opts = { imageBaseUrl: getImageBaseUrl(selectedPaperId ?? '') }
 
     // 新路径：有 aligned.md → 确定性 idx 对齐渲染
     if (aligned_content.trim()) {
@@ -569,12 +569,13 @@ const [aligned_content, set_aligned_content] = useState('')
   useEffect(() => {
     if (!rendered_html || !readerRef.current) return
     const auth = useAuthStore.getState()
-    if (!auth.token) return
+    const token = auth.token
+    if (!token) return
     const mode = getResolvedAuthMode()
     // 微任务里跑，让 DOM 先渲染
     const t = setTimeout(() => {
       if (readerRef.current) {
-        void hydrateImages(readerRef.current, auth.token, mode)
+        void hydrateImages(readerRef.current, token, mode)
       }
     }, 50)
     return () => clearTimeout(t)

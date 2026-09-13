@@ -10,8 +10,9 @@
 
 import { create } from 'zustand'
 import { readCsvFile, writeCsvFile, getRepoContext } from '../services/userData'
-import { uploadRepoBinaryFile, downloadRepoBinaryFile, deleteRepoFiles } from '../services/github'
+import { uploadRepoBinaryFile, downloadRepoBinaryFile } from '../services/github'
 import { doiToSlug } from '../services/literatureData'
+import type { TaskType } from '../types'
 
 // 生成 PDF 在 GitHub 上的存储路径
 // 格式: literatures/{doi_slug}/source/{timestamp}_{filename}
@@ -100,7 +101,7 @@ export interface BackgroundTask {
   created_at: number
   updated_at: number
   error?: string
-  metadata?: Record<string, string>
+  metadata?: Record<string, unknown>
 }
 
 export type TaskExecutor = (task: BackgroundTask, signal: AbortSignal) => Promise<void>
@@ -117,12 +118,12 @@ const CSV_HEADERS_V2 = [
   'stage', 'node_index', 'progress',
   'status', 'message', 'created_at', 'updated_at', 'error', 'metadata',
 ]
-// 旧头（v1，向后兼容读取）
-const CSV_HEADERS_V1 = [
-  'id', 'type', 'doi', 'book_id', 'title',
-  'current_step', 'step_index', 'total_steps', 'progress',
-  'status', 'message', 'created_at', 'updated_at', 'error', 'metadata',
-]
+// 旧头（v1，向后兼容读取）——保留用于迁移，但不再写入
+// const CSV_HEADERS_V1 = [
+//   'id', 'type', 'doi', 'book_id', 'title',
+//   'current_step', 'step_index', 'total_steps', 'progress',
+//   'status', 'message', 'created_at', 'updated_at', 'error', 'metadata',
+// ]
 
 // ============================================================
 
@@ -367,7 +368,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
     if (cached) return cached
 
     const task = get().tasks.find((t) => t.id === id)
-    const path = task?.metadata?.pdf_github_path
+    const path = task?.metadata?.pdf_github_path as string | undefined
     if (!path) return undefined
 
     const ctx = getRepoContext()
@@ -377,7 +378,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
     try {
       const result = await downloadRepoBinaryFile(ctx!.owner, ctx!.repo, path, ctx!.token, 'application/pdf')
       if (!result) return undefined
-      const fileName = task.metadata.file_name ?? path.split('/').pop() ?? `${id}.pdf`
+      const fileName = (task!.metadata?.file_name as string) ?? path.split('/').pop() ?? `${id}.pdf`
       const file = new File([result.blob], fileName, { type: 'application/pdf', lastModified: Date.now() })
       const files = new Map(get()._files)
       files.set(id, file)
@@ -529,7 +530,6 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
 /** 节点内百分比 = STAGE_META[p.stage].pctBase + progress */
 export function nodeInnerPercent(stage: PipelineStage, progress: number): number {
   const base = STAGE_META[stage]?.pctBase ?? 0
-  const nodeIdx = STAGE_META[stage]?.node ?? 0
   // 同节点内的进度：把 [0,100] 映射到 [pctBase, nextStage.pctBase)
   return Math.min(100, base + Math.round(progress * 0.3))
 }

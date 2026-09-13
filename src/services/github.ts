@@ -741,7 +741,7 @@ export async function downloadRepoBinaryFile(
   const data = (await res.json()) as { content: string; sha: string; encoding: string; size?: number }
   const bytes = base64ToBytes(data.content.replace(/\n/g, ''))
   return {
-    blob: new Blob([bytes], { type: mime }),
+    blob: new Blob([bytes as BlobPart], { type: mime }),
     sha: data.sha,
     size: data.size ?? bytes.length,
   }

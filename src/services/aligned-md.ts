@@ -47,8 +47,8 @@ export interface ParsedAlignedMd {
 const FINAL_MARK_RE =
   /<!--\s*(PARA\s+(en|cn)\s+(\d+)\/(\d+)|IMG\s+between\s+(\d+)\s+and\s+(\d+)|TABLE\s+between\s+(\d+)\s+and\s+(\d+)|REF\s+ALL)\s*-->/g
 
-// 第二遍 tag 阶段的无编号标记
-const TAG_ONLY_RE = /<!--\s*(PARA_EN|IMG|TABLE|REF_ALL)\s*-->/g
+// 第二遍 tag 阶段的无编号标记（保留供未来扩展）
+// const TAG_ONLY_RE = /<!--\s*(PARA_EN|IMG|TABLE|REF_ALL)\s*-->/g
 
 // ============================================================
 // 阶段 3：纯代码 enumerate —— 把无编号标记变成带编号的 aligned.md

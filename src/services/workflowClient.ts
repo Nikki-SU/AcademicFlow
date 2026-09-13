@@ -120,11 +120,11 @@ export async function pollProgressJson(
   repo: string,
   token: string,
 ): Promise<PipelineProgress | null> {
-  const content = await readRepoTextFile(
+  const raw = await readRepoTextFile(
     owner, repo, `literatures/${slug}/.progress.json`, token,
   ).catch(() => null)
-  if (!content) return null
-  try { return JSON.parse(content) as PipelineProgress } catch { return null }
+  if (!raw) return null
+  try { return JSON.parse(raw.content) as PipelineProgress } catch { return null }
 }
 
 export interface PollOptions {

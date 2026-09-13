@@ -36,8 +36,8 @@ export default defineConfig({
       path: '@vite/client',
     },
     // Dev 模式完全禁用 HTTP 缓存 — 防止 F5 刷出旧版
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
+    configureServer(server: any) {
+      server.middlewares.use((_req: any, res: any, next: any) => {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
         res.setHeader('Pragma', 'no-cache')
         res.setHeader('Expires', '0')
@@ -45,7 +45,7 @@ export default defineConfig({
         next()
       })
     },
-  },
+  } as any,
   build: {
     outDir: 'dist',
     sourcemap: false,

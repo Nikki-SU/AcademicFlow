@@ -13,6 +13,7 @@ import { readRepoTextFile, writeRepoTextFile } from './github'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { useAuthStore } from '../stores/auth'
 import type { JournalTemplate, GuidelineVersion } from '../types'
+export type { JournalTemplate, GuidelineVersion }
 
 const TEMPLATES_DIR = 'templates/journals'
 

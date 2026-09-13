@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { loadLiteratures, saveLiteratures, doiToSlug, updatePaperMdStatus, loadFulltext, type Literature } from '../services/literatureData'
+import { loadLiteratures, saveLiteratures, doiToSlug, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
 import { useSettingsStore } from '../stores/settings'
@@ -9,11 +9,10 @@ import { githubFetch, deleteRepoFiles } from '../services/github'
 import { pollProgressJson } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
-import { useTaskQueueStore, type BackgroundTask, type PipelineStage, STAGE_META } from '../stores/taskQueue'
+import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
 import { BackgroundTaskList } from '../components/BackgroundTaskList'
 import {
   createTemplate,
-  updateTemplate,
   deleteTemplate as deleteJournalTemplate,
   getAllTemplates,
   setDefaultTemplate,
@@ -428,7 +427,7 @@ export default function ManagementPage() {
 
     setPapers((prev) => {
       let changed = false
-      const updated = prev.map((p) => {
+      const updated: Paper[] = prev.map((p) => {
         const task = runningOrPending.find(
           (t) => t.doi === p.doi && t.type === 'paper_convert',
         )
@@ -443,7 +442,7 @@ export default function ManagementPage() {
         return {
           ...p,
           mdProgress: task.progress,
-          mdStatus: 'converting',
+          mdStatus: 'converting' as const,
         }
       })
       return changed ? updated : prev
@@ -1025,14 +1024,14 @@ export default function ManagementPage() {
     }
     setIsExtracting(true)
     try {
-      const { ai1ApiKey, ai1BaseUrl, ai1Model } = useSettingsStore.getState()
-      if (!ai1ApiKey || !ai1BaseUrl || !ai1Model) {
+      const { customAi1ApiKey, customAi1BaseUrl, ai1Model } = useSettingsStore.getState()
+      if (!customAi1ApiKey || !customAi1BaseUrl || !ai1Model) {
         throw new Error('请先在设置页配置 AI-1 服务（API Key / Base URL / Model）')
       }
 
       const resp = await callAI({
-        baseUrl: ai1BaseUrl,
-        apiKey: ai1ApiKey,
+        baseUrl: customAi1BaseUrl,
+        apiKey: customAi1ApiKey,
         model: ai1Model,
         temperature: 0.2,
         maxTokens: 1024,
@@ -1073,26 +1072,27 @@ export default function ManagementPage() {
     }
   }
 
-  const handleSaveTemplate = async () => {
-    if (!editingTemplate) return
-    try {
-      // JournalTemplateItem → BackendJournalTemplate 更新
-      await updateTemplate(editingTemplate.id, {
-        name: editingTemplate.name,
-        issn: editingTemplate.issn || undefined,
-        publisher: editingTemplate.publisher || undefined,
-      })
-      // 重新拉取最新
-      const backend = await getAllTemplates()
-      setTemplates(backend.map(toTemplateItem))
-      setShowTemplateModal(false)
-      setEditingTemplate(null)
-      toast.success('模板已更新并保存到 GitHub')
-    } catch (err) {
-      toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
-      console.error('[handleSaveTemplate]', err)
-    }
-  }
+  // TODO: handleSaveTemplate 暂未接入 UI，待模板编辑弹窗实现后启用
+  // const handleSaveTemplate = async () => {
+  //   if (!editingTemplate) return
+  //   try {
+  //     // JournalTemplateItem → BackendJournalTemplate 更新
+  //     await updateTemplate(editingTemplate.id, {
+  //       name: editingTemplate.name,
+  //       issn: editingTemplate.issn || undefined,
+  //       publisher: editingTemplate.publisher || undefined,
+  //     })
+  //     // 重新拉取最新
+  //     const backend = await getAllTemplates()
+  //     setTemplates(backend.map(toTemplateItem))
+  //     setShowTemplateModal(false)
+  //     setEditingTemplate(null)
+  //     toast.success('模板已更新并保存到 GitHub')
+  //   } catch (err) {
+  //     toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
+  //     console.error('[handleSaveTemplate]', err)
+  //   }
+  // }
 
   const handleSetDefaultTemplate = async (id: string) => {
     try {

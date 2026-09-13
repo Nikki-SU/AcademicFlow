@@ -12,7 +12,7 @@ import {
   PIPELINE_MJS_B64, AI_SERVICE_MJS_B64,
   PIPELINE_FILES,
 } from '../constants/skeleton'
-import { githubFetch, writeRepoTextFile, readRepoTextFile } from './github'
+import { githubFetch, writeRepoTextFile } from './github'
 
 const MAX_PIPELINE_FILE = 500 * 1024 // 500KB — 所有 pipeline 文件都远小于此
 
