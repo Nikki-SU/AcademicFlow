@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -7,12 +7,21 @@
     <meta name="description" content="AcademicFlow - 学术工作流工具" />
     <meta name="theme-color" content="#4f46e5" />
     <link rel="manifest" href="manifest.json" />
-    <!-- CSP：禁止内联脚本/eval，所有资源只从同域加载；样式允许内联以兼容编辑器注入；图片支持 base64/blob -->
+    <!-- CSP：script-src 加 'unsafe-eval' 为 libsodium-wrappers WASM 必需；其他保持严格 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:8000 https://api.github.com https://raw.githubusercontent.com https://github.com https://api.siliconflow.cn https://mineru.net https://api.crossref.org https://api.openalex.org https://export.arxiv.org https://*.aliyuncs.com; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:;"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://github.com https://api.siliconflow.cn https://mineru.net https://api.crossref.org https://api.openalex.org https://export.arxiv.org https://*.aliyuncs.com; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:;"
     />
     <title>AcademicFlow</title>
+    <style>
+      @keyframes progress-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.55; transform: scale(1.08); }
+      }
+      .progress-pulse {
+        animation: progress-pulse 1.4s ease-in-out infinite;
+      }
+    </style>
     <!--
       SPA on GitHub Pages 恢复脚本：
       与 public/404.html 配套。若 URL 是 /AcademicFlow/?/xxx 格式，

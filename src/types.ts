@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AcademicFlow 全局类型定义
  */
 
@@ -142,6 +142,8 @@ export interface SettingsData {
    * 分发前可在 Settings 里手动关。默认 true（开发期）。
    */
   mineruDebugMode: boolean
+  /** 单词生成数量（后置任务 AI-1 每篇文献提取的核心单词数，范围 10-50） */
+  wordGenCount: number
 }
 
 /** 设置 store 状态 */
@@ -617,6 +619,8 @@ export interface JournalTemplate {
   name: string
   /** 期刊简称 / 缩写 */
   short_name?: string
+  /** ISSN */
+  issn?: string
   /** 出版社 */
   publisher?: string
   /** 期刊主页 URL */
@@ -633,6 +637,8 @@ export interface JournalTemplate {
   guidelines_last_updated_at?: number
   /** 投稿须知内容哈希（用于检测变化） */
   guidelines_content_hash?: string
+  /** 是否是用户当前的默认模板 */
+  is_default?: boolean
   /** LaTeX documentclass，如 article / elsarticle / IEEEtran */
   document_class: string
   /** LaTeX 文档选项，如 twocolumn,12pt */

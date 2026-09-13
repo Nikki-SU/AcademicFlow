@@ -19,15 +19,20 @@ import {
   ToggleLeft,
   ToggleRight,
 } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
-import MineruTestPanel from '../components/settings/MineruTestPanel'
-import MineruProxyConfig from '../components/settings/MineruProxyConfig'
-import { isChatModel, getModelVendor } from '../services/ai/models'
+
+
+import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
+import BackendCapabilitiesPanel from '../components/settings/BackendCapabilitiesPanel'
+import { isChatModel, getModelVendor, SILICONFLOW_BASE_URL } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
+import { useAuthStore } from '../stores/auth'
+import { useWorkspaceStore } from '../stores/workspace'
+import { putRepoSecrets } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
 
 function formatFetchedAt(ts: number | null): string {
@@ -43,6 +48,10 @@ function formatFetchedAt(ts: number | null): string {
 
 function Settings() {
   const store = useSettingsStore()
+  const auth = useAuthStore()
+  const ws = useWorkspaceStore()
+  const owner = auth.user?.login ?? ''
+  const repoName = ws.repo?.name ?? ''
   const {
     isInitialized,
     advancedMode,
@@ -59,6 +68,7 @@ function Settings() {
     siliconflowModels,
     siliconflowModelsFetchedAt,
     isLoadingModels,
+    mineruToken,
     updateSettings,
     refreshModels,
     init,
@@ -87,6 +97,79 @@ function Settings() {
     window.addEventListener('af:credential-cleaned', onCleaned)
     return () => window.removeEventListener('af:credential-cleaned', onCleaned)
   }, [])
+
+  /** ──── AI Secrets 自动同步（Settings → GitHub Actions） ──── */
+  const aiSecretsSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [aiSecretsSyncStatus, setAiSecretsSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
+  const [aiSecretsSyncMsg, setAiSecretsSyncMsg] = useState('')
+
+  useEffect(() => {
+    // 没登录或没配 repo 时跳过
+    if (!owner || !repoName || !auth.token) return
+    // 还没初始化完也跳过
+    if (!isInitialized) return
+
+    // 收集要 sync 的 secrets
+    let secrets: Record<string, string> = {}
+    if (aiProviderMode === 'custom') {
+      // 自定义端点
+      secrets = {
+        AI1_BASE_URL: customAi1BaseUrl,
+        AI1_API_KEY:  customAi1ApiKey,
+        AI1_MODEL:    customAi1Model,
+        AI2_BASE_URL: customAi2BaseUrl,
+        AI2_API_KEY:  customAi2ApiKey,
+        AI2_MODEL:    customAi2Model,
+      }
+    } else {
+      // 默认：硅基流动
+      secrets = {
+        AI1_BASE_URL: SILICONFLOW_BASE_URL,
+        AI1_API_KEY:  siliconflowApiKey,
+        AI1_MODEL:    ai1Model,
+        AI2_BASE_URL: SILICONFLOW_BASE_URL,
+        AI2_API_KEY:  siliconflowApiKey,
+        AI2_MODEL:    ai2Model,
+      }
+    }
+    // MINERU_API_TOKEN 跟 provider 无关，独立加
+    if (mineruToken?.trim()) secrets.MINERU_API_TOKEN = mineruToken.trim()
+
+    // 只 sync 有值的；全部空就不同步
+    const hasAny = Object.values(secrets).some((v) => v && v.trim())
+    if (!hasAny) return
+
+    // debounce 800ms —— 用户还在打字就不同步
+    if (aiSecretsSyncTimer.current) clearTimeout(aiSecretsSyncTimer.current)
+    aiSecretsSyncTimer.current = setTimeout(async () => {
+      setAiSecretsSyncStatus('syncing')
+      try {
+        const { results, errors } = await putRepoSecrets(owner, repoName, auth.token!, secrets)
+        const okCount = results.filter((r) => r.ok).length
+        if (errors.length > 0) {
+          setAiSecretsSyncStatus('error')
+          setAiSecretsSyncMsg(`${okCount}/${results.length} 已同步，${errors.length} 失败`)
+        } else {
+          setAiSecretsSyncStatus('synced')
+          setAiSecretsSyncMsg(`${okCount} 个 secrets 已同步`)
+        }
+      } catch (e: any) {
+        setAiSecretsSyncStatus('error')
+        setAiSecretsSyncMsg(e?.message || String(e))
+      }
+    }, 800)
+
+    return () => {
+      if (aiSecretsSyncTimer.current) clearTimeout(aiSecretsSyncTimer.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isInitialized, owner, repoName, auth.token, aiProviderMode,
+    siliconflowApiKey, ai1Model, ai2Model,
+    customAi1BaseUrl, customAi1ApiKey, customAi1Model,
+    customAi2BaseUrl, customAi2ApiKey, customAi2Model,
+    mineruToken,
+  ])
 
   /** 过滤后的 chat 类模型清单（用于 UI 下拉） */
   const chatModels = useMemo(() => {
@@ -353,29 +436,90 @@ function Settings() {
           <DualEngineTestPanel />
         </section>
 
-        {/* MinerU 代理配置（M3.7 · VPS 一键部署） */}
+        {/* 后端处理能力（GitHub Actions） */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
           <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-orange-600" />
-            MinerU 代理（必须配置）
+            <Sparkles className="w-4 h-4 text-cyan-600" />
+            后端处理能力（GitHub Actions）
           </h2>
-          <p className="text-xs text-slate-500">
-            MinerU 官方 API 不支持浏览器直连（CORS 限制）。请选择合适的方案，在你自己的账号部署一个免费的透传代理。
-          </p>
-          <MineruProxyConfig />
+          <BackendCapabilitiesPanel />
+
+          {/* MinerU API Token — PDF 转换必需（后端 pipeline 从 GitHub Secrets 取） */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">
+              MinerU API Token
+              <span className="ml-1 text-xs text-orange-600">*</span>
+            </label>
+            <p className="text-xs text-slate-500">
+              PDF → Markdown 转换必需。在 <a href="https://op.mineru.ai" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">MinerU 用户中心</a> 生成 API token。
+              填入后会自动同步到 GitHub Actions Secrets（MINERU_API_TOKEN）。
+            </p>
+            <input
+              type="password"
+              placeholder="eyJ...（MinerU JWT token）"
+              value={mineruToken}
+              onChange={(e) => updateSettings({ mineruToken: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            />
+          </div>
+
+          {/* AI Secrets 自动同步状态条 */}
+          {aiSecretsSyncStatus !== 'idle' && (
+            <div className={`flex items-center gap-2 mt-2 text-xs px-3 py-2 rounded-md border ${
+              aiSecretsSyncStatus === 'syncing' ? 'bg-blue-50 border-blue-200 text-blue-700'
+              : aiSecretsSyncStatus === 'synced' ? 'bg-green-50 border-green-200 text-green-700'
+              : 'bg-red-50 border-red-200 text-red-700'
+            }`}>
+              {aiSecretsSyncStatus === 'syncing' && <Loader2 className="w-3 h-3 animate-spin" />}
+              {aiSecretsSyncStatus === 'synced' && <span>✓</span>}
+              {aiSecretsSyncStatus === 'error' && <span>⚠</span>}
+              <span>
+                {aiSecretsSyncStatus === 'syncing' && '正在同步 AI 凭据到 GitHub Actions Secrets…'}
+                {aiSecretsSyncStatus === 'synced' && (aiSecretsSyncMsg || 'AI 凭据已同步到后端')}
+                {aiSecretsSyncStatus === 'error' && (aiSecretsSyncMsg || '同步失败')}
+              </span>
+            </div>
+          )}
         </section>
 
-        {/* MinerU 全流程测试（M3.7） */}
-        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
           <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-purple-600" />
-            MinerU 全流程测试（PDF → Markdown）
+            <Sparkles className="w-4 h-4 text-indigo-600" />
+            后置任务设置（PDF 转换后自动执行）
           </h2>
           <p className="text-xs text-slate-500">
-            填入 Token → 选一份 PDF → 一键跑完申请上传 URL / 上传 / 轮询解析 / 下载 / 前端解压 5 步。
-            用于验证 MinerU 服务可用性和网络链路，产物可预览下载。
+            PDF 转换成功后，自动调用 AI-2 生成全文翻译、AI-1 提取核心单词。翻译保存为 translation.md，
+            单词合并到全局词汇表。单词数量越多耗时越长、token 越多。
           </p>
-          <MineruTestPanel />
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium text-slate-700 whitespace-nowrap">单词生成数量</label>
+            <input
+              type="range"
+              min={10}
+              max={50}
+              step={1}
+              value={store.wordGenCount ?? 15}
+              onChange={(e) => store.updateSettings({ wordGenCount: parseInt(e.target.value, 10) })}
+              className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+            />
+            <span className="text-sm font-semibold text-indigo-600 w-12 text-center">
+              {store.wordGenCount ?? 15}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 pl-14">范围 10-50，默认 15。例句必须逐字来自原文献。</p>
+        </section>
+
+        {/* 调试看板 */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
+            <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+              <span>🔧</span> Pipeline 调试看板
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              查看每次 PDF 转换的完整链路：每步 Prompt / 输入 / AI 输出 / 耗时
+            </p>
+          </div>
+          <PipelineDebugPanel />
         </section>
 
         <div className="text-center text-xs text-slate-400 pt-4">

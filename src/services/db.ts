@@ -59,6 +59,7 @@ export const SETTING_KEYS = {
   MINERU_WORKER_URL: 'mineru_worker_url',
   EXTRACT_COVER_IMAGE: 'extract_cover_image',
   MINERU_DEBUG_MODE: 'mineru_debug_mode',
+  WORD_GEN_COUNT: 'word_gen_count',
 } as const
 
 class AcademicFlowDB extends Dexie {

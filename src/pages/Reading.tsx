@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   BookOpen,
   Highlighter,
@@ -29,11 +29,16 @@ import {
   Check,
   Edit3,
   Plus,
+  Languages,
 } from 'lucide-react'
-import { loadLiteratures, loadFulltext, loadNotes, saveNotes, type Literature } from '../services/literatureData'
+import { loadLiteratures, loadFulltext, loadNotes, saveNotes, loadTranslation, loadAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useAuthStore } from '../stores/auth'
+import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
+import { renderMarkdownToHtml, escapeHtml } from '../services/markdown-renderer'
+import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 type SideTab = 'notes' | 'annotations'
@@ -98,111 +103,6 @@ function formatTime(timestamp: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function renderMarkdownToHtml(text: string): string {
-  let html = text
-
-  const codeBlockRegex = /```([\s\S]*?)```/g
-  const codeBlocks: string[] = []
-  html = html.replace(codeBlockRegex, (_, code) => {
-    codeBlocks.push(code)
-    return `__CODE_BLOCK_${codeBlocks.length - 1}__`
-  })
-
-  html = html.replace(/^###### (.*)$/gm, '<h6 class="text-sm font-semibold text-slate-700 mt-3 mb-2">$1</h6>')
-  html = html.replace(/^##### (.*)$/gm, '<h5 class="text-base font-semibold text-slate-700 mt-3 mb-2">$1</h5>')
-  html = html.replace(/^#### (.*)$/gm, '<h4 class="text-lg font-semibold text-slate-800 mt-4 mb-2">$1</h4>')
-  html = html.replace(/^### (.*)$/gm, '<h3 class="text-xl font-semibold text-slate-800 mt-5 mb-3">$1</h3>')
-  html = html.replace(/^## (.*)$/gm, '<h2 class="text-2xl font-bold text-slate-800 mt-6 mb-3 pb-2 border-b border-slate-200">$1</h2>')
-  html = html.replace(/^# (.*)$/gm, '<h1 class="text-3xl font-bold text-slate-900 mt-2 mb-4 pb-3 border-b-2 border-indigo-200">$1</h1>')
-
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-800">$1</strong>')
-  html = html.replace(/\*(.+?)\*/g, '<em class="italic text-slate-700">$1</em>')
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm font-mono text-indigo-600">$1</code>')
-
-  html = html.replace(/^> (.*)$/gm, (_, content) => {
-    return `<blockquote class="border-l-4 border-indigo-300 pl-4 py-1 my-2 bg-indigo-50/50 text-slate-600 italic rounded-r">${content}</blockquote>`
-  })
-
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline underline-offset-2">${text}</a>`
-  })
-
-  const lines = html.split('\n')
-  const result: string[] = []
-  let inUl = false
-  let inOl = false
-  let paraBuffer: string[] = []
-
-  const flushPara = () => {
-    if (paraBuffer.length > 0) {
-      result.push(`<p class="my-2 text-slate-700 leading-relaxed">${paraBuffer.join(' ')}</p>`)
-      paraBuffer = []
-    }
-  }
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-
-    if (trimmed.startsWith('__CODE_BLOCK_')) {
-      flushPara()
-      if (inUl) { result.push('</ul>'); inUl = false }
-      if (inOl) { result.push('</ol>'); inOl = false }
-      const idx = parseInt(trimmed.replace('__CODE_BLOCK_', '').replace('__', ''))
-      const code = codeBlocks[idx] || ''
-      result.push(`<pre class="my-3 p-3 bg-slate-900 text-slate-100 rounded-lg overflow-x-auto text-sm font-mono"><code>${escapeHtml(code.trim())}</code></pre>`)
-      continue
-    }
-
-    const ulMatch = trimmed.match(/^[-*+] (.*)$/)
-    if (ulMatch) {
-      flushPara()
-      if (inOl) { result.push('</ol>'); inOl = false }
-      if (!inUl) { result.push('<ul class="my-2 space-y-1 list-disc list-outside pl-6 text-slate-700">'); inUl = true }
-      result.push(`<li>${ulMatch[1]}</li>`)
-      continue
-    }
-
-    const olMatch = trimmed.match(/^\d+\. (.*)$/)
-    if (olMatch) {
-      flushPara()
-      if (inUl) { result.push('</ul>'); inUl = false }
-      if (!inOl) { result.push('<ol class="my-2 space-y-1 list-decimal list-outside pl-6 text-slate-700">'); inOl = true }
-      result.push(`<li>${olMatch[1]}</li>`)
-      continue
-    }
-
-    if (trimmed === '') {
-      flushPara()
-      if (inUl) { result.push('</ul>'); inUl = false }
-      if (inOl) { result.push('</ol>'); inOl = false }
-      continue
-    }
-
-    if (!trimmed.startsWith('<h') && !trimmed.startsWith('<blockquote') && !trimmed.startsWith('</')) {
-      paraBuffer.push(trimmed)
-    } else {
-      flushPara()
-      if (inUl) { result.push('</ul>'); inUl = false }
-      if (inOl) { result.push('</ol>'); inOl = false }
-      result.push(line)
-    }
-  }
-
-  flushPara()
-  if (inUl) result.push('</ul>')
-  if (inOl) result.push('</ol>')
-
-  return result.join('\n')
-}
-
 function exportMarkdown(content: string, filename: string) {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -213,6 +113,76 @@ function exportMarkdown(content: string, filename: string) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+function getImageBaseUrl(doi: string): string {
+  const auth = useAuthStore.getState()
+  const ws = useWorkspaceStore.getState()
+  if (!auth.user || !ws.repo) return ''
+  const slug = doiToSlug(doi)
+  // 纯目录路径，不带 query —— query 参数由 preloadImage 在 fetch 时附加
+  // 这样 markdown-renderer.ts 的 resolveImageUrl 拼接不会出错
+  const owner = encodeURIComponent(auth.user.login)
+  const repo = encodeURIComponent(ws.repo.name)
+  const slugEnc = encodeURIComponent(slug)
+  return `https://api.github.com/repos/${owner}/${repo}/contents/literatures/${slugEnc}/`
+}
+
+/**
+ * 预加载图片：把 GitHub Contents API 的图片 URL fetch 成 Blob，再转成 blob: URL
+ * 这样可以带 Accept: application/vnd.github.v3.raw + token header
+ * 不走 raw.githubusercontent.com（GFW 会挡）
+ */
+async function preloadImage(
+  url: string,
+  token: string,
+  authMode: 'header' | 'query',
+): Promise<string> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github.v3.raw',
+      'X-GitHub-Api-Version': '2022-11-28',
+    }
+    // Contents API 必须指定 ref，否则默认 HEAD（如果分支名改过就拿不到）
+    let fetchUrl = url.includes('?') ? `${url}&ref=main` : `${url}?ref=main`
+    if (authMode === 'header') {
+      headers['Authorization'] = `Bearer ${token}`
+    } else {
+      // query 参数模式（零 CORS 预检，但 token 暴露在 URL 里——对公开 repo 可以）
+      fetchUrl = fetchUrl.includes('?') ? `${fetchUrl}&access_token=${encodeURIComponent(token)}` : `${fetchUrl}?access_token=${encodeURIComponent(token)}`
+    }
+    const res = await fetch(fetchUrl, { headers })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const blob = await res.blob()
+    return URL.createObjectURL(blob)
+  } catch (err) {
+    console.warn('[preloadImage] 加载失败:', url, err)
+    return url // 失败就返回原 URL，让浏览器自己处理（大概率也拿不到，但至少不崩）
+  }
+}
+
+/**
+ * 扫描容器内所有 <img>，把 api.github.com/contents 开头的 src 预加载成 blob URL
+ */
+async function hydrateImages(container: HTMLElement, token: string, authMode: 'header' | 'query') {
+  const imgs = container.querySelectorAll<HTMLImageElement>('img[src*="api.github.com/repos"]')
+  const tasks: Promise<void>[] = []
+  imgs.forEach((img) => {
+    const original = img.src
+    // 跳过已经是 blob: 或 data: 的
+    if (original.startsWith('blob:') || original.startsWith('data:')) return
+    tasks.push(
+      preloadImage(original, token, authMode).then((blobUrl) => {
+        if (blobUrl !== original) {
+          img.src = blobUrl
+        }
+      }),
+    )
+  })
+  if (tasks.length > 0) {
+    console.log(`[hydrateImages] 预加载 ${tasks.length} 张图片`)
+    await Promise.all(tasks)
+  }
 }
 
 function getColorInfo(color: HighlightColor) {
@@ -309,6 +279,9 @@ export default function ReadingPage() {
   const [selectedText, setSelectedText] = useState('')
   const [noteSaveState, setNoteSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
   const [annotationSaveState, setAnnotationSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
+  const [translation_mode, set_translation_mode] = useState<TranslationMode>('original')
+  const [translation_content, set_translation_content] = useState('')
+const [aligned_content, set_aligned_content] = useState('')
 
   const readerRef = useRef<HTMLDivElement>(null)
   const noteEditorRef = useRef<HTMLDivElement>(null)
@@ -347,6 +320,8 @@ export default function ReadingPage() {
       setNoteLoaded(false)
       setSelectedAnnotationId(null)
       setEditingAnnotationId(null)
+      set_translation_content('')
+      set_aligned_content('')
       return
     }
 
@@ -365,6 +340,22 @@ export default function ReadingPage() {
         }
       } catch (err) {
         console.error('[Reading] 加载全文失败:', err)
+      }
+
+      try {
+        const aligned = await loadAlignedMd(doi)
+        if (!cancelled) set_aligned_content(aligned || '')
+      } catch (err) {
+        console.error('[Reading] 加载 aligned.md 失败:', err)
+        if (!cancelled) set_aligned_content('')
+      }
+
+      try {
+        const trans = await loadTranslation(doi)
+        if (!cancelled) set_translation_content(trans || '')
+      } catch (err) {
+        console.error('[Reading] 加载翻译失败:', err)
+        if (!cancelled) set_translation_content('')
       }
 
       try {
@@ -548,6 +539,46 @@ export default function ReadingPage() {
 
   const selectedPaper = papers.find((p) => p.id === selectedPaperId)
   const paperAnnotations = annotations
+
+  const rendered_html = useMemo(() => {
+    const opts = { imageBaseUrl: getImageBaseUrl(selectedPaperId) }
+
+    // 新路径：有 aligned.md → 确定性 idx 对齐渲染
+    if (aligned_content.trim()) {
+      const result = renderAlignedMdHtml(aligned_content, translation_mode, opts)
+      if (result.html.trim()) return result.html
+    }
+
+    // 旧路径 fallback：fulltext.md + translation.md + 启发式对齐
+    if (!selectedPaper?.markdownContent) return ''
+
+    if (
+      translation_mode === 'original' ||
+      translation_mode === 'english' ||
+      !translation_content.trim()
+    ) {
+      return renderMarkdownToHtml(selectedPaper.markdownContent, opts)
+    }
+    const orig_paras = splitMarkdownIntoParagraphs(selectedPaper.markdownContent)
+    const trans_paras = splitMarkdownIntoParagraphs(translation_content)
+    const aligned = alignParagraphs(orig_paras, trans_paras)
+    return renderAlignedHtml(aligned, translation_mode, opts)
+  }, [selectedPaper, selectedPaperId, aligned_content, translation_content, translation_mode])
+
+  // 图片预加载：渲染后把 api.github.com/contents URL 换成 blob URL（绕过 GFW 对 raw.githubusercontent.com 的封锁）
+  useEffect(() => {
+    if (!rendered_html || !readerRef.current) return
+    const auth = useAuthStore.getState()
+    if (!auth.token) return
+    const mode = getResolvedAuthMode()
+    // 微任务里跑，让 DOM 先渲染
+    const t = setTimeout(() => {
+      if (readerRef.current) {
+        void hydrateImages(readerRef.current, auth.token, mode)
+      }
+    }, 50)
+    return () => clearTimeout(t)
+  }, [rendered_html])
 
   const focusNoteEditor = () => {
     if (noteEditorRef.current) {
@@ -930,6 +961,23 @@ export default function ReadingPage() {
                   <Download className="w-3.5 h-3.5" />
                   导出笔记
                 </button>
+                <div className="w-px h-5 bg-slate-200 mx-1" />
+                <button
+                  onClick={() => {
+                    const modes: TranslationMode[] = ['original', 'bilingual', 'chinese', 'english']
+                    const idx = modes.indexOf(translation_mode)
+                    set_translation_mode(modes[(idx + 1) % modes.length])
+                  }}
+                  className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1"
+                  title={translation_content ? '切换翻译模式（已预生成）' : '翻译尚未生成'}
+                >
+                  <Languages className="w-3.5 h-3.5" />
+                  {translation_mode === 'original' && '原文'}
+                  {translation_mode === 'bilingual' && '中英对照'}
+                  {translation_mode === 'chinese' && '全中文'}
+                  {translation_mode === 'english' && '全英文'}
+                  {!translation_content && '（未生成）'}
+                </button>
               </div>
             </div>
 
@@ -947,7 +995,7 @@ export default function ReadingPage() {
                         setShowToolbar(false)
                       }}
                       className="relative prose-reader"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(selectedPaper.markdownContent) }}
+                      dangerouslySetInnerHTML={{ __html: rendered_html }}
                     />
                     {showToolbar && (
                       <div

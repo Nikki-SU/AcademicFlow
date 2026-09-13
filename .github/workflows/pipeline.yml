@@ -1,0 +1,40 @@
+name: Paper Pipeline
+
+on:
+  repository_dispatch:
+    types: [paper_convert]
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo (full history for git push)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run pipeline
+        env:
+          MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
+
+          AI1_BASE_URL: ${{ secrets.AI1_BASE_URL }}
+          AI1_API_KEY: ${{ secrets.AI1_API_KEY }}
+          AI1_MODEL: ${{ secrets.AI1_MODEL }}
+          AI2_BASE_URL: ${{ secrets.AI2_BASE_URL }}
+          AI2_API_KEY: ${{ secrets.AI2_API_KEY }}
+          AI2_MODEL: ${{ secrets.AI2_MODEL }}
+
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+        run: |
+          node .github/scripts/pipeline.mjs '${{ toJSON(github.event.client_payload) }}'

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 设置状态管理 (Zustand)
  * -------------------------------------------------
  * 对应 SPEC v0.3 §6 / §7.3 / §9.2 / §4.8。
@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   mineruWorkerUrl: 'http://localhost:8000',
   extractCoverImage: true,
   mineruDebugMode: true,
+  wordGenCount: 15,
 }
 
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
@@ -66,6 +67,7 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'mineruWorkerUrl', key: SETTING_KEYS.MINERU_WORKER_URL },
   { field: 'extractCoverImage', key: SETTING_KEYS.EXTRACT_COVER_IMAGE },
   { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
+  { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
 ]
 
 /** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
@@ -182,6 +184,7 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         mineruWorkerUrl: s.mineruWorkerUrl,
         extractCoverImage: s.extractCoverImage,
         mineruDebugMode: s.mineruDebugMode,
+        wordGenCount: s.wordGenCount,
       })
     } catch (err) {
       console.error('[settings] 保存非敏感设置到 GitHub 失败:', err)
@@ -271,6 +274,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           if (loaded.mineruWorkerUrl !== undefined) patch.mineruWorkerUrl = loaded.mineruWorkerUrl
           if (loaded.extractCoverImage !== undefined) patch.extractCoverImage = loaded.extractCoverImage
           if (loaded.mineruDebugMode !== undefined) patch.mineruDebugMode = loaded.mineruDebugMode
+          if (loaded.wordGenCount !== undefined) {
+            const n = Number(loaded.wordGenCount)
+            if (!isNaN(n)) patch.wordGenCount = Math.min(50, Math.max(10, Math.floor(n)))
+          }
           set(patch)
         }
       } catch (err) {
@@ -442,6 +449,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           mineruWorkerUrl: merged.mineruWorkerUrl,
           extractCoverImage: merged.extractCoverImage,
           mineruDebugMode: merged.mineruDebugMode,
+          wordGenCount: merged.wordGenCount,
         })
       } catch (err) {
         console.error('[settings] 重置后保存到 GitHub 失败:', err)

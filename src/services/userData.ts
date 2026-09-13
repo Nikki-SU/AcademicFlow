@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 用户数据同步服务
  * -------------------------------------------------
  * 所有用户数据（除了 Token 等敏感凭据）都存储在 GitHub 私库。
@@ -52,7 +52,7 @@ function setCache<T>(key: string, data: T, sha: string) {
   memoryCache.set(key, entry as CacheEntry<unknown>)
 }
 
-function getRepoContext(): { owner: string; repo: string; token: string } | null {
+export function getRepoContext(): { owner: string; repo: string; token: string } | null {
   const auth = useAuthStore.getState()
   const ws = useWorkspaceStore.getState()
   if (!auth.token || !auth.user || !ws.repo) return null
@@ -227,4 +227,9 @@ function csvEscape(val: string | number | boolean | null | undefined): string {
 /** 强制刷新所有缓存（手动同步时调用） */
 export function clearAllCache() {
   memoryCache.clear()
+}
+
+/** 单条缓存失效（写操作成功后主动调用，防止后续 readCsvFile 返回旧数据） */
+export function invalidateCache(path: string) {
+  memoryCache.delete(path)
 }

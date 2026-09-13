@@ -137,12 +137,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const orientation = useOrientation()
-  const { user, method, expiresAt, logout } = useAuthStore()
+  const { user, method, expiresAt, logout, token } = useAuthStore()
   const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
     return subscribeGlobalAuthError((err) => setAuthError(err))
   }, [])
+
+  // Token 变化时自动解冻 —— 用户换了新 token 后不需要手动点"重新登录"
+  useEffect(() => {
+    if (token && authError) {
+      console.info('[Layout] 检测到新 token，自动清除冻结状态')
+      clearGlobalAuthError()
+    }
+  }, [token, authError])
 
   const currentPath = location.pathname
 

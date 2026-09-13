@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 全局设置服务 — GitHub 私库持久化（非敏感设置）
  * -------------------------------------------------
  * SPEC §4.8：settings/global.md 存非敏感设置（AI 模型选择、模式开关等）。
@@ -23,6 +23,7 @@ export interface GlobalSettingsData {
   mineruWorkerUrl: string
   extractCoverImage: boolean
   mineruDebugMode: boolean
+  wordGenCount: number
 }
 
 /** 从 GitHub 私库读取非敏感全局设置 */
@@ -89,6 +90,11 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
       case 'mineru_debug_mode':
         result.mineruDebugMode = value === 'true'
         break
+      case 'word_gen_count': {
+        const n = parseInt(value, 10)
+        if (!isNaN(n)) result.wordGenCount = Math.min(50, Math.max(10, n))
+        break
+      }
     }
   }
   return result
@@ -115,6 +121,7 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - mineru_worker_url: ${s.mineruWorkerUrl}
 - extract_cover_image: ${s.extractCoverImage}
 - mineru_debug_mode: ${s.mineruDebugMode}
+- word_gen_count: ${s.wordGenCount}
 
 ## 追踪
 - daily_push_time: 08:00

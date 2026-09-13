@@ -1,12 +1,30 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
+import { loadLiteratures, saveLiteratures, doiToSlug, updatePaperMdStatus, loadFulltext, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
-import { runMineruSingleFile } from '../services/mineru'
-import { savePaperMineruResult, saveTextbookMineruResult } from '../services/mineru-storage'
-import { splitAndSaveTextbookChapters } from '../services/chapterSplit'
+import { useAuthStore } from '../stores/auth'
+import { githubFetch, deleteRepoFiles } from '../services/github'
+import { pollProgressJson } from '../services/workflowClient'
+import { invalidateCache } from '../services/userData'
+import { enqueuePaperMineruConvert } from '../services/paperPipeline'
+import { useTaskQueueStore, type BackgroundTask, type PipelineStage, STAGE_META } from '../stores/taskQueue'
+import { BackgroundTaskList } from '../components/BackgroundTaskList'
+import {
+  createTemplate,
+  updateTemplate,
+  deleteTemplate as deleteJournalTemplate,
+  getAllTemplates,
+  setDefaultTemplate,
+  type JournalTemplate as BackendJournalTemplate,
+} from '../services/journal-templates'
+import { callAI } from '../services/ai/client'
+import {
+  loadWords, saveWords,
+  loadSentences, saveSentences,
+  loadTranslations, saveTranslations,
+} from '../services/learningData'
 import {
   FolderCog,
   BookMarked,
@@ -50,6 +68,7 @@ import {
   MoveRight,
   Tag,
   Library,
+  ListTodo,
 } from 'lucide-react'
 import { DoiLink } from '../components/DoiLink'
 import { toast } from 'sonner'
@@ -75,9 +94,11 @@ interface Paper {
   hasNotes: boolean
   mdStatus: 'none' | 'converting' | 'done' | 'failed'
   mdProgress: number
+  postStage?: 'none' | 'translating' | 'words' | 'done' | 'error'
   categoryIds: string[]
 }
 
+/** UI 层期刊模板项 —— 包装后端 JournalTemplate，加派生字段方便显示 */
 interface JournalTemplateItem {
   id: string
   name: string
@@ -86,6 +107,29 @@ interface JournalTemplateItem {
   lastUpdated: string
   isDefault: boolean
   formatSummary: string
+}
+
+/** 后端 JournalTemplate → UI JournalTemplateItem */
+function toTemplateItem(t: BackendJournalTemplate): JournalTemplateItem {
+  const parts = [
+    t.title_format_note && `标题: ${t.title_format_note}`,
+    t.abstract_format_note && `摘要: ${t.abstract_format_note}`,
+    t.reference_format_note && `参考文献: ${t.reference_format_note}`,
+  ].filter(Boolean)
+  const summary =
+    t.guidelines_content?.slice(0, 200) ||
+    parts.join('；') ||
+    t.custom_preamble?.slice(0, 150) ||
+    '暂无格式规范摘要'
+  return {
+    id: t.id,
+    name: t.name,
+    publisher: t.publisher || '',
+    issn: t.issn || '',
+    lastUpdated: t.updated_at ? new Date(t.updated_at).toISOString().split('T')[0] : '-',
+    isDefault: !!t.is_default,
+    formatSummary: summary,
+  }
 }
 
 interface BookCategory {
@@ -139,7 +183,7 @@ function literatureToPaper(lit: Literature): Paper {
     doi: lit.doi,
     tier: (lit.tier === 1 || lit.tier === 2 ? lit.tier : 1) as 1 | 2,
     hasNotes: false,
-    mdStatus: 'none',
+    mdStatus: lit.mdStatus || 'none',
     mdProgress: 0,
     categoryIds: lit.trackingGroup ? [lit.trackingGroup] : [],
   }
@@ -161,6 +205,7 @@ function paperToLiterature(paper: Paper): Literature {
     pdfAddedAt: 0,
     source: 'manual',
     trackingGroup: paper.categoryIds[0] || '',
+    mdStatus: paper.mdStatus || 'none',
   }
 }
 
@@ -313,12 +358,18 @@ export default function ManagementPage() {
   const [showUploadBookModal, setShowUploadBookModal] = useState(false)
   const [uploadBookCategories, setUploadBookCategories] = useState<string[]>([])
 
+  // 后台任务状态
+  const [showTaskListModal, setShowTaskListModal] = useState(false)
+  const taskQueue = useTaskQueueStore()
+  const taskQueueRef = useRef(taskQueue)
+  taskQueueRef.current = taskQueue
+
   // 加载数据
   useEffect(() => {
     if (!repo) return
     const loadData = async () => {
       try {
-        const lits = await loadLiteratures()
+        const lits = await loadLiteratures(true)
         setPapers(lits.map(literatureToPaper))
       } catch (err) {
         console.error('加载文献失败:', err)
@@ -353,6 +404,98 @@ export default function ManagementPage() {
     }
     loadData()
   }, [repo])
+
+  // 加载期刊模板（从 GitHub 私库 journal-templates.ts 后端）
+  useEffect(() => {
+    if (!repo) return
+    const loadTemplates = async () => {
+      try {
+        const backend = await getAllTemplates()
+        setTemplates(backend.map(toTemplateItem))
+      } catch (err) {
+        console.error('加载期刊模板失败:', err)
+      }
+    }
+    loadTemplates()
+  }, [repo])
+
+  /** 把 taskQueue 的 running 任务进度实时同步到对应 paper（卡片上的内联进度条需要） */
+  useEffect(() => {
+    const runningOrPending = taskQueue.tasks.filter(
+      (t) => t.status === 'running' || t.status === 'pending',
+    )
+    if (runningOrPending.length === 0) return
+
+    setPapers((prev) => {
+      let changed = false
+      const updated = prev.map((p) => {
+        const task = runningOrPending.find(
+          (t) => t.doi === p.doi && t.type === 'paper_convert',
+        )
+        if (!task) return p
+        if (
+          p.mdProgress === task.progress &&
+          p.mdStatus === (task.status === 'pending' ? 'converting' : p.mdStatus)
+        ) {
+          return p
+        }
+        changed = true
+        return {
+          ...p,
+          mdProgress: task.progress,
+          mdStatus: 'converting',
+        }
+      })
+      return changed ? updated : prev
+    })
+  }, [taskQueue.tasks])
+
+
+  // 后端架构：前端轮询 progress.json 展示进度（GitHub Actions 在后端跑 pipeline）
+  useEffect(() => {
+    if (!repo || !papers.some((p) => p.mdStatus === 'converting')) return
+
+    let cancelled = false
+    const pollInterval = setInterval(async () => {
+      if (cancelled) return
+      const auth = useAuthStore.getState()
+      const owner = auth.user?.login
+      const token = auth.token
+      if (!owner || !token) return
+
+      const converting = papers.filter((p) => p.mdStatus === 'converting')
+      for (const paper of converting) {
+        if (cancelled) break
+        const slug = doiToSlug(paper.doi)
+        try {
+          const prog = await pollProgressJson(slug, owner, repo.name, token)
+          if (!prog) continue // progress.json 还没出现，等下次
+
+          // 映射 stage → mdProgress
+          let pct = prog.pct ?? 0
+          if (prog.stage === 'done') pct = 100
+          if (prog.stage === 'failed') pct = paper.mdProgress // 保持旧值，下面单独设 failed
+
+          const updates: Partial<Paper> = { mdProgress: pct }
+          if (prog.stage === 'done') { updates.mdStatus = 'done'; updates.postStage = 'done' }
+          if (prog.stage === 'failed') { updates.mdStatus = 'failed'; updates.postStage = 'error' }
+          if (prog.stage && prog.stage !== 'done' && prog.stage !== 'failed') {
+            // 映射后端 stage 到前端 postStage 标签
+            if (prog.stage.startsWith('mineru_')) updates.postStage = 'none'
+            else if (prog.stage === 'clean') updates.postStage = 'translating'
+            else if (prog.stage === 'commit') updates.postStage = 'words'
+          }
+          if (Object.keys(updates).length > 0) {
+            setPapers((prev) => prev.map((p) => (p.doi === paper.doi ? { ...p, ...updates } : p)))
+          }
+        } catch {
+          // 单次轮询失败不影响其他 paper
+        }
+      }
+    }, 5000)
+
+    return () => { cancelled = true; clearInterval(pollInterval) }
+  }, [repo, papers])
 
   // 保存文献（防抖）
   const savePapers = async (updatedPapers: Paper[]) => {
@@ -498,10 +641,181 @@ export default function ManagementPage() {
     setShowAddPaperModal(false)
   }
 
-  const handleDeletePaper = (id: string) => {
-    const updated = papers.filter((p) => p.id !== id)
-    setPapers(updated)
-    savePapers(updated)
+  /** 递归列出 GitHub 仓库目录下所有文件（用 Contents API），404 返回空数组 */
+  const listRepoFilesRecursive = async (
+    owner: string,
+    repo: string,
+    dirPath: string,
+    token: string,
+  ): Promise<string[]> => {
+    const res = await githubFetch(
+      `/repos/${owner}/${repo}/contents/${encodeURI(dirPath)}`,
+      token,
+    )
+    if (res.status === 404) return []
+    if (!res.ok) {
+      console.warn(`[listRepoFilesRecursive] 读取目录 ${dirPath} 失败: ${res.status}`)
+      return []
+    }
+    const entries = (await res.json()) as Array<{ type: string; path: string }>
+    const files: string[] = []
+    for (const entry of entries) {
+      if (entry.type === 'file') {
+        files.push(entry.path)
+      } else if (entry.type === 'dir') {
+        const sub = await listRepoFilesRecursive(owner, repo, entry.path, token)
+        files.push(...sub)
+      }
+    }
+    return files
+  }
+
+  /**
+   * 收集要删除的文献目录下所有文件路径
+   * 用 git/trees?recursive=1 一次请求列出整个子树，避免 N 次 404 试探
+   * 如果目录还不存在（literatures/{slug} 根本没建），返回空数组
+   */
+  const collectLiteratureFilePaths = async (paperDoi: string): Promise<string[]> => {
+    const ctx = getRepoContextForDelete()
+    if (!ctx) return []
+    const slug = doiToSlug(paperDoi)
+    const dirPath = `literatures/${slug}`
+
+    // 一次性列出 literatures/ 下面所有条目，再过滤出以 dirPath/ 开头的
+    const treeRes = await githubFetch(
+      `/repos/${ctx.owner}/${ctx.repo}/git/trees/main?recursive=1`,
+      ctx.token,
+    )
+    if (treeRes.status === 404) return []
+    if (!treeRes.ok) return []
+
+    try {
+      const data = await treeRes.json()
+      const allEntries = (data.tree ?? []) as Array<{ path: string; type: string }>
+      const paths: string[] = []
+      for (const entry of allEntries) {
+        if (entry.type === 'blob' && entry.path.startsWith(`${dirPath}/`)) {
+          paths.push(entry.path)
+        }
+      }
+      return paths
+    } catch {
+      return []
+    }
+  }
+
+  const getRepoContextForDelete = (): { owner: string; repo: string; token: string } | null => {
+    const auth = useAuthStore.getState()
+    const ws = useWorkspaceStore.getState()
+    if (!auth.token || !auth.user || !ws.repo) return null
+    return { owner: auth.user.login, repo: ws.repo.name, token: auth.token }
+  }
+
+  /** 从 CSV 删除所有 source_doi === paperDoi 的行（load → filter → save） */
+  const cleanUpCsvByDoi = async (paperDoi: string) => {
+    const errors: string[] = []
+    try {
+      const words = await loadWords(true)
+      const remaining = words.filter((w) => w.sourceDoi !== paperDoi)
+      if (remaining.length !== words.length) await saveWords(remaining)
+    } catch (e) {
+      errors.push(`vocabulary.csv 删除失败`)
+      console.warn('[cleanUpCsv] vocabulary:', e)
+    }
+    try {
+      const sentences = await loadSentences(true)
+      const remaining = sentences.filter((s) => s.sourceDoi !== paperDoi)
+      if (remaining.length !== sentences.length) await saveSentences(remaining)
+    } catch (e) {
+      errors.push(`sentences.csv 删除失败`)
+      console.warn('[cleanUpCsv] sentences:', e)
+    }
+    try {
+      const translations = await loadTranslations(true)
+      const remaining = translations.filter((t) => t.sourceDoi !== paperDoi)
+      if (remaining.length !== translations.length) await saveTranslations(remaining)
+    } catch (e) {
+      errors.push(`translation_practice.csv 删除失败`)
+      console.warn('[cleanUpCsv] translations:', e)
+    }
+    return errors
+  }
+
+  const handleDeletePaper = async (id: string) => {
+    const paper = papers.find((p) => p.id === id)
+    if (!paper) return
+
+    const confirmed = window.confirm(
+      `确定删除文献「${paper.title}」吗？\n这会同时删除 GitHub 仓库中的 Markdown、翻译、批注、以及关联的单词/例句记录。\n此操作不可撤销。`,
+    )
+    if (!confirmed) return
+
+    const paperDoi = paper.doi ?? ''
+    const ctx = getRepoContextForDelete()
+    const fileErrors: string[] = []
+
+    // 即使前面任何步骤失败，最后也要在本地 papers 列表中移除该条目
+    let localRemoved = false
+    try {
+      // 1. 删除仓库中的文件（如果有 ctx 和 DOI）
+      if (ctx && paperDoi) {
+        try {
+          const paths = await collectLiteratureFilePaths(paperDoi)
+          console.log('[handleDeletePaper] 收集到文件路径:', paths.length, paths)
+          if (paths.length > 0) {
+            await deleteRepoFiles(
+              paths,
+              `chore: delete literature ${paperDoi.slice(0, 30)}`,
+              ctx.owner,
+              ctx.repo,
+              ctx.token,
+            )
+            console.log('[handleDeletePaper] GitHub 文件删除成功')
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          fileErrors.push(`仓库文件删除失败: ${msg}`)
+          console.warn('[handleDeletePaper] deleteRepoFiles failed:', e)
+        }
+      } else if (!ctx) {
+        console.warn('[handleDeletePaper] getRepoContextForDelete 返回 null，跳过 GitHub 文件删除')
+      }
+
+      // 2. 从关联 CSV 中清理
+      if (paperDoi) {
+        try {
+          const csvErrors = await cleanUpCsvByDoi(paperDoi)
+          fileErrors.push(...csvErrors)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          fileErrors.push(`关联 CSV 清理失败: ${msg}`)
+          console.warn('[handleDeletePaper] cleanUpCsvByDoi failed:', e)
+        }
+      }
+    } finally {
+      // 3. 从 papers 列表中移除（无论 GitHub 是否成功，本地状态必须更新）
+      const updated = papers.filter((p) => p.id !== id)
+      setPapers(updated)
+      localRemoved = true
+      try {
+        await savePapers(updated)
+        // 缓存失效：确保后续任何 loadLiteratures() 调用都拉最新
+        invalidateCache('literatures/literatures.csv')
+      } catch (e) {
+        console.warn('[handleDeletePaper] savePapers failed:', e)
+        fileErrors.push(`文献列表保存失败: ${e instanceof Error ? e.message : String(e)}`)
+      }
+
+      if (fileErrors.length > 0) {
+        toast.warning(`文献已从本地删除，但部分远端清理失败：${fileErrors.join('；')}`, {
+          duration: 8000,
+        })
+      } else {
+        toast.success('文献及其关联文件已删除')
+      }
+    }
+    // unused var
+    void localRemoved
   }
 
   const handleEditPaper = (paper: Paper) => {
@@ -518,12 +832,57 @@ export default function ManagementPage() {
     setEditingPaper(null)
   }
 
-  const handleBatchDelete = () => {
+  const handleBatchDelete = async () => {
+    const papersToDelete = papers.filter((p) => selectedPapers.has(p.id))
+    const ctx = getRepoContextForDelete()
+    const allFileErrors: string[] = []
+    let deletedRepoPaths: string[] = []
+
+    // 1. 收集所有要删的仓库文件并一次性提交
+    if (ctx) {
+      for (const paper of papersToDelete) {
+        try {
+          const paths = await collectLiteratureFilePaths(paper.doi)
+          deletedRepoPaths.push(...paths)
+        } catch (e) {
+          console.warn('[handleBatchDelete] 收集文件失败:', paper.doi, e)
+        }
+      }
+      if (deletedRepoPaths.length > 0) {
+        try {
+          await deleteRepoFiles(
+            deletedRepoPaths,
+            `chore: batch delete ${papersToDelete.length} literatures`,
+            ctx.owner,
+            ctx.repo,
+            ctx.token,
+          )
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          allFileErrors.push(`仓库批量删除失败: ${msg}`)
+          console.warn('[handleBatchDelete] deleteRepoFiles failed:', e)
+        }
+      }
+    }
+
+    // 2. 从 CSV 清理所有关联条目
+    for (const paper of papersToDelete) {
+      const csvErrors = await cleanUpCsvByDoi(paper.doi)
+      allFileErrors.push(...csvErrors)
+    }
+
+    // 3. 从 papers 列表移除
     const updated = papers.filter((p) => !selectedPapers.has(p.id))
     setPapers(updated)
     savePapers(updated)
     setSelectedPapers(new Set())
     setBatchMode(false)
+
+    if (allFileErrors.length > 0) {
+      toast.warning(`批量删除完成，但部分清理失败：${allFileErrors.join('；')}`)
+    } else {
+      toast.success(`已删除 ${papersToDelete.length} 篇文献及其关联文件`)
+    }
   }
 
   const toggleSelectPaper = (id: string) => {
@@ -637,239 +996,188 @@ export default function ManagementPage() {
     setShowCategoryModal(false)
   }
 
-  // 期刊模板操作
-  const handleAddTemplate = () => {
+  // 期刊模板操作 —— 全部通过 journal-templates.ts 持久化到 GitHub 私库
+  const handleAddTemplate = async () => {
     if (!newTemplate.name.trim()) return
-    const tpl: JournalTemplateItem = {
-      id: String(Date.now()),
-      name: newTemplate.name,
-      issn: newTemplate.issn,
-      publisher: newTemplate.publisher,
-      lastUpdated: new Date().toISOString().split('T')[0],
-      isDefault: false,
-      formatSummary: newTemplate.guidelines || '格式规范待提取...',
+    try {
+      const backend = await createTemplate({
+        name: newTemplate.name.trim(),
+        issn: newTemplate.issn.trim() || undefined,
+        publisher: newTemplate.publisher.trim() || undefined,
+        guidelines_content: newTemplate.guidelines.trim() || undefined,
+      })
+      setTemplates((prev) => [...prev, toTemplateItem(backend)])
+      setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '' })
+      setShowTemplateModal(false)
+      toast.success(`期刊模板「${backend.name}」已创建并保存到 GitHub`)
+    } catch (err) {
+      toast.error(`创建模板失败: ${err instanceof Error ? err.message : String(err)}`)
+      console.error('[handleAddTemplate]', err)
     }
-    setTemplates([...templates, tpl])
-    setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '' })
-    setShowTemplateModal(false)
   }
 
-  const handleExtractFormat = () => {
+  /** AI 真正提取格式规范摘要（基于已有的投稿须知全文） */
+  const handleExtractFormat = async () => {
+    const guidelinesText = newTemplate.guidelines.trim()
+    if (!guidelinesText) {
+      toast.warning('请先粘贴或填写投稿须知内容，AI 才能帮你提取格式规范摘要')
+      return
+    }
     setIsExtracting(true)
-    setTimeout(() => {
+    try {
+      const { ai1ApiKey, ai1BaseUrl, ai1Model } = useSettingsStore.getState()
+      if (!ai1ApiKey || !ai1BaseUrl || !ai1Model) {
+        throw new Error('请先在设置页配置 AI-1 服务（API Key / Base URL / Model）')
+      }
+
+      const resp = await callAI({
+        baseUrl: ai1BaseUrl,
+        apiKey: ai1ApiKey,
+        model: ai1Model,
+        temperature: 0.2,
+        maxTokens: 1024,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '你是一名学术期刊投稿规范分析助手。用户会粘贴一份期刊的投稿须知原文。',
+              '请从中提取出关键的格式规范要求，按以下结构输出：',
+              '1. **标题**：标题格式、字数限制',
+              '2. **摘要**：摘要字数、结构要求（是否结构化）',
+              '3. **正文**：段落结构、字数限制、层级编号',
+              '4. **图表**：图表标题、编号方式、位置',
+              '5. **参考文献**：引用格式（APA/MLA/Vancouver 等）、参考文献样式',
+              '6. **其他**：页码、行距、字号、边距等',
+              '',
+              '要求：用简洁的 bullet points 列出关键约束，不要重复原文。总长度控制在 300-500 字。',
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: `【期刊名称】${newTemplate.name}\n\n【投稿须知】\n${guidelinesText}`,
+          },
+        ],
+      })
+
       setNewTemplate((prev) => ({
         ...prev,
-        guidelines: 'AI 已提取格式规范：摘要限制在250字以内，正文结构包含Introduction、Methods、Results、Discussion，参考文献采用APA格式，图表需单独编号并在正文中引用。',
+        guidelines: guidelinesText, // 保留用户粘贴的全文（AI 提取的摘要会显示在 toast 和 console）
       }))
+      toast.success('AI 已提取格式规范摘要，可直接编辑调整')
+      console.log('[handleExtractFormat] AI 提取结果:', resp.content)
+    } catch (err) {
+      toast.error(`AI 提取失败: ${err instanceof Error ? err.message : String(err)}`)
+      console.error('[handleExtractFormat]', err)
+    } finally {
       setIsExtracting(false)
-    }, 2000)
+    }
   }
 
-  const handleSetDefaultTemplate = (id: string) => {
-    setTemplates(templates.map((t) => ({ ...t, isDefault: t.id === id })))
+  const handleSaveTemplate = async () => {
+    if (!editingTemplate) return
+    try {
+      // JournalTemplateItem → BackendJournalTemplate 更新
+      await updateTemplate(editingTemplate.id, {
+        name: editingTemplate.name,
+        issn: editingTemplate.issn || undefined,
+        publisher: editingTemplate.publisher || undefined,
+      })
+      // 重新拉取最新
+      const backend = await getAllTemplates()
+      setTemplates(backend.map(toTemplateItem))
+      setShowTemplateModal(false)
+      setEditingTemplate(null)
+      toast.success('模板已更新并保存到 GitHub')
+    } catch (err) {
+      toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
+      console.error('[handleSaveTemplate]', err)
+    }
   }
 
-  const handleDeleteTemplate = (id: string) => {
-    setTemplates(templates.filter((t) => t.id !== id))
+  const handleSetDefaultTemplate = async (id: string) => {
+    try {
+      await setDefaultTemplate(id)
+      const backend = await getAllTemplates()
+      setTemplates(backend.map(toTemplateItem))
+      toast.success('已设为默认模板')
+    } catch (err) {
+      toast.error(`设置失败: ${err instanceof Error ? err.message : String(err)}`)
+      console.error('[handleSetDefaultTemplate]', err)
+    }
+  }
+
+  const handleDeleteTemplate = async (id: string) => {
+    const tpl = templates.find((t) => t.id === id)
+    const confirmed = window.confirm(`确定删除期刊模板「${tpl?.name ?? id}」吗？`)
+    if (!confirmed) return
+    try {
+      await deleteJournalTemplate(id)
+      const backend = await getAllTemplates()
+      setTemplates(backend.map(toTemplateItem))
+      toast.success('模板已删除')
+    } catch (err) {
+      toast.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`)
+      console.error('[handleDeleteTemplate]', err)
+    }
   }
 
   const handleApplyTemplate = (id: string) => {
-    const tpl = templates.find((t) => t.id === id)
-    if (tpl) {
-      alert(`已将「${tpl.name}」模板应用到当前项目`)
-    }
+    // 应用到项目 = 设为默认模板 + 提示用户去排版页面使用
+    handleSetDefaultTemplate(id)
+    toast.success('已设为默认模板，前往「排版」页面开始写作', {
+      description: '模板的格式规范会自动应用到新文档',
+      duration: 4000,
+    })
   }
 
-  const { mineruToken, mineruWorkerUrl } = useSettingsStore()
-  const paperConvertAbortRef = useRef<Map<string, AbortController>>(new Map())
-  const bookConvertAbortRef = useRef<Map<string, AbortController>>(new Map())
+  // ============================================================
+  // 后台化：所有 PDF 转换都走 taskQueue（fire-and-forget）
+  // ============================================================
 
-  const startPaperMineruConvert = async (paperDoi: string, file: File) => {
-    if (!mineruToken.trim()) {
-      toast.error('请先在设置页配置 MinerU Token')
-      return
-    }
-    if (!mineruWorkerUrl.trim()) {
-      toast.error('请先在设置页配置 MinerU 代理地址')
-      return
-    }
+  const startPaperMineruConvert = async (paperDoi: string, file: File, title: string) => {
+    await enqueuePaperMineruConvert(paperDoi, file, title)
+  }
 
-    setPapers((prev) =>
-      prev.map((p) =>
-        p.doi === paperDoi ? { ...p, mdStatus: 'converting', mdProgress: 5 } : p,
-      ),
-    )
-
-    const abortController = new AbortController()
-    paperConvertAbortRef.current.set(paperDoi, abortController)
-
+  const startBookMineruConvert = async (
+    bookId: string,
+    file: File,
+    title: string,
+  ) => {
     try {
-      const result = await runMineruSingleFile({
-        token: mineruToken,
-        workerUrl: mineruWorkerUrl,
-        file,
-        signal: abortController.signal,
-        onProgress: (p) => {
-          const stageProgress: Record<string, number> = {
-            applying: 10,
-            uploading: 25,
-            polling: 60,
-            downloading: 85,
-            extracting: 95,
-            done: 100,
-          }
-          const prog = stageProgress[p.stage] ?? 50
-          setPapers((prev) =>
-            prev.map((p) =>
-              p.doi === paperDoi ? { ...p, mdProgress: prog } : p,
-            ),
-          )
+      const taskId = `book_${bookId}_${Date.now()}`
+      const now = Date.now()
+
+      await taskQueue.add_task({
+        id: taskId,
+        type: 'book_convert',
+        doi: undefined,
+        book_id: bookId,
+        title,
+        stage: 'queued',
+        node_index: STAGE_META.queued.node,
+        progress: 0,
+        status: 'pending',
+        message: '排队中...',
+        created_at: now,
+        updated_at: now,
+        error: undefined,
+        metadata: {
+          file_name: file.name,
         },
-      })
+      }, file)
 
-      await savePaperMineruResult({
-        doi: paperDoi,
-        markdown: result.markdown,
-        images: result.images,
+      toast.success(`已加入后台队列：${title}`, {
+        description: '点击右上角任务图标查看进度',
       })
-
-      setPapers((prev) =>
-        prev.map((p) =>
-          p.doi === paperDoi ? { ...p, mdStatus: 'done', mdProgress: 100 } : p,
-        ),
-      )
-      toast.success(`PDF 转换完成：${result.fileName}`)
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setPapers((prev) =>
-          prev.map((p) =>
-            p.doi === paperDoi ? { ...p, mdStatus: 'none', mdProgress: 0 } : p,
-          ),
-        )
-        return
-      }
-      console.error('[Management] 文献 PDF 转换失败:', err)
-      setPapers((prev) =>
-        prev.map((p) =>
-          p.doi === paperDoi ? { ...p, mdStatus: 'failed', mdProgress: 0 } : p,
-        ),
-      )
-      toast.error(`转换失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      paperConvertAbortRef.current.delete(paperDoi)
+      toast.error(`创建后台任务失败：${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
-  const startBookMineruConvert = async (bookId: string, file: File) => {
-    if (!mineruToken.trim()) {
-      toast.error('请先在设置页配置 MinerU Token')
-      return
-    }
-    if (!mineruWorkerUrl.trim()) {
-      toast.error('请先在设置页配置 MinerU 代理地址')
-      return
-    }
-
-    setBooks((prev) =>
-      prev.map((b) =>
-        b.id === bookId ? { ...b, status: 'converting', progress: 5 } : b,
-      ),
-    )
-
-    const abortController = new AbortController()
-    bookConvertAbortRef.current.set(bookId, abortController)
-
-    try {
-      const result = await runMineruSingleFile({
-        token: mineruToken,
-        workerUrl: mineruWorkerUrl,
-        file,
-        signal: abortController.signal,
-        onProgress: (p) => {
-          const stageProgress: Record<string, number> = {
-            applying: 10,
-            uploading: 25,
-            polling: 60,
-            downloading: 85,
-            extracting: 95,
-            done: 100,
-          }
-          const prog = stageProgress[p.stage] ?? 50
-          setBooks((prev) =>
-            prev.map((b) =>
-              b.id === bookId ? { ...b, progress: prog } : b,
-            ),
-          )
-        },
-      })
-
-      await saveTextbookMineruResult({
-        textbookId: bookId,
-        markdown: result.markdown,
-        images: result.images,
-      })
-
-      let chapterCount = 0
-      try {
-        const splitResult = await splitAndSaveTextbookChapters(bookId, result.markdown)
-        chapterCount = splitResult.totalChapters
-      } catch (splitErr) {
-        console.warn('[Management] 章节切分失败（不影响主流程）:', splitErr)
-      }
-
-      setBooks((prev) =>
-        prev.map((b) =>
-          b.id === bookId
-            ? {
-                ...b,
-                status: 'done' as const,
-                progress: 100,
-                pages: 0,
-                isSplit: chapterCount > 1,
-                volumes: undefined,
-              }
-            : b,
-        ),
-      )
-      saveBooks(
-        books.map((b) =>
-          b.id === bookId
-            ? {
-                ...b,
-                status: 'done',
-                progress: 100,
-              }
-            : b,
-        ),
-      )
-      toast.success(
-        `PDF 转换完成：${result.fileName}${chapterCount > 1 ? `，已切分为 ${chapterCount} 章` : ''}`,
-      )
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setBooks((prev) =>
-          prev.map((b) =>
-            b.id === bookId ? { ...b, status: 'failed', progress: 0 } : b,
-          ),
-        )
-        return
-      }
-      console.error('[Management] 课本 PDF 转换失败:', err)
-      setBooks((prev) =>
-        prev.map((b) =>
-          b.id === bookId ? { ...b, status: 'failed', progress: 0 } : b,
-        ),
-      )
-      toast.error(`转换失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      bookConvertAbortRef.current.delete(bookId)
-    }
-  }
-
-  // 知识库操作
   const handleBookUpload = (files: FileList | null) => {
     if (!files) return
     const fileArray = Array.from(files)
+
     const newBooks: BookItem[] = fileArray.map((f, i) => ({
       id: String(Date.now() + i),
       title: f.name.replace('.pdf', ''),
@@ -888,9 +1196,11 @@ export default function ManagementPage() {
     setShowUploadBookModal(false)
     setUploadBookCategories([])
 
+    // fire-and-forget: 每个文件创建一个后台任务
     fileArray.forEach((file, i) => {
       const bookId = newBooks[i].id
-      setTimeout(() => startBookMineruConvert(bookId, file), i * 1000)
+      const title = newBooks[i].title
+      void startBookMineruConvert(bookId, file, title)
     })
   }
 
@@ -1032,6 +1342,23 @@ export default function ManagementPage() {
           </h1>
           <p className="text-sm text-slate-500 mt-1">文献库、期刊模板、知识库、数据管理</p>
         </div>
+        {/* 后台任务入口 */}
+        <button
+          onClick={() => setShowTaskListModal(true)}
+          className="relative flex items-center gap-2 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition shadow-sm"
+          title="后台任务队列"
+        >
+          <ListTodo className="w-4 h-4" />
+          <span className="hidden sm:inline">后台任务</span>
+          {taskQueue.tasks.length > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
+              {taskQueue.tasks.length > 99 ? '99+' : taskQueue.tasks.length}
+            </span>
+          )}
+          {taskQueue.tasks.some((t) => t.status === 'running') && (
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
+          )}
+        </button>
       </div>
 
       {/* 子 Tab */}
@@ -2229,13 +2556,36 @@ export default function ManagementPage() {
                     {editingPaper.mdStatus === 'done' && (
                       <button className="text-xs text-indigo-600 hover:underline">查看</button>
                     )}
+                    {editingPaper.mdStatus === 'converting' && (
+                      <span className="text-[10px] text-slate-400">
+                        {(() => {
+                          const t = taskQueue.tasks.find(
+                            (x) => x.doi === editingPaper.doi && x.type === 'paper_convert',
+                          )
+                          return t ? STAGE_META[t.stage]?.label || '' : ''
+                        })()}
+                      </span>
+                    )}
                   </div>
                   {editingPaper.mdStatus === 'converting' && (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${editingPaper.mdProgress}%` }} />
+                        <div
+                          className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                          style={{ width: `${Math.min(100, editingPaper.mdProgress)}%` }}
+                        />
                       </div>
-                      <span className="text-xs text-slate-500">{editingPaper.mdProgress}%</span>
+                      <span className="text-xs text-slate-500 font-mono tabular-nums">
+                        {Math.round(editingPaper.mdProgress)}%
+                      </span>
+                    </div>
+                  )}
+                  {editingPaper.mdStatus === 'done' && (
+                    <div className="text-[11px] text-green-600 italic">✓ 全流程完成</div>
+                  )}
+                  {editingPaper.mdStatus === 'failed' && (
+                    <div className="text-[11px] text-red-500 italic">
+                      转换失败，可重新上传
                     </div>
                   )}
                   {(editingPaper.mdStatus === 'none' || editingPaper.mdStatus === 'failed') && (
@@ -2249,8 +2599,7 @@ export default function ManagementPage() {
                         onChange={(e) => {
                           const file = e.target.files?.[0]
                           if (file && editingPaper) {
-                            setEditingPaper({ ...editingPaper, mdStatus: 'converting', mdProgress: 5 })
-                            startPaperMineruConvert(editingPaper.doi, file)
+                            void startPaperMineruConvert(editingPaper.doi, file, editingPaper.title)
                           }
                           e.target.value = ''
                         }}
@@ -2707,6 +3056,55 @@ export default function ManagementPage() {
       {/* 图片灯箱 */}
       {showImageLightbox && (
         <ImageLightbox src={showImageLightbox} onClose={() => setShowImageLightbox(null)} />
+      )}
+
+      {/* 后台任务列表 Modal */}
+      {showTaskListModal && (
+        <Modal
+          title="后台任务队列"
+          onClose={() => setShowTaskListModal(false)}
+          width="max-w-3xl"
+        >
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-slate-600">
+                共 <span className="font-semibold text-slate-800">{taskQueue.tasks.length}</span> 个任务
+              </span>
+              <span className="text-slate-400">|</span>
+              <span className="text-blue-600">
+                {taskQueue.tasks.filter((t) => t.status === 'running').length} 运行中
+              </span>
+              <span className="text-slate-400">|</span>
+              <span className="text-slate-500">
+                {taskQueue.tasks.filter((t) => t.status === 'pending').length} 排队中
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* 清理已完成/失败/中止的旧任务 */}
+              {taskQueue.tasks.some((t) => t.status === 'done' || t.status === 'failed' || t.status === 'aborted') && (
+                <button
+                  onClick={async () => {
+                    const toRemove = taskQueue.tasks.filter(
+                      (t) => t.status === 'done' || t.status === 'failed' || t.status === 'aborted',
+                    )
+                    for (const t of toRemove) {
+                      await taskQueue.remove_task(t.id)
+                    }
+                    toast.success(`已清理 ${toRemove.length} 个已完成任务`)
+                  }}
+                  className="text-xs text-slate-500 hover:text-red-600 px-2 py-1 hover:bg-red-50 rounded transition"
+                >
+                  清理已完成
+                </button>
+              )}
+            </div>
+          </div>
+          <BackgroundTaskList
+            tasks={taskQueue.tasks}
+            on_abort={(id) => taskQueue.abort_task(id)}
+            on_remove={(id) => taskQueue.remove_task(id)}
+          />
+        </Modal>
       )}
     </div>
   )

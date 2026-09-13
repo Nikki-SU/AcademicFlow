@@ -130,6 +130,7 @@ function filesToTemplate(
     id,
     name: String(fm.name || id),
     short_name: parseString(fm.short_name),
+    issn: parseString(fm.issn),
     publisher: parseString(fm.publisher),
     journal_url: parseString(fm.journal_url),
     guidelines_url: parseString(fm.guidelines_url),
@@ -158,6 +159,7 @@ function filesToTemplate(
     notes: parseString(fm.notes),
     created_at: parseNumber(fm.created_at) || Date.now(),
     updated_at: parseNumber(fm.updated_at) || Date.now(),
+    is_default: fm.is_default === true,
   }
 }
 
@@ -171,6 +173,7 @@ function templateToFiles(template: JournalTemplate): {
     id: template.id,
     name: template.name,
     short_name: template.short_name || '',
+    issn: template.issn || '',
     publisher: template.publisher || '',
     journal_url: template.journal_url || '',
     guidelines_url: template.guidelines_url || '',
@@ -189,6 +192,7 @@ function templateToFiles(template: JournalTemplate): {
     reference_format_note: template.reference_format_note || '',
     custom_preamble: template.custom_preamble || '',
     notes: template.notes || '',
+    is_default: template.is_default || false,
     created_at: template.created_at,
     updated_at: template.updated_at,
   }
@@ -300,6 +304,7 @@ async function writeTemplate(template: JournalTemplate): Promise<void> {
 export async function createTemplate(data: {
   name: string
   short_name?: string
+  issn?: string
   publisher?: string
   journal_url?: string
   guidelines_url?: string
@@ -318,6 +323,7 @@ export async function createTemplate(data: {
     id,
     name: data.name,
     short_name: data.short_name,
+    issn: data.issn,
     publisher: data.publisher,
     journal_url: data.journal_url,
     guidelines_url: data.guidelines_url,
@@ -402,6 +408,34 @@ export async function deleteTemplate(id: string): Promise<void> {
     }
   }
   await db.journal_templates.delete(id)
+}
+
+/**
+ * 设为默认模板（清除其他所有模板的 is_default）
+ */
+export async function setDefaultTemplate(defaultId: string): Promise<void> {
+  const all = await getAllTemplates()
+  let changed = false
+  for (const t of all) {
+    const shouldBe = t.id === defaultId
+    if (t.is_default !== shouldBe) {
+      t.is_default = shouldBe
+      t.updated_at = Date.now()
+      await writeTemplate(t)
+      await db.journal_templates.put(t)
+      changed = true
+    }
+  }
+  if (!changed) {
+    // 至少确保默认模板 is_default 为 true
+    const target = all.find((t) => t.id === defaultId)
+    if (target) {
+      target.is_default = true
+      target.updated_at = Date.now()
+      await writeTemplate(target)
+      await db.journal_templates.put(target)
+    }
+  }
 }
 
 /**
