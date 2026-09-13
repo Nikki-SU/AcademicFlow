@@ -4,9 +4,10 @@
  * 挂在 MinerU API Token 输入框下方。点"检测"按钮做两件事：
  *   1. 本地解析 JWT → 校验 token 格式 / 是否过期 / 剩余天数
  *   2. 探活用户自部署的 worker 代理（mineruWorkerUrl）的 /__af_health
- * 综合判定 MinerU 当前是否可用，避免用户填错 token 要等 pipeline 跑挂才知道。
  *
- * 与 BackendCapabilitiesPanel 同款视觉风格：检测按钮 + 状态条 + 详情。
+ * 架构说明：GitHub Actions runner 直接打 MinerU，前端不直连。
+ * token 有效 → MinerU 就能用（overallOk=true）；
+ * worker 探活是补充信息，Mixed Content / 未配置时跳过不影响整体判断。
  */
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -16,6 +17,7 @@ import {
   Loader2,
   Wifi,
   WifiOff,
+  Info,
 } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings'
 import {
@@ -62,7 +64,7 @@ export default function MineruConnectivityPanel() {
   // 状态条配色：
   //   绿 = overallOk 且 tokenExpiringSoon=false
   //   橙 = overallOk 但 tokenExpiringSoon=true（即将过期）
-  //   红 = !overallOk
+  //   红 = !overallOk（token 过期 / 格式错）
   const ok = report?.overallOk ?? false
   const expiringSoon = report?.tokenExpiringSoon ?? false
   const tone =
@@ -73,6 +75,21 @@ export default function MineruConnectivityPanel() {
         : ok && expiringSoon
           ? 'warn'
           : 'err'
+
+  // worker 状态在详情里的文字
+  const workerDetail = (() => {
+    const w = report?.worker
+    if (!w) return null
+    if (w.reason === 'mixed_content')
+      return { text: '跳过（HTTPS → HTTP Mixed Content）', tone: 'info' as const }
+    if (w.reason === 'not_configured')
+      return { text: '未配置', tone: 'info' as const }
+    if (w.ok)
+      return { text: `✓ 可达（${w.detail ?? 'OK'}）`, tone: 'ok' as const }
+    if (w.attempted)
+      return { text: `✗ 不可达（${w.detail ?? 'unknown'}）`, tone: 'err' as const }
+    return { text: w.detail ?? '未探活', tone: 'info' as const }
+  })()
 
   return (
     <div className="space-y-2">
@@ -91,13 +108,9 @@ export default function MineruConnectivityPanel() {
           )}
           检测 MinerU 联通
         </button>
-        {workerUrl.trim() ? (
+        {workerUrl.trim() && (
           <span className="text-[11px] text-slate-500 truncate">
             worker：<code className="font-mono">{workerUrl}</code>
-          </span>
-        ) : (
-          <span className="text-[11px] text-slate-400">
-            未配 worker URL，仅校验 token
           </span>
         )}
       </div>
@@ -121,7 +134,7 @@ export default function MineruConnectivityPanel() {
           ) : tone === 'err' ? (
             <WifiOff className="w-3.5 h-3.5 text-red-600 mt-0.5 shrink-0" />
           ) : (
-            <WifiOff className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+            <Info className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
           )}
           <div className="flex-1 space-y-1">
             <div>{report.overallMessage}</div>
@@ -152,13 +165,20 @@ export default function MineruConnectivityPanel() {
                     </code>
                   </div>
                 )}
-                {report.worker && (
-                  <div>
+                {workerDetail && (
+                  <div className="flex items-center gap-1">
                     Worker：
-                    <code className="font-mono">
-                      {report.worker.ok ? '✓ 可达' : '✗ 不可达'}
+                    <code
+                      className={`font-mono ${
+                        workerDetail.tone === 'ok'
+                          ? 'text-green-700'
+                          : workerDetail.tone === 'err'
+                            ? 'text-red-600'
+                            : 'text-slate-500'
+                      }`}
+                    >
+                      {workerDetail.text}
                     </code>
-                    {report.worker.detail ? ` (${report.worker.detail})` : ''}
                   </div>
                 )}
               </div>

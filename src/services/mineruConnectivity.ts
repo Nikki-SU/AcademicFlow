@@ -1,28 +1,32 @@
 /**
  * MinerU 联通性检测
  * -------------------------------------------------
- * 当前架构：MinerU API 由 GitHub Actions runner 直接调用
- *  （.github/scripts/pipeline.mjs 里 const MINERU_API = 'https://mineru.net/api/v4'），
- * 前端不直接发 MinerU 业务请求。但用户在 Settings 页填的 token 要先经过校验，
- * 否则要等到 pipeline 跑到一半才知道 token 过期或写错。
+ * 当前架构（v0.3 M3 后端改造后）：
+ *   MinerU API 由 GitHub Actions runner 直接调用
+ *   （.github/scripts/pipeline.mjs → https://mineru.net/api/v4），
+ *   前端不直接发 MinerU 业务请求，只把 MINERU_API_TOKEN 写入 GitHub Secrets。
  *
- * 本服务做两件事，组合判定"MinerU 是否联通"：
- *   1. parseMineruJwt：纯本地解析 JWT，提取 iat / exp / uuid / jti，
+ * 所以"MinerU 是否联通"的核心判据只有一个：**你填的 JWT 是否有效**。
+ * worker 代理（mineruWorkerUrl）是老架构遗留 —— 当时前端直连 MinerU
+ * 需要绕过 CORS / Mixed Content；现在 GitHub Pages（HTTPS）上它根本跑不通
+ * （HTTPS 页面无法请求 HTTP 代理，浏览器直接拦截 = Mixed Content）。
+ *
+ * 本服务做三件事：
+ *   1. parseMineruJwt：本地解析 JWT，提取 iat / exp / uuid / jti，
  *      判断 token 是否过期 / 即将过期。零网络开销，永远可用。
- *   2. checkWorkerHealth：探测用户自部署的 worker 代理（mineruWorkerUrl）
- *      的 /__af_health 端点（install.sh 部署的 Deno worker 自带该路由），
- *      验证代理本身存活。worker 是 MinerU 的转发通道，worker 可达 ≈ 通道通畅。
- *
- * 不直接对 https://mineru.net/api/v4 发请求 —— 浏览器侧有 CORS / Mixed Content
- * 风险（HTTPS 页面调用第三方 API 不稳定），且 GitHub Actions runner 才是真正的
- * MinerU 调用方，前端再探一次意义不大。token 合法性靠 JWT 本地校验保底。
+ *   2. detectMixedContent：检测当前页面协议 vs worker URL 协议，
+ *      提前识别 Mixed Content 拦截场景（这是 GitHub Pages 用户
+ *      "Failed to fetch" 的根因，不是 worker 真挂了）。
+ *   3. checkWorkerHealth：仅在协议兼容时才探活 worker /__af_health。
+ *      即使 worker 不可达，也不把 MinerU 整体判为失败 ——
+ *      token 才是 Actions runner 调用 MinerU 的凭据。
  */
 import type { MineruJwtInfo } from '../types'
 
 /** 探活请求超时（ms）—— worker 应该秒回，5s 足够 */
 const HEALTH_TIMEOUT_MS = 5000
 
-/** 即将到期阈值（天）：剩余 ≤7 天标记 warning（仍 ok，但 UI 给橙色） */
+/** 即将到期阈值（天）：剩余 ≤7 天给 warning（仍 ok，但 UI 给橙色） */
 const WARNING_DAYS = 7
 
 /**
@@ -92,7 +96,9 @@ export interface WorkerHealthResult {
   service?: string
   /** 人类可读详情：成功时是 'OK / service'；失败时是原因 */
   detail?: string
-  /** 是否实际发起过网络请求（false 表示因为没配 workerUrl 直接跳过） */
+  /** worker 不可达的原因分类 —— UI 可据此给不同颜色 / 提示 */
+  reason?: 'mixed_content' | 'not_configured' | 'bad_url' | 'timeout' | 'network' | 'http_error'
+  /** 是否实际发起过网络请求 */
   attempted: boolean
 }
 
@@ -103,13 +109,23 @@ export interface WorkerHealthResult {
  *   { "ok": true, "service": "academicflow-worker" }
  *
  * 该端点不需要 Authorization，纯探活用。
+ *
+ * ⚠️ Mixed Content 是 GitHub Pages 用户的头号杀手：
+ *   HTTPS 页面 → HTTP worker，浏览器直接静默拦截，表现为 "Failed to fetch"。
+ *   这里提前检测协议匹配，命中则直接返回 reason=mixed_content，
+ *   不发起无意义的 fetch，也不让用户误以为 worker 真挂了。
  */
 export async function checkWorkerHealth(
   workerUrl: string | undefined | null,
 ): Promise<WorkerHealthResult> {
   const url = workerUrl?.trim()
   if (!url) {
-    return { ok: false, attempted: false, detail: '未配置 worker 代理 URL' }
+    return {
+      ok: false,
+      attempted: false,
+      reason: 'not_configured',
+      detail: '未配置 worker 代理 URL（当前架构前端不直连 MinerU，worker 已非必需）',
+    }
   }
 
   let base: URL
@@ -119,7 +135,21 @@ export async function checkWorkerHealth(
     return {
       ok: false,
       attempted: false,
+      reason: 'bad_url',
       detail: `worker URL 格式不合法：${url}`,
+    }
+  }
+
+  // 检测 Mixed Content：HTTPS 页面请求 HTTP worker
+  if (typeof window !== 'undefined'
+    && window.location.protocol === 'https:'
+    && base.protocol === 'http:') {
+    return {
+      ok: false,
+      attempted: false,
+      reason: 'mixed_content',
+      detail: 'HTTPS 页面无法请求 HTTP worker（浏览器 Mixed Content 策略拦截）。'
+            + 'GitHub Pages 上请忽略此检测，或为 worker 配 HTTPS / Caddy 反代。',
     }
   }
 
@@ -143,6 +173,7 @@ export async function checkWorkerHealth(
       return {
         ok: false,
         attempted: true,
+        reason: 'http_error',
         status: res.status,
         detail: `HTTP ${res.status} ${res.statusText}`.trim(),
       }
@@ -165,6 +196,7 @@ export async function checkWorkerHealth(
       return {
         ok: false,
         attempted: true,
+        reason: 'http_error',
         status: res.status,
         detail: '响应缺少 ok=true 字段',
       }
@@ -182,6 +214,7 @@ export async function checkWorkerHealth(
     return {
       ok: false,
       attempted: true,
+      reason: isAborted ? 'timeout' : 'network',
       detail: isAborted
         ? `连接超时（${HEALTH_TIMEOUT_MS}ms）`
         : `网络错误：${e?.message || String(e)}`,
@@ -193,12 +226,13 @@ export async function checkWorkerHealth(
 export interface MineruConnectivityReport {
   /** JWT 解析结果 */
   jwt: MineruJwtInfo
-  /** worker 探活结果（未配置 workerUrl 时 attempted=false） */
+  /** worker 探活结果（含 reason 分类） */
   worker?: WorkerHealthResult
+  /** worker 探活是否被跳过（Mixed Content / 未配置 / 格式错） */
+  workerSkipped: boolean
   /** 综合判断：
    *   - token 解析失败 / 已过期 → false
-   *   - 未配 workerUrl → 只看 token，未过期即 true
-   *   - 配了 workerUrl → token 未过期 且 worker.ok 才 true
+   *   - token 合法 → true（worker 不可达不再拉低整体状态）
    */
   overallOk: boolean
   /** 综合判断的人类可读说明 */
@@ -210,8 +244,11 @@ export interface MineruConnectivityReport {
 /**
  * 综合检测 MinerU 联通性
  *
+ * 核心逻辑：token 是 GitHub Actions 调用 MinerU 的凭据 → 有效即 OK。
+ * worker 探活是补充信息，不可达不影响整体判断（Mixed Content 是常态）。
+ *
  * @param opts.token MinerU JWT token（必填）
- * @param opts.workerUrl 用户自部署的 worker 代理 URL（可选；不传或空则只校验 token）
+ * @param opts.workerUrl 用户自部署的 worker 代理 URL（可选；不传或协议不兼容则跳过探活）
  */
 export async function checkMineruConnectivity(opts: {
   token: string
@@ -223,6 +260,7 @@ export async function checkMineruConnectivity(opts: {
   if (jwt.parseError) {
     return {
       jwt,
+      workerSkipped: true,
       overallOk: false,
       overallMessage: `Token 不合法：${jwt.parseError}`,
       tokenExpiringSoon: false,
@@ -231,52 +269,56 @@ export async function checkMineruConnectivity(opts: {
   if (jwt.isExpired) {
     return {
       jwt,
+      workerSkipped: true,
       overallOk: false,
       overallMessage: jwt.expiresAt
-        ? `Token 已过期（${jwt.expiresAt.toLocaleString()}）`
+        ? `Token 已过期（${jwt.expiresAt.toLocaleString()}），MinerU 无法调用`
         : 'Token 已过期',
       tokenExpiringSoon: false,
     }
   }
 
-  // 2. 没配 workerUrl → 只校验 token；剩余 ≤WARNING_DAYS 给 warning，但仍算 ok
-  if (!opts.workerUrl?.trim()) {
-    const days = jwt.remainingDays ?? Number.POSITIVE_INFINITY
-    const expiringSoon = days <= WARNING_DAYS
-    const msg = expiringSoon
-      ? `Token 有效，但将在 ${days} 天后过期（${jwt.expiresAt?.toLocaleDateString()}）`
-      : `Token 有效，剩余 ${days} 天`
-    return {
-      jwt,
-      overallOk: true,
-      overallMessage: msg + '（未配 worker，未探活代理）',
-      tokenExpiringSoon: expiringSoon,
+  // 2. token 合法 —— 核心判据满足，整体 OK
+  //    worker 探活做补充信息，不影响 overallOk
+  const days = jwt.remainingDays ?? Number.POSITIVE_INFINITY
+  const expiringSoon = days <= WARNING_DAYS
+
+  let worker: WorkerHealthResult | undefined
+  if (opts.workerUrl?.trim()) {
+    worker = await checkWorkerHealth(opts.workerUrl)
+  } else {
+    worker = {
+      ok: false,
+      attempted: false,
+      reason: 'not_configured',
+      detail: '未配置 worker 代理 URL',
     }
   }
 
-  // 3. 配了 workerUrl → 同时探活 worker
-  const worker = await checkWorkerHealth(opts.workerUrl)
-  if (worker.ok) {
-    const days = jwt.remainingDays ?? 0
-    const expiringSoon = days <= WARNING_DAYS
-    const tail = expiringSoon
-      ? `；token 将在 ${days} 天后过期`
-      : `；token 剩余 ${days} 天`
-    return {
-      jwt,
-      worker,
-      overallOk: true,
-      overallMessage: `Worker 可达（${worker.detail ?? 'OK'}）${tail}`,
-      tokenExpiringSoon: expiringSoon,
-    }
+  // 拼 overallMessage
+  const jwtMsg = expiringSoon
+    ? `Token 有效，但将在 ${days} 天后过期（${jwt.expiresAt?.toLocaleDateString()}）`
+    : `Token 有效，剩余 ${days} 天`
+
+  let workerMsg = ''
+  if (worker.reason === 'mixed_content') {
+    workerMsg = '；worker 探活跳过（HTTPS → HTTP Mixed Content，GitHub Pages 上属于正常现象）'
+  } else if (worker.reason === 'not_configured') {
+    workerMsg = '；未配置 worker'
+  } else if (worker.ok) {
+    workerMsg = `；worker 可达（${worker.detail ?? 'OK'}）`
+  } else if (worker.attempted) {
+    workerMsg = `；worker 不可达（${worker.detail ?? 'unknown'}）`
+  } else {
+    workerMsg = `；${worker.detail ?? 'worker 未探活'}`
   }
+
   return {
     jwt,
     worker,
-    overallOk: false,
-    overallMessage: worker.attempted
-      ? `Token 有效，但 worker 不可达：${worker.detail ?? 'unknown'}`
-      : `Token 有效，但 worker URL 未配置或格式不合法`,
-    tokenExpiringSoon: false,
+    workerSkipped: !worker.attempted,
+    overallOk: true, // token 有效就 OK
+    overallMessage: jwtMsg + workerMsg,
+    tokenExpiringSoon: expiringSoon,
   }
 }
