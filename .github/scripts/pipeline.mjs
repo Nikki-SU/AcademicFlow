@@ -790,96 +790,71 @@ async function runWordsExtraction(enItems, doi, slug) {
 //   - tag 告诉流水线这段是什么类型
 //   - 顺序严格等于原文阅读顺序
 // ============================================================
-const SEMANTIC_SEGMENT_PROMPT = `你是学术文献语义处理专家。下面是一段从 PDF 提取出来的 Markdown 文本——来源不可知，可能是 MinerU、Marker、PyMuPDF，也可能是用户手动粘贴的扫描 OCR 结果，甚至可能来自任何学术期刊的任何模板格式。
+const SEMANTIC_SEGMENT_PROMPT = `你是学术文献语义处理专家。下面是一段从 PDF 提取出来的 Markdown——来源不可知，可能是 MinerU、Marker、PyMuPDF、扫描 OCR 或任何期刊模板。
 
-没有任何固定规则可以依赖。你必须完全凭语义和上下文来做判断。
+没有任何固定规则可以依赖。你必须完全凭语义和上下文做判断。
 
-你的任务（所有要求一次性完成）：
+你的任务（一步完成所有）：
 
-## 1. 识别并丢弃非实质内容（去垃圾）
-以下内容不属于论文正文，直接丢弃不要：
-- 页眉：期刊标题、卷号、期号、页码、作者缩写+页码的页眉格式（如 \`Author et al. / J. Catalysis 2024\`）
-- 页脚：版权声明、DOI footer（单独一行的 DOI）、ISSN 号、网址、Published on 日期、Received/Accepted 日期（如果单独成段且无其他内容）
-- 模板文字："Licence and permissions" / "Published by..." / "This article is licensed under..." / "© 2024 The Authors" 等版权模板
-- 扫描 PDF 的 OCR 噪声：页码数字、页眉页脚的重复文字、乱码
+1. 去垃圾 — 直接丢弃以下内容：
+   · 页眉：期刊标题/卷号/页码/作者缩写+页码（如 "Author et al. / J. Catalysis 2024"）
+   · 页脚：版权声明、单独一行的 DOI footer、ISSN、网址、Published on 日期、单独成段的 Received/Accepted
+   · 模板文字："Licence and permissions" / "Published by..." / "This article is licensed under..." / "© 2024 The Authors"
+   · OCR 噪声：纯页码数字、页眉页脚重复文字、乱码
+   判断原则：不携带实质学术信息 → 丢弃。宁可漏丢一条模板文字，也不要错丢正文。
 
-**判断原则：如果内容不携带论文的实质学术信息，就丢弃。** 宁可漏丢一条模板文字，也不要错丢一段正文。
+2. 跨页同段拼接 — 两段其实是 PDF 分页切断的同一段时合并：上一段结尾在句子中间（没句号）、下一段开头小写、语义连贯。
 
-## 2. 跨页同段拼接
-如果两段文本实际上是同一个段落被 PDF 分页切断了，把它们合并成一段。判断依据：
-- 上一段结尾在句子中间（没有句号、问号、感叹号）
-- 下一段开头是小写字母（承接上一段的续行）
-- 两段的语义明显连贯，中间没有新的主题切换
+3. 语义分段 — 按真正的语义段落切，不是按空行硬切：一个段落表达一个主题，空行可能是 PDF 提取器的噪声。
 
-## 3. 语义分段（不是按空行切！）
-Markdown 的空行不可靠——PDF 提取器可能在段落中间插入空行，也可能把多段挤在一个空行里。你必须按**真正的语义段落**来分割：
-- 一个段落表达一个完整的主题
-- 同一主题的多行文字合并为一段，即使中间有多余空行
-- 不同主题之间（如段落 A 讲方法，段落 B 讲结果）分开
+4. 在每段**前**插入一行 HTML 注释标记，标记选这些：
 
-## 4. 给每一段打标签（tag）
-完全凭内容理解来判断，不要依赖字符串匹配。可选 tag：
+   <!-- PARA_EN -->     英文正文段落（需要翻译）
+   <!-- PARA_CN -->     中文正文段落（需要翻译）
+   <!-- IMG -->         图片引用 ![caption](path)（原样保留）
+   <!-- TABLE -->       Markdown 表格（原样保留）
+   <!-- REF_ALL -->     参考文献章节标题（References/Bibliography）
 
-- \`PARA_EN\` — 英文正文段落（有实质学术内容的英文段落，需要翻译）
-- \`PARA_CN\` — 中文正文段落（有实质学术内容的中文段落，需要翻译）
-- \`HEADING\` — 章节标题（如 \`# Introduction\`, \`## Experimental\`，不翻译）
-- \`IMG\` — 图片引用（\`![caption](path)\`，原样保留不翻译）
-- \`TABLE\` — Markdown 表格（含 \`|\` 分隔线的表格，整体保留）
-- \`FORMULA\` — LaTeX 公式块（独立成行的 \`$$...$$\` 或 \`\\begin{equation}...\`，原样保留）
-- \`REF_HEADING\` — 参考文献章节标题（如 \`# References\`）
-- \`REF_ENTRY\` — 单条参考文献内容
-- \`META\` — 论文元信息：论文标题、作者姓名和单位、摘要、关键词、通讯作者信息、基金致谢、DOI（在标题下方的 DOI，不是页脚的）、图表标题 caption 等**论文自带的有意义的元信息**——全部保留
+   注意：章节标题（# Introduction）、论文元信息（标题/作者/单位/摘要/基金）、LaTeX 公式块 $$...$$、参考文献条目 —— 这些不要插任何标记，原样保留就行。
 
-## 5. 严格约束
-- **顺序绝对不能变**：你输出的数组顺序 = 原文的阅读顺序，一条都不能重排
-- **文本完整保留**：text 字段里必须包含完整的原始 Markdown 格式——LaTeX \`$$\`、\`$...$\`、图片 \`![...](...)\`、表格 \`|...|\`、代码块都原样不动
-- **JSON 格式**：严格 JSON 数组，不要三重反引号包裹（即 markdown code fence），不要任何解释文字。字符串里如果有双引号请用 \\" 转义
+5. 严格约束：
+   · 顺序绝对不能变 — 标记后段落顺序 = 原文阅读顺序
+   · 文本绝对不能改 — 除了插标记行和丢弃垃圾，不要改动任何原有文字、格式、LaTeX、图片路径、表格
+   · 直接输出带标记的纯 Markdown — 不要 JSON，不要代码块包裹（不要 markdown code fence），不要任何解释文字
 
-示例输出：
-[
-  { "text": "这里是论文标题原文", "tag": "META" },
-  { "text": "这里是作者和单位原文", "tag": "META" },
-  { "text": "## 1. Introduction", "tag": "HEADING" },
-  { "text": "这是第一段英文正文...", "tag": "PARA_EN" },
-  { "text": "![Figure 1](images/img_001.png)", "tag": "IMG" },
-  { "text": "## References", "tag": "REF_HEADING" },
-  { "text": "[1] Author, J. Article title. Journal 2024, 5, 123-456.", "tag": "REF_ENTRY" }
-]
+示例输出（只有 PARA_EN/IMG/TABLE/REF_ALL 有标记，其他原样）：
+
+论文标题原文
+作者和单位原文
+摘要原文 ...
+
+## 1. Introduction
+
+<!-- PARA_EN -->
+这是第一段英文正文...
+
+<!-- PARA_EN -->
+这是第二段英文正文...
+
+<!-- IMG -->
+![Figure 1](images/img_001.png)
+
+<!-- TABLE -->
+| entry | type | params |
+|-------|------|--------|
+
+<!-- REF_ALL -->
+## References
+
+[1] Author, J. Article title. Journal 2024, 5, 123-456.
 
 Markdown 原文：
 """
-{{DOCUMENT}}
+{{__DOCUMENT_PLACEHOLDER__}}
 """
 
-现在请输出 JSON 数组：`
+现在输出带标记的纯 Markdown：`
 
-// ============================================================
-// 辅助：解析 AI 返回的 JSON 数组（容错 ```json``` 包裹、截断等）
-// ============================================================
-function parseAiSegments(resp) {
-  if (!resp) return []
-  // 去 ```json ... ``` 包裹
-  let s = resp.replace(/^```json?\s*/im, '').replace(/\s*```\s*$/m, '').trim()
-  // 找第一个 [ ... ]
-  const start = s.indexOf('[')
-  const end = s.lastIndexOf(']')
-  if (start === -1 || end === -1) return []
-  s = s.substring(start, end + 1)
-  try {
-    return JSON.parse(s)
-  } catch {
-    // 截断了也能 parse — 去掉最后一个不完整元素
-    for (let cut = s.length - 1; cut > 0; cut--) {
-      const tryS = s.substring(0, cut) + ']'
-      try { return JSON.parse(tryS) } catch {}
-    }
-    return []
-  }
-}
-
-// ============================================================
-// 辅助：纯代码层面的 enumerate / parse（不做 AI 调用，只处理标记）
-// ============================================================
 function autoInsertParaTags(md) {
   const lines = md.split('\n'); const out = []; let inCB = false; let buf = []; let bufTable = false
   const flush = () => {
@@ -954,6 +929,7 @@ function parseAlignedMd(md) {
 // 流程：MinerU → Markdown → AI 语义判别（去垃圾、跨页拼接、分段、打 tag）
 //      → enumerate 编号 → 逐段翻译 → 按编号顺序组装
 // ============================================================
+
 async function runPostMineru(doi, markdown, slug, onProgress) {
   const t = {
     enumerated: `literatures/${slug}/.tmp_enumerated.md`,
@@ -967,13 +943,13 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   const read = (p) => exists(p) ? fs.readFileSync(p, 'utf-8') : ''
   const write = (p, c) => fs.writeFileSync(p, c, 'utf-8')
 
-  // ============ Phase 1: AI 语义分段（续跑跳过） ============
+  // ============ Phase 1: AI 语义分段 + 清理 + 打标（续跑跳过） ============
   let skeletonMd = read(tmpLocal.enumerated)
   let parsed = null
 
   if (!skeletonMd) {
-    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI semantic segmentation...', pct: 5, node: 1 })
-    onProgress?.({ stage: 'ai1_clean', pct: 5 })
+    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI 语义分段 + 清理 + 打标...', pct: 5, node: 1 })
+    onProgress?.({ stage: "ai1_clean", pct: 5 })
 
     // 分块喂 AI：每块 ~25000 chars，块间 overlap 5000 chars（防段落被切断）
     const BLOCK = 25000, OVERLAP = 5000
@@ -984,61 +960,53 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     }
     console.log(`  [semantic] markdown=${markdown.length} chars -> ${chunks.length} chunks`)
 
-    const allSegments = []
+    // 每块 AI 返回带 <!-- TAG --> 注释的 Markdown，直接拼接
+    let taggedMd = ""
     for (let ci = 0; ci < chunks.length; ci++) {
-      const userMsg = SEMANTIC_SEGMENT_PROMPT.replace('{{DOCUMENT}}', chunks[ci])
+      const userMsg = SEMANTIC_SEGMENT_PROMPT.replace('{{__DOCUMENT_PLACEHOLDER__}}', chunks[ci])
       let raw
       try {
         raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL,
-          `You are a literature semantic segmentation expert. Output ONLY a valid JSON array as specified by the user. No extra text.`,
+          `You are a literature semantic expert. Output ONLY the marked Markdown as specified. No JSON, no code blocks, no extra text.`,
           userMsg)
       } catch (e) {
         console.warn(`  [semantic chunk ${ci+1}/${chunks.length}] AI failed: ${e.message?.slice(0,120)}`)
         continue
       }
-      const segments = parseAiSegments(raw)
-      console.log(`  [semantic chunk ${ci+1}/${chunks.length}] -> ${segments.length} segments`)
-      for (const s of segments) {
-        if (s.text && s.text.trim()) {
-          allSegments.push({ text: s.text.trim(), tag: s.tag || 'PARA_EN' })
-        }
-      }
+
+      // 简单清理：去掉 AI 可能加的 markdown code fence 包裹
+      let cleaned = raw.replace(/^```markdown?\s*/im, "").replace(/\s*```\s*$/m, "").trim()
+      taggedMd += cleaned + "\n\n"
+
+      // 统计本块标记（直接 grep 注释，人眼可查）
+      const paraCount = (cleaned.match(/<!--\s*PARA_EN\s*-->/g) || []).length
+      const imgCount = (cleaned.match(/<!--\s*IMG\s*-->/g) || []).length
+      const tblCount = (cleaned.match(/<!--\s*TABLE\s*-->/g) || []).length
+      const refCount = (cleaned.match(/<!--\s*REF_ALL\s*-->/g) || []).length
+      console.log(`  [semantic chunk ${ci+1}/${chunks.length}] -> PARA=${paraCount} IMG=${imgCount} TABLE=${tblCount} REF=${refCount}`)
 
       const pct = 5 + Math.round((ci + 1) / chunks.length * 20)
-      await writeProgress(slug, { stage: 'ai1_clean', message: `AI semantic seg (${ci+1}/${chunks.length})...`, pct, node: 1 })
-      onProgress?.({ stage: 'ai1_clean', pct })
+      await writeProgress(slug, { stage: 'ai1_clean', message: `AI 语义分段中 (${ci+1}/${chunks.length})...`, pct, node: 1 })
+      onProgress?.({ stage: "ai1_clean", pct })
       await new Promise(r => setTimeout(r, 300))
     }
 
-    const segments = allSegments
-    const tagStats = {}
-    for (const s of segments) tagStats[s.tag] = (tagStats[s.tag] || 0) + 1
-    console.log(`  ✓ semantic done: ${segments.length} segments, tags=${JSON.stringify(tagStats)}`)
+    // 打印统计（直接 grep 注释标记，人眼可查）
+    const totalPARA = (taggedMd.match(/<!--\s*PARA_EN\s*-->/g) || []).length
+    const totalIMG = (taggedMd.match(/<!--\s*IMG\s*-->/g) || []).length
+    const totalTABLE = (taggedMd.match(/<!--\s*TABLE\s*-->/g) || []).length
+    const totalREF = (taggedMd.match(/<!--\s*REF_ALL\s*-->/g) || []).length
+    console.log(`  ✓ semantic done: PARA=${totalPARA} IMG=${totalIMG} TABLE=${totalTABLE} REF=${totalREF}, md length=${taggedMd.length}`)
 
-    // AI tag -> HTML comments
-    const tagToComment = {
-      PARA_EN: '<!-- PARA_EN -->',
-      PARA_CN: '<!-- PARA_EN -->',
-      IMG: '<!-- IMG -->',
-      TABLE: '<!-- TABLE -->',
-      REF_HEADING: '<!-- REF_ALL -->',
-    }
-    let taggedMd = ''
-    for (const seg of segments) {
-      const comment = tagToComment[seg.tag]
-      if (comment) taggedMd += comment + '\n'
-      taggedMd += seg.text + '\n\n'
-    }
-
-    // Enumerate (pure code) + write resume file
-    await writeProgress(slug, { stage: 'enumerate', message: 'Code enumeration...', pct: 25, node: 1 })
-    onProgress?.({ stage: 'enumerate', pct: 25 })
+    // Enumerate（纯代码编号，不调 AI）+ 写续跑文件
+    await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 25, node: 1 })
+    onProgress?.({ stage: "enumerate", pct: 25 })
     skeletonMd = enumerateTaggedMd(taggedMd)
     write(tmpLocal.enumerated, skeletonMd)
     parsed = parseAlignedMd(skeletonMd)
     console.log(`  ✓ enumerate ok, nodes=${parsed.nodes.length}`)
   } else {
-    console.log('  [resume] semantic + enumerate already done, loading skeleton')
+    console.log('  [resume] semantic + enumerate 已完成，加载 skeleton')
     parsed = parseAlignedMd(skeletonMd)
   }
 
