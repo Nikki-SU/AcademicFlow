@@ -728,7 +728,7 @@ function ProviderConnectionTest({
   // 预置 provider 默认 AI1+AI2 都用同一个 key，测 both 有意义；
   // 自定义端点用户可能只测一边，但为了简单统一跑 both）
   const target: 'ai1' | 'ai2' | 'both' = 'both'
-  void providerMode; // 保留签名但不直接用
+  void providerMode; void defaultModel; // 保留签名但不直接用
 
   const runBackendTest = async () => {
     if (!apiKey.trim()) {
