@@ -134,17 +134,16 @@ export default function MineruConnectivityPanel() {
       // 3. 等 2s 让 GitHub secret 索引生效，再 dispatch
       await new Promise((r) => setTimeout(r, 2000))
 
-      // 4. 端到端测试
+      // 4. 端到端测试 —— dispatch 完立即 poll，间隔 2s
       setE2eRunning(true)
       setE2eRun(null)
       try {
         await dispatchMineruTest(owner, repo, ghToken)
-        for (let i = 0; i < 18; i++) {
-          await new Promise((r) => setTimeout(r, 5000))
+        for (let i = 0; i < 40; i++) {
           const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
-          if (!rs) continue
-          setE2eRun(rs)
-          if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
+          if (rs) setE2eRun(rs)
+          if (rs && (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled')) break
+          await new Promise((r) => setTimeout(r, 2000))
         }
       } catch { /* 静默 */ }
       finally { setE2eRunning(false) }
@@ -192,12 +191,11 @@ export default function MineruConnectivityPanel() {
 
       await dispatchMineruTest(owner, repo, ghToken)
       toast.info('已触发 MinerU 端到端测试，runner 正在执行...')
-      for (let i = 0; i < 12; i++) {
-        await new Promise((r) => setTimeout(r, 5000))
+      // 立即 poll，间隔 2s，最多 80s
+      for (let i = 0; i < 40; i++) {
         const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
-        if (!rs) continue
-        setE2eRun(rs)
-        if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') {
+        if (rs) setE2eRun(rs)
+        if (rs && (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled')) {
           if (rs.conclusion === 'success') {
             toast.success('端到端测试通过：MinerU 链路完整可达')
           } else {
@@ -205,6 +203,7 @@ export default function MineruConnectivityPanel() {
           }
           return
         }
+        await new Promise((r) => setTimeout(r, 2000))
       }
       toast.info('端到端测试仍在执行中，请稍后查看 runner 日志')
     } catch (e: any) {
@@ -213,6 +212,22 @@ export default function MineruConnectivityPanel() {
       setE2eRunning(false)
     }
   }, [owner, repo, ghToken, ensureAllSecrets])
+
+  // 持续刷新定时器：只要 e2eRun 存在且未完成，就每 5s 拉一次最新状态
+  // 修 race condition：initial poll 可能超时退出，但 runner 其实还在跑
+  useEffect(() => {
+    if (!e2eRun) return
+    if (e2eRun.status === 'completed' || e2eRun.status === 'failure' || e2eRun.status === 'cancelled') return
+    if (!owner || !repo || !ghToken) return
+    let cancelled = false
+    const t = setInterval(async () => {
+      try {
+        const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
+        if (!cancelled && rs) setE2eRun(rs)
+      } catch { /* 静默 */ }
+    }, 5000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [e2eRun?.run_id, e2eRun?.status, owner, repo, ghToken])
 
   // 状态条配色
   const ok = report?.overallOk ?? false

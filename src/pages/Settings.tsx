@@ -781,15 +781,17 @@ function ProviderConnectionTest({
     setMessage('触发后端 runner 测试中...')
     try {
       await dispatchAiConnectivityTest(owner, repo, ghToken, target)
-      // 轮询最多 2 分钟（runner setup + 两次 chat 请求 = 预留足够）
+      // 立即 poll（不等），间隔 2s，最多 80s
       let finalRun: RunStatus | null = null
-      for (let i = 0; i < 24; i++) {
-        await new Promise((r) => setTimeout(r, 5000))
+      for (let i = 0; i < 40; i++) {
         const rs = await getLatestRun('ai_connectivity_test', owner, repo, ghToken)
-        if (!rs) continue
-        finalRun = rs
-        if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
-        setMessage(`Runner 运行中... #${rs.run_id}`)
+        if (rs) {
+          finalRun = rs
+          setRunUrl(rs.html_url)
+        }
+        if (rs && (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled')) break
+        if (rs) setMessage(`Runner 运行中 #${rs.run_id}...`)
+        await new Promise((r) => setTimeout(r, 2000))
       }
 
       if (!finalRun) {
