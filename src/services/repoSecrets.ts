@@ -4,7 +4,7 @@
  * GitHub 不允许明文写 secret，必须用 libsodium sealed box 加密。
  * 流程：GET public key → crypto_box_seal → PUT encrypted_value + key_id
  */
-import * as sodium from 'libsodium-wrappers'
+import sodium from 'libsodium-wrappers'
 import { githubFetch } from './github'
 
 /** 公钥缓存 —— 同一个 repo 的 key_id 不会变，缓存一次省得每次 GET */
