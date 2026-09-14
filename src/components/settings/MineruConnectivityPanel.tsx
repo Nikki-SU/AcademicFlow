@@ -67,7 +67,7 @@ export default function MineruConnectivityPanel() {
     if (!owner || !repo || !ghToken) return false
     setSecretSyncing(true)
     try {
-      const res = await syncAllSecrets(owner, repo, ghToken, {
+      const items = await syncAllSecrets(owner, repo, ghToken, {
         aiProviderMode: store.aiProviderMode,
         siliconflowApiKey: store.siliconflowApiKey,
         ai1Model: store.ai1Model,
@@ -80,8 +80,13 @@ export default function MineruConnectivityPanel() {
         customAi2Model: store.customAi2Model,
         mineruToken: store.mineruToken,
       })
-      if (res.failCount > 0) {
-        toast.error(`写入 secrets 失败：${res.failCount} 个失败 — ${res.errors.join('; ')}`)
+      // 找出失败项（PUT 非空值但 putOk=false，或 putOk 但回查 verified=false）
+      const failures = items.filter((it) => {
+        if (!it.valueWanted) return false // 未填写跳过的不算失败
+        return !it.putOk || !it.verified
+      })
+      if (failures.length > 0) {
+        toast.error(`写入 secrets 失败：${failures.map((f) => `${f.name}(${f.error || '?'})`).join('; ')}`)
         return false
       }
       return true

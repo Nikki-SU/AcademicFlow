@@ -485,7 +485,6 @@ function Settings() {
                   const isSkipped = !it.valueWanted && it.putStatus === 0
                   const isFailed = !it.putOk
                   const isDelayed = it.putOk && it.valueWanted && !it.verified
-                  const isOk = it.verified
 
                   let icon: string, color: string, label: string
                   if (isSkipped) { icon = '—'; color = 'text-slate-400'; label = '未填写（跳过）' }
