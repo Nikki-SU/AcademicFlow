@@ -234,10 +234,33 @@ async function commitLocalFiles(fileRelPaths, message) {
     execSync(`git commit -m "${message.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { cwd: REPO_ROOT, stdio: 'pipe' })
   } catch (e) {
     // 没有变更（exit 1 with "nothing to commit"）就跳过
-    if (!e.stdout?.toString().includes('nothing to commit')) throw
+    if (!e.stdout?.toString().includes('nothing to commit')) throw e
   }
   execSync(`git push origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
 }
+// ── 文献存活检查：防止用户删除后 Runner 仍在跑把文件写回来 ──
+// Runner 本地 checkout 的是 dispatch 时的快照，需要 git fetch 拉最新 main
+async function checkLiteratureAlive(doi) {
+  try {
+    const { execSync } = await import('node:child_process')
+    execSync('git fetch origin main --depth=1', { cwd: REPO_ROOT, stdio: 'pipe' })
+    execSync('git checkout origin/main -- literatures/literatures.csv', { cwd: REPO_ROOT, stdio: 'pipe' })
+    const lit = loadLocalCsv('literatures/literatures.csv')
+    const doiCol = lit.headers.indexOf('doi')
+    if (doiCol < 0) return true
+    const row = lit.rows.find(r => r[doiCol] === doi)
+    if (!row) {
+      console.log(`⛔ 文献 ${doi} 已从 CSV 删除（用户可能删了），放弃 pipeline`)
+      return false
+    }
+    console.log(`  ✓ 文献存活检查通过`)
+    return true
+  } catch (e) {
+    console.warn(`  [checkAlive] 检查失败（放过去）: ${e.message}`)
+    return true
+  }
+}
+
 
 // ============================================================
 // MinerU（Node fetch mineru.net，无代理）
@@ -571,6 +594,12 @@ async function main() {
   const slugLocalDir = path.join(REPO_ROOT, `literatures/${slug}`)
   fs.mkdirSync(slugLocalDir, { recursive: true })
 
+  // ── 检查 A: Pipeline 启动前，确认文献还活着 ──
+  if (!(await checkLiteratureAlive(doi))) {
+    console.log(`=== Pipeline ABORTED (文献已被删除) ===`)
+    return
+  }
+
   // 初始状态
   writeProgress(slug, { stage: 'queued', message: 'Pipeline 启动...', pct: 0, node: 0 }).catch(() => {})
   updateLocalCsvField(doi, 'md_status', 'converting')
@@ -601,6 +630,12 @@ async function main() {
     await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 10, node: 0 })
     const mineru = await mineruConvert(pdfBuf, `${slug}.pdf`, (p) => writeProgress(slug, { ...p, node: 0 }))
     console.log(`  ✓ MinerU done, md length=${mineru.markdown.length}`)
+
+    // ── 检查 B: MinerU 跑完后（可能花了好几分钟），用户可能删了文献 ──
+    if (!(await checkLiteratureAlive(doi))) {
+      console.log(`=== Pipeline ABORTED (文献已被删除) ===`)
+      return
+    }
 
     // 存 fulltext.md（本地写，commit 时 push）
     const fulltextLocal = path.join(REPO_ROOT, `literatures/${slug}/fulltext.md`)
