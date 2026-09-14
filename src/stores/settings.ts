@@ -288,7 +288,13 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         if (loaded) {
           const patch: Partial<SettingsData> = {}
           if (loaded.advancedMode !== undefined) patch.advancedMode = loaded.advancedMode
-          if (loaded.aiProviderMode !== undefined) patch.aiProviderMode = loaded.aiProviderMode as SettingsData['aiProviderMode']
+          if (loaded.aiProviderMode !== undefined) {
+            const valid = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
+            const raw = loaded.aiProviderMode
+            // 兼容历史值 siliconflow → deepseek
+            const migrated = raw === 'siliconflow' ? 'deepseek' : raw
+            patch.aiProviderMode = (valid.includes(migrated as any) ? migrated : 'deepseek') as SettingsData['aiProviderMode']
+          }
           if (loaded.ai1Model !== undefined) patch.ai1Model = loaded.ai1Model
           if (loaded.ai2Model !== undefined) patch.ai2Model = loaded.ai2Model
           if (loaded.customAi1BaseUrl !== undefined) patch.customAi1BaseUrl = loaded.customAi1BaseUrl
