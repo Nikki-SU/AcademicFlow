@@ -268,20 +268,20 @@ export default function MineruConnectivityPanel() {
           className={`block p-2 rounded-md border text-[11px] ${
             e2eRun.conclusion === 'success'
               ? 'bg-green-50 border-green-200 text-green-700'
-              : e2eRun.conclusion && e2eRun.conclusion !== 'success'
+              : e2eRun.conclusion
                 ? 'bg-red-50 border-red-200 text-red-600'
                 : 'bg-blue-50 border-blue-200 text-blue-600'
           }`}
         >
           {e2eRun.conclusion === 'success' ? (
             <div className="font-semibold">✓ 端到端测试通过</div>
-          ) : e2eRun.conclusion && e2eRun.conclusion !== 'success' ? (
+          ) : e2eRun.conclusion ? (
             <div className="font-semibold">✗ 端到端测试失败：{e2eRun.conclusion}</div>
           ) : (
             <div>⏳ runner 运行中…</div>
           )}
           <div className="opacity-70 mt-0.5">
-            run #{e2eRun.id} · {e2eRun.status} · 查看日志 →
+            run #{e2eRun.run_id} · {e2eRun.status} · 查看日志 →
           </div>
         </a>
       )}
