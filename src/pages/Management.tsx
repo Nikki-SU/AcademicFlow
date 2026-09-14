@@ -809,54 +809,59 @@ export default function ManagementPage() {
   }
 
   /**
-   * 两阶段删除：先删立即能删的，等 3s 再查一次，有残留再删一次
-   * 覆盖 race：删文件时 Runner 还在跑，删完过几秒 Runner 跑完 push 回来
+   * 异步删除 GitHub 文件 + race cleanup（fire-and-forget，不阻塞 UI）
+   * Phase1 立即删，Phase2/3 race retry 放后台 setTimeout(5s) 跑
+   * 返回一个 Promise<{deletedCount, phase1Ok}> — Phase1 完成就 resolve
    */
-  const deleteLiteratureFilesWithRetry = async (
+  const deleteLiteratureFilesFast = async (
     doi: string,
     owner: string,
     repo: string,
     token: string,
-  ): Promise<{ deletedCount: number; retryDeleted: number; finalRemaining: number }> => {
-    let totalDeleted = 0
-    let retryDeleted = 0
+  ): Promise<{ deletedCount: number; phase1Ok: boolean; error?: string }> => {
+    try {
+      // Phase 1: 立即删（同步等它完成，因为用户点了删除就期望文件真的消失）
+      const paths1 = await collectLiteratureFilePaths(doi)
+      if (paths1.length > 0) {
+        await deleteRepoFiles(
+          paths1,
+          `chore: delete literature ${doi.slice(0, 30)}`,
+          owner, repo, token,
+        )
+        console.log(`[deleteFilesFast] phase1 删除 ${paths1.length} 个文件`)
+      } else {
+        console.log(`[deleteFilesFast] phase1: 无文件可删`)
+      }
 
-    // Phase 1: 立即删
-    const paths1 = await collectLiteratureFilePaths(doi)
-    if (paths1.length > 0) {
-      await deleteRepoFiles(
-        paths1,
-        `chore: delete literature ${doi.slice(0, 30)}`,
-        owner, repo, token,
-      )
-      totalDeleted = paths1.length
-      console.log(`[deleteLiteratureFilesWithRetry] phase1 删除 ${paths1.length} 个文件`)
-    } else {
-      console.log(`[deleteLiteratureFilesWithRetry] phase1: 无文件可删（可能本来就干净）`)
+      // Phase 2/3: 后台 setTimeout 做 race cleanup（5 秒后，不阻塞）
+      setTimeout(async () => {
+        try {
+          const paths2 = await collectLiteratureFilePaths(doi)
+          if (paths2.length > 0) {
+            console.log(`[deleteFilesFast] phase2 发现 ${paths2.length} 个残留（race 回写），异步重试删除`)
+            await deleteRepoFiles(
+              paths2,
+              `chore: retry delete literature ${doi.slice(0, 30)} (race)`,
+              owner, repo, token,
+            )
+          }
+          // 最终校验
+          const remaining = await collectLiteratureFilePaths(doi)
+          if (remaining.length > 0) {
+            console.warn(`[deleteFilesFast] ⚠️ 仍有 ${remaining.length} 个残留（新 pipeline 正在跑？）`)
+          } else {
+            console.log(`[deleteFilesFast] phase2 race cleanup OK — 干净`)
+          }
+        } catch (e) {
+          console.warn(`[deleteFilesFast] phase2 失败（忽略）:`, e)
+        }
+      }, 5000)
+
+      return { deletedCount: paths1.length, phase1Ok: true }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { deletedCount: 0, phase1Ok: false, error: msg }
     }
-
-    // Phase 2: 等 3 秒再查一次，处理 race 回写
-    await new Promise((r) => setTimeout(r, 3000))
-    const paths2 = await collectLiteratureFilePaths(doi)
-    if (paths2.length > 0) {
-      console.log(`[deleteLiteratureFilesWithRetry] phase2 发现残留 ${paths2.length} 个（race 回写），重试删除`)
-      await deleteRepoFiles(
-        paths2,
-        `chore: retry delete literature ${doi.slice(0, 30)} (race cleanup)`,
-        owner, repo, token,
-      )
-      retryDeleted = paths2.length
-      totalDeleted += paths2.length
-    }
-
-    // Phase 3: 再等 3 秒查最终状态（只记录，不再删）
-    await new Promise((r) => setTimeout(r, 3000))
-    const remaining = await collectLiteratureFilePaths(doi)
-    if (remaining.length > 0) {
-      console.warn(`[deleteLiteratureFilesWithRetry] ⚠️ 仍有 ${remaining.length} 个文件残留（可能有新 pipeline 正在跑）:`, remaining)
-    }
-
-    return { deletedCount: totalDeleted, retryDeleted, finalRemaining: remaining.length }
   }
 
   const handleDeletePaper = async (id: string) => {
@@ -873,61 +878,50 @@ export default function ManagementPage() {
     const fileErrors: string[] = []
 
     try {
-      // ═══ 0. 先清理 taskQueue 中的相关任务（防止幽灵任务显示） ═══
+      // ═══ 0. 立即清理 taskQueue（同步、很快） ═══
       if (paperDoi) {
         await cleanupTasksForDoi(paperDoi)
       }
 
-      // ═══ 1. 删除仓库中的文件（带 race 重试） ═══
-      if (ctx && paperDoi) {
-        try {
-          const result = await deleteLiteratureFilesWithRetry(
-            paperDoi, ctx.owner, ctx.repo, ctx.token,
-          )
-          console.log('[handleDeletePaper] GitHub 文件删除结果:', result)
-          if (result.finalRemaining > 0) {
-            fileErrors.push(`仍有 ${result.finalRemaining} 个文件残留（可能有后台 pipeline 正在跑）`)
-          }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          fileErrors.push(`仓库文件删除失败: ${msg}`)
-          console.warn('[handleDeletePaper] deleteRepoFiles failed:', e)
-        }
-      } else if (!ctx) {
-        console.warn('[handleDeletePaper] getRepoContextForDelete 返回 null，跳过 GitHub 文件删除')
-      }
-
-      // ═══ 2. 从关联 CSV 中清理 ═══
-      if (paperDoi) {
-        try {
-          const csvErrors = await cleanUpCsvByDoi(paperDoi)
-          fileErrors.push(...csvErrors)
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          fileErrors.push(`关联 CSV 清理失败: ${msg}`)
-          console.warn('[handleDeletePaper] cleanUpCsvByDoi failed:', e)
-        }
-      }
-    } finally {
-      // ═══ 3. 从 papers 列表中移除（无论 GitHub 是否成功，本地状态必须更新） ═══
+      // ═══ 1. 【乐观更新】立即从本地 papers 移除 + toast ═══
+      // 不管 GitHub 删没删完，UI 先更新，别让用户等
       const updated = papers.filter((p) => p.id !== id)
       setPapers(updated)
+      // 持久化 CSV（这步很快，不会卡）
       try {
         await savePapers(updated)
-        // 缓存失效：确保后续任何 loadLiteratures() 调用都拉最新
         invalidateCache('literatures/literatures.csv')
-      } catch (e) {
-        console.warn('[handleDeletePaper] savePapers failed:', e)
-        fileErrors.push(`文献列表保存失败: ${e instanceof Error ? e.message : String(e)}`)
+        toast.success('文献已删除（GitHub 文件清理在后台进行）')
+      } catch (saveErr) {
+        console.warn('[handleDeletePaper] savePapers 失败:', saveErr)
+        toast.warning(`本地状态已更新但保存失败: ${saveErr instanceof Error ? saveErr.message : String(saveErr)}`)
       }
 
-      if (fileErrors.length > 0) {
-        toast.warning(`文献已从本地删除，但部分远端清理失败：${fileErrors.join('；')}`, {
-          duration: 8000,
-        })
-      } else {
-        toast.success('文献及其关联文件已删除')
+      // ═══ 2. GitHub 文件删除（Phase 1 同步等完，Phase 2 后台跑） ═══
+      if (ctx && paperDoi) {
+        const result = await deleteLiteratureFilesFast(
+          paperDoi, ctx.owner, ctx.repo, ctx.token,
+        )
+        if (!result.phase1Ok) {
+          fileErrors.push(`GitHub 文件删除失败: ${result.error}`)
+          toast.warning(`GitHub 文件删除失败: ${result.error}，将在后台重试`, { duration: 6000 })
+        } else if (result.deletedCount > 0) {
+          console.log(`[handleDeletePaper] GitHub 文件已删 ${result.deletedCount} 个`)
+        }
       }
+
+      // ═══ 3. CSV 关联清理（放后台 fire-and-forget，失败不阻塞） ═══
+      if (paperDoi) {
+        cleanUpCsvByDoi(paperDoi).then((csvErrors) => {
+          if (csvErrors.length > 0) {
+            console.warn('[handleDeletePaper] CSV 后台清理有警告:', csvErrors)
+          }
+        }).catch((e) => console.warn('[handleDeletePaper] CSV 后台清理异常:', e))
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[handleDeletePaper] 主流程异常:', e)
+      toast.error(`删除失败: ${msg}`, { duration: 5000 })
     }
   }
 
@@ -948,99 +942,64 @@ export default function ManagementPage() {
   const handleBatchDelete = async () => {
     const papersToDelete = papers.filter((p) => selectedPapers.has(p.id))
     const ctx = getRepoContextForDelete()
-    const allFileErrors: string[] = []
 
-    // ═══ 0. 先清理所有 taskQueue 任务 ═══
+    // ═══ 0. 先清 taskQueue（同步） ═══
     for (const paper of papersToDelete) {
       if (paper.doi) await cleanupTasksForDoi(paper.doi)
     }
 
-    // ═══ 1. 批量收集并删 GitHub 文件（两阶段） ═══
-    if (ctx) {
-      try {
-        // Phase 1: 收集所有 paths 一次删
-        const allPaths: string[] = []
-        for (const paper of papersToDelete) {
-          try {
-            const paths = await collectLiteratureFilePaths(paper.doi)
-            allPaths.push(...paths)
-          } catch (e) {
-            console.warn('[handleBatchDelete] 收集文件失败:', paper.doi, e)
-          }
-        }
-        if (allPaths.length > 0) {
-          await deleteRepoFiles(
-            allPaths,
-            `chore: batch delete ${papersToDelete.length} literatures`,
-            ctx.owner, ctx.repo, ctx.token,
-          )
-          console.log(`[handleBatchDelete] phase1 删除 ${allPaths.length} 个文件`)
-        }
-
-        // Phase 2: 等 3 秒后每篇检查残留，批量 retry
-        await new Promise((r) => setTimeout(r, 3000))
-        const retryPaths: string[] = []
-        for (const paper of papersToDelete) {
-          try {
-            const paths = await collectLiteratureFilePaths(paper.doi)
-            retryPaths.push(...paths)
-          } catch {}
-        }
-        if (retryPaths.length > 0) {
-          console.log(`[handleBatchDelete] phase2 残留 ${retryPaths.length} 个，重试删除`)
-          await deleteRepoFiles(
-            retryPaths,
-            `chore: batch delete retry (race cleanup)`,
-            ctx.owner, ctx.repo, ctx.token,
-          )
-        }
-
-        // Phase 3: 最终校验
-        await new Promise((r) => setTimeout(r, 3000))
-        let residual = 0
-        for (const paper of papersToDelete) {
-          try {
-            const paths = await collectLiteratureFilePaths(paper.doi)
-            residual += paths.length
-          } catch {}
-        }
-        if (residual > 0) {
-          allFileErrors.push(`仍有 ${residual} 个文件残留（可能有后台 pipeline 正在跑）`)
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        allFileErrors.push(`仓库批量删除失败: ${msg}`)
-        console.warn('[handleBatchDelete] deleteRepoFiles failed:', e)
-      }
-    }
-
-    // ═══ 2. 从 CSV 清理所有关联条目 ═══
-    for (const paper of papersToDelete) {
-      if (paper.doi) {
-        try {
-          const csvErrors = await cleanUpCsvByDoi(paper.doi)
-          allFileErrors.push(...csvErrors)
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          allFileErrors.push(`关联 CSV 清理失败: ${msg}`)
-        }
-      }
-    }
-
-    // ═══ 3. 从 papers 列表移除 + 失效缓存 ═══
+    // ═══ 1. 【乐观更新】立即从 papers 移除 + toast ═══
     const updated = papers.filter((p) => !selectedPapers.has(p.id))
     setPapers(updated)
-    await savePapers(updated)
-    invalidateCache('literatures/literatures.csv')
     setSelectedPapers(new Set())
     setBatchMode(false)
+    try {
+      await savePapers(updated)
+      invalidateCache('literatures/literatures.csv')
+      toast.success(`已删除 ${papersToDelete.length} 篇文献（GitHub 清理在后台进行）`)
+    } catch (e) {
+      toast.warning(`本地状态已更新但保存失败: ${e instanceof Error ? e.message : String(e)}`)
+    }
 
-    if (allFileErrors.length > 0) {
-      toast.warning(`批量删除完成，但部分清理失败：${allFileErrors.join('；')}`, {
-        duration: 8000,
-      })
-    } else {
-      toast.success(`已删除 ${papersToDelete.length} 篇文献及其关联文件`)
+    // ═══ 2. GitHub 文件 Phase 1 同步 + Phase 2/3 后台 race cleanup ═══
+    const deleteAsync = async () => {
+      if (!ctx) return
+      try {
+        // Phase 1: 批量收集 + 立即删
+        const allPaths: string[] = []
+        for (const paper of papersToDelete) {
+          try { const paths = await collectLiteratureFilePaths(paper.doi); allPaths.push(...paths) } catch {}
+        }
+        if (allPaths.length > 0) {
+          await deleteRepoFiles(allPaths, `chore: batch delete ${papersToDelete.length} literatures`, ctx.owner, ctx.repo, ctx.token)
+          console.log(`[handleBatchDelete] phase1 删除 ${allPaths.length} 个文件`)
+        }
+      } catch (e) {
+        console.warn('[handleBatchDelete] phase1 失败:', e)
+        toast.warning(`GitHub 文件清理失败: ${e instanceof Error ? e.message : String(e)}`)
+      }
+
+      // Phase 2/3: 5s 后批量检查残留 + retry（fire-and-forget）
+      setTimeout(async () => {
+        try {
+          const retryPaths: string[] = []
+          for (const paper of papersToDelete) {
+            try { const paths = await collectLiteratureFilePaths(paper.doi); retryPaths.push(...paths) } catch {}
+          }
+          if (retryPaths.length > 0) {
+            console.log(`[handleBatchDelete] phase2 残留 ${retryPaths.length} 个，异步重试`)
+            await deleteRepoFiles(retryPaths, `chore: batch delete retry (race)`, ctx.owner, ctx.repo, ctx.token)
+          }
+        } catch (e) { console.warn('[handleBatchDelete] phase2 失败:', e) }
+      }, 5000)
+    }
+    deleteAsync() // fire-and-forget
+
+    // ═══ 3. CSV 关联清理（fire-and-forget） ═══
+    for (const paper of papersToDelete) {
+      if (paper.doi) {
+        cleanUpCsvByDoi(paper.doi).catch((e) => console.warn('[handleBatchDelete] CSV 清理失败:', paper.doi, e))
+      }
     }
   }
 
