@@ -10,7 +10,7 @@ import { pollProgressJson } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
-import { BackgroundTaskList } from '../components/BackgroundTaskList'
+import BackendMonitorPanel from '../components/BackendMonitorPanel'
 import {
   createTemplate,
   deleteTemplate as deleteJournalTemplate,
@@ -67,7 +67,7 @@ import {
   MoveRight,
   Tag,
   Library,
-  ListTodo,
+  // ListTodo,
 } from 'lucide-react'
 import { DoiLink } from '../components/DoiLink'
 import { toast } from 'sonner'
@@ -358,7 +358,6 @@ export default function ManagementPage() {
   const [uploadBookCategories, setUploadBookCategories] = useState<string[]>([])
 
   // 后台任务状态
-  const [showTaskListModal, setShowTaskListModal] = useState(false)
   const taskQueue = useTaskQueueStore()
   const taskQueueRef = useRef(taskQueue)
   taskQueueRef.current = taskQueue
@@ -1333,7 +1332,9 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-[1400px] mx-auto px-4 py-8 flex gap-6">
+      {/* ──── 左侧主内容 ──── */}
+      <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -1342,47 +1343,7 @@ export default function ManagementPage() {
           </h1>
           <p className="text-sm text-slate-500 mt-1">文献库、期刊模板、知识库、数据管理</p>
         </div>
-        {/* 后台任务入口 */}
-        <button
-          onClick={() => setShowTaskListModal(true)}
-          className="relative flex items-center gap-2 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition shadow-sm"
-          title="后台任务队列"
-        >
-          <ListTodo className="w-4 h-4" />
-          <span className="hidden sm:inline">后台任务</span>
-          {taskQueue.tasks.length > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
-              {taskQueue.tasks.length > 99 ? '99+' : taskQueue.tasks.length}
-            </span>
-          )}
-          {taskQueue.tasks.some((t) => t.status === 'running') && (
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
-          )}
-        </button>
       </div>
-
-      {/* 子 Tab */}
-      <div className="flex items-center gap-1 mb-6 bg-white rounded-xl border border-slate-200 p-1.5 w-fit shadow-sm">
-        {subTabs.map((tab) => {
-          const Icon = tab.icon
-          const active = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                active
-                  ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-md shadow-indigo-200'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
-
       {/* ============ 文献库 Tab ============ */}
       {activeTab === 'library' && (
         <div className="flex gap-4">
@@ -3057,55 +3018,14 @@ export default function ManagementPage() {
       {showImageLightbox && (
         <ImageLightbox src={showImageLightbox} onClose={() => setShowImageLightbox(null)} />
       )}
+      </div>{/* ──── 左侧主内容 END ──── */}
 
-      {/* 后台任务列表 Modal */}
-      {showTaskListModal && (
-        <Modal
-          title="后台任务队列"
-          onClose={() => setShowTaskListModal(false)}
-          width="max-w-3xl"
-        >
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-4 text-sm">
-              <span className="text-slate-600">
-                共 <span className="font-semibold text-slate-800">{taskQueue.tasks.length}</span> 个任务
-              </span>
-              <span className="text-slate-400">|</span>
-              <span className="text-blue-600">
-                {taskQueue.tasks.filter((t) => t.status === 'running').length} 运行中
-              </span>
-              <span className="text-slate-400">|</span>
-              <span className="text-slate-500">
-                {taskQueue.tasks.filter((t) => t.status === 'pending').length} 排队中
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* 清理已完成/失败/中止的旧任务 */}
-              {taskQueue.tasks.some((t) => t.status === 'done' || t.status === 'failed' || t.status === 'aborted') && (
-                <button
-                  onClick={async () => {
-                    const toRemove = taskQueue.tasks.filter(
-                      (t) => t.status === 'done' || t.status === 'failed' || t.status === 'aborted',
-                    )
-                    for (const t of toRemove) {
-                      await taskQueue.remove_task(t.id)
-                    }
-                    toast.success(`已清理 ${toRemove.length} 个已完成任务`)
-                  }}
-                  className="text-xs text-slate-500 hover:text-red-600 px-2 py-1 hover:bg-red-50 rounded transition"
-                >
-                  清理已完成
-                </button>
-              )}
-            </div>
-          </div>
-          <BackgroundTaskList
-            tasks={taskQueue.tasks}
-            on_abort={(id) => taskQueue.abort_task(id)}
-            on_remove={(id) => taskQueue.remove_task(id)}
-          />
-        </Modal>
-      )}
+      {/* ──── 右侧 sticky 后台监控面板（常驻、不弹窗） ──── */}
+      <aside className="hidden xl:block w-[360px] shrink-0">
+        <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
+          <BackendMonitorPanel taskQueue={taskQueue} />
+        </div>
+      </aside>
     </div>
   )
 }
