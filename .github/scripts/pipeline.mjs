@@ -807,7 +807,25 @@ const SEMANTIC_SEGMENT_PROMPT = `你是学术文献语义处理专家。下面�
 
 3. 语义分段 — 按真正的语义段落切，不是按空行硬切：一个段落表达一个主题，空行可能是 PDF 提取器的噪声。
 
-4. 在每段**前**插入一行 HTML 注释标记，标记选这些：
+4. **检查并保留 Markdown 标题层级**
+   原始 Markdown 里可能有 # / ## / ### / #### 标题。你要做两件事：
+   
+   (a) 确认标题是不是真的标题 — 检查它是否应该是标题：
+       · 论文主标题 → # Title （正确，保留）
+       · 章节标题（Introduction / Experimental / Results and Discussion / Conclusion）→ ## 编号+标题（如 ## 1. Introduction）（正确，保留）
+       · 子章节标题（2.1 Catalyst Preparation / 3.2 Kinetic Analysis）→ ### 编号+标题（正确，保留）
+       · 参考文献、致谢、附录标题 → ## 标题（正确，保留）
+       · 正文段落 → 不应该有 # 前缀，去掉误加的 # （MinerU 有时把正文第一行误标成标题）
+       · 页码、页眉、页脚里的 "1"、"J. Catal. 2024" → 不是标题，应该在第 1 步"去垃圾"中丢弃
+   
+   (b) 修正错误的标题层级 — 如果标题层级明显不对：
+       · 论文主标题用了 ## 或 ### → 改成 #
+       · 章节标题（Introduction 等）用了 # 或 #### → 改成 ##
+       · 子章节标题用了 ## 或 #### → 改成 ###
+   
+   关键：**标题行本身就是格式标记**，它告诉读者这里是一个章节的开始。不要去掉 # 号，不要改变标题文字本身，只检查层级是否正确。
+
+5. 给段落插标记（**只有正文段落/图片/表格/参考文献标题需要插标记**，Markdown 标题行不插——它本身就是标记）：
 
    <!-- PARA_EN -->     英文正文段落（需要翻译）
    <!-- PARA_CN -->     中文正文段落（需要翻译）
@@ -815,23 +833,34 @@ const SEMANTIC_SEGMENT_PROMPT = `你是学术文献语义处理专家。下面�
    <!-- TABLE -->       Markdown 表格（原样保留）
    <!-- REF_ALL -->     参考文献章节标题（References/Bibliography）
 
-   注意：章节标题（# Introduction）、论文元信息（标题/作者/单位/摘要/基金）、LaTeX 公式块 $$...$$、参考文献条目 —— 这些不要插任何标记，原样保留就行。
+   · 标题行（# / ## / ###）**不插任何标记** — 标题本身就是段落分隔符
+   · 论文元信息（标题/作者/单位/摘要/基金）、LaTeX 公式块 $$...$$、参考文献条目 —— 这些不要插标记，原样保留就行。
 
-5. 严格约束：
+6. 严格约束：
    · 顺序绝对不能变 — 标记后段落顺序 = 原文阅读顺序
-   · 文本绝对不能改 — 除了插标记行和丢弃垃圾，不要改动任何原有文字、格式、LaTeX、图片路径、表格
+   · 文本绝对不能改 — 除了插标记行、丢弃垃圾、**修正标题层级**（只有标题层级可以改），不要改动任何原有文字、格式、LaTeX、图片路径、表格。标题的文字内容不能改，只能调整其 # 数量
    · 直接输出带标记的纯 Markdown — 不要 JSON，不要代码块包裹（不要 markdown code fence），不要任何解释文字
 
-示例输出（只有 PARA_EN/IMG/TABLE/REF_ALL 有标记，其他原样）：
+示例输出（注意：标题保留正确层级，只给需要翻译的段落/图片/表格插标记）：
 
-论文标题原文
-作者和单位原文
+# Catalytic Conversion of CO2 to Methanol and Dimethyl Ether
+
+作者张三 李四 王五
+
 摘要原文 ...
 
 ## 1. Introduction
 
 <!-- PARA_EN -->
-这是第一段英文正文...
+Catalytic conversion of CO2 has attracted significant attention...
+
+<!-- PARA_EN -->
+Various strategies have been proposed to address this challenge...
+
+### 1.1. Background
+
+<!-- PARA_EN -->
+CO2 concentration in atmosphere continues to increase annually...
 
 <!-- PARA_EN -->
 这是第二段英文正文...
@@ -843,10 +872,13 @@ const SEMANTIC_SEGMENT_PROMPT = `你是学术文献语义处理专家。下面�
 | entry | type | params |
 |-------|------|--------|
 
-<!-- REF_ALL -->
 ## References
 
 [1] Author, J. Article title. Journal 2024, 5, 123-456.
+
+## Acknowledgments
+
+This work was supported by the National Science Foundation.
 
 Markdown 原文：
 """
@@ -994,8 +1026,10 @@ function autoInsertParaTags(md) {
     const isImgOnly = buf.every(l => !l.trim() || l.trim().startsWith('!['))
     const isTableOnly = bufTable
     const isFormulaOnly = buf.every(l => !l.trim() || /^\s*\$\$?[\s\S]*\$\$?\s*$/.test(l.trim()))
+    // 如果整个 buf 是 Markdown 标题行，不插 PARA_EN（在清空 buf 之前检查！）
+    const isHeadingOnly = buf.length === 1 && /^#{1,6}\s/.test(buf[0])
     out.push(...buf); buf = []; bufTable = false
-    if (nonEmpty > 0 && hasLetter && !isImgOnly && !isTableOnly && !isFormulaOnly) out.push('<!-- PARA_EN -->')
+    if (nonEmpty > 0 && hasLetter && !isImgOnly && !isTableOnly && !isFormulaOnly && !isHeadingOnly) out.push('<!-- PARA_EN -->')
   }
   for (const line of lines) {
     if (/^\s*```/.test(line)) { flush(); inCB = !inCB; out.push(line); continue }
