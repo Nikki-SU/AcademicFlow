@@ -46,8 +46,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   customAi2ApiKey: '',
   customAi2Model: '',
   mineruToken: '',
-  mineruWorkerUrl: 'http://localhost:8000',
   extractCoverImage: true,
+  autoExtractWords: false,
   mineruDebugMode: true,
   wordGenCount: 15,
 }
@@ -64,8 +64,8 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
  *  —— 没登录 GitHub / GitHub API 挂了也不丢，
  *     syncFromGitHub 成功后会被覆盖（GitHub 是跨设备主存储） */
 const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] = [
-  { field: 'mineruWorkerUrl', key: SETTING_KEYS.MINERU_WORKER_URL },
   { field: 'extractCoverImage', key: SETTING_KEYS.EXTRACT_COVER_IMAGE },
+  { field: 'autoExtractWords', key: SETTING_KEYS.AUTO_EXTRACT_WORDS },
   { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
   { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
 ]
@@ -181,8 +181,8 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         customAi1Model: s.customAi1Model,
         customAi2BaseUrl: s.customAi2BaseUrl,
         customAi2Model: s.customAi2Model,
-        mineruWorkerUrl: s.mineruWorkerUrl,
         extractCoverImage: s.extractCoverImage,
+        autoExtractWords: s.autoExtractWords,
         mineruDebugMode: s.mineruDebugMode,
         wordGenCount: s.wordGenCount,
       })
@@ -271,8 +271,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           if (loaded.customAi1Model !== undefined) patch.customAi1Model = loaded.customAi1Model
           if (loaded.customAi2BaseUrl !== undefined) patch.customAi2BaseUrl = loaded.customAi2BaseUrl
           if (loaded.customAi2Model !== undefined) patch.customAi2Model = loaded.customAi2Model
-          if (loaded.mineruWorkerUrl !== undefined) patch.mineruWorkerUrl = loaded.mineruWorkerUrl
           if (loaded.extractCoverImage !== undefined) patch.extractCoverImage = loaded.extractCoverImage
+          if (loaded.autoExtractWords !== undefined) patch.autoExtractWords = loaded.autoExtractWords
           if (loaded.mineruDebugMode !== undefined) patch.mineruDebugMode = loaded.mineruDebugMode
           if (loaded.wordGenCount !== undefined) {
             const n = Number(loaded.wordGenCount)
@@ -446,8 +446,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           customAi1Model: merged.customAi1Model,
           customAi2BaseUrl: merged.customAi2BaseUrl,
           customAi2Model: merged.customAi2Model,
-          mineruWorkerUrl: merged.mineruWorkerUrl,
           extractCoverImage: merged.extractCoverImage,
+          autoExtractWords: merged.autoExtractWords,
           mineruDebugMode: merged.mineruDebugMode,
           wordGenCount: merged.wordGenCount,
         })

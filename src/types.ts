@@ -120,20 +120,17 @@ export interface SettingsData {
   /** MinerU JWT token（BYO）——用于 PDF → Markdown 解析 */
   mineruToken: string
   /**
-   * MinerU 代理 URL（BYO）——用户在自己的 VPS 上部署透传代理后填入。
-   *
-   * 格式：http://你的VPS公网IP:8000
-   *
-   * 部署指引：Settings → MinerU 代理 提供一键安装脚本
-   * 数据隐私：代理只做纯转发，不缓存不落盘。部署在用户自己的服务器上，作者不接触。
-   */
-  mineruWorkerUrl: string
-  /**
    * 是否提取"题图（cover figure）"—— 论文里最能代表全文核心的那张单图。
    * 通常是第一张但不必然（有些论文第一张是路线图/示意图/TOC graphic）。
    * 理工科需要，社科可关。判断需要 AI 参与，逻辑在 Import 里落地。默认 true。
    */
   extractCoverImage: boolean
+  /**
+   * 是否自动从翻译稿中提取学术词汇（words_extract + words_verify 双引擎）。
+   * 打开后，每篇文献 pipeline 末尾会自动跑 AI-1 提取 + AI-2 核验，
+   * 结果写入 vocabulary/vocabulary.csv。默认 false（用户按需开）。
+   */
+  autoExtractWords: boolean
   /**
    * MinerU 调试模式（M3.6.3-b）
    * -------------------------------------------------

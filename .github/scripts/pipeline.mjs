@@ -276,7 +276,12 @@ async function mineruRequest(method, urlPath, body) {
   const txt = await resp.text()
   if (!resp.ok) throw new Error(`MinerU ${method} ${urlPath}: ${resp.status} ${txt.slice(0, 300)}`)
   if (!txt) return null
-  return JSON.parse(txt)
+  const j = JSON.parse(txt)
+  // v4 统一响应：{ code, msg, data }；code !== 0 表示业务错误
+  if (typeof j === 'object' && j !== null && 'code' in j && j.code !== 0) {
+    throw new Error(`MinerU ${method} ${urlPath} code=${j.code} msg=${j.msg || ''}`)
+  }
+  return j
 }
 
 async function mineruConvert(pdfBuf, fileName, onProgress) {
@@ -284,68 +289,126 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
   if (pdfBuf.length > MAX_BLOB_SIZE) {
     throw new Error(`MinerU PDF too large: ${pdfBuf.length} bytes > 100MB blob limit. Cannot process.`)
   }
-  // 1. 申请上传 URL
+
+  // 1. 申请上传 URL (v4: 对象 body, 响应 { code, msg, data: { batch_id, file_urls } })
   onProgress?.({ stage: 'mineru_apply', message: '申请上传 URL...', pct: 5 })
-  const urlResp = await mineruRequest('POST', '/file-urls/batch', [
-    { file_name: fileName, is_ocr: false, is_table: true, is_formula: true, is_figure: true, is_layout: true, version: 'v2.0.0' },
-  ])
-  const uploadUrl = urlResp?.[0]?.url
-  if (!uploadUrl) throw new Error(`MinerU 上传 URL 失败: ${JSON.stringify(urlResp).slice(0, 300)}`)
-  // 2. PUT PDF
+  const applyResp = await mineruRequest('POST', '/file-urls/batch', {
+    files: [{ name: fileName, is_ocr: false }],
+    model_version: 'pipeline',
+    enable_formula: true,
+    enable_table: true,
+    language: 'auto',
+  })
+  const batchId = applyResp.data?.batch_id
+  const uploadUrl = applyResp.data?.file_urls?.[0]
+  if (!batchId || !uploadUrl) {
+    throw new Error(`MinerU 响应缺 batch_id 或 file_urls: ${JSON.stringify(applyResp).slice(0, 300)}`)
+  }
+  console.log(`  [mineru] batch_id=${batchId}`)
+
+  // 2. PUT PDF 到预签名 URL
   onProgress?.({ stage: 'mineru_upload', message: '上传 PDF...', pct: 25 })
   const putResp = await fetch(uploadUrl, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: pdfBuf,
   })
-  if (!putResp.ok) throw new Error(`OSS PUT: ${putResp.status}`)
-  // 3. 轮询
-  const fileId = urlResp[0].file_id
+  if (!putResp.ok) throw new Error(`OSS PUT: ${putResp.status} ${await putResp.text().catch(() => '')}`)
+
+  // 3. 轮询 /extract-results/batch/{batch_id}
+  //    v4 MineruFileState: waiting-file / pending / running / converting / done / failed / error
   onProgress?.({ stage: 'mineru_poll', message: '轮询转换状态...', pct: 40 })
-  let result = null
+  let fileResult = null
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 5000))
-    const task = await mineruRequest('GET', `/task/${fileId}`)
-    const status = task?.task_status || task?.status
-    onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... status=${status}`, pct: 40 + Math.min(45, i) })
-    if (status === 'success' || status === 'done') { result = task; break }
-    if (status === 'failed' || status === 'error') throw new Error(`MinerU task failed: ${JSON.stringify(task).slice(0, 500)}`)
-  }
-  if (!result) throw new Error('MinerU 60 轮轮询超时')
-  // 4. 下载 fulltext.md
-  onProgress?.({ stage: 'mineru_download', message: '下载 fulltext.md...', pct: 90 })
-  const mdUrl = result.result?.pdf_md?.url || result.md_url
-  if (!mdUrl) throw new Error(`MinerU 无 md URL: ${JSON.stringify(result).slice(0, 500)}`)
-  const mdResp = await fetch(mdUrl)
-  if (!mdResp.ok) throw new Error(`下载 md: ${mdResp.status}`)
-  const markdown = await mdResp.text()
-  // 5. 下载图片
-  const resultData = result.result || {}
-  const images = resultData.images || []
-  onProgress?.({ stage: 'mineru_download', message: `下载图片 ${images.length} 张...`, pct: 95 })
-  if (images.length) {
-    const slug = fileName.replace('.pdf', '')
-    const imgLocalDir = path.join(REPO_ROOT, `literatures/${slug}/images`)
-    fs.mkdirSync(imgLocalDir, { recursive: true })
-    for (const img of images) {
-      if (!img.url) continue
-      try {
-        const r = await fetch(img.url)
-        if (!r.ok) continue
-        const buf = Buffer.from(await r.arrayBuffer())
-        if (buf.length > MAX_BLOB_SIZE) {
-          console.warn(`  [mineru] 图片跳过：${img.url} size=${buf.length} > 100MB`)
-          continue
-        }
-        const saveName = img.name || img.url.split('/').pop() || `img-${Date.now()}.png`
-        fs.writeFileSync(path.join(imgLocalDir, saveName), buf)
-      } catch (e) {
-        console.warn(`  [mineru] 图片下载失败: ${img.url} → ${e.message}`)
-      }
+    const pollResp = await mineruRequest('GET', `/extract-results/batch/${batchId}`)
+    const extracted = pollResp.data?.extract_result?.[0]
+    if (!extracted) {
+      onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... 等待解析结果`, pct: 40 + Math.min(45, i) })
+      continue
+    }
+    const state = extracted.state
+    const progress = extracted.extract_progress
+    const msg = `轮询中 (${i + 1}/60)... state=${state}${progress != null ? ` (${progress}%)` : ''}`
+    onProgress?.({ stage: 'mineru_poll', message: msg, pct: 40 + Math.min(45, i) })
+
+    if (state === 'done') { fileResult = extracted; break }
+    if (state === 'failed' || state === 'error') {
+      throw new Error(`MinerU task ${state}: ${extracted.err_msg || '无错误详情'}`)
     }
   }
+  if (!fileResult) throw new Error('MinerU 60 轮轮询超时 (约 5 分钟)')
+
+  // 4. 下载 full_zip_url + unzip
+  if (!fileResult.full_zip_url) {
+    throw new Error(`MinerU state=done 但无 full_zip_url: ${JSON.stringify(fileResult).slice(0, 500)}`)
+  }
+  onProgress?.({ stage: 'mineru_download', message: '下载产物 zip...', pct: 90 })
+  const zipResp = await fetch(fileResult.full_zip_url)
+  if (!zipResp.ok) throw new Error(`下载 zip: ${zipResp.status} ${await zipResp.text().catch(() => '')}`)
+  const zipBuf = Buffer.from(await zipResp.arrayBuffer())
+
+  // 解压到临时目录 (runner 默认有 unzip)
+  const tmpDir = fs.mkdtempSync(path.join(REPO_ROOT, '.tmp_mineru_'))
+  const zipPath = path.join(tmpDir, 'result.zip')
+  fs.writeFileSync(zipPath, zipBuf)
+  try {
+    const { execSync } = await import('node:child_process')
+    execSync(`unzip -o "${zipPath}" -d "${tmpDir}"`, { stdio: 'pipe' })
+  } catch (e) {
+    const stderr = e.stderr?.toString() || e.message
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+    throw new Error(`MinerU 产物解压失败: ${stderr.slice(0, 300)}`)
+  }
+
+  // 5. 找 full.md (v4 zip 里固定叫 full.md)
+  const fullMdPath = path.join(tmpDir, 'full.md')
+  let markdown
+  if (fs.existsSync(fullMdPath)) {
+    markdown = fs.readFileSync(fullMdPath, 'utf-8')
+  } else {
+    const found = findFirstMd(tmpDir)
+    if (!found) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+      throw new Error(`MinerU zip 里没找到 .md 文件。解压目录内容: ${fs.readdirSync(tmpDir).join(', ')}`)
+    }
+    markdown = fs.readFileSync(found, 'utf-8')
+  }
+
+  // 6. 复制 images/ 到 literatures/{slug}/images
+  const slug = fileName.replace(/\.pdf$/i, '')
+  const imagesSrcDir = path.join(tmpDir, 'images')
+  const imgLocalDir = path.join(REPO_ROOT, `literatures/${slug}/images`)
+  if (fs.existsSync(imagesSrcDir)) {
+    fs.mkdirSync(imgLocalDir, { recursive: true })
+    for (const f of fs.readdirSync(imagesSrcDir)) {
+      try { fs.copyFileSync(path.join(imagesSrcDir, f), path.join(imgLocalDir, f)) } catch (e) {
+        console.warn(`  [mineru] 图片复制失败: ${f} → ${e.message}`)
+      }
+    }
+    const nImg = fs.readdirSync(imgLocalDir).length
+    console.log(`  [mineru] 复制图片 ${nImg} 张`)
+  }
+
+  // 7. 清理临时目录
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+
   onProgress?.({ stage: 'mineru_download', message: '下载完成', pct: 100 })
   return { markdown, fileName }
+}
+
+/** 递归搜索目录下第一个 .md 文件 (full.md 不存在时的 fallback) */
+function findFirstMd(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const r = findFirstMd(full)
+      if (r) return r
+    } else if (entry.name.endsWith('.md')) {
+      return full
+    }
+  }
+  return null
 }
 
 // ============================================================
@@ -397,6 +460,169 @@ const TAG_PROMPT = `你是文献标注专家。在 Markdown 上插 HTML 注释�
 const TRANSLATE_PROMPT = (type) => type === 'table'
   ? `翻译 Markdown 表格：格式不变，英文翻中文。输出 Markdown 表格。`
   : `翻译英文段落到中文，保持学术语气。只输出译文。`
+
+// ============================================================
+// 单词提取（AI-1 提取 + AI-2 核验 → vocabulary/vocabulary.csv）
+// ============================================================
+const WORDS_EXTRACT_PROMPT = `你是化学领域学术英语词汇专家。从给定的英文论文段落中，提取 15-30 个核心学术英语单词。
+
+选择标准：
+1. 专业术语（catalysis, photocatalyst, heterojunction, quantum yield...）
+2. 不常见的学术词汇（facilitate, mitigate, elucidate, corroborate...）
+3. 重要动词和形容词（noteworthy, substantial, systematically...）
+4. 跳过停用词（the, is, of, a, in, that, it, for, with, as, are, by, be, on, this, at, from, or, an, we, these, its...）
+5. 跳过纯数字和化学式缩写
+
+输出 JSON 数组，每个元素：
+{
+  "word_en": "英文词（小写单数形式）",
+  "pos": "词性 (noun/verb/adjective/adverb)",
+  "definition_cn": "简明中文释义（10字以内）",
+  "definition_en": "简明英文释义（15词以内）",
+  "example_context": "来自原文的例句（完整句子，英文）"
+}
+
+严格输出 JSON，不要任何解释文字。`
+
+const WORDS_VERIFY_PROMPT = `你是学术词汇审核专家。审核下面列出的论文核心词汇，确保每个词都值得学习。
+
+审核标准：
+1. 每个词必须是化学领域有学习价值的学术英语词汇
+2. 释义必须准确
+3. 例句必须来自原文且包含该词
+4. 如果某个词只是普通高频词（如 "show", "use", "make", "include", "report", "obtain", "given", "result", "method", "study", "provide", "allow", "require", "apply"），删除它
+
+输入：
+=== 原始英文段落 ===
+{{PARAGRAPHS}}
+=== 待审核词汇列表 ===
+{{CANDIDATES}}
+
+输出 JSON 数组（只保留通过审核的词汇），格式同输入。严格输出 JSON，不要任何解释文字。`
+
+const VOCAB_CSV_PATH = 'vocabulary/vocabulary.csv'
+const VOCAB_HEADERS = [
+  'word_en', 'word_cn', 'phonetic', 'definition_cn', 'definition_en',
+  'example_context', 'source_doi', 'status', 'added_at', 'last_review',
+  'review_count', 'sm2_interval', 'sm2_ease',
+]
+
+/** AI 返回 JSON 字符串解析，容错（常见 ```json ``` 包裹、trailing comma） */
+function parseJsonArray(text) {
+  if (!text) return null
+  let t = text.trim()
+  const m = t.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (m) t = m[1].trim()
+  try { return JSON.parse(t) } catch {}
+  const arrStart = t.indexOf('[')
+  const arrEnd = t.lastIndexOf(']')
+  if (arrStart >= 0 && arrEnd > arrStart) {
+    try { return JSON.parse(t.slice(arrStart, arrEnd + 1)) } catch {}
+  }
+  return null
+}
+
+/** runWordsExtraction — AI-1 提取 + AI-2 核验 → vocabulary/vocabulary.csv */
+async function runWordsExtraction(enItems, doi, slug) {
+  if (!enItems?.length) return { extracted: 0, verified: 0, added: 0 }
+
+  const tmpFile = path.join(REPO_ROOT, `literatures/${slug}/.tmp_words.json`)
+
+  // 续跑：有 .tmp_words.json 就跳过 AI-1
+  let candidateWords
+  let skipAI1 = false
+  if (fs.existsSync(tmpFile)) {
+    try {
+      candidateWords = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'))
+      skipAI1 = true
+      console.log(`  [words] resume: skip AI-1, load ${candidateWords.length} candidates`)
+    } catch {}
+  }
+
+  // 1. AI-1 提取
+  if (!skipAI1) {
+    await writeProgress(slug, { stage: 'words_extract', message: 'AI-1 提取学术单词...', pct: 0, node: 3 })
+    const allEn = enItems.map(p => p.en).join('\n\n')
+    const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, allEn)
+    candidateWords = parseJsonArray(raw)
+    if (!candidateWords?.length) {
+      console.warn(`  [words] AI-1 返回空词汇列表, raw 前200: ${raw?.slice(0, 200)}`)
+      return { extracted: 0, verified: 0, added: 0 }
+    }
+    fs.writeFileSync(tmpFile, JSON.stringify(candidateWords), 'utf-8')
+    console.log(`  [words] AI-1 extracted ${candidateWords.length}`)
+  }
+
+  // 2. AI-2 核验
+  await writeProgress(slug, { stage: 'words_verify', message: 'AI-2 核验学术单词...', pct: 50, node: 3 })
+  const allEn = enItems.map(p => p.en).join('\n\n')
+  const verifyUser = WORDS_VERIFY_PROMPT
+    .replace('{{PARAGRAPHS}}', allEn.slice(0, 8000))
+    .replace('{{CANDIDATES}}', JSON.stringify(candidateWords, null, 2))
+  const rawV = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, verifyUser)
+  const verified = parseJsonArray(rawV) || []
+  console.log(`  [words] AI-2 verified ${verified.length}/${candidateWords.length}`)
+
+  // 3. 追加到 vocabulary/vocabulary.csv（去重：word_en 相同跳过）
+  const vocabPath = path.join(REPO_ROOT, VOCAB_CSV_PATH)
+  fs.mkdirSync(path.dirname(vocabPath), { recursive: true })
+
+  // 读现有 CSV 拿已存在 word_en 集合
+  let existingWords = new Set()
+  if (fs.existsSync(vocabPath)) {
+    const { headers, rows } = loadLocalCsv(VOCAB_CSV_PATH)
+    const wordIdx = headers.indexOf('word_en')
+    if (wordIdx >= 0) existingWords = new Set(rows.map(r => (r[wordIdx] || '').toLowerCase()))
+  }
+  const existing = existingWords
+
+  const nowMs = Date.now()
+  const newRows = []
+  for (const w of verified) {
+    const key = (w.word_en || '').toLowerCase().trim()
+    if (!key || existing.has(key)) continue
+    newRows.push({
+      word_en: key,
+      word_cn: w.definition_cn || '',
+      phonetic: '',
+      definition_cn: w.definition_cn || '',
+      definition_en: w.definition_en || '',
+      example_context: w.example_context || '',
+      source_doi: doi,
+      status: 'new',
+      added_at: nowMs,
+      last_review: 0,
+      review_count: 0,
+      sm2_interval: 1,
+      sm2_ease: 2.5,
+    })
+  }
+
+  if (newRows.length) {
+    // 构造 CSV 行
+    const enc = (v) => {
+      const s = String(v ?? '')
+      return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const csvRows = newRows.map(r => [
+      enc(r.word_en), enc(r.word_cn), enc(r.phonetic), enc(r.definition_cn),
+      enc(r.definition_en), enc(r.example_context), enc(r.source_doi),
+      enc(r.status), enc(r.added_at), enc(r.last_review), enc(r.review_count),
+      enc(r.sm2_interval), enc(r.sm2_ease),
+    ].join(',')).join('\n') + '\n'
+
+    if (!fs.existsSync(vocabPath)) {
+      fs.writeFileSync(vocabPath, VOCAB_HEADERS.join(',') + '\n', 'utf-8')
+    }
+    fs.appendFileSync(vocabPath, csvRows, 'utf-8')
+    console.log(`  [words] 写入 vocabulary.csv: ${newRows.length} 新词汇`)
+  }
+
+  // 清理续跑文件
+  try { fs.unlinkSync(tmpFile) } catch {}
+
+  return { extracted: candidateWords.length, verified: verified.length, added: newRows.length }
+}
 
 function autoInsertParaTags(md) {
   const lines = md.split('\n'); const out = []; let inCB = false; let buf = []; let bufTable = false
@@ -641,9 +867,17 @@ async function main() {
     const fulltextLocal = path.join(REPO_ROOT, `literatures/${slug}/fulltext.md`)
     fs.writeFileSync(fulltextLocal, mineru.markdown, 'utf-8')
 
-    // 3. Post-Mineru（本地跑 AI，结果存本地）
-    await writeProgress(slug, { stage: 'clean', message: '开始 post-mineru...', pct: 15, node: 1 })
+    // 3. Post-Mineru（本地跑 AI，结果存本地 —— 内部会写 ai1_clean → ai1_tag → enumerate → translating → assemble）
     const postResult = await runPostMineru(doi, mineru.markdown, slug, (p) => console.log(`  [post] ${p.stage} ${p.pct ?? ''}`))
+
+    // 3.5 单词提取（AI-1 提取 + AI-2 核验 → vocabulary/vocabulary.csv，节点 3 的 words_extract / words_verify）
+    try {
+      const wres = await runWordsExtraction(postResult.enItems, doi, slug)
+      console.log(`  ✓ Words: extracted=${wres.extracted}, verified=${wres.verified}, added=${wres.added}`)
+    } catch (e) {
+      // words 提取失败不阻断主流程（vocabulary 是学习辅助功能，不是核心产物）
+      console.warn(`  ⚠️ Words extraction failed: ${e.message}`)
+    }
 
     // 4. 提交所有变更到 GitHub（一次 git commit + push）
     await writeProgress(slug, { stage: 'commit', message: '提交到 GitHub...', pct: 98, node: 3 })
@@ -652,8 +886,12 @@ async function main() {
       `literatures/${slug}/fulltext.md`,
       `literatures/${slug}/${slug}.md`,
       `literatures/${slug}/images`,
+      `vocabulary/vocabulary.csv`,
       `literatures/${slug}/.progress.json`,
     ], `[pipeline] convert ${slug}: ${title}`)
+
+    // 4.5 写终态 stage=done（给前端 UI 最后一次进度反馈）
+    await writeProgress(slug, { stage: 'done', message: '转换完成', pct: 100, node: 3 })
 
     // 5. 终态：写 md_status=done，删 progress
     await updateLocalCsvField(doi, 'md_status', 'done')

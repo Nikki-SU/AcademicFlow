@@ -56,8 +56,8 @@ export const SETTING_KEYS = {
   AI_MODELS_CACHE_AT: 'ai_models_cache_at',
   // MinerU 相关（M3.7）
   MINERU_TOKEN: 'mineru_token',
-  MINERU_WORKER_URL: 'mineru_worker_url',
   EXTRACT_COVER_IMAGE: 'extract_cover_image',
+  AUTO_EXTRACT_WORDS: 'auto_extract_words',
   MINERU_DEBUG_MODE: 'mineru_debug_mode',
   WORD_GEN_COUNT: 'word_gen_count',
 } as const

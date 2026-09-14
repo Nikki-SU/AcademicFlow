@@ -274,7 +274,7 @@ async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previ
       const emptyFeedback = {
         passed: false, claims: [],
         summary: `AI-1 引证锚定失败：标注的 ${ai1EvidenceCheck.failedIndices.length} 条原文引用在源材料中找不到。`,
-        evidenceCheck: { ok: false, checked: 0, matched: 0, failedIndices: [] },
+        evidenceCheck: { ok: false, checked: 0, matched: 0, failedIndices: ai1EvidenceCheck.failedIndices },
       }
       return {
         attempt: attemptIndex, reason, ai1Output, ai1Invoked, ai1Usage, ai1Ms, ai1EvidenceCheck,

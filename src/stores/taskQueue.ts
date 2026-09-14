@@ -42,9 +42,11 @@ export type PipelineStage =
   | 'enumerate'        // 纯代码编号（瞬间完成）
   // --- UI 节点 2：翻译（AI-2 逐段）---
   | 'translating'
-  // --- UI 节点 3：提词（AI-1 提取 + AI-2 核验）---
+  // --- UI 节点 3：提词 + 组装 + 提交 ---
   | 'words_extract'
   | 'words_verify'
+  | 'assemble'          // 组装 aligned.md + 最终翻译 md（纯代码）
+  | 'commit'            // git commit + push 到 GitHub
   // --- 终态 ---
   | 'done'
   | 'failed'
@@ -67,9 +69,11 @@ export const STAGE_META: Record<PipelineStage, { node: 0 | 1 | 2 | 3; pctBase: n
   enumerate:       { node: 1, pctBase: 95, label: '编号对齐' },
   // 节点 2：翻译
   translating:     { node: 2, pctBase: 0,  label: 'AI-2 逐段翻译' },
-  // 节点 3：提词
+  // 节点 3：提词 + 组装 + 提交
   words_extract:   { node: 3, pctBase: 0,  label: 'AI-1 提取单词' },
   words_verify:    { node: 3, pctBase: 50, label: 'AI-2 核验单词' },
+  assemble:        { node: 3, pctBase: 75, label: '组装最终文件' },
+  commit:          { node: 3, pctBase: 90, label: '提交到 GitHub' },
   // 终态
   done:            { node: 3, pctBase: 100, label: '完成' },
   failed:          { node: 3, pctBase: 0,   label: '失败' },

@@ -2,10 +2,15 @@
  * MinerU 联通性检测面板 —— Settings 页
  * -------------------------------------------------
  * 挂在 MinerU API Token 输入框下方。两个按钮：
- *   1. 快速检测：本地解析 JWT + worker 代理探活（前端零网络开销）
+ *   1. 快速检测：本地解析 JWT（零网络开销）
  *   2. 端到端测试：触发 GitHub Actions mineru-test workflow，
  *      runner 上直接 POST MinerU file-urls/batch，真实验证
  *      MINERU_API_TOKEN secret + runner→mineru.net 网络
+ *
+ * 当前架构（M3.7）：MinerU 调用已迁到 GitHub Actions runner，
+ *   前端不直连 MinerU —— 核心判据只有 JWT 是否有效。
+ *   老架构的 Deno Worker 代理已废弃（HTTPS→HTTP Mixed Content
+ *   + Deno Deploy 50s 中间节点超时双重阻塞）。
  *
  * 关键设计：
  *   - dispatch workflow 前，先把用户当前填的 MINERU_API_TOKEN 写入私库 secret
@@ -25,6 +30,8 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth'
 import { useSettingsStore } from '../../stores/settings'
+import { useWorkspaceStore } from '../../stores/workspace'
+import { DEFAULT_WORKSPACE_REPO_NAME } from '../../constants/skeleton'
 import {
   checkMineruConnectivity,
   type MineruConnectivityReport,
@@ -36,9 +43,6 @@ import {
   type RunStatus,
 } from '../../services/workflowClient'
 
-/** AI/MinerU secrets + Actions workflow 都只跑在这个私库 */
-const PRIVATE_REPO = 'academicflow-workspace'
-
 /** 把 timestamp（秒）转成可读时间字符串，undefined 返回 '—' */
 function fmtDate(d: Date | undefined): string {
   if (!d) return '—'
@@ -48,11 +52,10 @@ function fmtDate(d: Date | undefined): string {
 export default function MineruConnectivityPanel() {
   const store = useSettingsStore()
   const auth = useAuthStore()
+  const ws = useWorkspaceStore()
   const token = store.mineruToken
-  const workerUrl = store.mineruWorkerUrl
   const owner = auth.user?.login ?? ''
-  // ──── 硬保险：强制私库名，不用 ws.repo.name（可能为空/主仓库名） ────
-  const repo = PRIVATE_REPO
+  const repo = ws.repo?.name ?? DEFAULT_WORKSPACE_REPO_NAME
   const ghToken = auth.token ?? ''
   const isInitialized = store.isInitialized
 
@@ -114,7 +117,7 @@ export default function MineruConnectivityPanel() {
       // 1. 先跑快速检测（毫秒级，无网络开销）
       setChecking(true)
       try {
-        const r = await checkMineruConnectivity({ token, workerUrl })
+        const r = checkMineruConnectivity(token)
         setReport(r)
       } catch { /* 静默 */ }
       finally { setChecking(false) }
@@ -154,7 +157,7 @@ export default function MineruConnectivityPanel() {
     }
     setChecking(true)
     try {
-      const r = await checkMineruConnectivity({ token, workerUrl })
+      const r = checkMineruConnectivity(token)
       setReport(r)
       if (r.overallOk) {
         toast.success('MinerU 联通检测通过')
@@ -166,7 +169,7 @@ export default function MineruConnectivityPanel() {
     } finally {
       setChecking(false)
     }
-  }, [token, workerUrl])
+  }, [token])
 
   const runE2E = useCallback(async () => {
     if (!owner || !repo || !ghToken) {
@@ -221,21 +224,6 @@ export default function MineruConnectivityPanel() {
           ? 'warn'
           : 'err'
 
-  // worker 状态在详情里的文字
-  const workerDetail = (() => {
-    const w = report?.worker
-    if (!w) return null
-    if (w.reason === 'mixed_content')
-      return { text: '跳过（HTTPS → HTTP Mixed Content）', tone: 'info' as const }
-    if (w.reason === 'not_configured')
-      return { text: '未配置', tone: 'info' as const }
-    if (w.ok)
-      return { text: `✓ 可达（${w.detail ?? 'OK'}）`, tone: 'ok' as const }
-    if (w.attempted)
-      return { text: `✗ 不可达（${w.detail ?? 'unknown'}）`, tone: 'err' as const }
-    return { text: w.detail ?? '未探活', tone: 'info' as const }
-  })()
-
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
@@ -268,11 +256,6 @@ export default function MineruConnectivityPanel() {
           )}
           {secretSyncing ? '写入 secret...' : '端到端测试'}
         </button>
-        {workerUrl.trim() && (
-          <span className="text-[11px] text-slate-500 truncate">
-            worker：<code className="font-mono">{workerUrl}</code>
-          </span>
-        )}
       </div>
 
       {/* 端到端测试结果 —— 始终显示，包括失败原因 */}
@@ -349,22 +332,6 @@ export default function MineruConnectivityPanel() {
                     jti：
                     <code className="font-mono truncate inline-block max-w-[200px] align-bottom">
                       {report.jwt.jti}
-                    </code>
-                  </div>
-                )}
-                {workerDetail && (
-                  <div className="flex items-center gap-1">
-                    Worker：
-                    <code
-                      className={`font-mono ${
-                        workerDetail.tone === 'ok'
-                          ? 'text-green-700'
-                          : workerDetail.tone === 'err'
-                            ? 'text-red-600'
-                            : 'text-slate-500'
-                      }`}
-                    >
-                      {workerDetail.text}
                     </code>
                   </div>
                 )}
