@@ -599,12 +599,21 @@ const CLEAN_PROMPT = `你是文献整理专家。清理 PDF 提取文本：
 7. 纯 Markdown 输出，不要代码块
 直接输出清理后的内容。`
 
-const TAG_PROMPT = `你是文献标注专家。在 Markdown 上插 HTML 注释标记：
-<!-- PARA_EN --> 插在每个英文正文段落**前**
-<!-- IMG --> 插在每个 ![...] **前**
-<!-- TABLE --> 插在每个 Markdown 表格**前**
-<!-- REF_ALL --> 插在参考文献章节**前**（References/Bibliography）
-只插标记，不改动原有文字。直接输出。`
+const TAG_PROMPT = `你是文献标注专家。任务：在 Markdown 上插入 HTML 注释标记。
+
+严格规则（不遵守就是致命错误）：
+1. 每个英文正文段落（至少含 5 个英文字母、独立成段）前必须插一行：<!-- PARA_EN -->
+2. 每个图片引用 ![...](...) 前必须插一行：<!-- IMG -->
+3. 每个 Markdown 表格（以 | 开头的行）前必须插一行：<!-- TABLE -->
+4. 参考文献章节（标题含 References/Bibliography）前必须插一行：<!-- REF_ALL -->
+
+关键约束：
+- 只插上述标记，**绝对不能修改、删减、重组原 Markdown 的任何文字**
+- 原有标题（# / ## / ###）、段落、图片、表格、公式的位置和内容完全不变
+- 输出长度必须与输入长度基本一致（偏差不超过 5%，仅新增标记行）
+- 如果跳过标记，你会导致整个文献翻译流水线崩溃 — 请务必标记每一个段落
+
+直接输出带标记的完整 Markdown。`
 
 const TRANSLATE_PROMPT = (type) => type === 'table'
   ? `翻译 Markdown 表格：格式不变，英文翻中文。输出 Markdown 表格。`
