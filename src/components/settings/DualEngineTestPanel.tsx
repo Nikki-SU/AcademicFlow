@@ -39,7 +39,7 @@ import {
   AIRateLimitError,
   AITimeoutError,
 } from '../../services/ai/client'
-import { fetchSiliconflowUserInfo, SiliconFlowUserInfoDeprecatedError } from '../../services/ai/models'
+// [REMOVED] fetchSiliconflowUserInfo — 前端不直连 AI API
 import { useSettingsStore } from '../../stores/settings'
 import type {
   AttemptReason,
@@ -232,9 +232,9 @@ function DualEngineTestPanel() {
   const [reason, setReason] = useState<AttemptReason | undefined>(undefined)
 
   // M3.5.1 账户余额
-  const [account, setAccount] = useState<UserAccountInfo | null>(null)
-  const [isLoadingAccount, setIsLoadingAccount] = useState(false)
-  const [accountError, setAccountError] = useState<string | null>(null)
+  const [account] = useState<UserAccountInfo | null>(null)
+  const [isLoadingAccount] = useState(false)
+  const [accountError] = useState<string | null>(null)
   const accountFetchedOnce = useRef(false)
 
   const useCustom = aiProviderMode === 'custom'
@@ -263,31 +263,10 @@ function DualEngineTestPanel() {
   }, [stage])
 
   // 首次挂载：已配置 Key 就自动拉一次余额
+  // [REMOVED] 余额查询 —— 前端不直连 AI API
+  // 未来可以让 ai-connectivity-test workflow 顺便查一下
   const refreshBalance = async () => {
-    if (!canFetchBalance) return
-    setIsLoadingAccount(true)
-    setAccountError(null)
-    try {
-      const info = await fetchSiliconflowUserInfo(currentProviderApiKey)
-      setAccount({
-        totalBalance: info.totalBalance,
-        chargeBalance: info.chargeBalance,
-        status: info.status,
-        name: info.name,
-        fetchedAt: Date.now(),
-      })
-    } catch (err) {
-      setAccount(null)
-      if (err instanceof SiliconFlowUserInfoDeprecatedError) {
-        // M3.7.2: 接口已下线，把友好文案交给 BalanceBar 渲染，不再弹出 toast 误导
-        setAccountError(err.message)
-      } else {
-        setAccountError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      setIsLoadingAccount(false)
-    }
-  }
+    return  }
   useEffect(() => {
     if (!accountFetchedOnce.current && canFetchBalance) {
       accountFetchedOnce.current = true

@@ -14,12 +14,7 @@
  * - refreshModels() 拉 /v1/models + 缓存（TTL 24h，与 SPEC §9.3 对齐）
  */
 import { create } from 'zustand'
-import {
-  fetchProviderModels,
-  loadCachedModels,
-  loadCachedModelsFetchedAt,
-  saveModelsCache,
-} from '../services/ai/models'
+import type { AIProviderMode } from "../types"
 import { runDualEngine } from '../services/ai/dual-engine'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
 import { loadGlobalSettings, saveGlobalSettings } from '../services/globalSettings'
@@ -255,14 +250,16 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         }
       }
 
-      // 2. 加载模型清单缓存（IndexedDB，TTL 24h）
-      const cachedModels = await loadCachedModels()
-      const fetchedAt = await loadCachedModelsFetchedAt()
+      // 2. 模型清单直接从 AI_PROVIDERS 静态常量拿（不再前端 fetch）
+      const defaultMode: AIProviderMode = 'deepseek'
+      const defaultModels: AIModel[] = AI_PROVIDERS[defaultMode].recommendedModels.map(
+        (m) => ({ id: m.id, object: 'model', owned_by: defaultMode }),
+      )
 
       set({
         ...patch,
-        siliconflowModels: cachedModels ?? [],
-        siliconflowModelsFetchedAt: fetchedAt,
+        siliconflowModels: defaultModels,
+        siliconflowModelsFetchedAt: Date.now(),
         isInitialized: true,
       })
 
@@ -346,59 +343,32 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       }
     },
 
-    refreshModels: async (force = false) => {
+    refreshModels: async (_force = false) => {
+      // 彻底删掉前端直连 /v1/models 的 fetch —— 浏览器会被墙
+      // 改成读 AI_PROVIDERS 静态推荐列表（实测过能用的）
       const state = get()
       const mode = state.aiProviderMode
-      // custom 模式需要 AI-1 端点有 baseUrl 才能拉模型
+
       if (mode === 'custom') {
-        if (!state.customAi1BaseUrl.trim()) {
-          set({ error: '自定义端点模式下请先填写 AI-1 的 Base URL' })
-          throw new Error('custom provider missing baseUrl')
-        }
-        if (!state.customAi1ApiKey.trim()) {
-          set({ error: '自定义端点模式下请先填写 AI-1 的 API Key' })
-          throw new Error('custom provider missing apiKey')
-        }
-      } else {
-        // 预置 provider：查 API Key 是否填了
-        const apiKey = getProviderApiKey(mode, state)
-        if (!apiKey) {
-          set({ error: `请先填写 ${AI_PROVIDERS[mode].label} API Key` })
-          throw new Error(`missing ${mode} api key`)
-        }
+        // 自定义端点没有内置模型 —— 让用户手动填 model ID
+        const empty: AIModel[] = []
+        set({ siliconflowModels: empty, siliconflowModelsFetchedAt: Date.now(), error: null })
+        return empty
       }
 
-      if (!force) {
-        const cached = await loadCachedModels()
-        if (cached && cached.length > 0) {
-          const at = await loadCachedModelsFetchedAt()
-          set({
-            siliconflowModels: cached,
-            siliconflowModelsFetchedAt: at,
-          })
-          return cached
-        }
-      }
+      const recommended = AI_PROVIDERS[mode].recommendedModels
+      const models: AIModel[] = recommended.map((m) => ({
+        id: m.id,
+        object: 'model',
+        owned_by: mode,
+      }))
 
-      set({ isLoadingModels: true, error: null })
-      try {
-        const baseUrl =
-          mode === 'custom' ? state.customAi1BaseUrl.trim() : getProviderBaseUrl(mode)
-        const apiKey =
-          mode === 'custom' ? state.customAi1ApiKey.trim() : getProviderApiKey(mode, state)
-        const models = await fetchProviderModels(baseUrl, apiKey)
-        const at = await saveModelsCache(models)
-        set({
-          siliconflowModels: models,
-          siliconflowModelsFetchedAt: at,
-          isLoadingModels: false,
-        })
-        return models
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        set({ isLoadingModels: false, error: msg })
-        throw err
-      }
+      set({
+        siliconflowModels: models,
+        siliconflowModelsFetchedAt: Date.now(),
+        error: null,
+      })
+      return models
     },
 
     getDualEngineConfig: () => {

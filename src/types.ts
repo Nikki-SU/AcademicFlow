@@ -99,6 +99,15 @@ export type AIProviderConfig = {
   defaultModel2: string
   apiKeyUrl: string
   note: string
+  /**
+   * 预置 provider 的推荐模型列表（静态常量）。
+   * 为什么静态？因为前端浏览器直连 /v1/models 会被墙，
+   * 而 Runner 端才有正常网络。所以"拉模型清单"这件事
+   * 不在 Settings 初始化时做——用实测过的常用模型硬编码。
+   * 用户在"测试连接"时 Runner 会真调一次 chat/completions，
+   * 模型 ID 对不对当场就能验证。
+   */
+  recommendedModels: { id: string; desc: string }[]
 }
 
 export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
@@ -109,6 +118,12 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
     defaultModel2: 'deepseek-v4-pro',
     apiKeyUrl: 'https://platform.deepseek.com/api_keys',
     note: 'runner 跨太平洋最稳；chat 快，v4-pro 更强',
+    recommendedModels: [
+      { id: 'deepseek-chat', desc: '默认，V3.1 自动路由（最快）' },
+      { id: 'deepseek-v4-pro', desc: '更强推理（贵 5x）' },
+      { id: 'deepseek-reasoner', desc: 'MoE 深度思考' },
+      { id: 'deepseek-r1', desc: '推理模型，思考过程长' },
+    ],
   },
   kimi: {
     label: '月之暗面 Kimi',
@@ -117,6 +132,12 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
     defaultModel2: 'kimi-k2.7-code',
     apiKeyUrl: 'https://platform.moonshot.cn/',
     note: 'kimi-k2.6 支持 reasoning_content，新模型需要充值',
+    recommendedModels: [
+      { id: 'kimi-k2.6', desc: '默认，带 reasoning_content（需充值）' },
+      { id: 'kimi-k2.7-code', desc: '代码专用更强模型' },
+      { id: 'moonshot-v1-8k', desc: '老模型，便宜稳定' },
+      { id: 'moonshot-v1-32k', desc: '老模型，长上下文' },
+    ],
   },
   qiniu: {
     label: '七牛云 AI',
@@ -125,6 +146,13 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
     defaultModel2: 'minimax/minimax-m2.5',
     apiKeyUrl: 'https://ai.qiniu.com/',
     note: '一家店聚合多家模型（81个可选），模型ID带厂商前缀如 deepseek/xxx',
+    recommendedModels: [
+      { id: 'deepseek/deepseek-v4-flash', desc: '默认，速度快' },
+      { id: 'deepseek/deepseek-v4-pro', desc: '强推理' },
+      { id: 'minimax/minimax-m2.5', desc: '多模态强（AI-2 审阅推荐）' },
+      { id: 'moonshotai/kimi-k2.6', desc: '走七牛云的 Kimi' },
+      { id: 'qwen/qwen-plus', desc: '通义千问 Plus' },
+    ],
   },
   custom: {
     label: '自定义端点',
@@ -133,6 +161,7 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
     defaultModel2: '',
     apiKeyUrl: '',
     note: '填自己的 OpenAI 兼容端点（如自建 Ollama / vLLM）',
+    recommendedModels: [],
   },
 }
 
