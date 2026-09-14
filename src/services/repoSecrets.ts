@@ -10,6 +10,15 @@ import { githubFetch } from './github'
 /** 公钥缓存 —— 同一个 repo 的 key_id 不会变，缓存一次省得每次 GET */
 const publicKeyCache = new Map<string, { keyId: string; publicKey: Uint8Array }>()
 
+/** sodium ready Promise —— 确保所有调用前初始化完成 */
+let sodiumReady: Promise<void> | null = null
+function ensureSodiumReady(): Promise<void> {
+  if (!sodiumReady) {
+    sodiumReady = Promise.resolve(sodium.ready)
+  }
+  return sodiumReady
+}
+
 interface PutSecretResult {
   ok: boolean
   status: number
@@ -36,7 +45,7 @@ async function getPublicKey(owner: string, repo: string, token: string): Promise
   }
   const data = (await res.json()) as { key_id: string; key: string }
 
-  await sodium.ready
+  await ensureSodiumReady()
   // GitHub 返回的 key 是 base64 编码的 sodium public key
   const publicKeyBytes = sodium.from_base64(data.key, sodium.base64_variants.ORIGINAL)
   const result = { keyId: data.key_id, publicKey: publicKeyBytes }
@@ -45,9 +54,10 @@ async function getPublicKey(owner: string, repo: string, token: string): Promise
 }
 
 /**
- * 加密 secret 值
+ * 加密 secret 值（async — 内部确保 sodium 已 ready）
  */
-function encryptSecret(plaintext: string, publicKey: Uint8Array): string {
+async function encryptSecret(plaintext: string, publicKey: Uint8Array): Promise<string> {
+  await ensureSodiumReady()
   const messageBytes = sodium.from_string(plaintext)
   const encrypted = sodium.crypto_box_seal(messageBytes, publicKey)
   return sodium.to_base64(encrypted, sodium.base64_variants.ORIGINAL)
@@ -71,7 +81,7 @@ export async function putRepoSecret(
   }
 
   const { keyId, publicKey } = await getPublicKey(owner, repo, token)
-  const encryptedValue = encryptSecret(trimmed, publicKey)
+  const encryptedValue = await encryptSecret(trimmed, publicKey)
 
   const res = await githubFetch(
     `/repos/${owner}/${repo}/actions/secrets/${encodeURIComponent(name)}`,
@@ -121,7 +131,7 @@ export async function putRepoSecrets(
       continue
     }
     try {
-      const encryptedValue = encryptSecret(value, keyInfo.publicKey)
+      const encryptedValue = await encryptSecret(value, keyInfo.publicKey)
       const res = await githubFetch(
         `/repos/${owner}/${repo}/actions/secrets/${encodeURIComponent(name)}`,
         token,
@@ -258,7 +268,7 @@ export async function syncAllSecrets(
       continue
     }
     try {
-      const enc = encryptSecret(it.valueWanted, keyInfo.publicKey)
+      const enc = await encryptSecret(it.valueWanted, keyInfo.publicKey)
       const res = await githubFetch(
         `/repos/${owner}/${repo}/actions/secrets/${encodeURIComponent(it.name)}`,
         token,
