@@ -268,15 +268,15 @@ function Settings() {
               </div>
               <p className="text-xs text-slate-500 pl-8">
                 {advancedMode
-                  ? '已解锁所有 AI Provider 选项 + 自定义 OpenAI 兼容端点 + MinerU / 词典高级选项'
-                  : '默认使用 DeepSeek，最省心；开启后可选择更多 Provider 或自定义 AI 端点'}
+                  ? '已解锁自定义 OpenAI 兼容端点 + MinerU / 词典高级选项'
+                  : '选择预置 Provider 直接用，或开启高级模式用自定义端点'}
               </p>
             </div>
           </button>
         </section>
 
-        {/* AI 服务提供方选择（高级模式时可切） */}
-        {advancedMode && (
+        {/* AI 服务提供方选择 — 所有用户可见；custom 端点需高级模式 */}
+        {(
           <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
             <h2 className="font-semibold text-slate-800 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-600" />
