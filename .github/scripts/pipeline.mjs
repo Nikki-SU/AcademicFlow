@@ -313,44 +313,53 @@ function saveLocalCsv(relPath, headers, rows) {
 }
 
 async function commitLocalFiles(fileRelPaths, message) {
-  // 用 git commit + push，这比单独 blob+tree transactions 更高效
-  // 关键：push 要 retry + rebase —— 多个 pipeline 并发跑 / 和 deploy.yml 竞态时，
-  // 裸 git push 会 non-fast-forward 失败，导致 runner 做了半天活白做
+  // 用 git commit + push。pipeline 可能被多次调用（progress 状态 + final commit），
+  // 每次都先 fetch + reset --soft 把所有本地 commit 压成一个，再 force-with-lease 推。
+  // 永远不 rebase —— CI 里并发短 commit 叠多了 rebase 会炸。
   const { execSync } = await import('node:child_process')
-  // 只 add 变更的文件
-  for (const p of fileRelPaths) {
-    try { execSync(`git add "${p}"`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
-  }
-  try { execSync(`git status --porcelain`, { cwd: REPO_ROOT, stdio: 'pipe' }).toString() } catch {}
-  try {
-    execSync(`git commit -m "${message.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { cwd: REPO_ROOT, stdio: 'pipe' })
-  } catch (e) {
-    // 没有变更（exit 1 with "nothing to commit"）就跳过
-    if (!e.stdout?.toString().includes('nothing to commit')) throw e
-  }
-
-  // ── push with retry + rebase ──
   const MAX_RETRY = 3
   const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+  const run = () => {
+    execSync(`git fetch origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+    // squash：把所有本地已有 commit 压成工作树变更
+    execSync(`git reset --soft origin/main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+    try { execSync(`git reset`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
+    // 重新 add 指定文件 + commit
+    for (const p of fileRelPaths) {
+      try { execSync(`git add "${p}"`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
+    }
+    try {
+      execSync(`git commit -m "${message.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { cwd: REPO_ROOT, stdio: 'pipe' })
+    } catch (e) {
+      // nothing to commit → 这次跳过
+      if (e.stdout?.toString().includes('nothing to commit')) return
+      throw e
+    }
+    execSync(`git push origin main --force-with-lease`, { cwd: REPO_ROOT, stdio: 'pipe' })
+  }
+
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     try {
-      // 每次 push 前 fetch 同步最新 main，然后 force-with-lease 推
-      // force-with-lease: 只有当远程没有被别人更新过时才真 force，安全覆盖
-      // 避免 rebase 冲突（runner 本地 checkout 和远程手动 commit 不兼容时）
-      execSync(`git fetch origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
-      execSync(`git push origin main --force-with-lease`, { cwd: REPO_ROOT, stdio: 'pipe' })
-      return // ✅ 成功
+      run()
+      return
     } catch (e) {
-      const stderr = e.stderr?.toString() || ''
-      const isConflict = stderr.includes('could not apply') || stderr.includes('conflict') || stderr.includes('non-fast-forward') || stderr.includes('force-with-lease')
-      if (attempt < MAX_RETRY && isConflict) {
-        // force-with-lease 被拒（远程有新 commit）→ 等一下 + 重试
-        console.warn(`  [commitLocalFiles] push attempt ${attempt} failed (conflict), retrying after ${attempt * 3}s...`)
+      // 清理可能遗留的 rebase
+      try { execSync(`git rebase --abort`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
+      // force-with-lease 可能被拒绝（远程又变了），或者 commit 真出错了
+      const stderr = e.stderr?.toString() || String(e)
+      if (attempt < MAX_RETRY && (
+        stderr.includes('force-with-lease') ||
+        stderr.includes('non-fast-forward') ||
+        stderr.includes('could not') ||
+        stderr.includes('conflict')
+      )) {
+        console.warn(`  [commitLocalFiles] push attempt ${attempt} failed, retrying after ${attempt * 3}s...`)
+        console.warn(`    reason: ${stderr.slice(0, 200)}`)
         await sleep(attempt * 3000)
       } else {
-        // 非冲突错误 / 耗尽重试次数 → 真失败
-        try { execSync(`git rebase --abort`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
-        console.error(`  [commitLocalFiles] push FAILED after ${attempt} attempt(s): ${stderr.slice(0, 300)}`)
+        console.error(`  [commitLocalFiles] push FAILED after ${attempt} attempt(s)`)
+        console.error(`    reason: ${stderr.slice(0, 300)}`)
         throw e
       }
     }
