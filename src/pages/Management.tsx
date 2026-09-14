@@ -467,7 +467,7 @@ export default function ManagementPage() {
 
       const tq = useTaskQueueStore.getState()
       const activeTasks = tq.tasks.filter(
-        (t: any) =>
+        (t: BackgroundTask) =>
           (t.status === 'pending' || t.status === 'running') &&
           t.type === 'paper_convert',
       )
@@ -475,7 +475,11 @@ export default function ManagementPage() {
 
       for (const task of activeTasks) {
         if (cancelled) break
-        const slug = (task.metadata as any)?.slug || doiToSlug(task.doi!)
+        // metadata?.slug 由 pipeline.mjs 在任务创建时注入；doi 是 fallback，但 task.doi 为 optional 必须判空
+        const meta = task.metadata as Record<string, unknown> | undefined
+        const metaSlug = typeof meta?.slug === 'string' ? meta.slug : undefined
+        const doiSlug = task.doi ? doiToSlug(task.doi) : undefined
+        const slug = metaSlug || doiSlug
         if (!slug) continue
         try {
           const prog = await pollProgressJson(slug, owner, repo.name, token)
@@ -772,10 +776,10 @@ export default function ManagementPage() {
     try {
       const tq = useTaskQueueStore.getState()
       const matching = tq.tasks.filter(
-        (t: any) => t.doi === doi && t.type === 'paper_convert',
+        (t: BackgroundTask) => t.doi === doi && t.type === 'paper_convert',
       )
       if (matching.length === 0) return
-      console.log(`[cleanupTasksForDoi] 清理 ${matching.length} 个任务:`, matching.map((t: any) => `${t.id}(${t.status})`))
+      console.log(`[cleanupTasksForDoi] 清理 ${matching.length} 个任务:`, matching.map((t: BackgroundTask) => `${t.id}(${t.status})`))
       for (const t of matching) {
         if (t.status === 'running' || t.status === 'pending') {
           try { await tq.abort_task(t.id) } catch {}

@@ -22,7 +22,7 @@ export interface PipelineProgress {
 export interface RunStatus {
   run_id: number
   status: 'queued' | 'in_progress' | 'completed' | 'failure' | 'cancelled' | string
-  conclusion?: 'success' | 'failure' | 'cancelled' | 'skipped' | null
+  conclusion?: string | null   // GitHub API 可能新增值（如 startup_failure），不硬编码联合类型
   html_url: string
   created_at: string
   updated_at: string
@@ -79,7 +79,8 @@ export async function getLatestRun(
     token,
   )
   if (!res.ok) return null
-  const data = (await res.json()) as { workflow_runs?: any[] }
+  interface _GhRunLite { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; updated_at: string }
+  const data = (await res.json()) as { workflow_runs?: _GhRunLite[] }
   const run = data.workflow_runs?.[0]
   if (!run) return null
   return {

@@ -2986,7 +2986,10 @@ export default function WritingPage() {
       <input
         ref={folderInputRef}
         type="file"
-        // @ts-ignore
+        // webkitdirectory / directory 是 Chrome-only 扩展属性，不在 TS 标准
+        // HTMLInputElement 里，唯一安全的办法就是 @ts-ignore。Safari/Firefox
+        // 永远不会支持，所以做了功能检测兜底。
+        // @ts-ignore webkitdirectory is non-standard
         webkitdirectory=""
         directory=""
         multiple
