@@ -33,7 +33,7 @@ import { isChatModel, getModelVendor } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
-import { syncAllSecrets } from '../services/repoSecrets'
+import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
 
 function formatFetchedAt(ts: number | null): string {
@@ -99,71 +99,56 @@ function Settings() {
     return () => window.removeEventListener('af:credential-cleaned', onCleaned)
   }, [])
 
-  /** ──── Secrets 自动同步（前端 Settings → GitHub Actions Secrets） ────
+  /** ──── Secrets 自动同步 + 验证（前端 → GitHub Actions Secrets） ────
    *
-   *  统一入口：syncAllSecrets（一次写 7 个：MINERU + AI1/AI2 各 3 个）
-   *  双重保险：
-   *   1. 用户改任意字段 → 800ms debounce 后 sync（下面依赖项数组驱动）
-   *   2. mount-ref 确保页面挂载后至少 sync 一次——即便所有依赖项都没变
-   *      （防止"Settings 页打开后用户什么都没改，但 GitHub secrets 和前端值不同步"）
+   *  行为：每次配置变了 → debounce 800ms → syncAllSecrets 把 7 个都 PUT 到 GitHub
+   *        → 等 1.5s GitHub 索引 → GET list 回查确认存在
+   *        → 每条结果存进 state，UI 一条条亮给用户看（拒绝黑箱）
+   *  mount 后自动跑一次（didMountSyncRef 确保只跑一次）
    */
-  const aiSecretsSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const secretSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const didMountSyncRef = useRef(false)
-  const [aiSecretsSyncStatus, setAiSecretsSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
-  const [aiSecretsSyncMsg, setAiSecretsSyncMsg] = useState('')
+  const [secretSyncing, setSecretSyncing] = useState(false)
+  /** 最近一次 syncAllSecrets 返回的每条 secret 的明细状态 */
+  const [secretItems, setSecretItems] = useState<SecretItemStatus[]>([])
 
-  useEffect(() => {
-    // 没登录或没配 repo 时跳过
-    if (!owner || !repoName || !auth.token) return
-    // 还没初始化完也跳过
-    if (!isInitialized) return
-
-    // 收集要 sync 的 secrets map（和 syncAllSecrets 保持一致的拼装）
-    const hasAnyValue =
-      (aiProviderMode === 'custom'
-        ? (customAi1BaseUrl || customAi1ApiKey || customAi1Model ||
-           customAi2BaseUrl || customAi2ApiKey || customAi2Model)
-        : (siliconflowApiKey || ai1Model || ai2Model)) ||
-      mineruToken
-
-    // 全部空就不同步（新用户刚打开还没填任何东西）
-    if (!hasAnyValue) return
-
-    // debounce 800ms —— 用户还在打字就不同步
-    if (aiSecretsSyncTimer.current) clearTimeout(aiSecretsSyncTimer.current)
-    aiSecretsSyncTimer.current = setTimeout(async () => {
-      setAiSecretsSyncStatus('syncing')
-      try {
-        const res = await syncAllSecrets(owner, repoName, auth.token!, {
-          aiProviderMode,
-          siliconflowApiKey,
-          ai1Model,
-          ai2Model,
-          customAi1BaseUrl,
-          customAi1ApiKey,
-          customAi1Model,
-          customAi2BaseUrl,
-          customAi2ApiKey,
-          customAi2Model,
-          mineruToken,
-        })
-        if (res.failCount > 0) {
-          setAiSecretsSyncStatus('error')
-          setAiSecretsSyncMsg(`${res.okCount} 已同步，${res.failCount} 失败：${res.errors.join('; ')}`)
-        } else {
-          setAiSecretsSyncStatus('synced')
-          setAiSecretsSyncMsg(`${res.okCount} 个 secrets 已同步`)
-        }
-        didMountSyncRef.current = true
-      } catch (e: any) {
-        setAiSecretsSyncStatus('error')
-        setAiSecretsSyncMsg(e?.message || String(e))
-      }
-    }, 800)
-
-    return () => {
-      if (aiSecretsSyncTimer.current) clearTimeout(aiSecretsSyncTimer.current)
+  const runSync = async () => {
+    if (!owner || !repoName || !auth.token || !isInitialized) return
+    setSecretSyncing(true)
+    try {
+      const items = await syncAllSecrets(owner, repoName, auth.token!, {
+        aiProviderMode,
+        siliconflowApiKey,
+        ai1Model,
+        ai2Model,
+        customAi1BaseUrl,
+        customAi1ApiKey,
+        customAi1Model,
+        customAi2BaseUrl,
+        customAi2ApiKey,
+        customAi2Model,
+        mineruToken,
+      })
+      setSecretItems(items)
+      didMountSyncRef.current = true
+    } catch (e: any) {
+      // 整批炸了 —— 用一条假 error item 顶上，让用户看到
+      setSecretItems([{
+        name: 'AI1_BASE_URL', putOk: false, putStatus: 0, verified: false,
+        valueWanted: '', error: `syncAllSecrets 整体异常: ${e?.message || String(e)}`,
+      }])
+    } finally {
+      setSecretSyncing(false)
     }
+  }
+
+  // 用户改值 → debounce 800ms 后 sync
+  useEffect(() => {
+    if (!owner || !repoName || !auth.token || !isInitialized) return
+    if (secretSyncTimer.current) clearTimeout(secretSyncTimer.current)
+    secretSyncTimer.current = setTimeout(runSync, 800)
+    return () => { if (secretSyncTimer.current) clearTimeout(secretSyncTimer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isInitialized, owner, repoName, auth.token,
     aiProviderMode, advancedMode,
@@ -173,50 +158,11 @@ function Settings() {
     mineruToken,
   ])
 
-  /** mount 后强制 sync 一次——即便依赖项没触发 */
+  // mount 后强制 sync 一次（即便依赖项没变）
   useEffect(() => {
     if (didMountSyncRef.current) return
-    if (!isInitialized) return
-    if (!owner || !repoName || !auth.token) return
-
-    // 和上面一样的"全部空就跳过"逻辑
-    const hasAnyValue =
-      (aiProviderMode === 'custom'
-        ? (customAi1BaseUrl || customAi1ApiKey || customAi1Model ||
-           customAi2BaseUrl || customAi2ApiKey || customAi2Model)
-        : (siliconflowApiKey || ai1Model || ai2Model)) ||
-      mineruToken
-    if (!hasAnyValue) return
-
-    ;(async () => {
-      setAiSecretsSyncStatus('syncing')
-      try {
-        const res = await syncAllSecrets(owner, repoName, auth.token!, {
-          aiProviderMode,
-          siliconflowApiKey,
-          ai1Model,
-          ai2Model,
-          customAi1BaseUrl,
-          customAi1ApiKey,
-          customAi1Model,
-          customAi2BaseUrl,
-          customAi2ApiKey,
-          customAi2Model,
-          mineruToken,
-        })
-        if (res.failCount > 0) {
-          setAiSecretsSyncStatus('error')
-          setAiSecretsSyncMsg(`首屏同步：${res.okCount} 已同步，${res.failCount} 失败`)
-        } else {
-          setAiSecretsSyncStatus('synced')
-          setAiSecretsSyncMsg(`首屏已同步 ${res.okCount} 个 secrets`)
-        }
-        didMountSyncRef.current = true
-      } catch (e: any) {
-        setAiSecretsSyncStatus('error')
-        setAiSecretsSyncMsg(`首屏同步失败：${e?.message || String(e)}`)
-      }
-    })()
+    if (!isInitialized || !owner || !repoName || !auth.token) return
+    runSync()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitialized, owner, repoName, auth.token])
 
@@ -514,23 +460,63 @@ function Settings() {
             <MineruConnectivityPanel />
           </div>
 
-          {/* AI Secrets 自动同步状态条 */}
-          {aiSecretsSyncStatus !== 'idle' && (
-            <div className={`flex items-center gap-2 mt-2 text-xs px-3 py-2 rounded-md border ${
-              aiSecretsSyncStatus === 'syncing' ? 'bg-blue-50 border-blue-200 text-blue-700'
-              : aiSecretsSyncStatus === 'synced' ? 'bg-green-50 border-green-200 text-green-700'
-              : 'bg-red-50 border-red-200 text-red-700'
-            }`}>
-              {aiSecretsSyncStatus === 'syncing' && <Loader2 className="w-3 h-3 animate-spin" />}
-              {aiSecretsSyncStatus === 'synced' && <span>✓</span>}
-              {aiSecretsSyncStatus === 'error' && <span>⚠</span>}
-              <span>
-                {aiSecretsSyncStatus === 'syncing' && '正在同步 AI 凭据到 GitHub Actions Secrets…'}
-                {aiSecretsSyncStatus === 'synced' && (aiSecretsSyncMsg || 'AI 凭据已同步到后端')}
-                {aiSecretsSyncStatus === 'error' && (aiSecretsSyncMsg || '同步失败')}
+          {/* Secrets 同步明细 —— 每条都亮出来，拒绝黑箱 */}
+          <div className="mt-3 border border-slate-200 rounded-md bg-slate-50 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100 border-b border-slate-200 text-xs">
+              <span className="font-medium text-slate-700">
+                Secrets 同步状态（私库 <code className="font-mono text-[11px] bg-slate-200 px-1 rounded">academicflow-workspace</code>）
               </span>
+              <button
+                type="button"
+                onClick={runSync}
+                disabled={secretSyncing}
+                className="flex items-center gap-1 px-2 py-0.5 text-[11px] border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:text-slate-400"
+              >
+                {secretSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                手动同步
+              </button>
             </div>
-          )}
+            {secretItems.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-400">等待首次同步…</div>
+            ) : (
+              <div className="divide-y divide-slate-200 text-[11px] font-mono">
+                {secretItems.map((it) => {
+                  // 状态图标 + 颜色
+                  const isSkipped = !it.valueWanted && it.putStatus === 0
+                  const isFailed = !it.putOk
+                  const isDelayed = it.putOk && it.valueWanted && !it.verified
+                  const isOk = it.verified
+
+                  let icon: string, color: string, label: string
+                  if (isSkipped) { icon = '—'; color = 'text-slate-400'; label = '未填写（跳过）' }
+                  else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `PUT 失败 HTTP ${it.putStatus}` }
+                  else if (isDelayed) { icon = '⏳'; color = 'text-amber-600'; label = 'GitHub 回查未命中（索引延迟？）' }
+                  else { icon = '✓'; color = 'text-green-600'; label = '已写入 + 已回查确认' }
+
+                  // 简短的 value 预览（前 8 字符 + ...）
+                  const valPreview = isSkipped ? '' : (() => {
+                    const v = it.valueWanted
+                    if (!v) return ''
+                    if (v.length <= 12) return v
+                    return v.slice(0, 8) + '…' + v.slice(-4)
+                  })()
+
+                  return (
+                    <div key={it.name} className="flex items-center gap-2 px-3 py-1.5">
+                      <span className={`${color} w-4 text-center shrink-0`}>{icon}</span>
+                      <span className="text-slate-700 w-40 shrink-0 truncate" title={it.name}>{it.name}</span>
+                      {valPreview && (
+                        <span className="text-slate-400 truncate flex-1 max-w-[200px]" title={it.valueWanted}>
+                          {valPreview}
+                        </span>
+                      )}
+                      <span className={`${color} ml-auto truncate max-w-[260px]`}>{label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">

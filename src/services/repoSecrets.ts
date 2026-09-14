@@ -150,15 +150,51 @@ export const AI_SECRET_NAMES = [
   'AI2_BASE_URL', 'AI2_API_KEY', 'AI2_MODEL',
 ] as const
 
+export type AiSecretName = typeof AI_SECRET_NAMES[number]
+
+/** GitHub 上查到的单个 secret 元信息（API 不返回值，只返回 exists + 时间戳） */
+export interface GitHubSecretMeta {
+  name: string
+  created_at: string
+  updated_at: string
+}
+
 /**
- * 统一同步所有 7 个 secrets —— 前端 Settings → GitHub Actions Secrets
- *
- * 接收完整的 settings state，自动按 aiProviderMode 拼装 secrets map，
- * 只写有值的（空字符串跳过，避免覆盖用户手动配的值）。
- *
- * 这是唯一的写入入口。Settings.tsx 的 useEffect 和 MineruConnectivityPanel
- * 的自动跑都调这个函数，避免分散逻辑。
+ * 列出 repo 上所有 Actions secrets（**不返回值，GitHub API 禁止**）
+ * https://docs.github.com/en/rest/actions/secrets?apiVersion=2022-11-28#list-repository-secrets
  */
+export async function listRepoSecrets(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<GitHubSecretMeta[]> {
+  const res = await githubFetch(
+    `/repos/${owner}/${repo}/actions/secrets`,
+    token,
+  )
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`list secrets 失败 ${res.status}: ${txt.slice(0, 200)}`)
+  }
+  const data = (await res.json()) as { secrets?: GitHubSecretMeta[] }
+  return data.secrets ?? []
+}
+
+/** syncAllSecrets 返回的每个 secret 的明细状态 */
+export interface SecretItemStatus {
+  name: AiSecretName
+  /** 前端要写的值（已 trim） */
+  valueWanted: string
+  /** 是否成功 PUT 到 GitHub */
+  putOk: boolean
+  /** GitHub HTTP status：201=创建 / 204=更新 / 0=值空跳过 / 4xx/5xx=失败 */
+  putStatus: number
+  /** PUT 后等 GitHub 索引生效再回查，是否确认存在 */
+  verified: boolean
+  /** 失败时的错误信息（PUT 失败的 res.text() 或 verify 失败的 reason） */
+  error?: string
+}
+
 export interface SyncAllSecretsInput {
   aiProviderMode: 'siliconflow' | 'custom'
   siliconflowApiKey: string
@@ -175,38 +211,93 @@ export interface SyncAllSecretsInput {
 
 const SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1'
 
+/**
+ * 前端 Settings → GitHub Actions Secrets
+ *
+ * 唯一写入入口。写完之后**等 1.5s GitHub 索引生效**再回查一次，
+ * 把每个 secret 的最终状态（写入 + verify）返回给调用方，
+ * 让前端 UI 可以**把每一条的状态直接亮给用户看**，拒绝黑箱。
+ */
 export async function syncAllSecrets(
   owner: string,
   repo: string,
   token: string,
   s: SyncAllSecretsInput,
-): Promise<{ okCount: number; failCount: number; errors: string[] }> {
-  // 按 provider 模式拼装 secrets map —— 所有字段无条件塞进去
-  // 只有空值会被 GitHub API 硬限制跳过（不是我们想跳）
-  let secrets: Record<string, string>
-  if (s.aiProviderMode === 'custom') {
-    secrets = {
-      AI1_BASE_URL:    s.customAi1BaseUrl,
-      AI1_API_KEY:     s.customAi1ApiKey,
-      AI1_MODEL:       s.customAi1Model,
-      AI2_BASE_URL:    s.customAi2BaseUrl,
-      AI2_API_KEY:     s.customAi2ApiKey,
-      AI2_MODEL:       s.customAi2Model,
-      MINERU_API_TOKEN: s.mineruToken,
+): Promise<SecretItemStatus[]> {
+  // 按 provider 模式拼装 —— 7 个全部塞进去
+  const secretsMap: Record<AiSecretName, string> = {
+    MINERU_API_TOKEN: s.mineruToken,
+    AI1_BASE_URL:    s.aiProviderMode === 'custom' ? s.customAi1BaseUrl : SILICONFLOW_BASE_URL,
+    AI1_API_KEY:     s.aiProviderMode === 'custom' ? s.customAi1ApiKey  : s.siliconflowApiKey,
+    AI1_MODEL:       s.aiProviderMode === 'custom' ? s.customAi1Model    : s.ai1Model,
+    AI2_BASE_URL:    s.aiProviderMode === 'custom' ? s.customAi2BaseUrl : SILICONFLOW_BASE_URL,
+    AI2_API_KEY:     s.aiProviderMode === 'custom' ? s.customAi2ApiKey  : s.siliconflowApiKey,
+    AI2_MODEL:       s.aiProviderMode === 'custom' ? s.customAi2Model    : s.ai2Model,
+  }
+
+  // 1. PUT 每一个
+  const items: SecretItemStatus[] = AI_SECRET_NAMES.map((name) => {
+    const val = secretsMap[name]?.trim() ?? ''
+    return { name, valueWanted: val, putOk: false, putStatus: 0, verified: false }
+  })
+
+  // 先 GET 一次公钥
+  let keyInfo: { keyId: string; publicKey: Uint8Array }
+  try {
+    keyInfo = await getPublicKey(owner, repo, token)
+  } catch (e: any) {
+    for (const it of items) { it.error = `获取公钥失败: ${e.message}` }
+    return items
+  }
+
+  for (const it of items) {
+    if (!it.valueWanted) {
+      // 空值 —— GitHub API 硬限制：secret value 不能为空，跳过但标记一下
+      it.putStatus = 0
+      it.error = '未填写'
+      continue
     }
-  } else {
-    secrets = {
-      AI1_BASE_URL:    SILICONFLOW_BASE_URL,
-      AI1_API_KEY:     s.siliconflowApiKey,
-      AI1_MODEL:       s.ai1Model,
-      AI2_BASE_URL:    SILICONFLOW_BASE_URL,
-      AI2_API_KEY:     s.siliconflowApiKey,
-      AI2_MODEL:       s.ai2Model,
-      MINERU_API_TOKEN: s.mineruToken,
+    try {
+      const enc = encryptSecret(it.valueWanted, keyInfo.publicKey)
+      const res = await githubFetch(
+        `/repos/${owner}/${repo}/actions/secrets/${encodeURIComponent(it.name)}`,
+        token,
+        { method: 'PUT', body: JSON.stringify({ encrypted_value: enc, key_id: keyInfo.keyId }) },
+      )
+      it.putOk = res.ok
+      it.putStatus = res.status
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        it.error = `HTTP ${res.status}: ${txt.slice(0, 200)}`
+      }
+    } catch (e: any) {
+      it.error = e.message || String(e)
     }
   }
 
-  const { results, errors } = await putRepoSecrets(owner, repo, token, secrets)
-  const okCount = results.filter((r) => r.ok).length
-  return { okCount, failCount: errors.length, errors }
+  // 2. 等 GitHub 索引生效（经验值 ~1-2s）
+  await new Promise((r) => setTimeout(r, 1500))
+
+  // 3. 回查 —— GET /repos/{owner}/{repo}/actions/secrets 拿到所有存在的名字
+  try {
+    const all = await listRepoSecrets(owner, repo, token)
+    const existing = new Set(all.map((s) => s.name))
+    for (const it of items) {
+      if (it.putOk && it.valueWanted && existing.has(it.name)) {
+        it.verified = true
+      } else if (it.putOk && it.valueWanted && !existing.has(it.name)) {
+        // PUT 204 了但 list 里还没——GitHub 索引延迟，给个提示
+        it.verified = false
+        it.error = (it.error ? it.error + '; ' : '') + 'GitHub 回查未命中（索引延迟？）'
+      }
+    }
+  } catch (e: any) {
+    // verify 本身失败不影响 put 结果，但要让用户知道
+    const msg = `回查失败: ${e.message || String(e)}`
+    for (const it of items) {
+      if (it.putOk) it.error = (it.error ? it.error + '; ' : '') + msg
+    }
+  }
+
+  return items
 }
