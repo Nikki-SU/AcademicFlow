@@ -86,43 +86,56 @@ export interface WorkspaceState {
 // M3: 设置页 + AI 双引擎（SPEC v0.3 §7.3 / §9）
 // ============================================================
 
-/** 硬编码的 4 家 AI Provider 配置（不写配置文件，直接嵌代码） */
-export const AI_PROVIDERS = {
+/**
+ * AI Provider 类型 + 配置
+ * 硬编码 4 家，不用配置文件
+ */
+export type AIProviderMode = 'deepseek' | 'kimi' | 'qiniu' | 'custom'
+
+export type AIProviderConfig = {
+  label: string
+  baseUrl: string
+  defaultModel1: string
+  defaultModel2: string
+  apiKeyUrl: string
+  note: string
+}
+
+export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
   deepseek: {
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
     defaultModel1: 'deepseek-chat',
-    defaultModel2: 'deepseek-chat',
+    defaultModel2: 'deepseek-v4-pro',
     apiKeyUrl: 'https://platform.deepseek.com/api_keys',
-    note: '跨太平洋链路稳定，runner 到 SF 丢包严重，换这个 1s 返回',
+    note: 'runner 跨太平洋最稳；chat 快，v4-pro 更强',
   },
   kimi: {
     label: '月之暗面 Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
-    defaultModel1: 'moonshot-v1-32k',
-    defaultModel2: 'moonshot-v1-32k',
+    defaultModel1: 'kimi-k2.6',
+    defaultModel2: 'kimi-k2.7-code',
     apiKeyUrl: 'https://platform.moonshot.cn/',
-    note: '超长上下文强',
+    note: '旧 moonshot-v1-* 已下线，新模型 kimi-k2.6 需要充值',
   },
   qiniu: {
     label: '七牛云 AI',
     baseUrl: 'https://aiapi.qiniu.com/v1',
     defaultModel1: 'deepseek-chat',
-    defaultModel2: 'deepseek-chat',
+    defaultModel2: 'deepseek-v4-pro',
     apiKeyUrl: 'https://ai.qiniu.com/',
-    note: '国内唯一同时兼容 OpenAI + Anthropic 协议',
+    note: '一家店卖多家模型：DeepSeek + Claude + GPT-4o 都有',
   },
   custom: {
     label: '自定义端点',
-    baseUrl: '', // 用户填
+    baseUrl: '',
     defaultModel1: '',
     defaultModel2: '',
     apiKeyUrl: '',
-    note: '填自己的 OpenAI 兼容端点',
+    note: '填自己的 OpenAI 兼容端点（如自建 Ollama / vLLM）',
   },
-} as const
+}
 
-export type AIProviderMode = keyof typeof AI_PROVIDERS
 
 /** OpenAI /v1/models 兼容响应中的单个模型 */
 export interface AIModel {

@@ -12,12 +12,14 @@
 import {
   ArrowLeft,
   BookOpen,
+  CheckCircle,
   Loader2,
   RefreshCw,
   Settings as SettingsIcon,
   Sparkles,
   ToggleLeft,
   ToggleRight,
+  XCircle,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -354,7 +356,14 @@ function Settings() {
               hint="仅存在你浏览器的 IndexedDB，不上传任何服务器"
             />
 
-            {/* 拉取模型清单 */}
+            {/* 测试连接 + 拉取模型 */}
+            <ProviderConnectionTest
+              providerMode={aiProviderMode}
+              apiKey={apiKeyField}
+              baseUrl={cfg.baseUrl}
+              defaultModel={cfg.defaultModel1}
+            />
+
             <div className="flex items-center justify-between pt-1">
               <div className="text-xs text-slate-500">
                 模型清单：{chatModels.length} 个 chat 类 · 上次更新{' '}
@@ -653,6 +662,134 @@ function ModelSelect(props: {
           ))
         )}
       </select>
+    </div>
+  )
+}
+
+
+/**
+ * Provider 连接测试组件
+ * 用户填完 API Key 后可一键验证：鉴权 + 最小 chat 请求
+ */
+function ProviderConnectionTest({
+  providerMode: _providerMode,
+  apiKey,
+  baseUrl,
+  defaultModel,
+}: {
+  providerMode: string
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+}) {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [message, setMessage] = useState('')
+  const [latency, setLatency] = useState<number | null>(null)
+  void latency // reserved for future latency display
+
+  const testConnection = async () => {
+    if (!apiKey.trim()) {
+      setStatus('error')
+      setMessage('请先填 API Key')
+      return
+    }
+    if (!baseUrl) {
+      setStatus('error')
+      setMessage('baseUrl 未配置')
+      return
+    }
+    setStatus('loading')
+    setMessage('正在连接...')
+    setLatency(null)
+
+    const start = Date.now()
+    try {
+      const resp = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: defaultModel,
+          messages: [{ role: 'user', content: 'hi' }],
+          max_tokens: 5,
+        }),
+        signal: AbortSignal.timeout(15000),
+      })
+      const elapsed = Date.now() - start
+      const data = await resp.json().catch(() => ({}))
+
+      if (resp.ok && data.choices) {
+        setStatus('success')
+        setLatency(elapsed)
+        const model = data.model || defaultModel
+        const tokens = data.usage?.completion_tokens || data.usage?.total_tokens || '?'
+        setMessage(`✓ 鉴权通过 · model=${model} · ${elapsed}ms · ${tokens} tokens`)
+        void latency // 保留字段以备将来展示
+      } else if (resp.status === 401) {
+        setStatus('error')
+        setMessage('❌ 401 Unauthorized — API Key 无效或已过期')
+      } else if (resp.status === 403) {
+        setStatus('error')
+        setMessage('❌ 403 Forbidden — 没有权限，可能需要充值或开通')
+      } else if (resp.status === 429) {
+        setStatus('error')
+        setMessage('❌ 429 Rate Limited — 调用太频繁，稍后再试')
+      } else {
+        setStatus('error')
+        setMessage(`❌ HTTP ${resp.status} · ${data.error?.message || '未知错误'}`)
+      }
+    } catch (e: any) {
+      const elapsed = Date.now() - start
+      if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+        setStatus('error')
+        setMessage(`❌ 超时（${elapsed}ms）— 网络不通或 endpoint 错误`)
+      } else if (e.message?.includes('Failed to fetch')) {
+        setStatus('error')
+        setMessage('❌ 网络不通 — 检查 baseUrl 或 CORS')
+      } else {
+        setStatus('error')
+        setMessage(`❌ ${e.message || '未知错误'}`)
+      }
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 pt-2">
+      <button
+        type="button"
+        onClick={testConnection}
+        disabled={status === 'loading' || !apiKey.trim()}
+        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md
+                   border border-slate-300 bg-white
+                   hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700
+                   disabled:text-slate-300 disabled:cursor-not-allowed disabled:hover:bg-white
+                   transition-colors"
+      >
+        {status === 'loading' ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <CheckCircle className="w-3.5 h-3.5" />
+        )}
+        测试连接
+      </button>
+
+      {status === 'success' && (
+        <span className="flex items-center gap-1 text-xs text-emerald-600">
+          <CheckCircle className="w-3.5 h-3.5" />
+          {message}
+        </span>
+      )}
+      {status === 'error' && (
+        <span className="flex items-center gap-1 text-xs text-red-500">
+          <XCircle className="w-3.5 h-3.5" />
+          {message}
+        </span>
+      )}
+      {status === 'loading' && (
+        <span className="text-xs text-slate-500">{message}</span>
+      )}
     </div>
   )
 }
