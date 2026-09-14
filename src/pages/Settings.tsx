@@ -443,6 +443,12 @@ function Settings() {
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
                            focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
+              <ProviderConnectionTest
+                providerMode="custom-ai1"
+                apiKey={customAi1ApiKey}
+                baseUrl={customAi1BaseUrl}
+                defaultModel={customAi1Model}
+              />
             </div>
 
             {/* AI-2 */}
@@ -471,6 +477,12 @@ function Settings() {
                 placeholder="Model ID"
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
                            focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <ProviderConnectionTest
+                providerMode="custom-ai2"
+                apiKey={customAi2ApiKey}
+                baseUrl={customAi2BaseUrl}
+                defaultModel={customAi2Model}
               />
             </div>
           </section>
