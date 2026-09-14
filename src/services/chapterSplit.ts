@@ -38,6 +38,10 @@ export interface ChapterInfo {
   wordCount: number
 }
 
+export interface ChapterWithContent extends ChapterInfo {
+  content: string
+}
+
 export interface SplitResult {
   chapters: ChapterInfo[]
   totalChapters: number
@@ -64,7 +68,7 @@ function slugify(title: string, index: number): string {
 export function splitMarkdownIntoChapters(
   markdown: string,
   headingLevel: 1 | 2 = 1,
-): SplitResult & { chapterContents: ChapterInfo[] & { content: string }[] } {
+): SplitResult & { chapterContents: ChapterWithContent[] } {
   const lines = markdown.split('\n')
   const chapters: Array<{
     id: string
@@ -122,11 +126,11 @@ export function splitMarkdownIntoChapters(
   const totalWords = chapters.reduce((sum, c) => sum + c.wordCount, 0)
 
   return {
-    chapters: chapters.map(({ content, ...info }) => info),
-    chapterContents: chapters as any,
-    totalChapters: chapters.length,
-    totalWords,
-  }
+      chapters: chapters.map(({ content, ...info }) => info),
+      chapterContents: chapters,
+      totalChapters: chapters.length,
+      totalWords,
+    }
 }
 
 function countWords(text: string): number {

@@ -9,10 +9,11 @@ import { githubFetch, deleteRepoFiles } from '../services/github'
 import { pollProgressJson } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
-import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
+import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
 import BackendMonitorPanel from '../components/BackendMonitorPanel'
 import {
   createTemplate,
+  updateTemplate,
   deleteTemplate as deleteJournalTemplate,
   getAllTemplates,
   setDefaultTemplate,
@@ -480,37 +481,15 @@ export default function ManagementPage() {
           const prog = await pollProgressJson(slug, owner, repo.name, token)
           if (!prog) continue // progress.json 还没出现，等下次
 
-          // 后端 stage → 前端 PipelineStage 安全映射
-          // 后端可能传 'mineru_apply' / 'clean' / 'commit' 等，前端 STAGE_META 用 ai1_clean 等名字
-          const backendStage = prog.stage as string
-          let frontendStage: string = backendStage
-          // 直接匹配
-          if (!(backendStage in STAGE_META)) {
-            // 映射表：后端 stage → 前端 PipelineStage
-            const STAGE_MAP: Record<string, keyof typeof STAGE_META> = {
-              clean: 'ai1_clean',
-              ai1_clean: 'ai1_clean',
-              ai1_tag: 'ai1_tag',
-              enumerate: 'enumerate',
-              translating: 'translating',
-              words_extract: 'words_extract',
-              words_verify: 'words_verify',
-              commit: 'words_extract', // 后端 commit 阶段大致对应 words_extract 完成
-              done: 'done',
-              failed: 'failed',
-              // mineru_* 系列前端后端一致
-            }
-            frontendStage = STAGE_MAP[backendStage] ?? backendStage
-          }
-
-          const stageMeta = (STAGE_META as any)[frontendStage]
+          // 后端 stage 已与前端 PipelineStage 完全对齐 (mineru_* / ai1_clean / ai1_tag / enumerate / translating / assemble / commit / done / failed)，直接查
+          const stageMeta = STAGE_META[prog.stage as PipelineStage]
           if (!stageMeta) {
-            console.warn('[poll-progress] 未知 stage:', backendStage, '→ 保持当前进度')
+            console.warn('[poll-progress] 未知 stage:', prog.stage, '→ 保持当前进度')
             continue
           }
 
-          const patch: any = {
-            stage: frontendStage,
+          const patch: Partial<BackgroundTask> = {
+            stage: prog.stage as PipelineStage,
             node_index: stageMeta.node,
             progress: prog.pct ?? stageMeta.pctBase,
             message: prog.message || stageMeta.label,
@@ -1191,27 +1170,24 @@ export default function ManagementPage() {
     }
   }
 
-  // TODO: handleSaveTemplate 暂未接入 UI，待模板编辑弹窗实现后启用
-  // const handleSaveTemplate = async () => {
-  //   if (!editingTemplate) return
-  //   try {
-  //     // JournalTemplateItem → BackendJournalTemplate 更新
-  //     await updateTemplate(editingTemplate.id, {
-  //       name: editingTemplate.name,
-  //       issn: editingTemplate.issn || undefined,
-  //       publisher: editingTemplate.publisher || undefined,
-  //     })
-  //     // 重新拉取最新
-  //     const backend = await getAllTemplates()
-  //     setTemplates(backend.map(toTemplateItem))
-  //     setShowTemplateModal(false)
-  //     setEditingTemplate(null)
-  //     toast.success('模板已更新并保存到 GitHub')
-  //   } catch (err) {
-  //     toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
-  //     console.error('[handleSaveTemplate]', err)
-  //   }
-  // }
+  const handleSaveTemplate = async () => {
+    if (!editingTemplate) return
+    try {
+      await updateTemplate(editingTemplate.id, {
+        name: editingTemplate.name,
+        issn: editingTemplate.issn || undefined,
+        publisher: editingTemplate.publisher || undefined,
+      })
+      const backend = await getAllTemplates()
+      setTemplates(backend.map(toTemplateItem))
+      setShowTemplateModal(false)
+      setEditingTemplate(null)
+      toast.success('模板已更新并保存到 GitHub')
+    } catch (err) {
+      toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
+      console.error('[handleSaveTemplate]', err)
+    }
+  }
 
   const handleSetDefaultTemplate = async (id: string) => {
     try {
@@ -2948,7 +2924,7 @@ export default function ManagementPage() {
               取消
             </button>
             <button
-              onClick={handleAddTemplate}
+              onClick={editingTemplate ? handleSaveTemplate : handleAddTemplate}
               className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
             >
               <Plus className="w-4 h-4" />

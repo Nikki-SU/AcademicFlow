@@ -20,8 +20,8 @@ export interface GlobalSettingsData {
   customAi1Model: string
   customAi2BaseUrl: string
   customAi2Model: string
-  mineruWorkerUrl: string
   extractCoverImage: boolean
+  autoExtractWords: boolean
   mineruDebugMode: boolean
   wordGenCount: number
 }
@@ -81,11 +81,11 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
       case 'custom_ai_2_model':
         result.customAi2Model = value
         break
-      case 'mineru_worker_url':
-        result.mineruWorkerUrl = value
-        break
       case 'extract_cover_image':
         result.extractCoverImage = value === 'true'
+        break
+      case 'auto_extract_words':
+        result.autoExtractWords = value === 'true'
         break
       case 'mineru_debug_mode':
         result.mineruDebugMode = value === 'true'
@@ -118,8 +118,8 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 
 ## PDF 处理
 - pdf_retention_days: 30
-- mineru_worker_url: ${s.mineruWorkerUrl}
 - extract_cover_image: ${s.extractCoverImage}
+- auto_extract_words: ${s.autoExtractWords}
 - mineru_debug_mode: ${s.mineruDebugMode}
 - word_gen_count: ${s.wordGenCount}
 
