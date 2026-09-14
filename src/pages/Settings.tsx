@@ -115,6 +115,7 @@ function Settings() {
   const runSync = async () => {
     if (!owner || !repoName || !auth.token || !isInitialized) return
     setSecretSyncing(true)
+    console.log(`[syncAllSecrets] target repo: ${owner}/${repoName}`)
     try {
       const items = await syncAllSecrets(owner, repoName, auth.token!, {
         aiProviderMode,
@@ -464,7 +465,7 @@ function Settings() {
           <div className="mt-3 border border-slate-200 rounded-md bg-slate-50 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100 border-b border-slate-200 text-xs">
               <span className="font-medium text-slate-700">
-                Secrets 同步状态（私库 <code className="font-mono text-[11px] bg-slate-200 px-1 rounded">academicflow-workspace</code>）
+                Secrets 同步状态（写入 <code className="font-mono text-[11px] bg-slate-200 px-1 rounded">{owner}/{repoName}</code>）
               </span>
               <button
                 type="button"

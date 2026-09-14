@@ -280,8 +280,10 @@ export async function syncAllSecrets(
         const txt = await res.text().catch(() => '')
         it.error = `HTTP ${res.status}: ${txt.slice(0, 200)}`
       }
+      console.log(`[syncAllSecrets] PUT ${it.name} → ${res.status} ${res.ok ? '✓' : '✗ ' + it.error}`)
     } catch (e: any) {
       it.error = e.message || String(e)
+      console.log(`[syncAllSecrets] PUT ${it.name} → EXCEPTION: ${it.error}`)
     }
   }
 
@@ -292,6 +294,7 @@ export async function syncAllSecrets(
   try {
     const all = await listRepoSecrets(owner, repo, token)
     const existing = new Set(all.map((s) => s.name))
+    console.log(`[syncAllSecrets] verify: GET ${owner}/${repo} → found: [${[...existing].join(', ')}]`)
     for (const it of items) {
       if (it.putOk && it.valueWanted && existing.has(it.name)) {
         it.verified = true
@@ -300,6 +303,7 @@ export async function syncAllSecrets(
         it.verified = false
         it.error = (it.error ? it.error + '; ' : '') + 'GitHub 回查未命中（索引延迟？）'
       }
+      console.log(`  ${it.name}: put=${it.putOk ? it.putStatus : 'FAIL'} verified=${it.verified} err=${it.error ?? '-'}`)
     }
   } catch (e: any) {
     // verify 本身失败不影响 put 结果，但要让用户知道
