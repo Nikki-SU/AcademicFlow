@@ -65,13 +65,23 @@ async function ghApi(method, apiPath, body) {
     init.body = JSON.stringify(body)
   }
   const url = `https://api.github.com${apiPath}`
-  const resp = await fetch(url, init)
-  if (!resp.ok) {
+  const MAX_RETRY = 5
+  for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+    const resp = await fetch(url, init)
+    if (resp.ok) {
+      if (resp.status === 204) return null
+      return resp.json()
+    }
     const txt = await resp.text().catch(() => '')
-    throw new Error(`GitHub ${method} ${apiPath}: ${resp.status} ${txt.slice(0, 300)}`)
+    const isRetryable = resp.status === 409 || resp.status === 403 || resp.status >= 500
+    if (!isRetryable || attempt === MAX_RETRY) {
+      throw new Error(`GitHub ${method} ${apiPath}: ${resp.status} ${txt.slice(0, 300)}`)
+    }
+    const jitter = Math.floor(Math.random() * 500)
+    const wait = 200 * Math.pow(2, attempt) + jitter  // 200, 400, 800, 1600, 3200 + jitter
+    console.log(`  [ghApi] ${resp.status} on ${method} ${apiPath}, retry ${attempt+1}/${MAX_RETRY} in ${wait}ms`)
+    await new Promise(r => setTimeout(r, wait))
   }
-  if (resp.status === 204) return null
-  return resp.json()
 }
 
 // 写小文件（≤ MAX_CONTENTS_SIZE）用 Contents PUT
@@ -81,14 +91,26 @@ async function ghWriteContents(filePath, content, message) {
     throw new Error(`ghWriteContents fail: ${filePath} is ${bytes} bytes > MAX_CONTENTS_SIZE (${MAX_CONTENTS_SIZE}). Use blob path instead.`)
   }
   const b64 = Buffer.isBuffer(content) ? content.toString('base64') : Buffer.from(content, 'utf-8').toString('base64')
-  let sha = null
-  try {
-    const existing = await ghApi('GET', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filePath}`)
-    sha = existing?.sha ?? null
-  } catch {} // 404 就当不存在
-  const body = { message, content: b64 }
-  if (sha) body.sha = sha
-  return ghApi('PUT', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filePath}`, body)
+  // 409 retry: 先 GET 拿 sha → PUT；如果 409 说明 sha 过期了，再 GET 新 sha 重试一次
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let sha = null
+    try {
+      const existing = await ghApi('GET', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filePath}`)
+      sha = existing?.sha ?? null
+    } catch {} // 404 就当不存在
+    const body = { message, content: b64 }
+    if (sha) body.sha = sha
+    try {
+      return await ghApi('PUT', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filePath}`, body)
+    } catch (e) {
+      // 409 conflict → sha 过期，重试
+      if (attempt === 0 && e?.message?.includes('409')) {
+        console.log(`  [ghWriteContents] 409 conflict on ${filePath}, retrying with fresh sha...`)
+        continue
+      }
+      throw e
+    }
+  }
 }
 
 // 写大文件（任何 size，blob 硬限 MAX_BLOB_SIZE）
@@ -335,10 +357,13 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
   console.log(`  [mineru] batch_id=${batchId}`)
 
   // 2. PUT PDF 到预签名 URL
+  // ⚠️ 关键坑：**不能带 Content-Type header**。OSS 预签名 URL 的 StringToSign 里
+  //    Content-Type 是空字符串，带了就 SignatureDoesNotMatch (HTTP 403)。
+  //    Node fetch 默认会加 Content-Type，所以必须显式覆盖为空对象。
   onProgress?.({ stage: 'mineru_upload', message: '上传 PDF...', pct: 25 })
   const putResp = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/octet-stream' },
+    headers: {},
     body: pdfBuf,
   })
   if (!putResp.ok) throw new Error(`OSS PUT: ${putResp.status} ${await putResp.text().catch(() => '')}`)
@@ -442,27 +467,46 @@ function findFirstMd(dir) {
 // ============================================================
 // AI 调用
 // ============================================================
+/** AI 调用：带 3 次 retry + 120s timeout */
 async function aiCall(baseUrl, apiKey, model, system, user, signal) {
-  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      temperature: 0.1,
-      max_tokens: 16000,
-    }),
-    signal,
-  })
-  if (!resp.ok) {
-    const t = await resp.text().catch(() => '')
-    throw new Error(`AI ${baseUrl} ${model}: ${resp.status} ${t.slice(0, 300)}`)
+  const MAX_RETRY = 3
+  const TIMEOUT_MS = 300_000
+  let lastErr = null
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+    try {
+      const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+          temperature: 0.1,
+          max_tokens: 16000,
+        }),
+        signal: signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal,
+      })
+      clearTimeout(timer)
+      if (!resp.ok) {
+        const t = await resp.text().catch(() => '')
+        throw new Error(`AI ${model}: ${resp.status} ${t.slice(0, 200)}`)
+      }
+      const j = await resp.json()
+      return j.choices[0].message.content
+    } catch (e) {
+      clearTimeout(timer)
+      lastErr = e
+      if (attempt === MAX_RETRY) throw e
+      const wait = 2 ** attempt * 1000 // 2s, 4s, 8s
+      console.log(`  [aiCall] attempt ${attempt}/${MAX_RETRY} failed (${e.message?.slice(0, 120)}), retry in ${wait}ms...`)
+      await new Promise(r => setTimeout(r, wait))
+    }
   }
-  const j = await resp.json()
-  return j.choices[0].message.content
+  throw lastErr
 }
 
 // ============================================================
@@ -732,15 +776,26 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   const read = (localPath) => fs.existsSync(localPath) ? fs.readFileSync(localPath, 'utf-8') : ''
   const write = (localPath, content) => fs.writeFileSync(localPath, content, 'utf-8')
 
-  // 1. Clean
+  // 1. Clean（分块：每块 ≤30K，防止 AI context 溢出）
   let cleanMd = read(tmpLocal.cleaned)
   if (!cleanMd) {
     await writeProgress(slug, { stage: 'ai1_clean', message: 'AI-1 清理...', pct: 10, node: 1 })
     onProgress?.({ stage: 'ai1_clean', pct: 10 })
-    cleanMd = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, CLEAN_PROMPT, markdown)
+    const CLEAN_CHUNK = 30000
+    const chunks = []
+    for (let i = 0; i < markdown.length; i += CLEAN_CHUNK) chunks.push(markdown.slice(i, i + CLEAN_CHUNK))
+    console.log(`  [clean] markdown=${markdown.length} chars → ${chunks.length} chunks`)
+    let cleanedParts = []
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`  [clean] chunk ${i+1}/${chunks.length} (${chunks[i].length} chars)...`)
+      const part = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, CLEAN_PROMPT, chunks[i])
+      await new Promise(r => setTimeout(r, 1000))
+      cleanedParts.push(part)
+    }
+    cleanMd = cleanedParts.join('\n')
     cleanMd = cleanMd.replace(/<span[^>]*>.*?<\/span>/g, '').replace(/^\s*\n/gm, '').trim()
     write(tmpLocal.cleaned, cleanMd)
-    console.log('  ✓ clean ok')
+    console.log(`  ✓ clean ok, ${cleanMd.length} chars`)
   } else {
     console.log('  [resume] skip clean')
     await writeProgress(slug, { stage: 'ai1_clean', message: '续跑：跳过 Clean', pct: 10, node: 1 })

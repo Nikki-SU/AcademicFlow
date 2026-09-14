@@ -1,0 +1,3244 @@
+[
+    {
+        "type": "text",
+        "text": "Chem Soc Rev",
+        "text_level": 1,
+        "bbox": [
+            40,
+            73,
+            966,
+            177
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Chemical Society Reviews",
+        "bbox": [
+            42,
+            205,
+            310,
+            225
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "www.rsc.org/chemsocrev",
+        "bbox": [
+            42,
+            240,
+            215,
+            255
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Volume 42 | Number 14 | 21 July 2013 | Pages 5981–6202",
+        "bbox": [
+            578,
+            240,
+            968,
+            255
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/3b3aef4ab75d9fd78267fb035b4aaf6755fd5015a61d8666b73412c3e1bf94b6.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            45,
+            254,
+            991,
+            898
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "footer",
+        "text": "ISSN 0306-0012",
+        "bbox": [
+            43,
+            897,
+            132,
+            910
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "footer",
+        "text": "RSCPublishing",
+        "bbox": [
+            42,
+            949,
+            255,
+            979
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "footer",
+        "text": "REVIEW ARTICLE Sharon Mitchell, Nina-Luisa Michels and Javier Pérez-Ramírez From powder to technical body: the undervalued science of catalyst scale up",
+        "bbox": [
+            282,
+            943,
+            744,
+            983
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "REVIEW ARTICLE",
+        "bbox": [
+            80,
+            119,
+            277,
+            141
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Published on 07 May 2013",
+        "bbox": [
+            715,
+            112,
+            922,
+            129
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Licence and permissions",
+        "bbox": [
+            729,
+            130,
+            922,
+            147
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Cite this: Chem. Soc. Rev., 2013, 42, 6094",
+        "bbox": [
+            65,
+            215,
+            242,
+            241
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "From powder to technical body: the undervalued science of catalyst scale up",
+        "text_level": 1,
+        "bbox": [
+            284,
+            174,
+            860,
+            223
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Sharon Mitchell, Nina-Luisa Michels and Javier Pe´rez-Ramı´rez\\*",
+        "bbox": [
+            284,
+            234,
+            766,
+            251
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Received 24th February 2013",
+        "bbox": [
+            67,
+            451,
+            228,
+            464
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "DOI: 10.1039/c3cs60076a",
+        "bbox": [
+            67,
+            471,
+            211,
+            483
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Progress in catalysis has been, is, and will always be motivated by societal needs (e.g. environment, energy, chemicals, fuels), with the ultimate aim of improving process eficiency on a technical scale. Technical catalysts are often complex multicomponent millimetre-sized bodies consisting of active phases, supports, and numerous additives in shaped forms suitable for their commercial application. They can difer strongly in composition, structure, porosity, and performance from research catalysts, i.e. laboratory-developed materials constituted by a single bulk or supported active phase in powder form, which are the predominant focus of academic investigations. The industrial manufacture of heterogeneous catalysts, encompassing the upscaled preparation, formulation, and structuring, is encircled by secrecy and is decisive for the overall process viability. Yet despite the tremendous relevance, understanding the added complexity of these multicomponent systems and the consequences for the respective structure–property–function relationships has been largely neglected. Accordingly, our review examines the intricacies of the scale up of heterogeneous catalysts. While emphasising the lack of fundamental knowledge we point out the multiple functions that additives could provide by enhancing the mass and heat transfer properties, acting as co-catalysts, or imparting improved chemical, mechanical, or thermal stability. Recent exemplary studies developing rational approaches to prepare, characterise, and evaluate technical catalysts are analysed in detail and new directions for research in this field are put forward.",
+        "bbox": [
+            282,
+            268,
+            932,
+            514
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "www.rsc.org/csr",
+        "bbox": [
+            65,
+            500,
+            166,
+            512
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Institute for Chemical and Bioengineering, Department of Chemistry and Applied Biosciences, ETH Zurich, Wolfgang-Pauli-Strasse 10, CH 8093, Zurich, Switzerland. E-mail: jpr@chem.ethz.ch; Tel: +41 44 633 7120",
+        "bbox": [
+            65,
+            589,
+            487,
+            629
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/1a90f2d955e3f7c21da1f99e58538e9c23d124988e442beeb9dad20f2cad4070.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Sharon Mitchell"
+        ],
+        "bbox": [
+            68,
+            661,
+            260,
+            843
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Sharon Mitchell (Truro, England, 1982) studied a Master’s degree in Natural Sciences at Cambridge University, England. She later returned to Cambridge to complete her PhD investigating the synthesis and properties of layered inorganic materials under the supervision of Prof. W. Jones in 2009. Since then she has been working as a postdoctoral researcher in the group of Prof. Pe´rez-Ramı´rez. She is active in the field of zeolite",
+        "bbox": [
+            273,
+            659,
+            494,
+            874
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "catalysis, in particular in developing fundamental strategies toward the rational scale up of zeolite catalysts for diverse applications and methods to visualise their properties.",
+        "bbox": [
+            65,
+            875,
+            494,
+            921
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "1. Introduction",
+        "text_level": 2,
+        "bbox": [
+            507,
+            568,
+            655,
+            585
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Catalysis is a discipline whose technological application preceded the construction of its scientific foundations.",
+        "bbox": [
+            504,
+            596,
+            931,
+            627
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/7b3b5812d184dcde1fcab31bd10b044f039041de4b4befceb144399e5822e775.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Nina-Luisa Michels"
+        ],
+        "bbox": [
+            507,
+            661,
+            699,
+            843
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Nina-Luisa Michels (Munich, Germany, 1986) completed a Master’s degree in Chemical Engineering at EPFL, Switzerland, in 2010. Her master’s project in the group of Prof. C. Comninellis focused on the electrochemical oxidation of ammonia over boron-doped diamond electrodes. In 2010, she joined the group of Prof. Pe´rez-Ramı´rez as a doctoral student. Her research centres on the rational scale-up of hierarchically-structured zeolites,",
+        "bbox": [
+            710,
+            659,
+            932,
+            874
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "with emphasis on understanding the impact ofbinders and related structuring steps on the catalytic performance of hierarchical zeolites in technical form.",
+        "bbox": [
+            502,
+            874,
+            932,
+            920
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            61,
+            309,
+            91
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "RSCPublishing",
+        "bbox": [
+            752,
+            66,
+            929,
+            91
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "6094",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/95924da707e864b55903147d30863bca026a567682ac267d15498e9bea70ca26.jpg",
+        "image_caption": [
+            "Fig. 1 Typical sequence of interactive tasks followed in a catalyst development program. A key step is the translation of a promising research catalyst into a technical catalyst involving the extrapolation of laboratory recipes to an industrial scale and the structuring of powders with additives into mm-sized bodies. Successfully implemented technologies are those which deliver recognisable performance benefits upon bridging the multiple length scales from the active site to the chemical plant."
+        ],
+        "image_footnote": [],
+        "bbox": [
+            147,
+            62,
+            848,
+            464
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Nowadays its importance, in terms of both economy and the impact on quality of life, is unequivocal. Thought to contribute to greater than 35% of the global gross domestic product, it is estimated that around 90% of all chemical processes employ underlying catalytic steps.<sup>1,2</sup> The catalyst market, which was",
+        "bbox": [
+            65,
+            551,
+            494,
+            630
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/25f223da130903868b83928da4d3167b600a30d25dd03dea08998d15758b16b5.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            75,
+            658,
+            257,
+            861
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Javier Pe´rez-Ramı´rez (Benidorm, Spain, 1974) studied Chemical Engineering at the University of Alicante, Spain, and earned his PhD degree at TUDelft, Netherlands, in 2002. After a period in industry he was appointed ICREA research professor at ICIQ in Tarragona, Spain. In 2010, he took the chair of Catalysis Engineering at the Institute for Chemical and Bioengineering of the ETH Zurich. He is engaged in the",
+        "bbox": [
+            272,
+            658,
+            494,
+            874
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "development and understanding of new heterogeneous catalysts, multifunctional materials, and reactor engineering concepts devoted to sustainable technologies.",
+        "bbox": [
+            65,
+            874,
+            492,
+            921
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "valued at 29.5 billion USD in 2010,<sup>3</sup> is expected to grow by an average of 6.6% in the energy and environmental segments by 2015.<sup>4</sup> Furthermore, catalysis is viewed as a key enabling technology, identified as one of the twelve principles of green chemistry.<sup>5</sup>",
+        "bbox": [
+            502,
+            551,
+            932,
+            629
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "With acquired mastery of the field, the design of solid catalysts has moved away from its purely empirical origins. Outstanding advancements have been witnessed, driven by mounting societal demands and enabled by the development of rational synthesis routes, powerful space- and time-resolved characterisation techniques, and tools to assess the performance under relevant process conditions in an accelerated manner.<sup>6–15</sup> The improved control and understanding has led to overwhelming wave of new catalytic materials in the scientific literature.<sup>16–19</sup>",
+        "bbox": [
+            502,
+            629,
+            932,
+            766
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In relation to design, it is pertinent to distinguish between research and technical catalysts (Fig. 1). Research catalysts normally comprise a single bulk or supported active phase in powder form. They constitute the library of materials consulted during the early stages of any catalyst development program and have been most significantly broadened by the mentioned progress. Following a traditional approach, the number of potential candidate materials is reduced during primary and secondary screening to a handful of potential leads. Technical catalysts should not only faithfully reproduce the performance of laboratory preparations, but must also have the required mechanical strength and chemical stability to ensure smooth operation and long lifetime when implemented in industrial reactors. Turning a promising candidate into an industrial catalyst implies (i) the adaption of laboratory protocols for its multi-ton manufacture, (ii) the selection of appropriate catalyst formulations (i.e. type and proportion of component phases), and (iii) the shaping of powders into macroscopic forms. The resulting technical catalysts are multicomponent bodies ranging from hundreds of micrometres to several centimetres in dimensions.<sup>20–31</sup> On average the time from idea to commercialisation is in the order of a decade, with an approximately equal split between laboratory evaluation and scale up.",
+        "bbox": [
+            502,
+            767,
+            932,
+            921
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            67,
+            956,
+            376,
+            971
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            971
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "6095",
+        "bbox": [
+            895,
+            957,
+            931,
+            970
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            494,
+            260
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Scale up is a major hurdle in the successful implementation of new catalytic technologies. Besides the active phase, which is primary to the activity, the catalyst formulation generally includes multiple additives in order to complement physical (mass or heat transfer), chemical (functionality), or mechanical (strength and attrition resistance) attributes (Fig. 2). Because of this, technical catalysts difer strongly in composition, structure, and porosity from research catalysts, and often exhibit a very diferent performance for better or for worse. A purely commercial aspect also acts in technical catalyst development. Analogous to the forces of natural selection, only those satisfying rigorous cost, performance, and safety constraints prevail. Implemented catalysts must be reproducibly manufactured, practical to handle and recover, avoid excessive pressure drops in industrial reactors, provide high mechanical, chemical, and thermal stability during long-term operation, and above all deliver recognisable performance benefits within an acceptable expenditure.<sup>20–31</sup>",
+        "bbox": [
+            63,
+            260,
+            494,
+            536
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Although catalysis is now an intensively studied discipline in the open literature, knowledge about catalyst scale up is scarce, the success of which ultimately determines the overall viability of a process. Several aspects could contribute to the apparent disinterest in this topic. From an industrial perspective, recipes for the manufacture of heterogeneous catalysts are fiercely guarded.<sup>32</sup> Undisclosed for proprietary reasons or described in the patent literature in the broadest sense, without detailed justification of the claims made, this secrecy provides a way for a company to maintain a competitive edge. A high degree of empiricism persists, which is accentuated by the fact that under time cost pressures, catalyst manufacturers often avoid scale up challenges altogether by opting for the use of commercially-available shaped catalyst carriers. Although these come with a wide range of tailored properties, compromises with respect to performance are inevitable.",
+        "bbox": [
+            63,
+            536,
+            494,
+            600
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/82dad0448e10d0f9f977aeb22e6b0fe8723f192176bebeaaca875ca30ff72010.jpg",
+        "image_caption": [
+            "Fig. 2 Commonly applied components in catalyst formulation. Additives incorporated to facilitate the shaping or to enhance the properties of technical catalysts change the composition, structure, porosity, and performance with respect to research catalysts.<sup>20–31</sup>"
+        ],
+        "image_footnote": [],
+        "bbox": [
+            84,
+            622,
+            475,
+            862
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            61,
+            932,
+            245
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "On the other hand, the unduly low academic efort to understand the preparation of technical catalysts could be attributed to a number of factors such as the absence of incentives and know-how due to a lack of awareness of industrial practices and the challenges faced; the practical needs to be able to safely prepare and handle larger material quantities and the availability of specific infrastructure including large machinery; and the complexity of understanding the interplay between interacting phases when shaped into workable geometries, which presents a huge intellectual challenge. In connection with the latter, the range of required expertise, combining diferent facets of chemistry (synthetic, physical, analytical), materials science (powder metallurgy, ceramics), chemical and mechanical engineering (reactor engineering), calls for interdisciplinary teams. One can easily imagine that, in contrast to industry, academic groups increasingly focused on specialised topics cannot embrace the whole reach.",
+        "bbox": [
+            502,
+            245,
+            934,
+            505
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "There is an urgent need for increased academic awareness of catalyst scale up to fully comprehend catalytic processes from synthesis to mechanism. Current design strategies are often polarised towards the establishment of structure–property– function relationships for research catalysts. Advanced studies of the latter have been instrumental in attaining a molecularlevel understanding of the active phase.<sup>33–36</sup> However, since these works neglect a significant proportion of the ingredients of technical catalysts (Fig. 2), the extent to which (if at all) the mechanistic information derived is representative of the performance data obtained in practise remains questionable. The only way to design improved catalysts is through understanding real catalytic systems, site engineering, crystal/particle engineering, and reactor engineering (Fig. 1), and not oversimplified analogues. The synthesis of the catalyst particles, including their size and shape as well as their porous structure and distribution of active sites, is always done within the context of the overall process requirements, giving consideration to kinetic and mass transport as well as hydrodynamic parameters of the selected reactor configurations.<sup>26–31</sup> Reactor engineering is beyond the scope of this review and the reader is referred to the classical, but excellent and still up-to-date account by Krishna and Sie. 26",
+        "bbox": [
+            502,
+            505,
+            934,
+            844
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Attending to the above needs, this review aims to raise awareness of the intricacies and prompt opportunities in technical catalyst design. After introducing the basic concepts of formulation and structuring we classify, for the particular case of zeolite catalysis, reported efects which can modify the function of technical catalysts, stressing the numerous possibilities to tune the performance and in many cases pointing out the poor rationalisation. We then highlight four recent examples which demonstrate fundamental strategies for the preparation, characterisation, and evaluation of catalysts in shaped form. Based on this, focal points are provided to encourage the more eficient exploitation of materials and methodological advancements, and to thereby accelerate the rate of successful implementation of catalytic technologies in chemical plants.",
+        "bbox": [
+            502,
+            844,
+            934,
+            921
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "6096",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            60,
+            494,
+            201
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "2. Basics of catalyst formulation and structuring",
+        "text_level": 2,
+        "bbox": [
+            65,
+            227,
+            420,
+            267
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Towards the end of the last century making a catalyst moved away from being analogised with ‘black magic’ to being constructed as a scientific discipline. A facilitator in this shift was the deconstruction of catalyst preparation into a series of elementary steps, which were broadly classified according to the chemical and physical transformations implied, and the related methodology and operation variables.<sup>20–25</sup> An essential task in their commercial manufacture is a unit operation known as ‘shaping’ or ‘forming’ in which powders are structured using a specific method into macroscopic bodies (Fig. 1). Serving as a natural divide, a distinction can be made between treatments applied before and after shaping to modify the properties of the component powders and agglomerated bodies, respectively.",
+        "bbox": [
+            63,
+            275,
+            494,
+            476
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Industrial catalysts come in a wide variety of compositions and shapes. Formulating and structuring a technical catalyst entails the selection of component materials and how they are introduced (in which form and sequence), and the shaping method used. Often this involves orchestrating the behaviour of complex mixtures of chemically distinct materials, including the active phase (or precursor), support, and multiple additives (Fig. 2).",
+        "bbox": [
+            63,
+            476,
+            494,
+            585
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The latter are typically classified according to their primary function (Table 1) and serve to facilitate processing or to enhance the properties of the technical catalyst, sometimes playing more than one role. Additives can form a large fraction of the technical catalyst, with values of up to 90% not uncommon, as will be seen for the specific fluid catalytic cracking catalysts in Section 3. In this section, the application and range of additive functions is illustrated by referring to a protocol for the manufacture of a $\\mathrm { C o _ { 2 } A l O _ { 4 } / C e O _ { 2 } }$ catalyst for $\\mathbf { N } _ { 2 } \\mathbf { O }$ decomposition invented and developed by Yara International (Fig. 3).<sup>37</sup>",
+        "bbox": [
+            502,
+            60,
+            932,
+            214
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Most industrial shaping methods, i.e. spray drying to form micrometre-sized, pelletisation, extrusion, or granulation to prepare millimetre-sized, or extrusion to yield centimetre-sized (monolith) bodies, rely on powder agglomeration.<sup>23</sup> Powders can be compacted dry, characteristic of pelletisation, or in the presence of a liquid (normally water) to enable processing as pastes (extrusion and wet granulation) or as slurries (spray drying). The quality of the resulting technical body is governed by achieving a uniform densification of the components, which is strongly influenced by the particle attributes (i.e. size and morphology, surface chemistry, and bulk density), the rheological behaviour of the feed, and the action of additive phases. Three elements are common to all structuring processes: (i) powdered raw materials must initially be refined to form a well-defined feed, (ii) the pre-mixtures must be agglomerated into ‘green bodies of the required shape, and (iii) the shaped bodies must be hardened to satisfy the mechanical demands (Fig. 3).",
+        "bbox": [
+            502,
+            214,
+            932,
+            474
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Feed optimisation, including the preconditioning of component properties and their mixing, is essential to ensure the highest degree of success during shaping. Highly-aggregated, irregularlyshaped, or heterogeneously-sized raw materials frequently need to be broken down by physical or chemical means. The simple action of intensive mixing, kneading, or wet milling to homogenise the phase distribution prior to shaping may sufice to reduce the",
+        "bbox": [
+            502,
+            474,
+            934,
+            585
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "table",
+        "img_path": "images/72eee2d50f97b30f89ce3fc3ad45f20547191238b4c829ff6b1746a3e74a1e36.jpg",
+        "table_caption": [
+            "Table 1 Overview of the types, functions, and materials applied as additives in technical catalyst manufacture"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Additive</td><td>Function</td><td>Applicable materials</td><td>Prominent examples</td></tr><tr><td>Binder</td><td>Increase mechanical strength upon hardening of technical body</td><td>Inorganic oxide with refractory properties</td><td>Alumina, aluminium phosphate, silica, silica-alumina, natural clays (attapulgite, bentonite, kaolin, montmorillonite, sepiolite) titania, zirconia</td></tr><tr><td>Filler</td><td>Dilute active phase to optimise content in technical body</td><td>Low cost inorganic oxide with refractory properties</td><td>Natural clays (e.g. kaolin), alumina</td></tr><tr><td>Lubricant</td><td>Reduce friction during mixing and shaping operations</td><td>Oil or other viscous liquid</td><td>Ethylene glycol, glycerin, graphite, mineral oil, propylene glycol, aluminium stearate</td></tr><tr><td>Modifier</td><td>Enhance performance of a technical catalyst</td><td>Promoter, selective poison, co-catalyst, coke or metal traps, passivators</td><td>Metal or metal oxide precursor, clay, zeolite</td></tr><tr><td>Peptiser</td><td>Disperse particles to improve feed homogeneity prior to/during shaping</td><td>Commonly a mineral or organic acid, but can also be a base</td><td>Acetic, citric, formic, hydrochloric, nitric or sulphuric, phosphoric acid</td></tr><tr><td>Plasticiser</td><td>Decrease viscosity of pre- mixtures to facilitate processing</td><td>Material dependent; typically containing polar and non-polar functionality</td><td>Hydroxyethyl cellulose, polyethylene glycol, starch, sugars, water</td></tr><tr><td>Porogen</td><td>Increase interparticle porosity in technical body</td><td>Cheap material which is removed, typically by thermal decomposition during hardening</td><td>Carbon black, flax, sawdust, starches of different size (corn, rice, potato)</td></tr></table>",
+        "bbox": [
+            65,
+            625,
+            927,
+            915
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            378,
+            971
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            657,
+            956,
+            882,
+            970
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "6097",
+        "bbox": [
+            895,
+            957,
+            931,
+            970
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "image",
+        "img_path": "images/b9e66ff2a9ed1ea17b581c211eda0399ab50287cde3bea366b2c9e5e03724b69.jpg",
+        "image_caption": [
+            "Fig. 3 Industrial manufacturing protocol of a supported spinel-based $N _ { 2 } O$ abatement catalyst. An aqueous slurry attained by mixing the insoluble cerium oxide with polyvinylacetate (PVA) to stabilise the suspension followed by addition of the soluble cobalt and aluminium salts is milled to reduce the support particle size. A porogen of desired size is introduced after milling to avoid damaging its structure. The active phase precursors are homogeneously dispersed onto the support by spray deposition and the uniformly-sized microspheres obtained, which are temporarily bound by the PVA, are compacted in the presence of a lubricant into mm-sized pellets. Subsequently, a controlled thermal treatment serves to remove the organic additives, increase the mechanical strength by sintering and form the ${ \\mathsf { C o } } _ { 2 } { \\mathsf { A l O } } _ { 4 }$ spinel. The application of spray deposition combines several of the large unit operations required by traditional routes, proving a versatile method to prepare supported metal catalysts.<sup>37</sup>"
+        ],
+        "image_footnote": [],
+        "bbox": [
+            110,
+            62,
+            448,
+            445
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "particle size (Fig. 4a).<sup>38</sup> Alternatively, the division of particle agglomerates into their primary subunits may require a chemical treatment such as peptisation, in which the dispersion is controlled by altering the properties of the dispersing medium (Fig. 4b).<sup>39</sup> Peptisation is widely reported in the processing of boehmite and aluminas prior to shaping. The exact processes involved, i.e. porosity and particle size evolution, still remain the subject of considerable misunderstanding.<sup>39–41</sup> Shaping methods can also be applied in series to improve feed homogenisation, one of the most common examples being the use of spray drying to attain flowable powders prior to pelleting (Fig. 3).<sup>37</sup> Throughout all of these steps, the sequence of component addition should reflect the stability of each material under the conditions applied (Fig. 3). Additives such as lubricants and plasticisers can be exploited to minimise the risk of structural damage during mechanical processing. A working knowledge of the component properties such as how the surface chemistry varies as a function of the pH and/or the concentration of adsorbed ions, and how they impact the water content and rheological properties of the pastes and slurries formed is highly beneficial.<sup>41–43</sup>",
+        "bbox": [
+            63,
+            644,
+            494,
+            921
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/e66e1a5d83045a14ff150965b64e2fc8892bbc2c9a34e2921a8649415e9109af.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            532,
+            61,
+            905,
+            215
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/6fd095cbfeebce021fb10e3d22bb21eeffd41fe8b5cde60159b4de9fad5c30aa.jpg",
+        "image_caption": [
+            "Fig. 4 Methods of particle size reduction; (a) transmission electron micrographs of as-received and intensively-mixed attapulgite clay powders clearly reveal the mechanically-induced dispersion of the original nest-like agglomerates (left) into individual needle-like particles (right).<sup>38</sup> (b) The particle size distributions of a commercial pseudo-boehmite before and after peptisation in aqueous acetic acid confirm the diminution of coarser aggregates. Reprinted from ref. 39, copyright 2012, with permission of Elsevier."
+        ],
+        "image_footnote": [],
+        "bbox": [
+            531,
+            237,
+            897,
+            437
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            504,
+            567,
+            931,
+            598
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To transform pre-mixtures into green bodies, particles need to be brought into intimate contact. How this is accomplished depends on the shaping method, i.e. compacting a powder in a die (pelletisation), entrapment in a shrinking slurry droplet (spray drying), forcing a paste through a die (extrusion), etc. Similar types of interparticle interactions (e.g. electrostatic, hydrophobic, liquid bridges, van der Waals), the extent of which depends on the materials present and the interfacial contact area, are reported to occur in all cases.<sup>44,45</sup> Stronger adhesion is typically favoured during wet processing, through capillary forces due to the formation of liquid bridges between particles. However, in the latter case the risk of compositional changes is elevated as the liquid may solubilise certain species, thereby increasing their mobility and the probability of redistribution. The application of organic additives to act as temporary binding aids and stabilise the green body prior to hardening is frequently reported.<sup>46,47</sup>",
+        "bbox": [
+            502,
+            598,
+            932,
+            844
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "After shaping, strong interparticle interactions must be developed to improve the mechanical stability, which for most catalysts is achieved by thermal treatment. Many of the underlying mechanistic principles describing the changes in chemical bonding, i.e. by condensation of terminal hydroxyl groups on neighbouring particles to form oxide or hydroxide bridges or by more extensive solid-state sintering, stem from ceramic and powder metallurgy.<sup>44</sup> Several processes may occur simultaneously with difering rates, depending on the catalyst formulation, but as yet an atomic level understanding of the changes at the interfaces, in particular in relation to the possible implications in catalysis, has not been gathered. It is not uncommon for one or more inorganic phase to undergo an irreversible structural transformation, often as a result of decomposition (such as dehydration) during thermal treatment. Extensive interactions are favoured by an intimate contact between the components, which is facilitated through the application of colloidal-sized particles such as those attainable by sol–gel type routes.<sup>48,49</sup> For materials which exhibit poor selfbinding properties (e.g. zeolites), the inclusion of binders is indispensable to attain durable bodies.",
+        "bbox": [
+            502,
+            843,
+            932,
+            921
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            68,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            823,
+            30,
+            931,
+            43
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6098",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            494,
+            306
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Binders deserve close consideration as they are ubiquitously used and can form, along with fillers, large portions of the technical catalyst. The distinction between binders and fillers, the latter introduced to moderate the activity or reduce the catalyst cost, is often not straightforward. In fact, binders are also considered as fillers if introduced in quantities larger than those required for the purposes of mechanical strength. Materials of similar types are used for both purposes, of which aluminas, silicas, natural clay derived materials and mixtures thereof are pervasive due to their refractory properties, high earth abundance, non-toxicity, and relative low cost. Organic binders (e.g. polymers) are less common in catalysis due to their lower threshold to withstand high operating and regeneration temperatures.<sup>50</sup> While naturally-sourced materials are typically cheaper, synthetic analogues may be preferred due to their higher purity and the improved control over the particle attributes. Ideally they can enhance the catalytic performance, e.g. by contributing to a well-defined internal pore structure, exhibiting co-catalytic activity, improving the thermal stability, protecting the catalytic phase from impurities, etc. It is noteworthy that the materials applied are also widely used catalyst supports.",
+        "bbox": [
+            63,
+            306,
+            494,
+            630
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Organic additives are typically removed under the conditions of thermal treatment, generating pores within the structure.<sup>46,47</sup> Porogens can be specifically added to increase the porosity (Fig. 3), which can be moderated through the appropriate choice and amount of the porogen applied, directly enhancing the mass transfer within shaped catalysts. However, improvements in the efective difusion often sufer the penalty of a reduced mechanical strength for which a compromise must be found (Fig. 5).<sup>37</sup> The conditions of porogen removal were cited as one of the most critical steps in the manufacture of the N O decomposition catalyst.",
+        "bbox": [
+            63,
+            629,
+            494,
+            783
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Additional treatments, such as impregnation, reduction, washcoating, ion exchange, or steaming, are frequently exploited to adjust the properties of technical bodies. Modifications applied after shaping have the advantage of facilitated handling and recovery on a large scale with respect to powders. The possibility of incorporating components at this point ofers greater flexibility for materials which may otherwise be unstable under the conditions of previous shaping steps, e.g. metals prone to sintering during hardening.<sup>51–53</sup> Caution is required as the treatment of composite macroscopic bodies can have very diferent results from those observed when applied to research catalysts. During metal deposition, for example, it is necessary to ensure that any additives present do not detrimentally impact the dispersion. Impairment of the mechanical integrity of the technical form should also be avoided.",
+        "bbox": [
+            63,
+            783,
+            494,
+            921
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/75cd12ea41b72e5ddc28305d91b41ff4d43657d4b9ae7a19036edf44b87e4d75.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 5 Compromise between pellet porosity, efective difusivity, and crush strength observed in the preparation of $\\mathsf { C o } _ { 2 } \\mathsf { A l O } _ { 4 } / \\mathsf { C e O } _ { 2 }$ catalysts with varying porogen content. Adapted from ref. 37."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            579,
+            59,
+            857,
+            234
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            304,
+            932,
+            399
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3. Catalytic impacts of formulation and structuring",
+        "text_level": 2,
+        "bbox": [
+            504,
+            423,
+            887,
+            462
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Knowing how technical catalysts are prepared, it is of interest to understand the impact of additive inclusion and shaping on their function. Herein, this is surveyed for the case of zeolite catalysis, which owing to the unique properties of zeolites blossomed into a global enterprise during the second half of the 20th century.<sup>54–57</sup> To the best of our knowledge virtually all current industrial applications require some form of structuring with inorganic binders, which can form a major part (i.e. 90%) of the final catalyst. Of the 200 distinct crystalline framework-types identified to date, only around 10% have so far become commercially viable. It is expected that a better understanding of the scale up will prove invaluable in enabling the technical application of more of these materials.<sup>58–60</sup> The far from inert nature of binders in many zeolite systems was highlighted by a recent perspective.<sup>61</sup> In addition to their primary role in improving the mechanical stability, binders can impact the performance by other physical and chemical means.<sup>61</sup> As the zeolite-based catalyst with the longest and most successful track record, we first examine important aspects in the formulation of fluid catalytic cracking (FCC) catalysts. Thereafter we undertake a general analysis of the often divergent observations which have been made regarding structuring and formulation in traditional acid-catalysed applications, before considering the additional complexities in the preparation of bifunctional zeolite catalysts.",
+        "bbox": [
+            502,
+            471,
+            934,
+            857
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3.1 FCC catalysts: a classic case",
+        "text_level": 2,
+        "bbox": [
+            504,
+            870,
+            736,
+            885
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "The contrast between a research and a technical catalyst can be likened to the diference between a solo instrumentalist and an orchestra. As opposed to the pure sound of a single instrument, in the latter case an ensemble of musicians in woodwind, strings, percussion, or brass sections, have to be harmonised to ensure a good performance, which is akin to coordinating the distinct functions of the multiple constituent phases in industrial catalysts. This is well illustrated by the case of FCC catalysts, in which the active faujasite-type Y zeolite (i.e. the research catalyst) may comprise as little as 10% by weight.<sup>61–68</sup> Catalyst manufacturers are acutely conscious of the fact that developing an FCC catalyst is more than only a matter of considering the active phase.<sup>65–68</sup> The additional components, present either in the attrition resistant amorphous matrix which binds the microspheroidal zeolite granules (60–200 mm) or as distinct solid or liquid additives, tackle diferent activity, selectivity, stability, and cost-related efects (Fig. 6a). The resulting complexity provides infinite possibilities of innovating the formulation, e.g. to target an increased feed flexibility or a particular product slate, which accounts for the continued growth in patent publications reporting new or improved catalyst preparations (Fig. 6b), despite the fact that FCC is viewed as a mature process.<sup>68</sup> Herein, we concisely review the essential additive functions and important aspects of FCC catalyst scale up.",
+        "bbox": [
+            502,
+            889,
+            932,
+            921
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            378,
+            971
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            971
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "6099",
+        "bbox": [
+            895,
+            957,
+            931,
+            970
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            494,
+            385
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/18d7f826ea63e590f781a0155d954a5591d6404417b61032b759a48f25dcf05f.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            82,
+            408,
+            472,
+            627
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/04311ec4d2a26eed68fbf833d93f71a9f7e8d37474da712be781599cc1665a7a.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b)",
+            "Fig. 6 Schematic diagram of the composition of a spray-dried FCC catalyst microsphere, each component accomplishing a defined function (a). Adapted from ref. 62. Annual number of patents reporting a new and/or improved preparation of an FCC catalyst this millennium (b)."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            99,
+            664,
+            436,
+            862
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            60,
+            931,
+            91
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Since their introduction in the 1960s, Y zeolites, typically applied in ultrastabilised (USY) or rare earth-exchanged forms (REY), have governed the cracking activity and selectivity in FCC catalysts, and their synthesis and post-synthetic modification to modify the acidity and improve the (hydro-)thermal stability of the framework have been widely studied.<sup>64,68–70</sup> While the dominant role of the active zeolite phase remains to be surpassed, the overall formulation has evolved significantly according to changes in feedstock composition, unit design, market prices, environmental legislation, and desired product quality.<sup>65–70</sup>",
+        "bbox": [
+            502,
+            92,
+            932,
+            260
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Comprising the major fraction of FCC catalysts, the composition of the matrix is a crucial aspect in determining the performance. The incorporation of a wide range of chemically distinct materials has been investigated to optimise specific properties, in addition to its binding role.<sup>64–72</sup> Of these a synthetic silica, alumina, or silica–alumina colloidal gel and/or larger particles derived from natural clays (typically kaolin or montmorillonite) generally form the main part.<sup>64–67</sup> Acidic aluminas or silica–aluminas are exploited to pre-crack bulky hydrocarbon substrates,<sup>70,71</sup> whereas silicas are preferred if an inert difusion medium is required to dilute the zeolite activity or to avoid unselective cracking.<sup>73,74</sup> Significant attention has been focused on optimising the matrix porosity to ensure the efective transport of reactants and products to and from the active zeolite phase.<sup>75–78</sup> Macroporosity can be increased by applying higher contents of kaolin<sup>77</sup> or by controlling the synthesis conditions of the synthetic component e.g. by the addition of porogens or pH modifiers.",
+        "bbox": [
+            502,
+            260,
+            934,
+            537
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "In the heat balanced FCC unit, coke deposition must be carefully moderated to ensure suficient heat generation during oxidative regeneration to catalyse the endothermic cracking reaction.<sup>63,66</sup> Since coke formation and distribution is highly interrelated with the properties of the matrix, the composition of the latter requires careful adjustment to synchronise the rate of deactivation with that of the zeolite phase.<sup>66,79</sup> Herein, the nature of the hydrocarbon feed, the process parameters, and the targeted product distribution must be considered to ensure an adequate lifetime and minimise unselective bottom cracking.",
+        "bbox": [
+            502,
+            536,
+            932,
+            706
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "A landmark change in the formulation of FCC catalysts followed the realisation that the addition of an MFI-type zeolite (ZSM-5) could improve the octane rating of primary gasoline products.<sup>80,81</sup> The technical hurdles faced by Mobil when ZSM-5 was first trialed in FCC catalysts during the course of its commercialisation in the 1980s nicely illustrate the types of challenges which can arise during scale-up.<sup>80</sup> The synthesis of ZSM-5, which requires a template, had to be brought down in price. Additionally, the higher stability of the ZSM-5 framework resulted in a slower deactivation in the reactor compared with the Y zeolites used, leading to unwanted selectivity variations. Although initial attempts tried to incorporate the two zeolites into single agglomerates, nowadays it is customary to shape the ZSM-5 as separate particles which are applied as-needed in order to maintain a constant activity relationship between the two zeolites. With an increased demand for light olefins, especially propene, focus on the usage of ZSM-5 additives has shifted toward the production of propene at the expense of gasoline.<sup>82</sup>",
+        "bbox": [
+            502,
+            706,
+            934,
+            921
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "6100",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            494,
+            137
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Adaptions in the formulation have also been motivated by a need for improved metal tolerance.<sup>83–86</sup> Contaminant metals (e.g. Ni, V, Fe, Na), prevalent in residual oils, are continuously deposited in the catalyst during cracking and can result in undesired selectivity and irreversible deactivation. Strategies to minimise these adverse efects include the incorporation of metal traps and/or passivators to preferentially interact and/or react to sequestrate these species (e.g. the addition of antimony, bismuth, or tin compounds to passivate nickel).<sup>83,84</sup> Such additives can be incorporated directly into the zeolite Y containing microspheres or are separately blended into the FCC unit, providing greater flexibility to respond to performance needs without detriment to the function of the active phase. The impact of diferent metal species is also dependent on the matrix composition, opening possibilities to reduce their deleterious efects by strategic formulation.<sup>85,86</sup> For example, oxidised vanadium species supported on alumina showed a much lower dehydrogenation and dehydrocyclisation activity than when supported on silica.<sup>85</sup> Acid-leached kaolin clay was also reported to exhibit improved resistance due to the ability of lattice vacancies to host metal impurities and form inert compounds such as nickel silicates. 86",
+        "bbox": [
+            63,
+            137,
+            494,
+            474
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Other well-established additives comprise (mixed) metal oxides such as magnesia–alumina or ceria–spinel introduced to moderate the emission of sulphur oxide and the incorporation of platinum- or palladium-based promoters to prevent uncontrolled CO oxidation in the dilute matrix phase by maximising the oxidation of CO to CO in the regenerator.<sup>65</sup> Finally, it is noteworthy that the matrix composition is commonly linked with various important thermal efects in the composite FCC catalyst, for example, enhancing the (hydro-)thermal stability, modifying the heat capacity and/or the conductivity and related heat transfer, and acting as a heat sink. While the basis of some of these efects, such as the reduced occurrence of hotspots upon dilution of the active phase or the retarded loss of zeolite crystallinity in the presence of certain additives, has been studied in depth (the origins of the improved hydrothermal stability in the presence of silica will be discussed in the next section), the cause of many others remains ambiguous, lacking direct evidence and without being specifically correlated with a given component.",
+        "bbox": [
+            63,
+            474,
+            494,
+            768
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "3.2 Divergent efects in zeolite catalysis",
+        "text_level": 2,
+        "bbox": [
+            65,
+            777,
+            349,
+            793
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "During the scale up of research catalysts, the choice of formulation and structuring method can both positively or negatively afect the performance. The case of FCC catalysts highlighted several beneficial functions that additives can exert, among others by providing a co-catalytic function, diluting the activity, improving the mass transfer, controlling the rate of coking, and enhancing the thermal stability and the resistance to impurities of the active phase (Fig. 7). Due to the overall success of this catalyst, the reported efects related to improvements in the function. However, since the changes in formulation have been predominantly grounded on trial and error approaches, the observations made have not all been rationalised. The lack of fundamental understanding, complicated by the fact that individual component phases can be associated with multiple and often interrelated roles which are challenging to decouple, make it dificult to assess the general applicability of the conclusions drawn to other processes. This section examines the broader implications of additives and shaping in acid-catalysed zeolite applications.",
+        "bbox": [
+            63,
+            797,
+            494,
+            921
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "image",
+        "img_path": "images/93faff6fc483d24f464ebeed4dc5ac0ce0f09cae5a9fa4ede30518c58b3d27e9.jpg",
+        "image_caption": [
+            "Fig. 7 Energy dispersive X-ray (EDX) spectroscopy map of Si (green) and Al (red) of a cross-section of a kaolin-bound hierarchical ZSM-5 extrudate (top), and an X-ray computed tomographic representation of the interparticle pore network (bottom) illustrate the distinct composition and porosity of the agglomerated catalyst. Benefits of optimising the formulation of the matrix are summarised."
+        ],
+        "image_footnote": [],
+        "bbox": [
+            526,
+            60,
+            914,
+            283
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            382,
+            932,
+            567
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "A widely expected consequence upon agglomeration is a diminished activity due to the increased difusion path to reach active sites, which can be buried deeply within the shaped body.<sup>87–89</sup> However, the efects of additional resistances to transport with respect to research catalysts may not be immediately obvious as they are not always manifested in catalytic tests, depending on the conditions applied and the relative impacts of other (e.g. compositional) changes.<sup>89</sup> Appropriate design of porous properties is clearly essential to optimise zeolite utilisation in difusion-limited reactions in which the efects of longer trajectories will be more pronounced. The careful calibration of binder porosity to facilitate the transport of feed molecules, for example, was reportedly a critical factor in the development of competitive zeolite catalysts for slurryphase applications.<sup>90</sup> As is often the case where catalyst porosity is correlated with performance through improved mass transfer, direct evidence of the latter was not reported preventing the general rationalisation of these efects.",
+        "bbox": [
+            502,
+            567,
+            932,
+            844
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "In addition to increasing the difusion path length, powder agglomeration also impacts the accessibility of active sites. Micropore blockage upon application of small inorganic sol binders, a phenomenon sometimes called ‘binder-blinding’, is commonly cited as a potential adverse impact of zeolite shaping.<sup>91,92</sup>",
+        "bbox": [
+            502,
+            843,
+            932,
+            921
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            378,
+            971
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            971
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "6101",
+        "bbox": [
+            895,
+            957,
+            929,
+            970
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To date the extent and implications of the physical efects of zeolite–matrix interactions in catalysis are not well understood. The obstruction of micropores is frequently discounted on the basis of gas adsorption measurements. For many zeolites, however, a large fraction of pore mouths could be (partially) blocked without observing a significant drop in the micropore volume determined by ${ \\bf N } _ { 2 }$ or Ar adsorption. It is expected that kinetic measurements of the adsorption of hydrocarbon probe molecules will provide fundamental insight in this regard.",
+        "bbox": [
+            63,
+            60,
+            494,
+            214
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Another important distinction between powders and mm-sized catalyst bodies is the increased participation of the extracrystalline surface, which can alter the shape selective properties of a zeolite.<sup>93,94</sup> Insightful work by researchers at Shell highlighted the impact of macroscopic structuring on the performance of ZSM-5 catalysts in the dehydration of 1-phenyl-ethanol to styrene, a reaction only catalysed by the outer surface of the zeolite.<sup>93</sup> By comparing the performance, they observed higher conversion and styrene selectivity over sieve fractions of the crushed catalyst than over the silica-bound ZSM-5 extrudates (Fig. 8a). The distinct behaviour was completely rationalised in terms of the strong internal difusion limitations within the extruded catalyst, which reduced mass transport and favoured consecutive oligomerisation of the styrene intermediate.",
+        "bbox": [
+            63,
+            214,
+            494,
+            446
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "The introduction of chemically distinct species in the matrix alters the type, amount, and distribution of active sites within the catalyst. Non-zeolitic components such as binders are typically less acidic than the zeolite of interest and unless they react with the zeolite phase (vide infra) their presence results in an overall reduction in acidity. Such dilution of the zeolite activity is reportedly favourable in certain shape selective reactions, such as in the isomerisation of m-xylene over silicabound H-ZSM-5 catalysts,<sup>95</sup> by reducing the occurrence of reactions at the external surface of the zeolite. Similar enhancements were achieved in the shape selective formation of p-diethylbenzene over alumina-bound ZSM-5 extrudates following silylation of the active matrix by chemical vapour deposition.<sup>95</sup>",
+        "bbox": [
+            502,
+            60,
+            934,
+            275
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Interactions between multiple phases can result in the formation of sites and defects which do not exist in the separate components, giving rise to a variety of distinct morphological, chemical, and electronic properties in real catalysts.<sup>96</sup> Almost 30 years ago scientists at Mobil highlighted the possibility of modifying the composition of a zeolite through interaction with a binder during shaping. These findings referred to the migration of aluminium species from alumina (35–50 wt% alphaalumina monohydrate) into high silica ZSM-5 (Si/Al > 1600) upon wet extrusion. This type of reaction resulted in an improved ion-exchange capacity and activity in acid-catalysed reactions requiring strong zeolitic acidity (i.e. n-hexane cracking, propene oligomerisation, lube oil dewaxing, and methanol to olefins).<sup>97</sup> Since the alumina binder was itself not active, the enhanced catalytic performance was attributed to the insertion of aluminium into the zeolite framework, which was confirmed $^ { 2 7 } \\mathrm { A l }$ MAS NMR and IR spectroscopy (Fig. 8b). The migration of aluminium and subsequent insertion into the framework occurred preferentially in the presence of water, and could be considerably increased by steam treatment. Later work, investigating the stability of boron substituted ZSM-5, revealed that the insertion of Al could be facilitated by the presence of a readily hydrolysable heteroatom in the framework.<sup>98,99</sup> As well as increasing the acidity, the presence of an alumina binder was also reported to stabilise colloidal zeolite beta nanocrystals, preventing dealumination during calcination.<sup>100</sup> Binding with alumina does not always lead to activation. In contrast to the previous cases a partial neutralisation of Brønsted sites was reported upon shaping H-ZSM-5 zeolites with a peptised boehmite.<sup>101</sup>",
+        "bbox": [
+            502,
+            275,
+            934,
+            446
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/57b4b7d6bdd348026128e3f9aee68d5ffeb100a1ba671f6adf24f31ed1bcbe83.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a)"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            117,
+            500,
+            376,
+            670
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/54f47f10d9a40adc5d39f16c5d88b76268c58e510315f5e8767a216ffa70f129.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b)"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            394,
+            499,
+            608,
+            670
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/3a13577d080c1f1a71857e312f1d1441ee38681231a4a3bed113274903ed3136.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c)"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            625,
+            496,
+            882,
+            670
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/e24aadc15827d6480de1b668f5f7e5b66df3c942605b40ac9046db87e8252796.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            147,
+            679,
+            347,
+            806
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/cec7a82e4693e8e43d317dcd90bdcddf433317f827a80f35ec42dcdbe0921994.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            374,
+            680,
+            616,
+            838
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/f32ef2fbde2eb3cfdc23cb84c16ae087ea2ec4564c76df664ccaf0a36d1c7e84.jpg",
+        "image_caption": [
+            "Fig. 8 Three commonly cited impacts of structuring in zeolite catalysis: (a) the comparative conversion of 1-phenyl-ethanol and selectivity to styrene over silica-bound (60 wt%) ZSM-5 extrudates and crushed analogues evidences a reduced mass transfer in technical form (reprinted from ref. 93, copyright 2001, with permission of Elsevier), $( 6 ) ^ { 2 7 } mathsf { A l M A S }$ NMR spectra confirm the formation of tetrahedral aluminium species upon hydrothermal activation of high-silica ZSM-5 extruded with alumina (adapted from ref. 98), (c) variation in the toluene conversion $( X _ { \\mathrm { t o l u e n e } } ) ,$ selectivity to disproportionation $( S _ { \\mathsf { D } } )$ and p-xylene $( S _ { p - x y \\mid \\mathrm { e n e } } )$ over an H-ZSM-5 catalyst pelleted with diferent contents of Na-containing montmorillonite binder attributed to the neutralisation of acid sites due to migration of sodium ions from the binde (reprinted from ref. 108, copyright 1991, with permission of Elsevier). The latter efect could be completely reversed by ion exchange."
+        ],
+        "image_footnote": [],
+        "bbox": [
+            636,
+            684,
+            868,
+            839
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "6102",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            494,
+            353
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Opposite to the case of alumina, a reduction in strong zeolitic acidity has been claimed upon application of lowacidity binders $\\left( i . e . \\ \\mathrm { S i O } _ { 2 } , \\mathrm { T i O } _ { 2 } , \\mathrm { Z r O } _ { 2 } \\right)$ to shape Al-rich zeolites (of MFI, FAU, and BEA framework-types), which was linked to dealumination of and/or the insertion of silicon into the framework.<sup>102,103</sup> Reaction of extraframework aluminium present in USY with a silica matrix under hydrothermal conditions reportedly led to the formation of catalytically active silica– alumina species at the matrix–zeolite interface.<sup>104</sup> The replacement of aluminium expelled from the framework of RE-Y and ofretite zeolites upon hydrothermal treatment with silicon from the matrix is believed to be responsible for the markedly improved stability, which is exploited in FCC catalysts.<sup>105</sup> The migration and insertion of silicon into the zeolite framework was demonstrated by isotopic labelling.<sup>106</sup> It is worth remarking that depending on the stability of the zeolite framework, demetallation can also result during hardening due to hydrothermal treatment, an efect which is more likely in the presence of additives which undergo dehydroxylation at high temperatures, such as kaolin, leading to elevated concentrations of water vapour.<sup>107</sup>",
+        "bbox": [
+            63,
+            353,
+            494,
+            675
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Apart from framework modifications, the acidity of zeolites can also be altered by ion-exchange with extraframework metals. This type of reaction has been frequently observed in relation to the application of clay binders containing exchangeable alkali metals and, in contrast to reductions in acidity due to demetallation, should be reversible.<sup>108–110</sup> Extraframework modifications also have varying catalytic efects. Early work by Uguina et al.<sup>108</sup> showed large diferences in the performance of H-ZSM-5 catalysts in the disproportionation of toluene when bound with diferent contents of a sodium montmorillonite binder (Fig. 8c). Greater acid site neutralisation reduced the toluene conversion, but increased the disproportionation selectivity and shape selectivity to p-xylene. The properties of the pure zeolite phase were almost completely restored following reactivation of the catalyst by acid treatment. Despite numerous qualitative reports, zeolite–binder interactions remain far from being fully understood, and the relative importance of framework-type, composition, treatment conditions has not been evaluated.",
+        "bbox": [
+            63,
+            675,
+            494,
+            921
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            60,
+            934,
+            107
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "3.3 Bifunctional catalysts: an added level of complexity",
+        "text_level": 2,
+        "bbox": [
+            504,
+            118,
+            894,
+            133
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Many hydrocarbon conversions of industrial interest exploit the combined activity of zeolitic acid sites with a metal functionality, greatly extending the scope of zeolite catalysis. In addition to the implications of the presence of additives and the macroscopic structuring discussed in the previous sections, rationalising the performance of bifunctional zeolite catalysts presents many additional challenges associated with controlling the metal dispersion within the shaped body. Uncertainties in the structure of active sites are even more prevalent in the presence of multiple interacting phases. The unexpected loading of metals onto non-zeolitic phases due to a preferential interaction upon impregnation of the shaped catalyst or to the migration from the zeolite can alter the proximity of acid and metal functionalities, the metal dispersion, and the properties of the supported species.<sup>111–115</sup> Thus the catalytic performance can be adversely impacted through a poor choice of formulation.",
+        "bbox": [
+            502,
+            137,
+            934,
+            399
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Based on the limited studies treating this topic, large diferences in metal distribution can be envisaged depending on the quantity and identity of additives present, the method of incorporation, and the conditions applied during subsequent processing and implementation of the catalyst. A combined positron annihilation spectroscopic and scanning transmission electron microscopy study of $\\mathbf { P t } / \\mathbf { A l } _ { 2 } \\mathbf { O } _ { 3 }$ -mordenite catalysts evidenced that virtually all of the platinum was associated with the binder following impregnation of alumina-bound extrudates, whereas when a Pt-exchanged mordenite was extruded with alumina, the majority of the metal remained in the zeolite phase.<sup>111</sup>",
+        "bbox": [
+            502,
+            399,
+            934,
+            582
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "Whether it is preferable to have a stronger metal–matrix or metal–zeolite interaction depends on the intended use of the bifunctional catalyst. In the hydroisomerisation of ethylbenzene, enhanced activity was observed over $\\mathbf { P t } / \\mathbf { A l } _ { 2 } \\mathbf { O } _ { 3 } .$ -mordenite prepared by pelletisation of the acidic zeolite with a platinumimpregnated alumina binder. This was attributed to the improved Pt dispersion over the support, which was approximately eight times higher than that evidenced when the platinum was directly impregnated onto the mordenite.<sup>112</sup> Upon impregnation of platinum onto K-LTL zeolite extrudates prepared with a basic MgO-doped alumina, a silica, or an acidic alumina binder, Kumar et $a l . ^ { 1 1 3 }$ evidenced distinct metal dispersions and catalytic performance. Higher platinum dispersion and aromatisation activity attained in the presence of the basic binder was attributed to a stronger metal–binder interaction due to the greater electronegativity of MgO. Unfortunately no microscopic evidence confirmed this observation. A significant drop in micropore volume was observed upon impregnation of $\\mathrm { S i O } _ { 2 }$ -bound catalysts. Although not discussed in depth, the latter could indicate a preferential deposition on the zeolite phase consistent with the weaker binder–metal interaction expected in this catalyst.",
+        "bbox": [
+            502,
+            582,
+            934,
+            921
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "page_number",
+        "text": "6103",
+        "bbox": [
+            895,
+            957,
+            931,
+            970
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            378,
+            971
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            971
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "In the opposite scenario, recent work reported by Honda et al.<sup>114</sup> evidenced decreased conversion in the non-oxidative dehydroaromatisation of methane due to a wasteful load of molybdenum trioxide when impregnated onto H-ZSM-5 in the presence of a silica binder. Migration of $\\mathbf { M o O } _ { 3 }$ between the zeolite and binder phases upon wet mixing was evidenced by comparing the performance of $\\bf M o O _ { 3 } / A l _ { 2 } O _ { 3 } \\mathrm { - H \\mathrm { - } Z S M \\mathrm { - } \\bar { 5 } }$ or $\\mathbf { M o O } _ { 3 } /$ $\\mathbf { S i O } _ { 2 } – \\mathbf { H } – \\mathbf { Z S M } – \\mathbf { 5 }$ catalysts prepared by pre-impregnation of either the binder or the zeolite phase. While this migration was reversible in the presence of silica, this was not the case in alumina which exhibited a preferential interaction with the molybdenum trioxide. The redistribution of the bimetallic functionality was reportedly prevented by pre-carburisation of the MoO /H-ZSM-5 leading to the successful localisation of $\\mathbf { M o O } _ { 3 }$ on its primary support.",
+        "bbox": [
+            63,
+            61,
+            494,
+            291
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "In summary it is evident that the catalytic function of research and technical catalysts is not identical. The superimposed macrostructure contains chemically distinct phases which, if properly understood, can serve to complement and preserve the active ingredient.",
+        "bbox": [
+            63,
+            291,
+            494,
+            369
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "4. Recent advances",
+        "text_level": 2,
+        "bbox": [
+            65,
+            386,
+            257,
+            403
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "The previous sections have drawn attention to numerous efects that can potentially be exploited upon catalyst scale up. However, despite being realised daily by industry, the academic study of technical catalyst preparation remains in its infancy. The need to rationalise the latter directly relates to our proficiency in translating scientific advancements from the lab to the industrial scale. This section reviews recent works where exemplary progress has been made in the development of enhanced catalytic technologies and of tools for their characterisation.",
+        "bbox": [
+            63,
+            414,
+            494,
+            567
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "4.1 HCl oxidation catalysts",
+        "text_level": 2,
+        "bbox": [
+            65,
+            577,
+            263,
+            593
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "Hydrochloric acid oxidation provides an illustrative case of how catalysis can respond to changes in societal needs.<sup>116</sup> This is an attractive reaction to valorise by-product HCl streams generated in several industrial processes of contemporary importance. Although a large-scale catalytic process to produce $\\mathrm { C l } _ { 2 }$ from HCl was conceived by Henry Deacon in the 19th century, this route was largely overtaken by rival electrochemical processes due to the major challenge of developing a suficiently active and stable catalyst. Intense eforts combining fundamental and applied research have proven to be essential for the identification of robust supported ruthenium-based materials reported by Sumitomo $\\left( \\mathrm { R u O } _ { 2 } / \\mathrm { T i O } _ { 2 } \\right) ^ { 1 1 7 }$ –119 and Bayer $\\scriptstyle \\left( \\mathrm { { R u O } } _ { 2 } / \\mathrm { { S n O } } _ { 2 } \\right) ,$ 120–123 which have now broken through to pilot and plant scales revitalising the industrial prospects of this process.",
+        "bbox": [
+            63,
+            598,
+            494,
+            812
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "One of the most successful catalysts for HCl oxidation, developed by Bayer MaterialScience, comprises cassiterite as the carrier and ruthenium oxide/oxychloride as the active phase.<sup>124</sup> Several points of practical nature were highly influential in defining the protocol applied to synthesise the technical catalyst $( \\mathrm { F i g } . \\ 9 ) . ^ { 1 2 4 }$ Thermal treatment of the commercial $\\mathrm { S n O } _ { 2 }$ powders secures a highly crystalline rutile phase at the surface enabling efective lattice matching with the supported ruthenium oxide. The support is shaped and hardened prior to deposition of the active phase in order not to compromise the dispersion of the latter due to sintering at the high temperatures required to attain catalyst pellets of suficient mechanical stability. By applying a final mild calcination of the impregnated metal (o523 K), the ruthenium dispersion can be maximised permitting a decrease in the loading. This sequence of shaping prior to introducing and activating the active phase is typical in the preparation of supported catalysts where achieving a high dispersion or reducing the catalyst cost is often critical.",
+        "bbox": [
+            63,
+            813,
+            494,
+            921
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "image",
+        "img_path": "images/76806f58b596b47fc51fbd60d07e20b78f3dd2f8a5922154bd27f33877a98673.jpg",
+        "image_caption": [
+            "Fig. 9 Flowsheet of the industrial preparation of shaped $\\mathsf { R u O } _ { 2 } / \\mathsf { S n O } _ { 2 } – \\mathsf { A l } _ { 2 } \\mathsf { O } _ { 3 }$ catalysts for the oxidation of HCl to $\\mathsf { C l } _ { 2 } .$ Key steps are described in the text.<sup>120</sup>"
+        ],
+        "image_footnote": [],
+        "bbox": [
+            578,
+            61,
+            857,
+            359
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            428,
+            932,
+            613
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "An alumina binder is included to reinforce the mechanical strength of the agglomerated $\\mathrm { { S n O } } _ { 2 }$ support. In this specific case the choice of an alumina binder is essential as it plays multiple roles: (i) by ensuring that the shaped body remains suficiently porous after hardening it facilitates the eficient penetration and dispersion of the aqueous solution of the soluble ruthenium precursor. (ii) Due to its acidic surface properties, alumina does not detrimentally impact the selective deposition of the ruthenium species on the carrier particles despite having a much higher surface area than the $\\mathrm { { S n O } } _ { 2 } .$ Suboptimal HCl oxidation performance was observed when the alumina was substituted with a basic kaolin-derived material as a significant fraction of the ruthenium phase was unselectively deposited onto the binder. (iii) The alumina binder is known to stabilise the $\\mathrm { { S n O } } _ { 2 }$ phase against chlorination, which is not observed with other potential oxides such as $\\mathrm { S i O } _ { 2 } . ^ { 1 2 4 }$ Importantly, it was recently demonstrated that the metal loading could be significantly reduced in the $\\mathbf { R u O } _ { 2 } / \\mathrm { S n O } _ { 2 } – \\mathbf { A l } _ { 2 } \\mathbf { O } _ { 3 }$ system without compromising its long term stability. The insertion of ${ \\mathbb { A } } ^ { 3 ^ { + } }$ cations into interstices within the $\\mathrm { { S n O } } _ { 2 }$ lattice depletes the electron density of the surface rendering it acidic and thus more resistant to HCl.",
+        "bbox": [
+            502,
+            613,
+            932,
+            921
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "page_number",
+        "text": "6104",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 11
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            492,
+            91
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "The granular catalyst (2 mm diameter) containing 2 wt% Ru and 10 wt% $\\gamma { \\mathrm { - } } \\mathsf { A l } _ { 2 } \\mathsf { O } _ { 3 }$ has been evaluated in pilot studies in a three-zone adiabatic reactor, exhibiting a stable $\\mathrm { C l } _ { 2 }$ production for more than 12 000 hours on stream. As discussed, the alumina not only fulfils a standard binder function, but also acts as a stabilising agent impeding the most highly detrimental interparticle ${ \\bf R u O } _ { 2 }$ agglomeration and preventing the bulk chlorination of the $\\mathrm { { S n O } } _ { 2 }$ carrier.",
+        "bbox": [
+            63,
+            92,
+            494,
+            215
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "4.2 Novel hierarchical zeolites",
+        "text_level": 2,
+        "bbox": [
+            65,
+            224,
+            285,
+            238
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "Hierarchically-structured zeolites, integrating the catalytic power of the intrinsic micropores with optimised molecular transport to/from active sites as a consequence of an auxiliary network of interconnected meso-/macropores, were developed in response to the ineficient utilisation of conventional (purely microporous) zeolites.<sup>125–133</sup> Direct benefits have been demonstrated in numerous processes central to refinery, petrochemical and fine chemical applications. To achieve the ultimate goal of enhancing the scope of zeolite catalysis, the encouraging results observed over tailored zeolite powders needed to be successfully extrapolated to practical forms.",
+        "bbox": [
+            63,
+            245,
+            494,
+            413
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "With a view to rationalising the principles of zeolite scale-up, it is crucial to identify relevant descriptors (i.e. acidic, compositional, or porous properties) for the enhanced performance. Herein, key aspects include understanding the impact of additives and structuring steps required to meet the stringent criteria for commercial application, and the use of appropriate tools to characterise the physico-chemical properties and related function of the resulting technical forms. Desilication of commercial zeolites was demonstrated as one of the few cost-efective routes that fulfils the primary attributes (efective, versatile, and scalable) to reach the market in a relatively short time frame.<sup>135</sup> Without clear fundamental guidelines on how to shape the powders obtained, a convenient starting point was to use equivalent structuring methods as applied for the conventional zeolite.<sup>38</sup> Following an industrial protocol, mechanically-stable mm-sized granules and extrudates of the hierarchical ZSM-5 powders were prepared (Fig. 10).",
+        "bbox": [
+            63,
+            413,
+            494,
+            492
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            61,
+            932,
+            260
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "text",
+        "text": "Structuring with clay binders did not apparently alter the intrinsic porosity of these materials when assessed by argon adsorption and mercury intrusion. The presence of a trimodal pore size distribution was confirmed: microporosity inherent to the zeolite crystals (0.56 nm), intracrystalline mesopores generated by alkaline treatment (ca. 10 nm), and an additional level of interparticle macroporosity (ca. 200–300 nm) defined by the agglomeration of the zeolite with the binder. Recently, the outstanding performance of hierarchical ZSM-5 extrudates was evidenced by the greatly extended lifetime and more favourable selectivity relative to that of an equivalently-structured conventional zeolite in the conversion of methanol-to-olefins.<sup>134</sup> Thus, the benefits of improved transport properties resulting from the introduction of intracrystalline mesopores were preserved in technical form.",
+        "bbox": [
+            502,
+            260,
+            932,
+            491
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/e330c747ca0576ec4f17d538d74d70d904e8fc3303b3c33033ebdcf4d20fefc8.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            228,
+            539,
+            342,
+            626
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/7d92b90cce1d2d1ab9a484f7d26be402e0c0084a4fba5c26fda7e7ab9f08514d.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            361,
+            537,
+            475,
+            625
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/3bc97e5a497f8a3348973e320dbd932c005d0b2efded5893bad2dcb059e96b2e.jpg",
+        "image_caption": [
+            "(a)",
+            "(c)"
+        ],
+        "image_footnote": [],
+        "bbox": [
+            478,
+            539,
+            608,
+            625
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/cad6566c789fd116f92c8698df769ad84004dd7864ad4af9422a3f5875784732.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            616,
+            537,
+            741,
+            626
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "chart",
+        "img_path": "images/0cb075cd46ec2c509f280e6f736746c3df73ae37541c10d2e5f5134008db9c5f.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            95,
+            641,
+            327,
+            836
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "chart",
+        "img_path": "images/1129714e3643ddc7c41e0a37ae6d433eb074f2271bb033077169270cef3a6a58.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            337,
+            649,
+            593,
+            839
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "chart",
+        "img_path": "images/377d1b503fb17efd15d275e00b6d88d16c5c044ff1efb1f2841ec560ead72c1e.jpg",
+        "content": "",
+        "chart_caption": [
+            "(d)",
+            "Fig. 10 Fundamental approach to enhance the utilisation of zeolites in catalysis: hierarchically-structured ZSM-5 bodies were attained following scaled up demetallation of a conventional sample and shaping the resulting mesoporous zeolite powders into technical form (a). Pore size distributions derived from Ar adsorption and Hg intrusion confirm the retention of the intracrystalline mesoporosity and the presence of macroporosity (shaded area) defined upon extrusion (b).<sup>134</sup> The increase in intracrystalline difusivity (D ) of 2,2-dimethylbutane in the ZSM-5 micropores with increasing mesopore surface area $( S _ { \\mathrm { m e s o } } )$ observed over hierarchical zeolite powders (c) was recently shown to be fully preserved in extruded form.<sup>136</sup> The greatly extended lifetime evidences the superior properties of hierarchical than conventional zeolite extrudates in the conversion of methanol to olefins (d)."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            610,
+            648,
+            902,
+            835
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "page_number",
+        "text": "6105",
+        "bbox": [
+            895,
+            957,
+            931,
+            970
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            378,
+            971
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            970
+        ],
+        "page_idx": 12
+    },
+    {
+        "type": "image",
+        "img_path": "images/4722e92c959725217f5b2e4a30781af4eb7532591dc2763ad6a49c954b4c8c1d.jpg",
+        "image_caption": [
+            "Fig. 11 An arsenal of imaging techniques were applied to visualise the multidimensional structural organisation of mm-sized hierarchical zeolite granules and extrudates bound with natural clay binders from macro- to nanoscale (CLSM, confocal scanning laser microscopy; HAADF-STEM, high angle annual dark field-scanning transmission electron microscopy; SRXTM, synchrotron radiation X-ray tomographic microscopy; FIB-SEM, focused ion beam-scanning electron microscopy). First published in ref. 134."
+        ],
+        "image_footnote": [],
+        "bbox": [
+            159,
+            59,
+            845,
+            509
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "While the size distributions, volumes, and surface areas related to the pore structure could be derived from standard gas adsorption and porosimetry techniques, the spatial organisation of the phases and the topology of the inter- and intraparticle pore network were only revealed by direct visualisation of the diferent porosity length scales of the macroscopic bodies (Fig. 11).<sup>134</sup> The 3D macrostructure of the hierarchical body, reconstructed from virtual 2D cross-sections acquired by micro-CT, showed the structural homogeneity, and confirmed the success of scale-up in terms of product uniformity and reproducibility. FIB-SEM images revealed the homogeneous internal distribution of zeolite and binder phases, with interparticle macropores connected to the external surface. On a nanoscale, the presence of intracrystalline mesopores was evidenced by high-resolution TEM. While the similar internal structure in both conventional and hierarchical zeolite bodies could perhaps have been anticipated prior to shaping, based on a purely physical view of the comparable particle size distributions, it was not known what efects could be exerted by the distinct porous properties and composition of the zeolites. The only diference noted in the structuring protocol was the slightly increased amount of water required to shape hierarchical zeolites related to the larger pore volumes of these materials.",
+        "bbox": [
+            63,
+            598,
+            494,
+            921
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            598,
+            931,
+            629
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "The possibility of successfully shaping hierarchical zeolites led to two fundamental questions: (i) whether the enhanced kinetic and thermodynamic adsorption properties would be retained upon shaping into technical forms, and in relation to this, (ii) how influential would the impact of intracrystalline pore engineering be with respect to the global mass transfer. Very recently, a parallel gravimetric adsorption study of 2,2- dimethylbutane over hierarchical zeolites powders, extrudates, and granules demonstrated that the benefits of intracrystalline mesopores could be fully preserved in technical forms (Fig. 10).<sup>136</sup> Application of a bulky alkane probe, of a similar kinetic diameter to that of the ZSM-5 micropores, was imperative to accurately determine the uptake kinetics. Detailed insight into the role of the intracrystalline mesopores was gained by comparing the variation in efective difusivity with the mesopore surface area, which revealed two distinct behaviours. While a linear relationship, characteristic of a reduced difusion path, was observed for samples of low mesoporosity, the efective difusivity increased exponentially in hierarchical zeolites of higher mesopore surface area consistent with the parallel action of micro- and mesopores to the overall mass transfer.",
+        "bbox": [
+            502,
+            629,
+            934,
+            921
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "page_number",
+        "text": "6106",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 13
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            494,
+            106
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "In the granular and extruded forms, comparative evaluation of the relative difusion times in the extracrystalline versus intracrystalline pore networks highlighted the substantial impact of macropore (extracrystalline) difusion on the overall mass transfer.<sup>136</sup> Interestingly, these observations hint at the large potential benefits which could ensue if attention is turned towards optimising the pore structure of the matrix within technical bodies. Another exciting result which emerged from the analysis of kinetic and thermodynamic properties of adsorption was the possibility of detecting diferences arising from the zeolite–binder interaction upon shaping. This included both physical and chemical aspects such as diferences in the tortuosity of the extracrystalline pore network, depending on the type of binder, and variations in the heat of adsorption, depending on the processing conditions applied. In general larger changes in the adsorption enthalpy indicative of a greater influence of zeolite–binder interaction were observed for hierarchical zeolite, which can be envisaged based on a surface driven mechanism.",
+        "bbox": [
+            63,
+            106,
+            494,
+            399
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "4.3 Visualisation as a tool for rational scale up",
+        "text_level": 2,
+        "bbox": [
+            65,
+            409,
+            398,
+            424
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "Since the strength, nature, and distribution of active sites as well as the location and interconnectivity of the associated pore network and related difusion characteristics are governed by the decisions made during scale up, the development of advanced methods to probe the organisation and interaction of individual constituents within macroscopic bodies is essential. Alongside powerful and routinely used electron microscopic techniques,<sup>137,138</sup> numerous advances in other methods, including magnetic resonance imaging (MRI), X-ray absorption (CT), fluorescence (XRF-CT), and difraction (XRD-CT) computed tomography, and Raman, UV-vis-NIR and infrared microspectroscopies, are enabling greater spatially-resolved insight into the physico-chemical properties of structured catalysts.<sup>139–148</sup>",
+        "bbox": [
+            63,
+            428,
+            494,
+            629
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "Several studies by Weckhuysen and co-workers have assessed the applicability of these techniques, developing strategies to attain spatial and time resolved information about the active phase distribution during the preparation of supported catalyst bodies. In an illustrative example, three dimensional profiles constructed from non-invasive XRD-CT studies of ${ \\bf N i } / \\gamma { \\bf - A l } _ { 2 } { \\bf O } _ { 3 }$ methanation catalysts revealed the structural evolution and dispersion of a nickel precursor during impregnation and subsequent calcination/activation.<sup>138–141</sup> The influence of complexing agents and the internal zoning and particle size distribution of the nickel nanoparticles formed were also elucidated (Fig. 12).",
+        "bbox": [
+            63,
+            629,
+            494,
+            812
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "Other works have extended the applicability of X-ray based tomography techniques to study the impregnation of diferent metals such as copper,<sup>142</sup> demonstrating their use to map the phase distribution within catalyst bodies reaching submicron resolutions.<sup>143,144</sup> The characterisation of ‘as-made’ FeCrAlY foams following electrochemical coating with a Ni-based catalyst for steam–methane reforming by XRF-CT, XRD-CT, and CT together with SEM/EDS, evidenced inhomogeneity in the morphology, phases, and distribution of elements in both the support and the deposited phase.<sup>144</sup> Advances in the time and the peak width resolution will only improve the scope of these techniques.<sup>148</sup>",
+        "bbox": [
+            63,
+            812,
+            494,
+            921
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "image",
+        "img_path": "images/3893a451d627d7b0a16541ada30f08e17d0a0b5728b7de69100b0312d1027f29.jpg",
+        "image_caption": [
+            "Fig. 12 XRD-CT representations of 3D probability isosurfaces and relative 2D intensity distributions of the phase distribution during the preparation of $N i / \\mathsf { A l } _ { 2 } \\mathsf { O } _ { 3 }$ based methanation catalysts by impregnation reveal the formation of two distinct nickel–ethylenediamine complexes; Ni(en) (NO ) (a) and hydrated $[ \\mathsf { N i } ( \\mathsf { e n } ) _ { 2 } ( \\mathsf { H } _ { 2 } \\mathsf { O } ) _ { 2 } ] ( \\mathsf { N O } _ { 3 } ) _ { 2 }$ (b), which possess an egg-shell and an egg-yolk distribution, respectively, within the $\\mathsf { A l } _ { 2 } \\mathsf { O } _ { 3 }$ (c) pellets. Adapted from ref. 139."
+        ],
+        "image_footnote": [],
+        "bbox": [
+            519,
+            60,
+            917,
+            210
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            320,
+            932,
+            397
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "MRI provides another non-invasive tool for studying the impregnation and drying of technical catalysts. Two diferent approaches have been considered, the indirect imaging of para- and diamagnetic species by <sup>1</sup>H NMR and the direct imaging of NMR-sensitive nuclei.<sup>145,146</sup> The former route permitted quantification of the difusion of hydrated diamagnetic $\\left( \\mathbf { M o } _ { 7 } { \\mathbf { O } _ { 2 4 } } ^ { 6 - } \\right) ^ { 1 4 5 }$ and paramagnetic $( \\mathrm { N i } ^ { 2 + } , \\mathrm { C o } ^ { 2 + }$ , and $\\mathrm { C u } ^ { 2 + } ) ^ { 1 4 \\bar { 6 } }$ complexes along a catalyst body. Direct imaging of a <sup>13</sup>C-labelled citric acid additive used in the impregnation of an ${ \\bf A l } _ { 2 } { \\bf O } _ { 3 }$ body was also demonstrated. This technique is mainly applicable for the study of macroscopic processes and is limited by the chemical sensitivity of the technique.",
+        "bbox": [
+            502,
+            397,
+            932,
+            581
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "Applications of Raman, UV-vis-NIR, and infrared microspectroscopies have focused on the characterisation of physicochemical processes occurring during the preparation of CoMo– ${ \\bf - A l } _ { 2 } { \\bf O } _ { 3 }$ hydrodesulfurisation catalysts.<sup>147</sup> By studying the speciation of diferent complexes formed when $\\gamma { \\mathrm { - } } \\mathsf { A l } _ { 2 } \\mathsf { O } _ { 3 }$ pellets came into contact with diferent Co-, Mo-, and P-containing solutions, insight was gained regarding the interaction of the complex with the support surface. This enabled optimisation of the impregnation conditions to permit controlled distributions of the applied heteropolyanions within the catalyst pellets. A current restriction of spectroscopic techniques is the limited penetration depth that can be analysed within technical bodies, requiring invasive sample preparation to observe changes in the interior structure. The latter could potentially alter the sampled volume and precludes the in situ study of the drying or thermal treatment steps.",
+        "bbox": [
+            502,
+            582,
+            934,
+            829
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "4.4 Towards visualisation of the catalyst function",
+        "text_level": 2,
+        "bbox": [
+            504,
+            839,
+            853,
+            853
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "The activity within a technical catalyst is likely to vary between distinct locations due to the complex interrelation of molecular difusion, active site adsorption, and chemical conversion. Since catalysts are afected by their environment, the true nature of active sites can only be assessed under realistic (process-similar) conditions and in appropriate macroscopic forms. Depending on the chemical information and spatial resolution required, imaging tools based on vibrational and electronic spectroscopy and difraction methods have also been applied to characterise the accessibility and function of active sites within technical catalysts.<sup>148–160</sup>",
+        "bbox": [
+            502,
+            858,
+            932,
+            921
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            43
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "page_number",
+        "text": "6107",
+        "bbox": [
+            895,
+            957,
+            929,
+            970
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            378,
+            971
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            970
+        ],
+        "page_idx": 14
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            63,
+            61,
+            494,
+            168
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "At an individual particle or surface level, elegant methods to investigate the kinetics of processes have been established, such as the determination of single-particle turnover trajectories on gold nanoparticles by confocal fluorescence microscopy (CFM),<sup>149</sup> or the competing activity in bimetallic Ag/Pd core/shell catalysts by atom probe tomography.<sup>150</sup> These studies have confirmed the large variation in activity and selectivity which can be observed between individual metal (oxide) nanoparticles.",
+        "bbox": [
+            63,
+            168,
+            494,
+            306
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "To utilise catalysts eficiently it is important to determine how the catalyst’s volume is exploited. Interparticle difusion limitations in Ti-MCM-41 catalysed epoxidations were revealed by gradients in the formation of fluorescent probe molecules observed by high-resolution single turnover mapping by CFM.<sup>151,152</sup> Likewise, zones of diferent activities were found along the axis of ZSM-22 nanorods, indicating the presence of intracrystalline micropore mass transfer limitations.<sup>153</sup> Interference and infrared microscopy provide alternative methods to determine the catalyst volume eficiency by directly monitoring changes in reactant concentration profiles within porous materials.<sup>154,155</sup>",
+        "bbox": [
+            63,
+            306,
+            494,
+            490
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "The performance of heterogeneous catalysts is further impacted by the deactivation rate of active sites. In a recent CFM study the activity of individual FCC catalyst particles was monitored at diferent life stages by applying selective staining methods.<sup>156,157</sup> Deactivation of the zeolitic domains occurred in a homogeneous manner throughout the entire FCC catalyst particle, and could be correlated with a reduced concentration of Brønsted acid sites, evidenced by an overall decrease in the intensity and number of fluorescent domains (Fig. 13). Integrated laser and transmission electron microscopy indicated that a considerable fraction of the zeolite crystals seemed to be severely damaged and more porous upon deactivation.<sup>158</sup>",
+        "bbox": [
+            63,
+            490,
+            494,
+            675
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "Scanning transmission X-ray microscopy in combination with an in situ cell provided a powerful tool to generate nanoscopic maps of the phase changes occurring in individual SiO -supported Fe-based Fischer–Tropsch synthesis catalysts at high temperature and upon exposure to the reaction mixture. Thereby the build-up of carbon with time-on-stream was measured, revealing that product selectivity can be related to the Fe content, due to the preferential presence of carbidic carbon in iron-rich zones.<sup>159</sup> Similar nanoscopic maps that distinguished between active and inactive phases were obtained by application of X-ray absorption fine structure spectroscopy to the industrially relevant $\\Nu \\mathrm { i O } _ { x } / \\mathrm { C e } _ { 2 } \\mathrm { Z r } _ { 2 } \\mathrm { O } _ { y }$ <sub>y</sub> catalyst.<sup>160</sup>",
+        "bbox": [
+            63,
+            675,
+            494,
+            858
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "As a final point it is noteworthy that most catalytic processes occur within a much faster timeframe than that which can possibly be measured using the existing techniques, leaving the time resolution as the main limitation.<sup>148</sup> As demonstrated in the case of hierarchical zeolites and seen throughout all of these works, the need for an integrated approach applying multiple complementary techniques is clearly essential to unlock the multidimensionality of shaped catalysts.",
+        "bbox": [
+            63,
+            860,
+            494,
+            920
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/e0998fd61cbe62e24db4047a3c7c5b1fc86c5e8d62858531ebe3fb99af7e13d9.jpg",
+        "image_caption": [
+            "(a)",
+            "(b)"
+        ],
+        "image_footnote": [],
+        "bbox": [
+            522,
+            79,
+            709,
+            222
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/50bd354aad6f40c6ac6ae4420418e3f625941d0d59b5fda695b6b404f9dc7878.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            522,
+            225,
+            709,
+            367
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/96bf07cff382f9cecf956afddfa394ff7f6c4be474a73013eed77d271a31cf58.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            722,
+            79,
+            907,
+            222
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "image",
+        "img_path": "images/23966498602532c3855749bf800af75c6aa03eee443f76b099a1cc80e225d26b.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            722,
+            227,
+            907,
+            367
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "chart",
+        "img_path": "images/5ec6d7e1cc9b86c614458dd4f5af52de0e355c4b2695b1f0f404b3ceac7d17b7.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            524,
+            373,
+            710,
+            485
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "chart",
+        "img_path": "images/8d835db1e97d9d44973a641a85bfb114e2af09ff6ee62b153352306f0c06619b.jpg",
+        "content": "",
+        "chart_caption": [
+            "Fig. 13 Confocal fluorescence microscopy images of individual FCC particles (false-colour, top and middle row), after reaction with thiophene; fresh (a) and following a two-step cyclic deactivation (b). Fluorescence intensity histograms as determined for the zeolite domains (red) in the samples (bottom row). Adapted from ref. 156 with permission from Macmillan Publishers Ltd, copyright 2011."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            722,
+            373,
+            909,
+            485
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            502,
+            582,
+            932,
+            644
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "5. Conclusions and outlook",
+        "text_level": 2,
+        "bbox": [
+            504,
+            661,
+            773,
+            679
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "Scientific developments in catalysis over the last two decades justify a change in mind-set to face the challenge of going beyond the atomic level understanding of model systems to apply the theory, knowledge, and insights gained to technical catalysts. As the latter can exhibit widely divergent performance from research analogues, this step is crucial to comprehend the world of opportunities which formulation and structuring can bring to their function, or, in contrast, the havoc which poor choices can wreak. Improved rationalisation will enable catalyst design to move away from the traditional approach of comparing recipes with performance data, leading to direct benefits in catalyst scale up. With this in mind, we encourage a new stream of academic research looking deeply into basic aspects of industrial catalyst preparation, characterisation, and application. Paths which need to be followed embrace:",
+        "bbox": [
+            502,
+            690,
+            932,
+            921
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "page_number",
+        "text": "6108",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 15
+    },
+    {
+        "type": "text",
+        "text": "–To learn how to prepare, characterise, and evaluate technical catalysts at the laboratory-scale. This will require the identification, or if necessary the development, of techniques and methods to ensure that the catalysts synthesised, the characterisation data measured, and the mechanistic information derived accurately represent the properties and function of industrially-manufactured catalysts. Needless to say, a greater appreciation of the scalability of individual preparative steps in materials research is essential to improve the future logistics of large-scale manufacture.",
+        "bbox": [
+            63,
+            61,
+            494,
+            214
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "–To expand and apply the toolbox of available techniques to undertake a detailed assessment of the physico-chemical properties of technical catalysts with respect to their powder analogues (e.g. crushed bodies, physical mixture of the components, etc.). In parallel, catalytic evaluation and the derivation of synthesis–property–function relationships will be crucial to rationalise the choice of formulation and structuring protocol.",
+        "bbox": [
+            63,
+            214,
+            494,
+            337
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "–To rethink traditional strategies of catalyst development without compromising the scientific quality. Understanding the relative implications of composition and porosity in technical forms will enable the earlier consideration of appropriate shape and additives in catalyst development programs depending on the process requirements of the targeted application. While the screening of shaped catalysts is impractical due to the larger sample requirements, illuminating works from industry have reported the screening of potential additive phases in physical mixtures with the active phase.<sup>161</sup> Additive incorporation can be undertaken at diferent levels including the simple mixing of as-received powders or their pre-treatment under equivalent conditions to simulate those which would be experienced during shaping (e.g. calcined at the temperatures applied for hardening). With the availability of high throughput equipment these additional tests pose no problem in the sense of a reduced speed of development and can clearly improve the degree of reality with respect to the final product.",
+        "bbox": [
+            63,
+            337,
+            494,
+            613
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "–Advanced studies of the relative kinetics and thermodynamics of adsorption in technical forms will increase the appreciation of transport phenomena in porous catalysts. Since these aspects are intrinsic to the shaped catalyst and are neglected during the screening of powders, awareness of their potential impact is crucial when considering the process viability.",
+        "bbox": [
+            63,
+            613,
+            494,
+            720
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "–The multidisciplinary nature of technical catalyst preparation, and ultimate process implementation, necessitates a wide number of specific competencies, calling for collaborative works including both applied (materials preparation, technique or instrument development) and theoretical (modelling and data analysis) aspects.",
+        "bbox": [
+            63,
+            720,
+            494,
+            812
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "–To establish a more fluid dialogue between academia and industry. Strong links are essential to target and solve immediate and relevant challenges and will require a mutual consideration for each other’s needs both to protect intellectual property and to publish original research. With increased confidence the sharing of experience and equipment will facilitate advances in scale up from a practical stand point.",
+        "bbox": [
+            63,
+            812,
+            494,
+            921
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "Acknowledgements",
+        "text_level": 2,
+        "bbox": [
+            504,
+            59,
+            699,
+            77
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "The Swiss National Science Foundation (project number 200021-134572) is acknowledged.",
+        "bbox": [
+            502,
+            86,
+            931,
+            118
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "text",
+        "text": "References",
+        "text_level": 2,
+        "bbox": [
+            505,
+            139,
+            613,
+            157
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "1 P. T. Anastas, M. M. Kirchhof and T. C. Williamson, Appl. Catal., A, 2001, 221, 3.",
+            "2 W. F. Ho¨lderich, J. Ro¨seler, G. Heitmann and A. T. Liebens, Catal. Today, 1997, 37, 353.",
+            "3 ‘‘Market Report: Global Catalyst Market, 2nd Edition’’, 2010, Acmite Market Intelligence, Ratingen, Germany.",
+            "4 ‘‘Catalysts for Environmental and Energy Applications’’, 2010, BCC Research, Wellesley, USA.",
+            "5 P. Anastas and N. Eghbali, Chem. Soc. Rev., 2010, 39, 301.",
+            "6 K. T. Wan and M. E. Davis, Nature, 1994, 370, 449.",
+            "7 F. Besenbacher, I. Chorkendorf, B. S. Clausen, B. Hammer, A. M. Molenbroek, J. K. Nørskov and I. Stensgaard, Science, 1998, 279, 1913.",
+            "8 J. M. Thomas, Angew. Chem., Int. Ed., 1999, 38, 3588.",
+            "9 A. P. Wight and M. E. Davis, Chem. Rev., 2002, 102, 3589.",
+            "10 H. Topsoe, J. Catal., 2003, 216, 155.",
+            "11 P. McMorn and G. J. Hutchings, Chem. Soc. Rev., 2004, 33, 108.",
+            "12 D. Astruc, F. Lu and J. R. Aranzaes, Angew. Chem., Int. Ed., 2005, 44, 7852.",
+            "13 J. M. Thomas, R. Raja and D. W. Lewis, Angew. Chem., Int. Ed., 2005, 44, 6456.",
+            "14 G. Fe´rey, Chem. Soc. Rev., 2008, 37, 191.",
+            "15 J. K. Nørskov, T. Bligaard, J. Rossmeisl and C. H. Christensen, Nat. Chem., 2009, 1, 37.",
+            "16 S. M. Senkan, Nature, 1998, 394, 350.",
+            "17 R. Schlo¨gl, Angew. Chem., Int. Ed., 1998, 37, 2333.",
+            "18 B. Jandeleit, D. J. Schaefer, T. S. Powers, H. W. Turner and W. H. Weinberg, Angew. Chem., Int. Ed., 1999, 38, 2494.",
+            "19 J. Greeley, T. F. Jaramillo, J. Bonde, I. Chorkendorf and J. K. Nørskov, Nat. Mater., 2006, 5, 909.",
+            "20 C. Perego and P. Villa, Catal. Today, 1997, 34, 281.",
+            "21 M. Campanati, G. Fornasari and A. Vaccari, Catal. Today, 2003, 77, 299.",
+            "22 A. B. Stiles and T. A. Koch, Catalyst Manufacture, Marcel Dekker Inc., New York, 2005.",
+            "23 B. Kraushaar and S. P. Mu¨ller, in Synthesis ofSolid Catalysts, ed. K. P. de Jong, Wiley-VCH, Weinheim, 2009, ch. 9, p. 173.",
+            "24 O. Deutschmann, H. Kno¨zinger, K. Kochloefl and T. Turek, Ullmann’s Encyclopedia of Industrial Chemistry, Wiley-VCH, Weinheim, 2009.",
+            "25 L. Lloyd, Handbook ofIndustrial Catalysts, Fundamental and Applied Catalysis, Springer, New York, 2011, ch. 1, p. 1.",
+            "26 R. Krishna and S. T. Sie, Chem. Eng. Sci., 1995, 49, 4029.",
+            "27 S. T. Sie and R. Krishna, Rev. Chem. Eng., 1998, 14, 159.",
+            "28 H. F. Rase, Handbook of Commercial Catalysts, CRC Press, New York, 2000.",
+            "29 J. A. Moulijn, M. Makkee and A. van Diepen, Chemical Process Technology, Wiley-VCH, Weinheim, 2001, ch. 9, p. 257."
+        ],
+        "bbox": [
+            519,
+            169,
+            929,
+            198
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            376,
+            971
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            970
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "page_number",
+        "text": "6109",
+        "bbox": [
+            895,
+            957,
+            931,
+            970
+        ],
+        "page_idx": 16
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "30 G. Eigenberger, in Handbook of Heterogeneous Catalysis, ed. G. Ertl, H. Kno¨zinger and J. Weitkamp, Wiley-VCH, Weinheim, 2001, vol. 3, ch. 10, p. 1399.",
+            "31 M. P. Dudukovic, Science, 2009, 325, 698.",
+            "32 E. Gallei and E. Schwab, Catal. Today, 1999, 51, 535.",
+            "33 A. Bell, Chem. Eng. Sci., 1990, 45, 2013.",
+            "34 C. V. Christensen and J. K. Nørskov, J. Chem. Phys., 2008, 128, 182503.",
+            "35 J. M. Thomas, Chem.–Eur. J., 1997, 3, 1557.",
+            "36 G. Ertl, Angew. Chem., Int. Ed., 2007, 47, 3524.",
+            "37 A. H. Øygarden, J. Pe´rez-Ramı´rez, D. Waller, K. Scho¨fel and D. M. Brackenbury, WO Pat., 2004, 110, 622, 2004.",
+            "38 N.-L. Michels, S. Mitchell, M. Milina, K. Kunze, F. Krumeich, F. Marone, M. Erdmann, N. Marti and J. Pe´rez-Ramı´rez, Adv. Funct. Mater., 2012, 22, 2509.",
+            "39 N. van Garderen, F. J. Clemens, C. G. Aneziris and T. Graule, Ceram. Interfaces, 2012, 38, 5481.",
+            "40 D. L. Trimm and A. Stanislaus, Appl. Catal., 1986, 21, 215.",
+            "41 J. D. F. Ramsay, S. R Daish and C. J. Wright, Faraday Discuss. Chem. Soc., 1978, 65, 65.",
+            "42 J. A. Lewis, J. Am. Ceram. Soc., 2000, 83, 2341.",
+            "43 Y. Chen, A. Burbidge and J. Bridgwater, J. Am. Ceram. Soc., 1997, 80, 1841.",
+            "44 W. M. Sigmund, N. S. Bell and L. Bergsto¨m, J. Am. Ceram. Soc., 2000, 83, 1557.",
+            "45 F. F. Lange, J. Am. Ceram. Soc., 1989, 72, 3.",
+            "46 P. W. Addiego and W. Liu, EU Pat., 1283, 745, A4, 2004.",
+            "47 D.-Y. Jan, J. F. McGehee, G. B. Woodle, M. Takayama and R. M. Miller, U.S. Pat., 6, 376, 730, 2002.",
+            "48 K.-N. P. Kumar, K. Keizer, A. J. Burggraaf, T. Okubo, H. Nagamoto and S. Morooka, Nature, 1992, 358, 48.",
+            "49 L. L. Hench and J. K. West, Chem. Rev., 1990, 90, 33.",
+            "50 J. Freiding, F.-C. Patcas and B. Kraushaar-Czarnetzki, Appl. Catal., A, 2007, 328, 210.",
+            "51 T. Vergunst, F. Kapteijn and J. A. Moulijn, Appl. Catal., A, 2001, 213, 179.",
+            "52 J. A. Bergwerf, T. Visser, B. R. G. Leliveld, B. D. Rossnaar, K. P. de Jong and B. M. Weckhuysen, J. Am. Chem. Soc., 2004, 126, 14548.",
+            "53 C. Mondelli, A. P. Amrute, F. Krumeich, T. Schmidt and J. Pe´rez-Ramı´rez, ChemCatChem, 2011, 3, 657.",
+            "54 A. Corma, Chem. Rev., 1997, 97, 2327.",
+            "55 J. A. Rabo and M. W. Schoonover, Appl. Catal., A, 2001, 222, 261.",
+            "56 B. Smit and T. L. M. Maesen, Nature, 2008, 451, 671.",
+            "57 V. Valtchev, G. Majano, S. Mintova and J. Pe´rez-Ramı´rez, Chem. Soc. Rev., 2013, 42, 263.",
+            "58 D. P. Serrano, R. Sanz, P. Pizarro, I. Moreno, P. de Frutos and S. Bla´zquez, Catal. Today, 2009, 143, 151.",
+            "59 N. Xue, R. Olindo and J. A. Lercher,J. Phys. Chem. C, 2010, 114, 15763.",
+            "60 J. S. J. Hargreaves and A. L. Munnoch, Catal. Sci. Technol., 2013, 3, 1165.",
+            "61 J. M. Maselli and A. W. Peters, Catal. Rev. Sci. Eng., 1984, 26, 525.",
+            "62 H. W. Beck, J. D. Carruthers, E. B. Cornelius, W. P. Hettinger, R. A. Kmecak and S. M. Kovach, U.S. Pat., 4, 480, 047, 1984.",
+            "63 G. M. Woltermann, J. S. Magee and S. D. Grifith, Stud. Surf. Sci. Catal., 1993, 76, 105.",
+            "64 J. Scherzer, Octane-enhancing zeolitic FCC catalysts, Marcel Dekker, Inc., New York, USA, 1990.",
+            "65 J. Scherzer, Stud. Surf. Sci. Catal., 1993, 76, 145.",
+            "66 A. Corma and B. W. Wojciechowski, Catal. Rev. Sci. Eng., 1985, 27, 29.",
+            "67 D. E. W. Vaughan, Stud. Surf. Sci. Catal., 1993, 76, 83.",
+            "68 A. A. Avidan, Stud. Surf. Sci. Catal., 1993, 76, 1.",
+            "69 F. S. Abdo, in Zeolites in Industrial Separation and Catalysis, ed. S. Kulprathipanja, Wiley-VCH, Weinheim, Germany, 2010, ch. 16, p. 535.",
+            "70 J. R. D. Nee, R. H. Harding, G. Yaluris, W. C. Cheng, X. Zhao, T. J. Dougan and J. R. Riley, Kirk-Othmer Encyclopedia of Chemical Technology, Wiley-VCH, Weinheim, Germany, 2004.",
+            "71 J. E. Otterstedt, Y. M. Zhu and J. Sterte, Appl. Catal., 1991, 70, 42.",
+            "72 A. Corma, C. Martı´nez and L. Sauvanaud, Catal. Today, 2007, 127, 3.",
+            "73 C. L. Thomas and D. S. Barmby, J. Catal., 1968, 12, 341.",
+            "74 M. M. Mitchell, J. F. Hofman and H. F. Moore, Stud. Surf. Sci. Catal., 1993, 76, 293.",
+            "75 C. Perego and R. Millini, Chem. Soc. Rev., 2013, 42, 3956.",
+            "76 P. O’Connor and A. P. Humphies, Prepr. - Am. Chem. Soc., Div. Pet. Chem., 1993, 38, 598.",
+            "77 D. G. Braithwaite, E. H. McGrew, W. P. Hettinger and J. S. D’Amico, U.S. Pat., 3, 034, 995, 1962.",
+            "78 M. R. S. Manton and J. D. Davidtz, J. Catal., 1979, 60, 156.",
+            "79 W. J. Reagan, B. K. Speronello, S. M. Brown and V. A. Durante, EU Pat., 0117545, 1984.",
+            "80 T. F. Degnan, G. K. Chitnis and P. H. Schipper, Microporous Mesoporous Mater., 2000, 35, 245.",
+            "81 A. W. Chester, W. E. Cormier and W. A. Stover, U.S. Pat., 4, 309, 279, 1982.",
+            "82 J. Knight and R. Mehlberg, Hydrocarbon Process., Int. Ed., 2011, 9, 91.",
+            "83 R. H. Nielson and P. K. Doolin, Stud. Surf. Sci. Catal., 1993, 76, 339.",
+            "84 J. McLaughlin, P. S. Podwirny and J. C. Morley, U.S. Pat., 5, 935, 890, 1999.",
+            "85 F.-M. Lee, Appl. Catal., A, 1992, 82, 215.",
+            "86 M. L. Occelli, D. C. Kowalczyk and C. L. Kibby, Appl. Catal., 1985, 16, 227.",
+            "87 N. Wakao and J. M. Smith, Chem. Eng. Sci., 1962, 17, 825.",
+            "88 R. L. Bedard, in Zeolites in Industrial Separation and Catalysis, ed. S. Kulprathipanja, Wiley-VCH, Weinheim, 2010, ch. 3, p. 61.",
+            "89 S. Schwarz, M. Kojima and C. T. O’Connor, Appl. Catal., 1991, 68, 81.",
+            "90 G. Bellussi, A. Carati and R. Millini, in Zeolites and Catalysis: Synthesis, Reactions and Applications, ed. J. C<sup>ˇ</sup>ejka,"
+        ],
+        "bbox": [
+            73,
+            60,
+            492,
+            106
+        ],
+        "page_idx": 17
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            44
+        ],
+        "page_idx": 17
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 17
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            956,
+            931,
+            971
+        ],
+        "page_idx": 17
+    },
+    {
+        "type": "page_number",
+        "text": "6110",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 17
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            114,
+            956,
+            337,
+            970
+        ],
+        "page_idx": 17
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "A. Corma and S. Zones, Wiley-VCH, Weinheim, Germany, 2010, ch. 16, p. 449.",
+            "91 S. B. Sharma, J. Kulach and A. J. Imrie, U.S. Pat., 6, 617, 275, 2003.",
+            "92 S. L. Soled and W. A. Wachter, EU Pat., 0635302 B1, 1994.",
+            "93 J.-P. Lange and C. M. A. M. Mesters, Appl. Catal., A, 2001, 210, 247.",
+            "94 M. Richter, W. Fiebig, H.-G. Jerschkewitz, G. Lischke and G. O<sup>¨</sup>hlmann, Zeolites, 1989, 9, 238.",
+            "95 Y. S. Bhat, J. Das and A. B. Halgeri, Appl. Catal., A, 1995, 122, 161.",
+            "96 K. Klier, Appl. Surf. Sci., 1984, 19, 267.",
+            "97 D. S. Shihabi, W. E. Garwood, P. Chu, J. N. Miale, R. M. Lago, C. T.-W. Chu and C. D. Chang, J. Catal., 1985, 93, 471.",
+            "98 C. D. Chang, S. D. Hellring, J. N. Miale and K. D. Schmitt, J. Chem. Soc., Faraday Trans., 1985, 2215.",
+            "99 C. T.-W. Chu, G. H. Kuehl, R. M. Lago and C. D. Chang, J. Catal., 1985, 93, 451.",
+            "100 M. V. Landau, D. Tavor, O. Regev, M. L. Kaliya, M. Herskowitz, V. Valchev and S. Mintova, Chem. Mater., 1999, 11, 2030.",
+            "101 A. Martin, H. Berndt, U. Lohse and U. Wolf, J. Chem. Soc., Faraday Trans., 1993, 1277.",
+            "102 R. P. L. Absil, P. J. Angevine, S. Han, J. A. Herbst, D. J. Klocke, J. P. McWilliams and D. S. Shihabi, U.S. Pat., 5, 053, 374, 1991.",
+            "103 D. O. Marler, U.S. Pat., 5, 182, 242, 1993.",
+            "105 P. Gelin and C. Gueguen, Appl. Catal., 1988, 38, 225.",
+            "104 A. Corma, M. Grande, V. Forne´s, S. Cartlidge and M. P. Shatlock, Appl. Catal., 1990, 66, 45.",
+            "106 P. Gelin and T. Des Courie\\`res, Appl. Catal., 1991, 72, 179.",
+            "107 V. R. Choudhary, P. Devadas, A. K. Kinage and M. Guisnet, Appl. Catal., A, 1997, 162, 223.",
+            "108 M. A. Uguina, J. L. Sotelo and D. P. Serrano, Appl. Catal., 1991, 76, 183.",
+            "109 R. V. Jasra, B. Tyagi, Y. M. Badheka, B. N. Choudary and S. G. Bhat, Ind. Eng. Chem. Res., 2003, 42, 3263.",
+            "110 P. Can˜izares, A. Dura´n, F. Dorado and M. Carmona, Appl. Clay Sci., 2000, 16, 273.",
+            "111 S. A. Bradley, X. Luo, J. He, T. H. Chao and R. D. Gillespie, Catal. Lett., 1997, 47, 205.",
+            "112 L. D. Fernandes, J. L. F. Monteiro, E. F. Sousa-Aguiar, A. Martinez and A. Corma, J. Catal., 1998, 177, 363.",
+            "113 M. Kumar, A. K. Saxena, B. S. Negi and N. Viswanadham, Catal. Today, 2008, 130, 501.",
+            "114 K. Honda, X. Chen and Z.-G. Zhang, Appl. Catal., A, 2008, 351, 122.",
+            "115 C. Zhao, Y. Yu, A. Jentys and J. A. Lercher, Appl. Catal., B, 2013, 132, 282.",
+            "116 J. Pe´rez-Ramı´rez, C. Mondelli, T. Schmidt, O. F.-K. Schlu¨ter, A. Wolf, L. Mleczko and T. Dreier, Energy Environ. Sci., 2011, 4, 4786.",
+            "117 K. Kanaya, T. Kiyoura, Y. Kogure and T. Nagamaya, U.S. Pat., 4, 822, 589, 1989.",
+            "118 K. Seki, EU Pat., 2336084, 2011.",
+            "119 H. Abekawa, T. Hibi and H. Nishida, U.S. Pat., 5, 871, 707, 1999.",
+            "120 A. Wolf, L. Mleczko, O. F.-K. Schlu¨ter and S. Schubert, EU Pat., 2026905, 1996.",
+            "121 A. Wolf, J. Kintrup, O. F.-K. Schlu¨ter and L. Mleczko, U.S. Pat., 2007, 0, 292, 336, 2007.",
+            "122 A. Wolf, L. Mleczko, O. F.-K. Schlu¨ter and S. Schubert, U.S. Pat., 2007, 0, 274, 901, 2007.",
+            "123 A. Wolf, L. Mleczko, O. F.-K. Schlu¨ter and S. Schubert, U.S. Pat., 2007, 0, 274, 897, 2007.",
+            "124 A. P. Amrute, C. Mondelli, T. Schmidt, R. Hauert and J. Pe´rez-Ramı´rez, ChemCatChem, 2013, 5, 748.",
+            "125 J. Pe´rez-Ramı´rez, C. H. Christensen, K. Egeblad, C. H. Christensen and J. C. Groen, Chem. Soc. Rev., 2008, 37, 2530.",
+            "126 S. van Donk, A. H. Janssen, J. H. Bitter and K. P. de Jong, Catal. Rev. Sci. Eng., 2003, 45, 297.",
+            "127 M. Hartmann, Angew. Chem., Int. Ed., 2004, 43, 5880.",
+            "128 C. H. Christensen, K. Johannsen, E. To¨rnqvist, I. Schmidt, H. Topsøe and C. H. Christensen, Catal. Today, 2007, 128, 117.",
+            "129 M. Choi, K. Na, J. Kim, Y. Sakamoto, O. Terasaki and R. Ryoo, Nature, 2009, 461, 246.",
+            "130 W. Schmidt, ChemCatChem, 2009, 1, 53.",
+            "131 V. Valtchev, E. Balanzat, V. Mavrodinova, I. Diaz, J. E. Fallah and J.-M. Goupil, J. Am. Chem. Soc., 2011, 133, 18950.",
+            "132 L. Tosheva and V. P. Valtchev, Chem. Mater., 2005, 17, 2494.",
+            "133 D. Verboekend and J. Pe´rez-Ramı´rez, Catal. Sci. Technol., 2011, 1, 879.",
+            "134 S. Mitchell, N.-L. Michels, K. Kunze and J. Pe´rez-Ramı´rez, Nat. Chem., 2012, 4, 825.",
+            "135 J. Pe´rez-Ramı´rez, S. Mitchell, D. Verboekend, M. Milina, N.-L. Michels, F. Krumeich, N. Marti and M. Erdmann, ChemCatChem, 2011, 3, 1731.",
+            "136 L. Gueudre´, M. Milina, S. Mitchell and J. Pe´rez-Ramı´rez, Adv. Funct. Mater., 2013, DOI: 10.1002/adfm.201203557.",
+            "137 K. P. de Jong, L. C. A. van den Oetelaar, E. T. V. Vogt, S. Eijsbouts, A. J. Koster, H. Friedrich and P. E. de Jongh, J. Phys. Chem. B, 2006, 110, 10209.",
+            "138 J. Zecˇevic´, C. J. Gommes, H. Friedrich, P. E. de Jongh and K. P. de Jong, Angew. Chem., Int. Ed., 2012, 51, 4213.",
+            "139 M. G. O’Brien, S. D. M. Jacques, M. D. Michiel, P. Barnes, B. M. Weckhuysen and A. M. Beale, Chem. Sci., 2012, 3, 509.",
+            "140 S. D. M. Jacques, M. D. Michiel, A. M. Beale, T. Sochi, M. G. O’Brien, L. Espinosa-Alonso, B. M. Weckhuysen and P. Barnes, Angew. Chem., Int. Ed., 2011, 50, 10148.",
+            "141 L. Espinosa-Alonso, M. G. O’Brien, S. D. M. Jacques, A. M. Beale, K. P. de Jong, P. Barnes and B. M. Weckhuysen, J. Am. Chem. Soc., 2009, 131, 16932.",
+            "142 J.-D. Grunwaldt, B. Kimmerle, A. Baiker, P. Boye, C. G. Schroer, P. Glatzel, C. N. Borca and F. Beckmann, Catal. Today, 2009, 145, 267.",
+            "143 F. Basile, P. Benito, S. Bugani, W. D. Nolf, G. Fornasari, K. Janssens, L. Morselli, E. Scavetta, D. Tonelli and A. Vaccari, Adv. Funct. Mater., 2010, 20, 4117."
+        ],
+        "bbox": [
+            95,
+            60,
+            490,
+            91
+        ],
+        "page_idx": 18
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            67,
+            30,
+            176,
+            44
+        ],
+        "page_idx": 18
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            825,
+            30,
+            931,
+            44
+        ],
+        "page_idx": 18
+    },
+    {
+        "type": "page_number",
+        "text": "6111",
+        "bbox": [
+            895,
+            957,
+            929,
+            970
+        ],
+        "page_idx": 18
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            65,
+            956,
+            378,
+            971
+        ],
+        "page_idx": 18
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            658,
+            956,
+            882,
+            970
+        ],
+        "page_idx": 18
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "144 P. Bleuet, E. Welcomme, E. Doorhyee, J. Susini, J.-L. Hodeau and P. Walter, Nat. Mater., 2008, 7, 468.",
+            "145 A. A. Lysova, J. A. Bergwerf, L. Espinosa-Alonso, B. M. Weckhuysen and I. V. Koptyug, Appl. Catal., A, 2010, 374, 126.",
+            "146 L. Espinosa-Alonso, A. A. Lysova, P. de Peinder, K. P. de Jong, I. V. Koptyug and B. M. Weckhuysen,J. Am. Chem. Soc., 2009, 131, 6525.",
+            "147 J. A. Bergwerf, L. G. A. van de Water, T. Visser, P. de Peinder, B. R. G. Leliveld, K. P. de Jong and B. M. Weckhuysen, Chem.–Eur. J., 2005, 11, 4591.",
+            "148 I. L. C. Burrmans and B. M. Weckhuysen, Nat. Chem., 2012, 4, 873.",
+            "149 P. Chen, X. Zhou, H. Shen, N. M. Andoy, E. Choudhary, K.-S. Han, G. Liu and W. Meng, Chem. Soc. Rev., 2010, 39, 4560.",
+            "150 K. Tedsree, T. Li, S. Jones, C. W. A. Chan, K. M. K. Yu, P. A. J. Bagot, E. A. Marquis, G. D. W. Smith and S. C. E. Tsang, Nat. Nanotechnol., 2011, 6, 302.",
+            "151 G. De Cremer, M. B. J. Roefaers, E. Bartholomeeusen, K. Lin, P. Dedecker, P. P. Pescarmona, P. A. Jacobs, D. E. De Vos, J. Hofkens and B. F. Sels, Angew. Chem., Int. Ed., 2010, 49, 908.",
+            "152 G. De Cremer, E. Bartholomeeusen, P. P. Pescarmona, K. Lin, D. E. De Vos, J. Hofkens, M. B. J. Roefaers and B. F. Sels, Catal. Today, 2010, 157, 236.",
+            "153 M. B. J. Roefaers, G. De Cremer, J. Libeert, R. Ameloot, P. Dedecker, A.-J. Bons, M. Bu¨ckins, J. A. Martens,",
+            "B. F. Sels, D. E. De Vos and J. Hofkens, Angew. Chem., Int. Ed., 2009, 48, 9285.",
+            "154 D. Tzoulaki, L. Heinke, M. Castro, P. Cubillas, M. W. Anderson, W. Zhou, P. A. Wright and J. Ka¨rger, J. Am. Chem. Soc., 2010, 132, 11665.",
+            "155 L. Heinke, C. Chmelik, P. Kortunov, D. M. Ruthven, D. B. Shah, S. Vasenkov and J. Ka¨rger, Chem. Eng. Technol., 2007, 30, 995.",
+            "156 I. L. C. Buurmans, J. Ruiz-Martı´nez, W. V. Knowles, D. van der Beek, J. A. Bergwerf, E. T. C. Vogt and B. M. Weckhuysen, Nat. Chem., 2011, 3, 862.",
+            "157 I. L. C. Buurmans, J. Ruiz-Martı´nez, S. L. van Leeuwen, D. van der Beek, J. A. Bergwerf, W. V. Knowles, E. T. C. Vogt and B. M. Weckhuysen, Chem.–Eur. J., 2012, 18, 1094.",
+            "158 M. A. Karreman, I. L. C. Buurmans, J. W. Geus, A. V. Agronskaia, J. Ruiz-Martı´nez, H. C. Gerritsen and B. M. Weckhuysen, Angew. Chem., Int. Ed., 2012, 51, 1428.",
+            "159 E. de Smit, I. Swart, J. F. Creemer, G. H. Hoveling, M. K. Gilles, T. Tyliszczak, P. J. Kooyman, H. W. Zandbergen, C. Morin, B. M. Weckhuysen and F. M. F. de Groot, Nature, 2008, 456, 222.",
+            "160 M. Tada, N. Ishiguro, T. Uruga, H. Tanida, Y. Terada, S. Nagamatsu, Y. Iwasawa and S. Ohkoshi, Phys. Chem. Chem. Phys., 2011, 13, 14910.",
+            "161 M. C. Kerby, T. F. Degnan, D. O. Marler and J. S. Beck, Catal. Today, 2005, 104, 55."
+        ],
+        "bbox": [
+            68,
+            60,
+            490,
+            91
+        ],
+        "page_idx": 19
+    },
+    {
+        "type": "header",
+        "text": "Chem Soc Rev",
+        "bbox": [
+            67,
+            30,
+            174,
+            43
+        ],
+        "page_idx": 19
+    },
+    {
+        "type": "header",
+        "text": "Review Article",
+        "bbox": [
+            821,
+            30,
+            931,
+            43
+        ],
+        "page_idx": 19
+    },
+    {
+        "type": "footer",
+        "text": "This journal is <sup>c</sup> The Royal Society of Chemistry 2013",
+        "bbox": [
+            621,
+            957,
+            931,
+            971
+        ],
+        "page_idx": 19
+    },
+    {
+        "type": "page_number",
+        "text": "6112",
+        "bbox": [
+            67,
+            957,
+            102,
+            970
+        ],
+        "page_idx": 19
+    },
+    {
+        "type": "footer",
+        "text": "Chem. Soc. Rev., 2013, 42, 6094--6112",
+        "bbox": [
+            115,
+            957,
+            337,
+            970
+        ],
+        "page_idx": 19
+    }
+]
