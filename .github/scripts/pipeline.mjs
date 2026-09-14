@@ -60,7 +60,7 @@ async function ghApi(method, apiPath, body) {
       'User-Agent': 'academicflow-pipeline/1.0',
     },
   }
-  if (body !== undefined) {
+  if (body !== undefined && body !== null) {
     init.headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)
   }
@@ -318,7 +318,7 @@ async function checkLiteratureAlive(doi) {
 async function mineruRequest(method, urlPath, body) {
   const headers = { Authorization: `Bearer ${MINERU_API_TOKEN}` }
   const init = { method, headers }
-  if (body !== undefined) {
+  if (body !== undefined && body !== null) {
     headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)
   }
@@ -469,8 +469,8 @@ function findFirstMd(dir) {
 // ============================================================
 /** AI 调用：带 3 次 retry + 120s timeout */
 async function aiCall(baseUrl, apiKey, model, system, user, signal) {
-  const MAX_RETRY = 3
-  const TIMEOUT_MS = 300_000
+  const MAX_RETRY = 10
+  const TIMEOUT_MS = 900_000
   let lastErr = null
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     const ctrl = new AbortController()
@@ -501,7 +501,7 @@ async function aiCall(baseUrl, apiKey, model, system, user, signal) {
       clearTimeout(timer)
       lastErr = e
       if (attempt === MAX_RETRY) throw e
-      const wait = 2 ** attempt * 1000 // 2s, 4s, 8s
+      const wait = Math.min(2 ** attempt * 1000, 30_000) + Math.floor(Math.random() * 2000) // 2s→30s + jitter
       console.log(`  [aiCall] attempt ${attempt}/${MAX_RETRY} failed (${e.message?.slice(0, 120)}), retry in ${wait}ms...`)
       await new Promise(r => setTimeout(r, wait))
     }
@@ -740,14 +740,20 @@ function parseAlignedMd(md) {
   const lines = md.split('\n'); const nodes = []; let curPara = { idx: 0, total: 0, content: '' }
   let inTable = false; let tableBuf = []; let tableStart = -1
   let refContent = ''; let inRef = false; let lastParaIdx = 0
+  const flushPara = () => {
+    if (curPara.idx > 0 && curPara.content.trim()) {
+      nodes.push({ type: 'para', idx: curPara.idx, total: curPara.total, content: curPara.content.trim() })
+    }
+    curPara = { idx: 0, total: 0, content: '' }
+  }
   for (const line of lines) {
     const paraMatch = line.match(/<!--\s*PARA\s+en\s+(\d+)\/(\d+)\s*-->/)
-    if (paraMatch) { curPara = { idx: Number(paraMatch[1]), total: Number(paraMatch[2]), content: '' }; if (inRef) { refContent += '\n'; inRef = false }; continue }
+    if (paraMatch) { flushPara(); curPara = { idx: Number(paraMatch[1]), total: Number(paraMatch[2]), content: '' }; if (inRef) { refContent += '\n'; inRef = false }; continue }
     const imgMatch = line.match(/<!--\s*IMG\s+between\s+(\d+)\s+and\s+(\d+)\s*-->/)
     if (imgMatch) { continue } // imgs handled via tree
     const tableMatch = line.match(/<!--\s*TABLE\s+between\s+(\d+)\s+and\s+(\d+)\s*-->/)
-    if (tableMatch) { inTable = true; tableBuf = []; tableStart = Number(tableMatch[1]); continue }
-    if (/<!--\s*REF\s+ALL\s*-->/.test(line)) { inRef = true; continue }
+    if (tableMatch) { flushPara(); inTable = true; tableBuf = []; tableStart = Number(tableMatch[1]); continue }
+    if (/<!--\s*REF\s+ALL\s*-->/.test(line)) { flushPara(); inRef = true; continue }
     if (inTable) {
       if (/^\s*\|/.test(line)) { tableBuf.push(line); continue }
       else { if (tableBuf.length) { nodes.push({ type: 'table', beforeIdx: tableStart, afterIdx: tableStart + 1, content: tableBuf.join('\n').trim() }) }; inTable = false; tableBuf = [] }
@@ -755,6 +761,7 @@ function parseAlignedMd(md) {
     if (inRef) { refContent += (refContent ? '\n' : '') + line; continue }
     if (curPara.idx > 0) { curPara.content += (curPara.content ? '\n' : '') + line; if (line.trim()) lastParaIdx = curPara.idx }
   }
+  flushPara()
   return { nodes, refContent: refContent.trim() }
 }
 
@@ -781,7 +788,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   if (!cleanMd) {
     await writeProgress(slug, { stage: 'ai1_clean', message: 'AI-1 清理...', pct: 10, node: 1 })
     onProgress?.({ stage: 'ai1_clean', pct: 10 })
-    const CLEAN_CHUNK = 30000
+    const CLEAN_CHUNK = 20000
     const chunks = []
     for (let i = 0; i < markdown.length; i += CLEAN_CHUNK) chunks.push(markdown.slice(i, i + CLEAN_CHUNK))
     console.log(`  [clean] markdown=${markdown.length} chars → ${chunks.length} chunks`)
