@@ -12,6 +12,16 @@ jobs:
       contents: read
 
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Test MinerU connectivity
         env:
           MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
