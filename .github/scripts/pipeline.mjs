@@ -855,6 +855,135 @@ Markdown 原文：
 
 现在输出带标记的纯 Markdown：`
 
+// ============================================================
+// 切分工具：按真实段落边界切 + 打包成 chunks（无重叠，零丢失零重复）
+// 设计原则：
+//   输入给 AI 的每个段落单元只出现在一个 chunk 里
+//   切分边界永远在段落之间，不会切断段落
+//   不依赖 AI 自觉"不要重复输出"——从输入层面杜绝重复
+// ============================================================
+
+/**
+ * 把 Markdown 按"真实段落边界"切成段落单元数组。
+ * 段落边界 = 连续两个或以上空行
+ * 例外：
+ *   - ``` 代码块：内部空行不算边界
+ *   - | 开头的表格块：多行表格算一个段落单元
+ *   - LaTeX $$...$$ 跨多行公式块：算一个段落单元
+ *   - 图片行 ![...](...) 单独一个段落单元
+ *   - HTML 注释标记行 <!-- XXX --> 单独一个段落单元
+ *
+ * 返回：[{ text: string, charCount: number }, ...]
+ */
+function splitIntoParagraphs(md) {
+  if (!md) return []
+  const lines = md.split('\n')
+  const units = []
+  let buf = []
+  let inCodeFence = false
+  let bufIsTable = false
+  let bufIsFormula = false
+
+  const flush = () => {
+    if (!buf.length) return
+    // 如果最后一个单元只有空行，跳过
+    if (buf.every(l => !l.trim())) { buf = []; bufIsTable = false; bufIsFormula = false; return }
+    const text = buf.join('\n').trim()
+    if (text.length > 0) {
+      units.push({ text, charCount: text.length })
+    }
+    buf = []
+    bufIsTable = false
+    bufIsFormula = false
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    // ``` 代码块切换
+    if (/^\s*```/.test(line)) {
+      flush()
+      inCodeFence = !inCodeFence
+      buf.push(line)
+      continue
+    }
+    if (inCodeFence) {
+      buf.push(line)
+      continue
+    }
+
+    // 空行 → 段落边界
+    if (!line.trim()) {
+      flush()
+      continue
+    }
+
+    // HTML 注释标记行 → 独立单元
+    if (/^\s*<!--.*-->\s*$/.test(line)) {
+      flush()
+      buf.push(line)
+      flush()
+      continue
+    }
+
+    // 表格行 |...| → 连续表格合并
+    if (/^\s*\|/.test(line)) {
+      if (!bufIsTable) { flush(); bufIsTable = true }
+      buf.push(line)
+      continue
+    }
+    // 之前是表格，现在不是 → 表格结束
+    if (bufIsTable) { flush(); bufIsTable = false }
+
+    // LaTeX $$...$$ 跨多行
+    if (/^\s*\$\$\s*$/.test(line)) {
+      // 独立 $$ 行 → 可能开始或结束公式块
+      if (bufIsFormula) { buf.push(line); flush(); bufIsFormula = false; continue }
+      else { flush(); bufIsFormula = true; buf.push(line); continue }
+    }
+    if (bufIsFormula) {
+      buf.push(line)
+      if (/\$\$/.test(line)) { flush(); bufIsFormula = false }
+      continue
+    }
+
+    // 普通行
+    buf.push(line)
+  }
+  // 代码块还没闭合？把残余 flush
+  flush()
+  return units
+}
+
+/**
+ * 把段落单元数组打包成 chunks。
+ * 每个 chunk 里的段落总字符数 ≤ maxChars，**但允许最后加一个段落让它略微超过**
+ * （否则一个 3000 chars 的段落永远单独成一个 chunk 也没问题）
+ *
+ * 关键保证：每个段落单元只出现在一个 chunk 里 → 零重叠 → 零重复
+ */
+function packChunks(units, maxChars) {
+  if (!units.length) return []
+  const chunks = []
+  let cur = []
+  let curChars = 0
+
+  for (const u of units) {
+    // 如果当前 chunk 已经有内容，且加上这个段落会大幅超过 maxChars → 新开一个 chunk
+    // "大幅"定义为 > maxChars * 1.3（允许小段落让 chunk 略超）
+    if (cur.length > 0 && curChars + u.charCount > maxChars * 1.3) {
+      chunks.push(cur)
+      cur = []
+      curChars = 0
+    }
+    cur.push(u)
+    curChars += u.charCount
+  }
+  if (cur.length) chunks.push(cur)
+  return chunks
+}
+
+// 
 function autoInsertParaTags(md) {
   const lines = md.split('\n'); const out = []; let inCB = false; let buf = []; let bufTable = false
   const flush = () => {
@@ -951,14 +1080,18 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     await writeProgress(slug, { stage: 'ai1_clean', message: 'AI 语义分段 + 清理 + 打标...', pct: 5, node: 1 })
     onProgress?.({ stage: "ai1_clean", pct: 5 })
 
-    // 分块喂 AI：每块 ~25000 chars，块间 overlap 5000 chars（防段落被切断）
-    const BLOCK = 25000, OVERLAP = 5000
-    const chunks = []
-    for (let i = 0; i < markdown.length; i += BLOCK - OVERLAP) {
-      chunks.push(markdown.slice(i, Math.min(i + BLOCK, markdown.length)))
-      if (i + BLOCK >= markdown.length) break
+    // 按**真实段落边界**切 → 零重叠 → 零重复
+    // 设计：每个段落单元只属于一个 chunk，从输入层面杜绝重复
+    const BLOCK = 28000  // 每 chunk 建议不超过 ~28K chars（给 AI 留 max_tokens 余量）
+    const paraUnits = splitIntoParagraphs(markdown)
+    const chunksPacked = packChunks(paraUnits, BLOCK)
+    const chunks = chunksPacked.map(pack => pack.map(u => u.text).join('\n\n'))
+
+    // 日志：打印每个 chunk 的段落数和字符数
+    console.log(`  [semantic] markdown=${markdown.length} chars, ${paraUnits.length} paragraph units -> ${chunks.length} chunks`)
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`    chunk ${i+1}: ${chunksPacked[i].length} paras, ${chunks[i].length} chars`)
     }
-    console.log(`  [semantic] markdown=${markdown.length} chars -> ${chunks.length} chunks`)
 
     // 每块 AI 返回带 <!-- TAG --> 注释的 Markdown，直接拼接
     let taggedMd = ""
@@ -997,6 +1130,17 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     const totalTABLE = (taggedMd.match(/<!--\s*TABLE\s*-->/g) || []).length
     const totalREF = (taggedMd.match(/<!--\s*REF_ALL\s*-->/g) || []).length
     console.log(`  ✓ semantic done: PARA=${totalPARA} IMG=${totalIMG} TABLE=${totalTABLE} REF=${totalREF}, md length=${taggedMd.length}`)
+
+    // Sanity check：检查拼接后段落数是否合理
+    // 原始 paraUnits 里有 N 个，AI 处理完应该差不多（去掉页眉页脚垃圾后略少）
+    // 如果 AI 丢了大段内容 → 差距会很大 → WARN
+    const paraUnitsWithContent = paraUnits.filter(u => u.charCount > 10).length
+    const outputParaBlocks = (taggedMd.match(/^/gm) || []).length  // 先算总行数
+    const outputMarkers = (taggedMd.match(/<!--\s*(PARA_EN|IMG|TABLE|REF_ALL)\s*-->/g) || []).length
+    console.log(`  [sanity] input=${paraUnitsWithContent} meaningful units, output markers=${outputMarkers}, output length=${taggedMd.length}`)
+    if (taggedMd.length < markdown.length * 0.3) {
+      console.warn(`  ⚠️ WARNING: AI output is suspiciously short (${taggedMd.length}/${markdown.length}). May have lost content.`)
+    }
 
     // Enumerate（纯代码编号，不调 AI）+ 写续跑文件
     await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 25, node: 1 })
