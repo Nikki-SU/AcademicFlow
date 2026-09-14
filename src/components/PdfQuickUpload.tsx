@@ -71,8 +71,8 @@ async function doUpload(props: UploadLogicProps) {
     } else {
       toast.message(`文献已在库中：${finalTitle}`)
     }
-    const taskId = await enqueuePaperMineruConvert(normalized.doi, pdf, finalTitle)
-    if (taskId) onSuccess?.(normalized.doi, finalTitle)
+    const result = await enqueuePaperMineruConvert(normalized.doi, pdf, finalTitle)
+    if (result.ok) onSuccess?.(normalized.doi, finalTitle)
     onCancel()
     setPdf(null); setDoi(''); setTitle('')
   } catch (err) {

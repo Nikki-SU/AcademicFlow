@@ -449,9 +449,12 @@ export default function ManagementPage() {
   }, [taskQueue.tasks])
 
 
-  // 后端架构：前端轮询 progress.json 展示进度（GitHub Actions 在后端跑 pipeline）
+  // ──── 核心：taskQueue 里 pending/running 的 paper_convert 任务 ↔ 后端 progress.json 同步 ────
+  // 这是右侧 BackendMonitorPanel 的真实数据源：
+  //   GitHub Actions 写 .progress.json → 前端每 5 秒拉一次 → 更新 taskQueue.stage/node_index/progress
+  //   → BackendMonitorPanel 订阅 taskQueue → 四节点进度条实时走
   useEffect(() => {
-    if (!repo || !papers.some((p) => p.mdStatus === 'converting')) return
+    if (!repo) return
 
     let cancelled = false
     const pollInterval = setInterval(async () => {
@@ -461,39 +464,85 @@ export default function ManagementPage() {
       const token = auth.token
       if (!owner || !token) return
 
-      const converting = papers.filter((p) => p.mdStatus === 'converting')
-      for (const paper of converting) {
+      const tq = useTaskQueueStore.getState()
+      const activeTasks = tq.tasks.filter(
+        (t: any) =>
+          (t.status === 'pending' || t.status === 'running') &&
+          t.type === 'paper_convert',
+      )
+      if (activeTasks.length === 0) return
+
+      for (const task of activeTasks) {
         if (cancelled) break
-        const slug = doiToSlug(paper.doi)
+        const slug = (task.metadata as any)?.slug || doiToSlug(task.doi!)
+        if (!slug) continue
         try {
           const prog = await pollProgressJson(slug, owner, repo.name, token)
           if (!prog) continue // progress.json 还没出现，等下次
 
-          // 映射 stage → mdProgress
-          let pct = prog.pct ?? 0
-          if (prog.stage === 'done') pct = 100
-          if (prog.stage === 'failed') pct = paper.mdProgress // 保持旧值，下面单独设 failed
+          // 后端 stage → 前端 PipelineStage 安全映射
+          // 后端可能传 'mineru_apply' / 'clean' / 'commit' 等，前端 STAGE_META 用 ai1_clean 等名字
+          const backendStage = prog.stage as string
+          let frontendStage: string = backendStage
+          // 直接匹配
+          if (!(backendStage in STAGE_META)) {
+            // 映射表：后端 stage → 前端 PipelineStage
+            const STAGE_MAP: Record<string, keyof typeof STAGE_META> = {
+              clean: 'ai1_clean',
+              ai1_clean: 'ai1_clean',
+              ai1_tag: 'ai1_tag',
+              enumerate: 'enumerate',
+              translating: 'translating',
+              words_extract: 'words_extract',
+              words_verify: 'words_verify',
+              commit: 'words_extract', // 后端 commit 阶段大致对应 words_extract 完成
+              done: 'done',
+              failed: 'failed',
+              // mineru_* 系列前端后端一致
+            }
+            frontendStage = STAGE_MAP[backendStage] ?? backendStage
+          }
 
-          const updates: Partial<Paper> = { mdProgress: pct }
-          if (prog.stage === 'done') { updates.mdStatus = 'done'; updates.postStage = 'done' }
-          if (prog.stage === 'failed') { updates.mdStatus = 'failed'; updates.postStage = 'error' }
-          if (prog.stage && prog.stage !== 'done' && prog.stage !== 'failed') {
-            // 映射后端 stage 到前端 postStage 标签
-            if (prog.stage.startsWith('mineru_')) updates.postStage = 'none'
-            else if (prog.stage === 'clean') updates.postStage = 'translating'
-            else if (prog.stage === 'commit') updates.postStage = 'words'
+          const stageMeta = (STAGE_META as any)[frontendStage]
+          if (!stageMeta) {
+            console.warn('[poll-progress] 未知 stage:', backendStage, '→ 保持当前进度')
+            continue
           }
-          if (Object.keys(updates).length > 0) {
-            setPapers((prev) => prev.map((p) => (p.doi === paper.doi ? { ...p, ...updates } : p)))
+
+          const patch: any = {
+            stage: frontendStage,
+            node_index: stageMeta.node,
+            progress: prog.pct ?? stageMeta.pctBase,
+            message: prog.message || stageMeta.label,
+            updated_at: Date.now(),
           }
+
+          if (prog.stage === 'done') {
+            patch.status = 'done'
+            patch.stage = 'done'
+            patch.node_index = STAGE_META.done.node
+            patch.progress = 100
+            patch.message = '转换完成'
+          } else if (prog.stage === 'failed') {
+            patch.status = 'failed'
+            patch.stage = 'failed'
+            patch.node_index = STAGE_META.failed.node
+            patch.message = prog.error ? `失败：${prog.error}` : '转换失败'
+            patch.error = prog.error || '后端返回 failed'
+          } else {
+            // 只要后端在写 progress.json，就说明任务已被 action pickup
+            if (task.status === 'pending') patch.status = 'running'
+          }
+
+          await tq.update_task(task.id, patch)
         } catch {
-          // 单次轮询失败不影响其他 paper
+          // 单次轮询失败不影响其他任务
         }
       }
     }, 5000)
 
     return () => { cancelled = true; clearInterval(pollInterval) }
-  }, [repo, papers])
+  }, [repo])
 
   // 保存文献（防抖）
   const savePapers = async (updatedPapers: Paper[]) => {
@@ -1344,6 +1393,29 @@ export default function ManagementPage() {
           <p className="text-sm text-slate-500 mt-1">文献库、期刊模板、知识库、数据管理</p>
         </div>
       </div>
+
+      {/* Tab 切换条 */}
+      <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg mb-5 w-fit">
+        {subTabs.map((tab) => {
+          const Icon = tab.icon
+          const active = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                active
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* ============ 文献库 Tab ============ */}
       {activeTab === 'library' && (
         <div className="flex gap-4">
@@ -3021,7 +3093,7 @@ export default function ManagementPage() {
       </div>{/* ──── 左侧主内容 END ──── */}
 
       {/* ──── 右侧 sticky 后台监控面板（常驻、不弹窗） ──── */}
-      <aside className="hidden xl:block w-[360px] shrink-0">
+      <aside className="hidden lg:block w-[360px] shrink-0">
         <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
           <BackendMonitorPanel taskQueue={taskQueue} />
         </div>
