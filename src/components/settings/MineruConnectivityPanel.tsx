@@ -9,7 +9,7 @@
  *
  * 架构说明：GitHub Actions runner 直接打 MinerU，前端不直连。
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
@@ -54,6 +54,48 @@ export default function MineruConnectivityPanel() {
 
   const [e2eRunning, setE2eRunning] = useState(false)
   const [e2eRun, setE2eRun] = useState<RunStatus | null>(null)
+
+  // 页面挂载后自动跑一次快速检测 + 端到端测试
+  // 用 mount-ref 守护，避免 StrictMode 双调用 / 依赖变化重复触发
+  const didAutoRun = useState(() => ({ current: false }))[0]
+  useEffect(() => {
+    if (didAutoRun.current) return
+    didAutoRun.current = true
+    // 前置条件：登录 + 私库 + MinerU token 都齐了才跑
+    if (!owner || !repo || !ghToken || !token.trim()) return
+
+    ;(async () => {
+      // 1. 先跑快速检测（毫秒级，无网络开销）
+      setChecking(true)
+      try {
+        const r = await checkMineruConnectivity({ token, workerUrl })
+        setReport(r)
+      } catch {
+        // 自动跑时静默，用户手动点才有 toast
+      } finally {
+        setChecking(false)
+      }
+
+      // 2. 再触发端到端测试（runner 真调 MinerU API）
+      setE2eRunning(true)
+      setE2eRun(null)
+      try {
+        await dispatchMineruTest(owner, repo, ghToken)
+        for (let i = 0; i < 18; i++) {
+          await new Promise((r) => setTimeout(r, 5000))
+          const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
+          if (!rs) continue
+          setE2eRun(rs)
+          if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
+        }
+      } catch {
+        // 静默失败，手动点按钮会再尝试并 toast
+      } finally {
+        setE2eRunning(false)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const runCheck = useCallback(async () => {
     if (!token.trim()) {
