@@ -503,7 +503,13 @@ function Settings() {
                   let icon: string, color: string, label: string
                   if (isSkipped) { icon = '—'; color = 'text-slate-400'; label = '未填写（跳过）' }
                   else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `PUT 失败 HTTP ${it.putStatus}` }
-                  else if (isDelayed) { icon = '⏳'; color = 'text-amber-600'; label = 'GitHub 回查未命中（索引延迟？）' }
+                  else if (isDelayed) {
+                    icon = '⏳'; color = 'text-amber-600'
+                    // 已重试 4 次指数退避后仍未命中 —— GitHub 可能还在索引长值 secret
+                    // 实际上 PUT 已成功（201/204），只是 secrets 列表还没列出来；
+                    // workflow 运行时 GitHub Actions 通常能直接读到值
+                    label = it.error || 'GitHub 回查未命中（已重试多次，PUT 实际成功）'
+                  }
                   else { icon = '✓'; color = 'text-green-600'; label = '已写入 + 已回查确认' }
 
                   // 简短的 value 预览（前 8 字符 + ...）

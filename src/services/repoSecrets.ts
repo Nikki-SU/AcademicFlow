@@ -172,6 +172,9 @@ export interface GitHubSecretMeta {
 /**
  * 列出 repo 上所有 Actions secrets（**不返回值，GitHub API 禁止**）
  * https://docs.github.com/en/rest/actions/secrets?apiVersion=2022-11-28#list-repository-secrets
+ *
+ * 显式传 per_page=100（最大值），避免 repo secrets 变多后被分页截断
+ * 导致 verify 时 GET list 看不到刚 PUT 的条目。
  */
 export async function listRepoSecrets(
   owner: string,
@@ -179,7 +182,7 @@ export async function listRepoSecrets(
   token: string,
 ): Promise<GitHubSecretMeta[]> {
   const res = await githubFetch(
-    `/repos/${owner}/${repo}/actions/secrets`,
+    `/repos/${owner}/${repo}/actions/secrets?per_page=100`,
     token,
   )
   if (!res.ok) {
@@ -298,30 +301,76 @@ export async function syncAllSecrets(
     }
   }
 
-  // 2. 等 GitHub 索引生效（经验值 ~1-2s）
-  await new Promise((r) => setTimeout(r, 1500))
+  // 2. 回查 —— GET /repos/{owner}/{repo}/actions/secrets 拿到所有存在的名字
+  //    GitHub Actions Secrets 后端是分布式异步的：PUT 204 只代表"请求接收"，
+  //    密文写入持久化 + 索引到 secrets 服务需要额外时间。长值 API key / token
+  //    加密后体积更大，处理明显比短值 URL / 模型名慢，经验值 2-5s。
+  //    用指数退避重试 4 次（1s → 2s → 4s → 8s），总等待 ≤15s 能覆盖 99% 情况。
+  const MAX_VERIFY_ATTEMPTS = 4
+  const VERIFY_BACKOFF_BASE_MS = 1000 // 第一次等 1s，之前硬编码 1.5s 的起点
 
-  // 3. 回查 —— GET /repos/{owner}/{repo}/actions/secrets 拿到所有存在的名字
-  try {
-    const all = await listRepoSecrets(owner, repo, token)
-    const existing = new Set(all.map((s) => s.name))
-    console.log(`[syncAllSecrets] verify: GET ${owner}/${repo} → found: [${[...existing].join(', ')}]`)
-    for (const it of items) {
-      if (it.putOk && it.valueWanted && existing.has(it.name)) {
-        it.verified = true
-      } else if (it.putOk && it.valueWanted && !existing.has(it.name)) {
-        // PUT 204 了但 list 里还没——GitHub 索引延迟，给个提示
-        it.verified = false
-        it.error = (it.error ? it.error + '; ' : '') + 'GitHub 回查未命中（索引延迟？）'
+  // 先构造需要验证的 Set（只有 putOk + 有值的才需要验证）
+  const needVerify = new Set<AiSecretName>()
+  for (const it of items) {
+    if (it.putOk && it.valueWanted) needVerify.add(it.name)
+  }
+
+  let allExisting = new Set<string>()
+  let lastListErr: string | null = null
+
+  for (let attempt = 1; attempt <= MAX_VERIFY_ATTEMPTS; attempt++) {
+    // 退避等待（第一次不等，因为 PUT 循环本身有一定耗时；attempt=1 前的 delay=0）
+    if (attempt > 1) {
+      const delay = VERIFY_BACKOFF_BASE_MS * Math.pow(2, attempt - 2) // 2s, 4s, 8s
+      console.log(`[syncAllSecrets] verify attempt ${attempt}/${MAX_VERIFY_ATTEMPTS}: wait ${delay}ms...`)
+      await new Promise((r) => setTimeout(r, delay))
+    } else {
+      // 第一次也短暂等一下，让 GitHub 有时间处理
+      await new Promise((r) => setTimeout(r, 500))
+    }
+
+    try {
+      const all = await listRepoSecrets(owner, repo, token)
+      allExisting = new Set(all.map((s) => s.name))
+      lastListErr = null
+      console.log(`[syncAllSecrets] verify attempt ${attempt}: GET found [${[...allExisting].join(', ')}]`)
+
+      // 检查每条的状态
+      let stillPending = 0
+      for (const it of items) {
+        if (needVerify.has(it.name) && allExisting.has(it.name)) {
+          if (!it.verified) {
+            it.verified = true
+            it.error = undefined // 之前可能写了"索引延迟"，现在清掉
+          }
+        } else if (needVerify.has(it.name) && !allExisting.has(it.name)) {
+          stillPending++
+        }
       }
-      console.log(`  ${it.name}: put=${it.putOk ? it.putStatus : 'FAIL'} verified=${it.verified} err=${it.error ?? '-'}`)
+
+      if (stillPending === 0) {
+        console.log(`[syncAllSecrets] verify: 全部 ${items.length} 条已就绪 ✓`)
+        break
+      }
+      console.log(`[syncAllSecrets] verify: 仍有 ${stillPending} 条待索引，继续重试...`)
+    } catch (e: any) {
+      lastListErr = e.message || String(e)
+      console.warn(`[syncAllSecrets] verify attempt ${attempt}: list 失败 — ${lastListErr}`)
+      // list 本身炸了不立即放弃，还有重试机会
     }
-  } catch (e: any) {
-    // verify 本身失败不影响 put 结果，但要让用户知道
-    const msg = `回查失败: ${e.message || String(e)}`
-    for (const it of items) {
-      if (it.putOk) it.error = (it.error ? it.error + '; ' : '') + msg
+  }
+
+  // 收尾：对最终还没命中的条目标错误信息
+  for (const it of items) {
+    if (needVerify.has(it.name) && !allExisting.has(it.name)) {
+      it.verified = false
+      it.error = (it.error ? it.error + '; ' : '') +
+        `GitHub 回查未命中（已等 ${MAX_VERIFY_ATTEMPTS} 次指数退避约 ${VERIFY_BACKOFF_BASE_MS * (Math.pow(2, MAX_VERIFY_ATTEMPTS - 1) - 1)}s）`
     }
+    if (lastListErr && !it.verified && !it.error) {
+      it.error = `回查 list 持续失败: ${lastListErr}`
+    }
+    console.log(`  ${it.name}: put=${it.putOk ? it.putStatus : 'FAIL'} verified=${it.verified} err=${it.error ?? '-'}`)
   }
 
   return items
