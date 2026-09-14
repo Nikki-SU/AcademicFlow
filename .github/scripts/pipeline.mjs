@@ -224,6 +224,8 @@ function saveLocalCsv(relPath, headers, rows) {
 
 async function commitLocalFiles(fileRelPaths, message) {
   // 用 git commit + push，这比单独 blob+tree transactions 更高效
+  // 关键：push 要 retry + rebase —— 多个 pipeline 并发跑 / 和 deploy.yml 竞态时，
+  // 裸 git push 会 non-fast-forward 失败，导致 runner 做了半天活白做
   const { execSync } = await import('node:child_process')
   // 只 add 变更的文件
   for (const p of fileRelPaths) {
@@ -236,7 +238,33 @@ async function commitLocalFiles(fileRelPaths, message) {
     // 没有变更（exit 1 with "nothing to commit"）就跳过
     if (!e.stdout?.toString().includes('nothing to commit')) throw e
   }
-  execSync(`git push origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+
+  // ── push with retry + rebase ──
+  const MAX_RETRY = 3
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    try {
+      // 每次 push 前都 pull --rebase 同步最新 main
+      execSync(`git fetch origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+      execSync(`git rebase origin/main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+      execSync(`git push origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+      return // ✅ 成功
+    } catch (e) {
+      const stderr = e.stderr?.toString() || ''
+      const isConflict = stderr.includes('could not apply') || stderr.includes('conflict') || stderr.includes('non-fast-forward')
+      if (attempt < MAX_RETRY && isConflict) {
+        // rebase 冲突 → abort + 等一下 + 重试
+        try { execSync(`git rebase --abort`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
+        console.warn(`  [commitLocalFiles] push attempt ${attempt} failed (conflict), retrying after ${attempt * 3}s...`)
+        await sleep(attempt * 3000)
+      } else {
+        // 非冲突错误 / 耗尽重试次数 → 真失败
+        try { execSync(`git rebase --abort`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
+        console.error(`  [commitLocalFiles] push FAILED after ${attempt} attempt(s): ${stderr.slice(0, 300)}`)
+        throw e
+      }
+    }
+  }
 }
 // ── 文献存活检查：防止用户删除后 Runner 仍在跑把文件写回来 ──
 // Runner 本地 checkout 的是 dispatch 时的快照，需要 git fetch 拉最新 main

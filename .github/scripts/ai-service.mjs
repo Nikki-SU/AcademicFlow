@@ -60,11 +60,36 @@ async function aiCall(engine, systemOrOpts, userMaybe) {
 }
 
 async function commitFile(outputRelPath, message) {
+  // 和 pipeline.mjs 一样：retry + rebase 防 non-fast-forward 竞态
   try { execSync(`git add "${outputRelPath}"`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
   try {
     execSync(`git commit -m "${message.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { cwd: REPO_ROOT, stdio: 'pipe' })
-  } catch (e) { if (!e.stdout?.toString().includes('nothing to commit')) throw }
-  execSync(`git push origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+  } catch (e) {
+    // nothing to commit → 跳过 push
+    if (e.stdout?.toString().includes('nothing to commit')) return
+    throw e
+  }
+
+  const MAX_RETRY = 3
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    try {
+      execSync(`git fetch origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+      execSync(`git rebase origin/main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+      execSync(`git push origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+      return
+    } catch (e) {
+      const stderr = e.stderr?.toString() || ''
+      const isConflict = stderr.includes('could not apply') || stderr.includes('conflict') || stderr.includes('non-fast-forward')
+      try { execSync(`git rebase --abort`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
+      if (attempt < MAX_RETRY && isConflict) {
+        console.warn(`  [commitFile] push attempt ${attempt} failed (conflict), retrying...`)
+        await sleep(attempt * 3000)
+      } else {
+        throw e
+      }
+    }
+  }
 }
 
 // Handlers

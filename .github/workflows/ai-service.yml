@@ -4,6 +4,12 @@ on:
   repository_dispatch:
     types: [ai_call]
 
+# 多个 AI call 并发跑会抢 siliconflow 等 provider 的 token 配额（rate limit）
+# 排队比撞 rate limit 然后用户看到失败好
+concurrency:
+  group: "ai-service-call"
+  cancel-in-progress: false
+
 jobs:
   ai:
     runs-on: ubuntu-latest
