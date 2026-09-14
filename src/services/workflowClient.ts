@@ -77,20 +77,40 @@ export async function dispatchAiConnectivityTest(
 
 // ===================== run 查询 =====================
 
+/**
+ * 后端 dispatch 事件类型 → workflow yml 的 `name:` 字段映射
+ *
+ * GitHub Actions API 的 /actions/runs?event= 参数值是底层触发源
+ *   （push / pull_request / repository_dispatch / workflow_dispatch 等），
+ *   不是我们 payload 里的自定义 event_type。
+ * 所以 repository_dispatch 触发的所有 run 在 API 里 event 全是 "repository_dispatch"，
+ *   无法直接按 event_type 过滤。必须先拉最近一批，再按 workflow name 筛。
+ */
+const EVENT_TYPE_TO_WORKFLOW_NAME = {
+  paper_convert:            'Paper Pipeline',
+  ai_call:                  'AI Service',
+  mineru_connectivity_test: 'MinerU Connectivity Test',
+  ai_connectivity_test:     'AI Connectivity Test',
+} as const
+
 export async function getLatestRun(
-  eventType: 'paper_convert' | 'ai_call' | 'mineru_connectivity_test' | 'ai_connectivity_test',
+  eventType: keyof typeof EVENT_TYPE_TO_WORKFLOW_NAME,
   owner: string,
   repo: string,
   token: string,
 ): Promise<RunStatus | null> {
+  const workflowName = EVENT_TYPE_TO_WORKFLOW_NAME[eventType]
+  // 拉最近 30 个 repository_dispatch run，在前端按 name 过滤
+  // 30 是经验值：一个私库每天可能有多个 pipeline + 多次手动测试
   const res = await githubFetch(
-    `/repos/${owner}/${repo}/actions/runs?event=${eventType}&per_page=1`,
+    `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=30`,
     token,
   )
   if (!res.ok) return null
-  interface _GhRunLite { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; updated_at: string }
+  interface _GhRunLite { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; updated_at: string; name: string }
   const data = (await res.json()) as { workflow_runs?: _GhRunLite[] }
-  const run = data.workflow_runs?.[0]
+  // 按 workflow name 匹配（降序 → 第一条就是最近的）
+  const run = data.workflow_runs?.find((r) => r.name === workflowName)
   if (!run) return null
   return {
     run_id: run.id,
