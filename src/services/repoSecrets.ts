@@ -273,8 +273,11 @@ export async function syncAllSecrets(
       case 'qiniu':    apiKey1 = s.qiniuApiKey;    apiKey2 = s.qiniuApiKey;    break
       default:         apiKey1 = ''; apiKey2 = '';
     }
-    model1 = s.ai1Model || cfg.defaultModel1
-    model2 = s.ai2Model || cfg.defaultModel2
+    // 保险：预置 provider 也用 cfg.defaultModel 强制覆盖，
+    // 避免 store 里残留的旧 provider 的 model 值（如 deepseek-chat）
+    // 写到新 provider（七牛云需要 deepseek/deepseek-v4-flash 带前缀）
+    model1 = cfg.defaultModel1
+    model2 = cfg.defaultModel2
   }
 
   const secretsMap: Record<AiSecretName, string> = {
