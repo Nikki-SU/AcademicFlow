@@ -784,92 +784,102 @@ async function runWordsExtraction(enItems, doi, slug) {
 
 
 // ============================================================
-// 通用 block 切分：不假设特定 PDF 提取器的输出格式
-// 按空行 / Markdown 标题 / 图片 / 表格行 等天然断点切分
-// 每个 block 保持原始阅读顺序，不重排
+// Prompt 1: 语义分段 + 清理 + 跨页拼接
+// 输入：MinerU (或任何提取器) 的完整 Markdown
+// 输出：JSON 数组 [{ "text": "...", "tag": "..." }, ...]
+//   - tag 告诉流水线这段是什么类型
+//   - 顺序严格等于原文阅读顺序
 // ============================================================
-function splitIntoBlocks(md) {
-  const lines = md.split('\n')
-  const blocks = []
-  let cur = []
-  const flush = () => {
-    if (cur.length) { blocks.push(cur.join('\n')); cur = [] }
+const SEMANTIC_SEGMENT_PROMPT = `你是学术文献语义处理专家。下面是一段从 PDF 提取出来的 Markdown 文本——来源不可知，可能是 MinerU、Marker、PyMuPDF，也可能是用户手动粘贴的扫描 OCR 结果，甚至可能来自任何学术期刊的任何模板格式。
+
+没有任何固定规则可以依赖。你必须完全凭语义和上下文来做判断。
+
+你的任务（所有要求一次性完成）：
+
+## 1. 识别并丢弃非实质内容（去垃圾）
+以下内容不属于论文正文，直接丢弃不要：
+- 页眉：期刊标题、卷号、期号、页码、作者缩写+页码的页眉格式（如 \`Author et al. / J. Catalysis 2024\`）
+- 页脚：版权声明、DOI footer（单独一行的 DOI）、ISSN 号、网址、Published on 日期、Received/Accepted 日期（如果单独成段且无其他内容）
+- 模板文字："Licence and permissions" / "Published by..." / "This article is licensed under..." / "© 2024 The Authors" 等版权模板
+- 扫描 PDF 的 OCR 噪声：页码数字、页眉页脚的重复文字、乱码
+
+**判断原则：如果内容不携带论文的实质学术信息，就丢弃。** 宁可漏丢一条模板文字，也不要错丢一段正文。
+
+## 2. 跨页同段拼接
+如果两段文本实际上是同一个段落被 PDF 分页切断了，把它们合并成一段。判断依据：
+- 上一段结尾在句子中间（没有句号、问号、感叹号）
+- 下一段开头是小写字母（承接上一段的续行）
+- 两段的语义明显连贯，中间没有新的主题切换
+
+## 3. 语义分段（不是按空行切！）
+Markdown 的空行不可靠——PDF 提取器可能在段落中间插入空行，也可能把多段挤在一个空行里。你必须按**真正的语义段落**来分割：
+- 一个段落表达一个完整的主题
+- 同一主题的多行文字合并为一段，即使中间有多余空行
+- 不同主题之间（如段落 A 讲方法，段落 B 讲结果）分开
+
+## 4. 给每一段打标签（tag）
+完全凭内容理解来判断，不要依赖字符串匹配。可选 tag：
+
+- \`PARA_EN\` — 英文正文段落（有实质学术内容的英文段落，需要翻译）
+- \`PARA_CN\` — 中文正文段落（有实质学术内容的中文段落，需要翻译）
+- \`HEADING\` — 章节标题（如 \`# Introduction\`, \`## Experimental\`，不翻译）
+- \`IMG\` — 图片引用（\`![caption](path)\`，原样保留不翻译）
+- \`TABLE\` — Markdown 表格（含 \`|\` 分隔线的表格，整体保留）
+- \`FORMULA\` — LaTeX 公式块（独立成行的 \`$$...$$\` 或 \`\\begin{equation}...\`，原样保留）
+- \`REF_HEADING\` — 参考文献章节标题（如 \`# References\`）
+- \`REF_ENTRY\` — 单条参考文献内容
+- \`META\` — 论文元信息：论文标题、作者姓名和单位、摘要、关键词、通讯作者信息、基金致谢、DOI（在标题下方的 DOI，不是页脚的）、图表标题 caption 等**论文自带的有意义的元信息**——全部保留
+
+## 5. 严格约束
+- **顺序绝对不能变**：你输出的数组顺序 = 原文的阅读顺序，一条都不能重排
+- **文本完整保留**：text 字段里必须包含完整的原始 Markdown 格式——LaTeX \`$$\`、\`$...$\`、图片 \`![...](...)\`、表格 \`|...|\`、代码块都原样不动
+- **JSON 格式**：严格 JSON 数组，不要三重反引号包裹（即 markdown code fence），不要任何解释文字。字符串里如果有双引号请用 \\" 转义
+
+示例输出：
+[
+  { "text": "这里是论文标题原文", "tag": "META" },
+  { "text": "这里是作者和单位原文", "tag": "META" },
+  { "text": "## 1. Introduction", "tag": "HEADING" },
+  { "text": "这是第一段英文正文...", "tag": "PARA_EN" },
+  { "text": "![Figure 1](images/img_001.png)", "tag": "IMG" },
+  { "text": "## References", "tag": "REF_HEADING" },
+  { "text": "[1] Author, J. Article title. Journal 2024, 5, 123-456.", "tag": "REF_ENTRY" }
+]
+
+Markdown 原文：
+"""
+{{DOCUMENT}}
+"""
+
+现在请输出 JSON 数组：`
+
+// ============================================================
+// 辅助：解析 AI 返回的 JSON 数组（容错 ```json``` 包裹、截断等）
+// ============================================================
+function parseAiSegments(resp) {
+  if (!resp) return []
+  // 去 ```json ... ``` 包裹
+  let s = resp.replace(/^```json?\s*/im, '').replace(/\s*```\s*$/m, '').trim()
+  // 找第一个 [ ... ]
+  const start = s.indexOf('[')
+  const end = s.lastIndexOf(']')
+  if (start === -1 || end === -1) return []
+  s = s.substring(start, end + 1)
+  try {
+    return JSON.parse(s)
+  } catch {
+    // 截断了也能 parse — 去掉最后一个不完整元素
+    for (let cut = s.length - 1; cut > 0; cut--) {
+      const tryS = s.substring(0, cut) + ']'
+      try { return JSON.parse(tryS) } catch {}
+    }
+    return []
   }
-  for (const line of lines) {
-    // 空行 → 切段
-    if (!line.trim()) { flush(); continue }
-    // Markdown 标题行 → 新 block 开始
-    if (/^#{1,6}\s/.test(line.trim())) { flush(); cur.push(line); flush(); continue }
-    // 整行图片 → 独立 block
-    if (/^!\[.*\]\(.+\)\s*$/.test(line.trim())) { flush(); cur.push(line); flush(); continue }
-    // 表格行 → 合并为一个 block（遇到非表格行再 flush）
-    if (/^\s*\|/.test(line.trim())) { cur.push(line); continue }
-    // 普通行 → 累积
-    cur.push(line)
-  }
-  flush()
-  return blocks
 }
 
 // ============================================================
-// 单段 AI clean prompt —— 带前后文让 AI 判断跨页断句
-// 输入：prev（上一个 block 原文）、current（当前 block 原文）、next（下一个 block 原文）
-// AI 决定：
-//   - 丢弃（纯垃圾）→ 返回 JSON { "action": "discard" }
-//   - 保留 → 返回 JSON { "action": "keep", "text": "...", "merge_with_prev": bool }
-//     如果 merge_with_prev=true，说明 current 是上一段的跨页续行，拼到上一段末尾
+// 辅助：纯代码层面的 enumerate / parse（不做 AI 调用，只处理标记）
 // ============================================================
-const CLEAN_BLOCK_PROMPT = `你是文献整理专家。处理 PDF 提取文本中的一个段落块。
-
-你会收到三段原文：PREV（上一段）、CURRENT（当前段）、NEXT（下一段）。
-用 PREV 和 NEXT 作为上下文，判断 CURRENT 段的处理方式。
-
-判断标准：
-【丢弃】（action: discard）：
-  - 页眉：期刊标题、卷号、页码（出现在每页顶部、重复出现的那种）
-  - 页脚：版权声明、DOI footer、网址 footer、ISSN footer
-  - 纯 Received / Accepted 日期（不是作者信息块的一部分）
-  - 纯网址、纯 ISSN、纯 DOI footer
-  - Licence and permissions / Published on ... 这类模板文字
-  - 内容为空或只有标点符号
-
-【保留】（action: keep）：
-  - 正文段落（哪怕是正文的跨页续行）
-  - 图片引用 ![...](...)（原样保留）
-  - Markdown 表格（原样保留）
-  - LaTeX 公式（原样保留）
-  - 论文标题、作者、单位、摘要
-  - 各级章节标题（# / ## / ###）
-  - 作者简介块、References 章节全部条目
-  - 基金致谢、通讯作者信息等论文自有元信息
-
-【跨页续行检测】（merge_with_prev: true/false）：
-  - 如果 CURRENT 段是 PREV 段的跨页续行（PREV 段结尾是句子中间、没有句号、CURRENT 段开头小写）
-  - 典型模式：PREV 结尾 "environment, energy, chemicals,"（逗号结尾、截断），CURRENT 开头 "catalysis has been..."（小写开头、继续上一段）
-  - 这种情况 text 字段输出 CURRENT 的清理后文本，merge_with_prev: true，会被拼到上一段末尾
-
-严格 JSON 输出，没有其他文字：
-{"action":"keep","text":"清理后的完整段落文本（可含多行）","merge_with_prev":false}
-或
-{"action":"keep","text":"...","merge_with_prev":true}
-或
-{"action":"discard"}
-
-PREV（上一段原文，可能为空字符串如果当前是第一段）：
-"""
-{{PREV}}
-"""
-CURRENT（当前段原文）：
-"""
-{{CURRENT}}
-"""
-NEXT（下一段原文，可能为空字符串如果当前是最后一段）：
-"""
-{{NEXT}}
-"""
-
-现在输出 JSON：`
-
 function autoInsertParaTags(md) {
   const lines = md.split('\n'); const out = []; let inCB = false; let buf = []; let bufTable = false
   const flush = () => {
@@ -924,7 +934,7 @@ function parseAlignedMd(md) {
     const paraMatch = line.match(/<!--\s*PARA\s+en\s+(\d+)\/(\d+)\s*-->/)
     if (paraMatch) { flushPara(); curPara = { idx: Number(paraMatch[1]), total: Number(paraMatch[2]), content: '' }; if (inRef) { refContent += '\n'; inRef = false }; continue }
     const imgMatch = line.match(/<!--\s*IMG\s+between\s+(\d+)\s+and\s+(\d+)\s*-->/)
-    if (imgMatch) { continue } // imgs handled via tree
+    if (imgMatch) { continue }
     const tableMatch = line.match(/<!--\s*TABLE\s+between\s+(\d+)\s+and\s+(\d+)\s*-->/)
     if (tableMatch) { flushPara(); inTable = true; tableBuf = []; tableStart = Number(tableMatch[1]); continue }
     if (/<!--\s*REF\s+ALL\s*-->/.test(line)) { flushPara(); inRef = true; continue }
@@ -940,12 +950,12 @@ function parseAlignedMd(md) {
 }
 
 // ============================================================
-// Post-Mineru 主流程（带续跑 + progress）
+// runPostMineru —— AI 语义分段 + 每段流水线（打标 → 翻译 → 组装）
+// 流程：MinerU → Markdown → AI 语义判别（去垃圾、跨页拼接、分段、打 tag）
+//      → enumerate 编号 → 逐段翻译 → 按编号顺序组装
 // ============================================================
 async function runPostMineru(doi, markdown, slug, onProgress) {
   const t = {
-    cleaned: `literatures/${slug}/.tmp_cleaned.md`,
-    tagged: `literatures/${slug}/.tmp_tagged.md`,
     enumerated: `literatures/${slug}/.tmp_enumerated.md`,
     translated: `literatures/${slug}/.tmp_translated.json`,
   }
@@ -953,229 +963,181 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   for (const [k, rel] of Object.entries(t)) {
     tmpLocal[k] = path.join(REPO_ROOT, rel)
   }
-  const exists = (localPath) => fs.existsSync(localPath)
-  const read = (localPath) => fs.existsSync(localPath) ? fs.readFileSync(localPath, 'utf-8') : ''
-  const write = (localPath, content) => fs.writeFileSync(localPath, content, 'utf-8')
+  const exists = (p) => fs.existsSync(p)
+  const read = (p) => exists(p) ? fs.readFileSync(p, 'utf-8') : ''
+  const write = (p, c) => fs.writeFileSync(p, c, 'utf-8')
 
-  // ============ 合并 Clean + Tag + Enumerate：逐 block AI clean → 跨页 merge → 代码分类 → 打标 ============
+  // ============ Phase 1: AI 语义分段（续跑跳过） ============
   let skeletonMd = read(tmpLocal.enumerated)
-  let parsed
+  let parsed = null
 
   if (!skeletonMd) {
-    // Step A: MinerU/任何提取器原始 markdown → 按通用规则切 blocks
-    const rawBlocks = splitIntoBlocks(markdown)
-    console.log(`  [blocks] raw markdown=${markdown.length} chars → ${rawBlocks.length} blocks`)
+    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI semantic segmentation...', pct: 5, node: 1 })
+    onProgress?.({ stage: 'ai1_clean', pct: 5 })
 
-    await writeProgress(slug, { stage: 'ai1_clean', message: `逐段清理中 (0/${rawBlocks.length})...`, pct: 5, node: 1 })
+    // 分块喂 AI：每块 ~25000 chars，块间 overlap 5000 chars（防段落被切断）
+    const BLOCK = 25000, OVERLAP = 5000
+    const chunks = []
+    for (let i = 0; i < markdown.length; i += BLOCK - OVERLAP) {
+      chunks.push(markdown.slice(i, Math.min(i + BLOCK, markdown.length)))
+      if (i + BLOCK >= markdown.length) break
+    }
+    console.log(`  [semantic] markdown=${markdown.length} chars -> ${chunks.length} chunks`)
 
-    // Step B: 逐 block AI clean（带前后文），同时检测跨页续行
-    // results[i] = { text, merge_with_prev: bool, discarded: bool }
-    const results = new Array(rawBlocks.length)
-    let discardedCount = 0
-    let mergedCount = 0
-
-    for (let i = 0; i < rawBlocks.length; i++) {
-      const prev = i > 0 ? rawBlocks[i - 1] : ''
-      const curr = rawBlocks[i]
-      const next = i < rawBlocks.length - 1 ? rawBlocks[i + 1] : ''
-
-      // 用 {{PREV}} {{CURRENT}} {{NEXT}} 占位符替换
-      const prompt = CLEAN_BLOCK_PROMPT
-        .replace('{{PREV}}', prev.replace(/"/g, '\\"'))
-        .replace('{{CURRENT}}', curr.replace(/"/g, '\\"'))
-        .replace('{{NEXT}}', next.replace(/"/g, '\\"'))
-
-      let resp
+    const allSegments = []
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const userMsg = SEMANTIC_SEGMENT_PROMPT.replace('{{DOCUMENT}}', chunks[ci])
+      let raw
       try {
-        resp = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, prompt, '')
+        raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL,
+          `You are a literature semantic segmentation expert. Output ONLY a valid JSON array as specified by the user. No extra text.`,
+          userMsg)
       } catch (e) {
-        console.warn(`  [clean-block ${i+1}/${rawBlocks.length}] aiCall failed, 保留原文: ${e.message?.slice(0, 80)}`)
-        results[i] = { text: curr, merge_with_prev: false, discarded: false }
+        console.warn(`  [semantic chunk ${ci+1}/${chunks.length}] AI failed: ${e.message?.slice(0,120)}`)
         continue
       }
-
-      // 解析 AI 返回的 JSON（容错：有时候 AI 会在 JSON 外面包 ```json```）
-      let parsedResp
-      try {
-        const jsonStr = resp.replace(/^```json?\s*/i, '').replace(/\s*```\s*$/, '').trim()
-        parsedResp = JSON.parse(jsonStr)
-      } catch {
-        // JSON 解析失败 → 当成 keep，直接用 AI 输出全文
-        console.warn(`  [clean-block ${i+1}/${rawBlocks.length}] JSON 解析失败, 当 keep: ${resp?.slice(0, 60)}`)
-        parsedResp = { action: 'keep', text: resp, merge_with_prev: false }
-      }
-
-      if (parsedResp.action === 'discard' || !parsedResp.text?.trim()) {
-        results[i] = { text: '', merge_with_prev: false, discarded: true }
-        discardedCount++
-      } else {
-        results[i] = {
-          text: parsedResp.text.trim(),
-          merge_with_prev: !!parsedResp.merge_with_prev,
-          discarded: false,
+      const segments = parseAiSegments(raw)
+      console.log(`  [semantic chunk ${ci+1}/${chunks.length}] -> ${segments.length} segments`)
+      for (const s of segments) {
+        if (s.text && s.text.trim()) {
+          allSegments.push({ text: s.text.trim(), tag: s.tag || 'PARA_EN' })
         }
-        if (parsedResp.merge_with_prev) mergedCount++
       }
 
-      // 每 10 段更新进度
-      if ((i + 1) % 10 === 0 || i === rawBlocks.length - 1) {
-        const pct = 5 + Math.round((i + 1) / rawBlocks.length * 20) // 5% → 25%
-        await writeProgress(slug, { stage: 'ai1_clean', message: `逐段清理中 (${i+1}/${rawBlocks.length})...`, pct, node: 1 })
-        onProgress?.({ stage: 'ai1_clean', pct })
-      }
-
-      // rate limit
-      await new Promise(r => setTimeout(r, 400))
+      const pct = 5 + Math.round((ci + 1) / chunks.length * 20)
+      await writeProgress(slug, { stage: 'ai1_clean', message: `AI semantic seg (${ci+1}/${chunks.length})...`, pct, node: 1 })
+      onProgress?.({ stage: 'ai1_clean', pct })
+      await new Promise(r => setTimeout(r, 300))
     }
 
-    console.log(`  ✓ clean done: total=${rawBlocks.length}  discarded=${discardedCount}  merged=${mergedCount}`)
+    const segments = allSegments
+    const tagStats = {}
+    for (const s of segments) tagStats[s.tag] = (tagStats[s.tag] || 0) + 1
+    console.log(`  ✓ semantic done: ${segments.length} segments, tags=${JSON.stringify(tagStats)}`)
 
-    // Step C: 应用 merge + 组装有序段落列表（顺序绝对不能乱）
-    // 先应用 merge：从后往前，如果 merge_with_prev=true，把 text 拼到 results[i-1] 末尾
-    // 注：合并顺序——从前向后扫更直观
-    const merged = []
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i]
-      if (r.discarded) continue
-      if (r.merge_with_prev && merged.length > 0) {
-        // 拼到上一段末尾（去掉上一段末尾换行，加空格）
-        const prevText = merged[merged.length - 1].text
-        merged[merged.length - 1] = { ...merged[merged.length - 1], text: prevText + ' ' + r.text }
-      } else {
-        merged.push({ text: r.text })
-      }
+    // AI tag -> HTML comments
+    const tagToComment = {
+      PARA_EN: '<!-- PARA_EN -->',
+      PARA_CN: '<!-- PARA_EN -->',
+      IMG: '<!-- IMG -->',
+      TABLE: '<!-- TABLE -->',
+      REF_HEADING: '<!-- REF_ALL -->',
     }
-    console.log(`  [merge] merged blocks: ${merged.length} (discarded=${discardedCount}, merged=${mergedCount})`)
-
-    // Step D: 逐段代码分类打标（顺序保持不变）
-    // classifyBlock 返回 tag，然后组装成 tagged markdown
-    function classifyBlock(text) {
-      const t = text.trim()
-      if (!t) return { tag: 'SKIP_EMPTY' }
-
-      // 图片块：整段全是 ![
-      const allImg = text.split('\n').every(l => !l.trim() || /^!\[/.test(l.trim()))
-      if (allImg && text.includes('![')) return { tag: 'IMG' }
-
-      // 表格块：有 | 开头的行
-      if (text.split('\n').some(l => /^\s*\|/.test(l.trim()))) return { tag: 'TABLE' }
-
-      // 参考文献章节标题
-      if (/^#+\s*(References|Bibliography)/i.test(text.split('\n')[0]?.trim() || '')) return { tag: 'REF_ALL' }
-
-      // Markdown 标题
-      if (/^#{1,6}\s/.test(text.split('\n')[0]?.trim() || '')) return { tag: 'SKIP_HEADING' }
-
-      // 公式块（$$...$$）
-      const nonEmpty = text.split('\n').filter(l => l.trim())
-      if (nonEmpty.length > 0 && nonEmpty.every(l => /^\s*\$\$?[\s\S]*\$\$?\s*$/.test(l.trim()))) return { tag: 'SKIP_FORMULA' }
-
-      const hasLetter = /[A-Za-z]/.test(t)
-      const hasCn = /[\u4e00-\u9fa5]/.test(t)
-
-      if (hasCn && t.length >= 5) return { tag: 'PARA_CN' }
-      if (hasLetter && !hasCn && t.length >= 10) return { tag: 'PARA_EN' }
-      return { tag: 'SKIP_OTHER' }
-    }
-
-    // 组装 tagged markdown + 统计
     let taggedMd = ''
-    const tagCounts = {}
-    for (const b of merged) {
-      const { tag } = classifyBlock(b.text)
-      tagCounts[tag] = (tagCounts[tag] || 0) + 1
-
-      switch (tag) {
-        case 'PARA_EN': taggedMd += '<!-- PARA_EN -->\n' + b.text + '\n\n'; break
-        case 'IMG':     taggedMd += '<!-- IMG -->\n' + b.text + '\n\n'; break
-        case 'TABLE':   taggedMd += '<!-- TABLE -->\n' + b.text + '\n\n'; break
-        case 'REF_ALL': taggedMd += '<!-- REF_ALL -->\n' + b.text + '\n\n'; break
-        case 'PARA_CN': taggedMd += '<!-- PARA_CN -->\n' + b.text + '\n\n'; break
-        default:        taggedMd += b.text + '\n\n'; // SKIP_HEADING / SKIP_FORMULA / SKIP_OTHER 保留原文但不插标记
-      }
+    for (const seg of segments) {
+      const comment = tagToComment[seg.tag]
+      if (comment) taggedMd += comment + '\n'
+      taggedMd += seg.text + '\n\n'
     }
 
-    console.log(`  [tag] 分类统计: ${JSON.stringify(tagCounts)}`)
-    console.log(`  ✓ tag ok, ${taggedMd.length} chars`)
-
-    // Step E: Enumerate + parse（复用已有函数）
-    await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 40, node: 1 })
-    onProgress?.({ stage: 'enumerate', pct: 40 })
+    // Enumerate (pure code) + write resume file
+    await writeProgress(slug, { stage: 'enumerate', message: 'Code enumeration...', pct: 25, node: 1 })
+    onProgress?.({ stage: 'enumerate', pct: 25 })
     skeletonMd = enumerateTaggedMd(taggedMd)
     write(tmpLocal.enumerated, skeletonMd)
     parsed = parseAlignedMd(skeletonMd)
     console.log(`  ✓ enumerate ok, nodes=${parsed.nodes.length}`)
   } else {
-    console.log('  [resume] skip clean+tag+enumerate')
+    console.log('  [resume] semantic + enumerate already done, loading skeleton')
     parsed = parseAlignedMd(skeletonMd)
-    await writeProgress(slug, { stage: 'ai1_clean', message: '续跑：跳过 Clean/Tag', pct: 25, node: 1 })
-    await writeProgress(slug, { stage: 'enumerate', message: '续跑：跳过 Enumerate', pct: 40, node: 1 })
   }
 
-  // 4. Translate
-  const enNodes = parsed.nodes.filter(n => n.content && /[A-Za-z]/.test(n.content))
+  // ============ Phase 2: 逐段翻译（续跑跳过已完成部分） ============
+  const enNodes = parsed.nodes.filter(n => n.type === 'para' && /[A-Za-z]/.test(n.content))
   const tableNodes = parsed.nodes.filter(n => n.type === 'table')
   let enItems = [], tables = [], startEn = 0, startTable = 0
-  let resumeData = null
+
   if (exists(tmpLocal.translated)) {
-    try { resumeData = JSON.parse(read(tmpLocal.translated)); enItems = resumeData.enItems || []; tables = resumeData.tables || []; startEn = enItems.length; startTable = tables.length } catch {}
-    console.log(`  [resume] translate: ${enItems.length} segments done`)
+    try {
+      const resumeData = JSON.parse(read(tmpLocal.translated))
+      enItems = resumeData.enItems || []
+      tables = resumeData.tables || []
+      startEn = enItems.length
+      startTable = tables.length
+      console.log(`  [resume] translate: ${enItems.length} paragraphs + ${tables.length} tables already done`)
+    } catch {}
   }
+
   for (let i = startEn; i < enNodes.length; i++) {
     const seg = enNodes[i]
-    const cn = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('para'), seg.content)
+    const cn = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
+      `You are an academic translator. Translate the following English paragraph to Chinese in a scholarly tone. Output ONLY the translation.`,
+      seg.content)
     enItems.push({ idx: seg.idx ?? i + 1, total: enNodes.length, en: seg.content, cn })
-    const pct = 50 + Math.round(40 * i / Math.max(1, enNodes.length))
-    await writeProgress(slug, { stage: 'translating', message: `AI-2 翻译 ${i + 1}/${enNodes.length}`, pct, node: 2 })
+
+    const pct = 30 + Math.round(55 * i / Math.max(1, enNodes.length))
+    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating para ${i + 1}/${enNodes.length}`, pct, node: 2 })
     onProgress?.({ stage: 'translating', pct })
+
     if (enItems.length % 5 === 0) {
-      fs.writeFileSync(tmpLocal.translated, JSON.stringify({ enItems, tables }), 'utf-8')
+      write(tmpLocal.translated, JSON.stringify({ enItems, tables }))
     }
   }
+
   for (let i = startTable; i < tableNodes.length; i++) {
     const seg = tableNodes[i]
-    const cn = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('table'), seg.content)
+    const cn = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
+      `Translate the following Markdown table to Chinese. Keep the table format identical. Output ONLY the Markdown table.`,
+      seg.content)
     tables.push({ beforeIdx: seg.beforeIdx ?? 0, afterIdx: seg.afterIdx ?? 0, en: seg.content, cn })
-    await writeProgress(slug, { stage: 'translating', message: `AI-2 表格 ${i + 1}/${tableNodes.length}`, pct: 90, node: 2 })
-    onProgress?.({ stage: 'translating', pct: 90 })
+
+    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating table ${i + 1}/${tableNodes.length}`, pct: 88, node: 2 })
+    onProgress?.({ stage: 'translating', pct: 88 })
   }
-  // 5. 组装
-  await writeProgress(slug, { stage: 'assemble', message: '组装最终文件...', pct: 95, node: 3 })
+
+  // ============ Phase 3: 按编号顺序组装最终 Markdown ============
+  await writeProgress(slug, { stage: 'assemble', message: 'Assembling final markdown in order...', pct: 95, node: 3 })
   onProgress?.({ stage: 'assemble', pct: 95 })
+
+  // 用 skeletonMd 作为骨架：遇到 PARA en X/Y 标记处插入翻译内容
   let out = ''
-  for (const p of enItems) { out += `<!-- PARA_EN -->\n${p.en}\n\n${p.cn}\n\n` }
-  if (tables.length) { out += '\n---\n\n'; for (const t of tables) out += t.cn + '\n\n' }
-  if (parsed.refContent) out += `\n<!-- REF_ALL -->\n${parsed.refContent}\n`
+  const paraMap = new Map()
+  for (const p of enItems) paraMap.set(p.idx, p)
+  const tableList = tables.sort((a, b) => a.beforeIdx - b.beforeIdx)
+  let tableIdx = 0
+
+  const skeletonLines = skeletonMd.split('\n')
+  for (const line of skeletonLines) {
+    const paraMatch = line.match(/<!--\s*PARA\s+en\s+(\d+)\/(\d+)\s*-->/)
+    if (paraMatch) {
+      const idx = Number(paraMatch[1])
+      const p = paraMap.get(idx)
+      if (p) {
+        out += `<!-- PARA en ${idx}/${enItems.length} -->\n${p.en}\n\n${p.cn}\n\n`
+      }
+      continue  // 跳过原标记和下一行原文（已在上面输出了 en）
+    }
+    const tableMatch = line.match(/<!--\s*TABLE\s+between\s+(\d+)\s+and\s+(\d+)\s*-->/)
+    if (tableMatch) {
+      const t = tableList[tableIdx++]
+      if (t) out += `<!-- TABLE between ${t.beforeIdx} and ${t.afterIdx} -->\n${t.cn}\n\n`
+      continue
+    }
+    if (/<!--\s*IMG\s+between/.test(line)) {
+      out += line + '\n'
+      continue
+    }
+    if (/<!--\s*REF\s+ALL/.test(line)) {
+      continue  // REF_ALL 后用 parsed.refContent
+    }
+    out += line + '\n'
+  }
+
+  if (parsed.refContent) {
+    out += `\n<!-- REF ALL -->\n${parsed.refContent}\n`
+  }
+
   const alignedMd = out.trim() + '\n'
-  const alignedRel = `literatures/${slug}/${slug}.md`
-  fs.writeFileSync(path.join(REPO_ROOT, alignedRel), alignedMd, 'utf-8')
-  // 6. 清理 tmp
-  for (const f of Object.values(tmpLocal)) { try { if (fs.existsSync(f)) fs.unlinkSync(f) } catch {} }
+
+  // 清理续跑文件
+  for (const f of Object.values(tmpLocal)) {
+    try { if (fs.existsSync(f)) fs.unlinkSync(f) } catch {}
+  }
+
   return { alignedMd, enItems }
 }
 
-// ============================================================
-// CSV 状态更新（fs 读写本地文件，然后 commitLocalFiles push）
-// ============================================================
-function updateLocalCsvField(doi, field, value, message) {
-  const relPath = 'literatures/literatures.csv'
-  const fullPath = path.join(REPO_ROOT, relPath)
-  if (!fs.existsSync(fullPath)) { console.warn(`  [csv] 文件不存在: ${relPath}`); return false }
-  const lit = loadLocalCsv(relPath)
-  const doiCol = lit.headers.indexOf('doi')
-  const fieldCol = lit.headers.indexOf(field)
-  if (doiCol < 0 || fieldCol < 0) {
-    console.warn(`  [csv] 找不到 doi 或 ${field} 列，跳过 CSV 更新`)
-    return false
-  }
-  for (const row of lit.rows) { if (row[doiCol] === doi) { row[fieldCol] = String(value); break } }
-  saveLocalCsv(relPath, lit.headers, lit.rows)
-  return true
-}
 
-// ============================================================
-// 主入口
-// ============================================================
 async function main() {
   const payload = JSON.parse(process.argv[2] || '{}')
   const { doi, title, pdf_path } = payload
