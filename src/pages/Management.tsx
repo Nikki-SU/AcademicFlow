@@ -6,7 +6,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch, deleteRepoFiles } from '../services/github'
-import { pollProgressJson } from '../services/workflowClient'
+import { pollProgressJson, getRun } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
@@ -483,41 +483,88 @@ export default function ManagementPage() {
         if (!slug) continue
         try {
           const prog = await pollProgressJson(slug, owner, repo.name, token)
-          if (!prog) continue // progress.json 还没出现，等下次
 
-          // 后端 stage 已与前端 PipelineStage 完全对齐 (mineru_* / ai1_clean / ai1_tag / enumerate / translating / assemble / commit / done / failed)，直接查
-          const stageMeta = STAGE_META[prog.stage as PipelineStage]
-          if (!stageMeta) {
-            console.warn('[poll-progress] 未知 stage:', prog.stage, '→ 保持当前进度')
-            continue
-          }
+          if (prog) {
+            // 有 progress.json → 正常走后端 stage 驱动的进度更新
+            const stageMeta = STAGE_META[prog.stage as PipelineStage]
+            if (!stageMeta) {
+              console.warn('[poll-progress] 未知 stage:', prog.stage, '→ 保持当前进度')
+              continue
+            }
 
-          const patch: Partial<BackgroundTask> = {
-            stage: prog.stage as PipelineStage,
-            node_index: stageMeta.node,
-            progress: prog.pct ?? stageMeta.pctBase,
-            message: prog.message || stageMeta.label,
-            updated_at: Date.now(),
-          }
+            const patch: Partial<BackgroundTask> = {
+              stage: prog.stage as PipelineStage,
+              node_index: stageMeta.node,
+              progress: prog.pct ?? stageMeta.pctBase,
+              message: prog.message || stageMeta.label,
+              updated_at: Date.now(),
+            }
 
-          if (prog.stage === 'done') {
-            patch.status = 'done'
-            patch.stage = 'done'
-            patch.node_index = STAGE_META.done.node
-            patch.progress = 100
-            patch.message = '转换完成'
-          } else if (prog.stage === 'failed') {
-            patch.status = 'failed'
-            patch.stage = 'failed'
-            patch.node_index = STAGE_META.failed.node
-            patch.message = prog.error ? `失败：${prog.error}` : '转换失败'
-            patch.error = prog.error || '后端返回 failed'
+            if (prog.stage === 'done') {
+              patch.status = 'done'
+              patch.stage = 'done'
+              patch.node_index = STAGE_META.done.node
+              patch.progress = 100
+              patch.message = '转换完成'
+            } else if (prog.stage === 'failed') {
+              patch.status = 'failed'
+              patch.stage = 'failed'
+              patch.node_index = STAGE_META.failed.node
+              patch.message = prog.error ? `失败：${prog.error}` : '转换失败'
+              patch.error = prog.error || '后端返回 failed'
+            } else {
+              if (task.status === 'pending') patch.status = 'running'
+            }
+
+            await tq.update_task(task.id, patch)
           } else {
-            // 只要后端在写 progress.json，就说明任务已被 action pickup
-            if (task.status === 'pending') patch.status = 'running'
-          }
+            // 没有 progress.json（还没被写出来）→ 用 GitHub Actions run 状态兜底
+            const runId = typeof meta?.run_id === 'number' ? meta.run_id : null
+            if (!runId) continue // 连 run_id 都没，真的没法兜底
 
-          await tq.update_task(task.id, patch)
+            const run = await getRun(runId, owner, repo.name, token)
+            if (!run) continue
+
+            if (run.status === 'queued') {
+              // 还在排队，保持 queued 但更新 message
+              await tq.update_task(task.id, {
+                status: 'pending',
+                stage: 'queued',
+                message: `GitHub Actions 排队中（#${run.run_id}）`,
+                updated_at: Date.now(),
+              })
+            } else if (run.status === 'in_progress') {
+              // Runner 已经 pickup 了，但 progress.json 还没写 → 至少标记 running
+              await tq.update_task(task.id, {
+                status: 'running',
+                stage: 'queued',
+                message: `Runner 运行中（#${run.run_id}），等待后端写进度...`,
+                updated_at: Date.now(),
+              })
+            } else if (run.status === 'completed') {
+              // Run 已经结束但 progress.json 没有 → 用 run conclusion 兜底
+              if (run.conclusion === 'success') {
+                await tq.update_task(task.id, {
+                  status: 'done',
+                  stage: 'done',
+                  node_index: STAGE_META.done.node,
+                  progress: 100,
+                  message: '转换完成（progress.json 已清理）',
+                  updated_at: Date.now(),
+                })
+              } else {
+                await tq.update_task(task.id, {
+                  status: 'failed',
+                  stage: 'failed',
+                  node_index: STAGE_META.failed.node,
+                  message: `Runner ${run.conclusion}（#${run.run_id}）— 点 Actions 日志排查`,
+                  error: `runner ${run.conclusion}`,
+                  updated_at: Date.now(),
+                })
+              }
+            }
+            // run.status 是 failure/cancelled → 也当失败处理
+          }
         } catch {
           // 单次轮询失败不影响其他任务
         }

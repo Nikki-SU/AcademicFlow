@@ -17,7 +17,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
 import { doiToSlug } from './literatureData'
 import { writeFileBatch, type BatchFileOp } from './github'
-import { dispatchPipeline } from './workflowClient'
+import { dispatchPipeline, getLatestRun } from './workflowClient'
 
 const MAX_PDF_SIZE = 100 * 1024 * 1024
 
@@ -119,7 +119,38 @@ export async function enqueuePaperMineruConvert(
   }
 
   try {
+    // 先记住 dispatch 前 Paper Pipeline 最新 run 的时间戳，用来识别这次 dispatch 产生的新 run
+    const beforeRun = await getLatestRun('paper_convert', owner, repo, token)
+    const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+
     await dispatchPipeline(paperDoi, title || slug, pdfPath, owner, repo, token)
+
+    // poll 到新 run 的 run_id（GitHub 索引延迟 ~1-2s），存进 metadata 供后续 run 状态兜底
+    let newRunId: number | null = null
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 1000))
+      const rs = await getLatestRun('paper_convert', owner, repo, token, beforeCreatedAt)
+      if (rs) { newRunId = rs.run_id; break }
+    }
+    if (newRunId) console.log('[paperPipeline] 新 run_id:', newRunId)
+    else console.warn('[paperPipeline] 没找到新 run_id，后续只能靠 progress.json')
+
+    // 更新 task metadata，加上 run_id
+    if (newRunId) {
+      try {
+        await useTaskQueueStore.getState().update_task(taskId, {
+          metadata: {
+            pdf_github_path: pdfPath,
+            file_name: file.name,
+            file_size: file.size,
+            slug,
+            source: 'paperPipeline',
+            run_id: newRunId,
+          },
+        })
+      } catch { /* 不阻塞 */ }
+    }
+
     toast.success('已提交后端处理', {
       description: '右侧后台监控面板可查看实时进度',
     })

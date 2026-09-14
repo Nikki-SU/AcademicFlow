@@ -39,6 +39,7 @@ import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import {
   dispatchAiConnectivityTest,
   getLatestRun,
+  getRun,
   type RunStatus,
 } from '../services/workflowClient'
 import type { AIProviderMode } from '../types'
@@ -777,20 +778,41 @@ function ProviderConnectionTest({
     await new Promise((r) => setTimeout(r, 2000))
 
     // Step 3: dispatch + 轮询 runner 结果
+    //   关键：dispatch 前先记住旧 run 的 created_at，dispatch 后只 poll 比它新的 run
+    //   拿到新 run 的 run_id 后，固定用 getRun(runId) 跟踪，不会串到别的 run
     setStatus('loading')
     setMessage('触发后端 runner 测试中...')
     try {
+      const beforeRun = await getLatestRun('ai_connectivity_test', owner, repo, ghToken)
+      const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+
       await dispatchAiConnectivityTest(owner, repo, ghToken, target)
-      // 立即 poll（不等），间隔 2s，最多 80s
+      // dispatch → API 索引到新 run 有 ~1s 延迟，先等一下再 poll
+      await new Promise((r) => setTimeout(r, 2500))
+
+      // Phase 1: 找到这次 dispatch 产生的新 run（created_at > beforeCreatedAt）
+      let myRunId: number | null = null
+      for (let i = 0; i < 20; i++) {
+        const rs = await getLatestRun('ai_connectivity_test', owner, repo, ghToken, beforeCreatedAt)
+        if (rs) { myRunId = rs.run_id; break }
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+
+      if (!myRunId) {
+        setStatus('error')
+        setMessage('runner 未出现（GitHub 索引延迟？），请稍后查看 Actions 日志')
+        return
+      }
+
+      // Phase 2: 固定用 getRun(myRunId) 跟踪这个 run 的完整生命周期
       let finalRun: RunStatus | null = null
-      for (let i = 0; i < 40; i++) {
-        const rs = await getLatestRun('ai_connectivity_test', owner, repo, ghToken)
-        if (rs) {
-          finalRun = rs
-          setRunUrl(rs.html_url)
-        }
-        if (rs && (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled')) break
-        if (rs) setMessage(`Runner 运行中 #${rs.run_id}...`)
+      for (let i = 0; i < 60; i++) {
+        const rs = await getRun(myRunId, owner, repo, ghToken)
+        if (!rs) { await new Promise(r => setTimeout(r, 1500)); continue }
+        finalRun = rs
+        setRunUrl(rs.html_url)
+        if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
+        setMessage(`Runner 运行中 #${rs.run_id}...`)
         await new Promise((r) => setTimeout(r, 2000))
       }
 
@@ -801,15 +823,15 @@ function ProviderConnectionTest({
       }
       setRunUrl(finalRun.html_url)
 
-      if (finalRun.conclusion === 'success') {
+      if (finalRun.status === 'completed' && finalRun.conclusion === 'success') {
         setStatus('success')
         setMessage('✓ Runner 端测试通过 — AI key 有效、端点可达')
-      } else if (finalRun.conclusion) {
+      } else if (finalRun.status === 'completed') {
         setStatus('error')
-        setMessage(`✗ Runner 端失败：${finalRun.conclusion}（点查看日志）`)
+        setMessage(`✗ Runner 端失败（${finalRun.conclusion || 'unknown'}）— 点查看日志`)
       } else {
         setStatus('error')
-        setMessage('⏳ runner 仍在跑，稍后手动查日志')
+        setMessage('⏳ runner 状态未知，请手动查日志')
       }
     } catch (e: any) {
       setStatus('error')

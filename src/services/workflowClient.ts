@@ -93,32 +93,40 @@ const EVENT_TYPE_TO_WORKFLOW_NAME = {
   ai_connectivity_test:     'AI Connectivity Test',
 } as const
 
+/**
+ * 拉最新一次 repository_dispatch run（按 created_at 降序）
+ *   - eventType 只用来匹配 workflow name（API event 参数全是 "repository_dispatch"）
+ *   - minCreatedAt 如果给了，只返回 created_at > 这个值的 run（用来避开 dispatch 前的旧 run）
+ */
 export async function getLatestRun(
   eventType: keyof typeof EVENT_TYPE_TO_WORKFLOW_NAME,
   owner: string,
   repo: string,
   token: string,
+  minCreatedAt?: string,
 ): Promise<RunStatus | null> {
   const workflowName = EVENT_TYPE_TO_WORKFLOW_NAME[eventType]
-  // 拉最近 30 个 repository_dispatch run，在前端按 name 过滤
-  // 30 是经验值：一个私库每天可能有多个 pipeline + 多次手动测试
   const res = await githubFetch(
-    `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=30`,
+    `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=50`,
     token,
   )
   if (!res.ok) return null
   interface _GhRunLite { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; updated_at: string; name: string }
   const data = (await res.json()) as { workflow_runs?: _GhRunLite[] }
-  // 按 workflow name 匹配（降序 → 第一条就是最近的）
-  const run = data.workflow_runs?.find((r) => r.name === workflowName)
-  if (!run) return null
+  // 按 created_at 降序（API 默认），过滤掉 minCreatedAt 之前的旧 run
+  const candidate = data.workflow_runs?.find((r) => {
+    if (r.name !== workflowName) return false
+    if (minCreatedAt && r.created_at <= minCreatedAt) return false
+    return true
+  })
+  if (!candidate) return null
   return {
-    run_id: run.id,
-    status: run.status,
-    conclusion: run.conclusion,
-    html_url: run.html_url,
-    created_at: run.created_at,
-    updated_at: run.updated_at,
+    run_id: candidate.id,
+    status: candidate.status,
+    conclusion: candidate.conclusion,
+    html_url: candidate.html_url,
+    created_at: candidate.created_at,
+    updated_at: candidate.updated_at,
   }
 }
 

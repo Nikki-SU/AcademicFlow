@@ -40,6 +40,7 @@ import { syncAllSecrets } from '../../services/repoSecrets'
 import {
   dispatchMineruTest,
   getLatestRun,
+  getRun,
   type RunStatus,
 } from '../../services/workflowClient'
 
@@ -134,16 +135,33 @@ export default function MineruConnectivityPanel() {
       // 3. 等 2s 让 GitHub secret 索引生效，再 dispatch
       await new Promise((r) => setTimeout(r, 2000))
 
-      // 4. 端到端测试 —— dispatch 完立即 poll，间隔 2s
+      // 4. 端到端测试 —— dispatch 前记旧 run 的 created_at，dispatch 后固定跟踪新 run
       setE2eRunning(true)
       setE2eRun(null)
       try {
+        const beforeRun = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
+        const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+
         await dispatchMineruTest(owner, repo, ghToken)
-        for (let i = 0; i < 40; i++) {
-          const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
-          if (rs) setE2eRun(rs)
-          if (rs && (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled')) break
-          await new Promise((r) => setTimeout(r, 2000))
+        await new Promise((r) => setTimeout(r, 2500))
+
+        // Phase 1: 找到新 run
+        let myRunId: number | null = null
+        for (let i = 0; i < 20; i++) {
+          const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken, beforeCreatedAt)
+          if (rs) { myRunId = rs.run_id; setE2eRun(rs); break }
+          await new Promise((r) => setTimeout(r, 1500))
+        }
+
+        // Phase 2: 固定 getRun(myRunId) 跟踪
+        if (myRunId) {
+          for (let i = 0; i < 60; i++) {
+            const rs = await getRun(myRunId, owner, repo, ghToken)
+            if (!rs) { await new Promise(r => setTimeout(r, 1500)); continue }
+            setE2eRun(rs)
+            if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
+            await new Promise((r) => setTimeout(r, 2000))
+          }
         }
       } catch { /* 静默 */ }
       finally { setE2eRunning(false) }
@@ -189,13 +207,31 @@ export default function MineruConnectivityPanel() {
       }
       await new Promise((r) => setTimeout(r, 1500))
 
+      const beforeRun = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
+      const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+
       await dispatchMineruTest(owner, repo, ghToken)
       toast.info('已触发 MinerU 端到端测试，runner 正在执行...')
-      // 立即 poll，间隔 2s，最多 80s
-      for (let i = 0; i < 40; i++) {
-        const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
-        if (rs) setE2eRun(rs)
-        if (rs && (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled')) {
+      await new Promise((r) => setTimeout(r, 2500))
+
+      // Phase 1: 找到新 run
+      let myRunId: number | null = null
+      for (let i = 0; i < 20; i++) {
+        const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken, beforeCreatedAt)
+        if (rs) { myRunId = rs.run_id; setE2eRun(rs); break }
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+
+      // Phase 2: 固定 getRun(myRunId) 跟踪
+      if (!myRunId) {
+        toast.info('runner 未出现，稍后查看 runner 日志')
+        return
+      }
+      for (let i = 0; i < 60; i++) {
+        const rs = await getRun(myRunId, owner, repo, ghToken)
+        if (!rs) { await new Promise(r => setTimeout(r, 1500)); continue }
+        setE2eRun(rs)
+        if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') {
           if (rs.conclusion === 'success') {
             toast.success('端到端测试通过：MinerU 链路完整可达')
           } else {
@@ -214,15 +250,16 @@ export default function MineruConnectivityPanel() {
   }, [owner, repo, ghToken, ensureAllSecrets])
 
   // 持续刷新定时器：只要 e2eRun 存在且未完成，就每 5s 拉一次最新状态
-  // 修 race condition：initial poll 可能超时退出，但 runner 其实还在跑
+  // 固定用 getRun(runId) 跟踪，不会串到别的 run
   useEffect(() => {
     if (!e2eRun) return
     if (e2eRun.status === 'completed' || e2eRun.status === 'failure' || e2eRun.status === 'cancelled') return
     if (!owner || !repo || !ghToken) return
+    const runId = e2eRun.run_id
     let cancelled = false
     const t = setInterval(async () => {
       try {
-        const rs = await getLatestRun('mineru_connectivity_test', owner, repo, ghToken)
+        const rs = await getRun(runId, owner, repo, ghToken)
         if (!cancelled && rs) setE2eRun(rs)
       } catch { /* 静默 */ }
     }, 5000)
