@@ -36,6 +36,11 @@ import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
+import {
+  dispatchAiConnectivityTest,
+  getLatestRun,
+  type RunStatus,
+} from '../services/workflowClient'
 import type { AIProviderMode } from '../types'
 import { AI_PROVIDERS } from '../types'
 
@@ -683,8 +688,21 @@ function ModelSelect(props: {
  * Provider 连接测试组件
  * 用户填完 API Key 后可一键验证：鉴权 + 最小 chat 请求
  */
+/**
+ * AI Provider 连通性测试 —— 后端 Runner 模式
+ *
+ * 架构说明：
+ *   AI API 在 GitHub Actions Runner（后端）里跑，**前端不直连 AI API**。
+ *   这里做两件事：
+ *     1. syncAllSecrets() —— 确保用户填的 key 已写入私库
+ *     2. dispatchAiConnectivityTest() —— 触发 ai-connectivity-test workflow，
+ *        Runner 端真调 ${baseUrl}/chat/completions 来测
+ *
+ *   前端直连 fetch 被墙（国内浏览器直连不了 api.deepseek.com），
+ *   但 Runner 有正常网络 + 代理，所以 Runner 测 = 生产环境实际能力。
+ */
 function ProviderConnectionTest({
-  providerMode: _providerMode,
+  providerMode,
   apiKey,
   baseUrl,
   defaultModel,
@@ -694,12 +712,25 @@ function ProviderConnectionTest({
   baseUrl: string
   defaultModel: string
 }) {
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState('')
-  const [latency, setLatency] = useState<number | null>(null)
-  void latency // reserved for future latency display
+  const [runUrl, setRunUrl] = useState<string | null>(null)
 
-  const testConnection = async () => {
+  // 从 auth/workspace/settings store 拿 dispatch 所需的 owner/repo/token 和当前配置
+  const auth = useAuthStore()
+  const ws = useWorkspaceStore()
+  const store = useSettingsStore()
+  const owner = auth.user?.login ?? ''
+  const repo = ws.repo?.name ?? ''
+  const ghToken = auth.token ?? ''
+
+  // 根据 providerMode 决定 target（前端组件粒度：单 provider 测单引擎，
+  // 预置 provider 默认 AI1+AI2 都用同一个 key，测 both 有意义；
+  // 自定义端点用户可能只测一边，但为了简单统一跑 both）
+  const target: 'ai1' | 'ai2' | 'both' = 'both'
+  void providerMode; // 保留签名但不直接用
+
+  const runBackendTest = async () => {
     if (!apiKey.trim()) {
       setStatus('error')
       setMessage('请先填 API Key')
@@ -710,60 +741,77 @@ function ProviderConnectionTest({
       setMessage('baseUrl 未配置')
       return
     }
-    setStatus('loading')
-    setMessage('正在连接...')
-    setLatency(null)
+    if (!owner || !repo || !ghToken) {
+      setStatus('error')
+      setMessage('未登录或私库未配置')
+      return
+    }
 
-    const start = Date.now()
+    // Step 1: 先 syncAllSecrets —— Runner 读 secrets，不是读本地 store
+    setStatus('syncing')
+    setMessage('写入私库 secrets...')
+    setRunUrl(null)
     try {
-      const resp = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: defaultModel,
-          messages: [{ role: 'user', content: 'hi' }],
-          max_tokens: 5,
-        }),
-        signal: AbortSignal.timeout(15000),
+      await syncAllSecrets(owner, repo, ghToken, {
+        aiProviderMode: store.aiProviderMode,
+        deepseekApiKey: store.deepseekApiKey,
+        kimiApiKey: store.kimiApiKey,
+        qiniuApiKey: store.qiniuApiKey,
+        ai1Model: store.ai1Model,
+        ai2Model: store.ai2Model,
+        customAi1BaseUrl: store.customAi1BaseUrl,
+        customAi1ApiKey: store.customAi1ApiKey,
+        customAi1Model: store.customAi1Model,
+        customAi2BaseUrl: store.customAi2BaseUrl,
+        customAi2ApiKey: store.customAi2ApiKey,
+        customAi2Model: store.customAi2Model,
+        mineruToken: store.mineruToken,
       })
-      const elapsed = Date.now() - start
-      const data = await resp.json().catch(() => ({}))
+    } catch (e: any) {
+      setStatus('error')
+      setMessage(`写入 secrets 失败：${e?.message || String(e)}`)
+      return
+    }
 
-      if (resp.ok && data.choices) {
+    // Step 2: 等 2s 让 GitHub secret 索引生效，再 dispatch
+    await new Promise((r) => setTimeout(r, 2000))
+
+    // Step 3: dispatch + 轮询 runner 结果
+    setStatus('loading')
+    setMessage('触发后端 runner 测试中...')
+    try {
+      await dispatchAiConnectivityTest(owner, repo, ghToken, target)
+      // 轮询最多 2 分钟（runner setup + 两次 chat 请求 = 预留足够）
+      let finalRun: RunStatus | null = null
+      for (let i = 0; i < 24; i++) {
+        await new Promise((r) => setTimeout(r, 5000))
+        const rs = await getLatestRun('ai_connectivity_test', owner, repo, ghToken)
+        if (!rs) continue
+        finalRun = rs
+        if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
+        setMessage(`Runner 运行中... #${rs.run_id}`)
+      }
+
+      if (!finalRun) {
+        setStatus('error')
+        setMessage('runner 结果未返回，请稍后查看 Actions 日志')
+        return
+      }
+      setRunUrl(finalRun.html_url)
+
+      if (finalRun.conclusion === 'success') {
         setStatus('success')
-        setLatency(elapsed)
-        const model = data.model || defaultModel
-        const tokens = data.usage?.completion_tokens || data.usage?.total_tokens || '?'
-        setMessage(`✓ 鉴权通过 · model=${model} · ${elapsed}ms · ${tokens} tokens`)
-        void latency // 保留字段以备将来展示
-      } else if (resp.status === 401) {
+        setMessage('✓ Runner 端测试通过 — AI key 有效、端点可达')
+      } else if (finalRun.conclusion) {
         setStatus('error')
-        setMessage('❌ 401 Unauthorized — API Key 无效或已过期')
-      } else if (resp.status === 403) {
-        setStatus('error')
-        setMessage('❌ 403 Forbidden — 没有权限，可能需要充值或开通')
-      } else if (resp.status === 429) {
-        setStatus('error')
-        setMessage('❌ 429 Rate Limited — 调用太频繁，稍后再试')
+        setMessage(`✗ Runner 端失败：${finalRun.conclusion}（点查看日志）`)
       } else {
         setStatus('error')
-        setMessage(`❌ HTTP ${resp.status} · ${data.error?.message || '未知错误'}`)
+        setMessage('⏳ runner 仍在跑，稍后手动查日志')
       }
     } catch (e: any) {
-      const elapsed = Date.now() - start
-      if (e.name === 'TimeoutError' || e.name === 'AbortError') {
-        setStatus('error')
-        setMessage(`❌ 超时（${elapsed}ms）— 网络不通或 endpoint 错误`)
-      } else if (e.message?.includes('Failed to fetch')) {
-        setStatus('error')
-        setMessage('❌ 网络不通 — 检查 baseUrl 或 CORS')
-      } else {
-        setStatus('error')
-        setMessage(`❌ ${e.message || '未知错误'}`)
-      }
+      setStatus('error')
+      setMessage(`触发失败：${e?.message || String(e)}`)
     }
   }
 
@@ -771,35 +819,46 @@ function ProviderConnectionTest({
     <div className="flex items-center gap-2 pt-2">
       <button
         type="button"
-        onClick={testConnection}
-        disabled={status === 'loading' || !apiKey.trim()}
+        onClick={runBackendTest}
+        disabled={status === 'loading' || status === 'syncing' || !apiKey.trim()}
+        title="把 key 写入私库 secrets → 触发 GitHub Actions runner 在后端真测 chat/completions"
         className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md
                    border border-slate-300 bg-white
                    hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700
                    disabled:text-slate-300 disabled:cursor-not-allowed disabled:hover:bg-white
                    transition-colors"
       >
-        {status === 'loading' ? (
+        {(status === 'loading' || status === 'syncing') ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
         ) : (
           <CheckCircle className="w-3.5 h-3.5" />
         )}
-        测试连接
+        {status === 'syncing' ? '写入 secret...' : '测试连接'}
       </button>
 
       {status === 'success' && (
-        <span className="flex items-center gap-1 text-xs text-emerald-600">
+        <a
+          href={runUrl ?? '#'}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700"
+        >
           <CheckCircle className="w-3.5 h-3.5" />
           {message}
-        </span>
+        </a>
       )}
       {status === 'error' && (
-        <span className="flex items-center gap-1 text-xs text-red-500">
+        <a
+          href={runUrl ?? '#'}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+        >
           <XCircle className="w-3.5 h-3.5" />
           {message}
-        </span>
+        </a>
       )}
-      {status === 'loading' && (
+      {(status === 'loading' || status === 'syncing') && (
         <span className="text-xs text-slate-500">{message}</span>
       )}
     </div>

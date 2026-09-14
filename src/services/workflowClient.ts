@@ -66,10 +66,19 @@ export async function dispatchMineruTest(
   await dispatchWorkflow('mineru_connectivity_test', {}, owner, repo, token)
 }
 
+export async function dispatchAiConnectivityTest(
+  owner: string,
+  repo: string,
+  token: string,
+  target: 'ai1' | 'ai2' | 'both' = 'both',
+): Promise<void> {
+  await dispatchWorkflow('ai_connectivity_test', { target }, owner, repo, token)
+}
+
 // ===================== run 查询 =====================
 
 export async function getLatestRun(
-  eventType: 'paper_convert' | 'ai_call' | 'mineru_connectivity_test',
+  eventType: 'paper_convert' | 'ai_call' | 'mineru_connectivity_test' | 'ai_connectivity_test',
   owner: string,
   repo: string,
   token: string,
