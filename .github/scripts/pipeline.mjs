@@ -782,6 +782,85 @@ async function runWordsExtraction(enItems, doi, slug) {
   return { extracted: candidateWords.length, verified: verified.length, added: newRows.length }
 }
 
+// ============================================================
+// 单段 clean prompt —— 给 AI 一段文本，让它判断：保留/清理/丢弃
+// 一段 ≈ MinerU 天然分段的一个 block（空行分隔）
+// ============================================================
+const CLEAN_SINGLE_PROMPT = `你是文献整理专家。处理 PDF 提取文本的**一个段落**。
+
+任务：判断这段内容是否值得保留在正文中。
+
+判断标准（保留 vs 丢弃）：
+✅ 保留：
+  - 论文标题
+  - 作者姓名 + 单位（保留第一页信息块）
+  - 正文段落（含页眉正文）
+  - 图片引用 ![...](...)（**原样保留，不要清理**）
+  - Markdown 表格（**原样保留**）
+  - LaTeX 公式（**原样保留**）
+  - 参考文献条目（保留 References 章节全部条目）
+  - 作者简介（如果是论文自有的 bio block）
+
+❌ 丢弃（**直接输出空字符串**）：
+  - 页眉（期刊标题、卷号、页码）
+  - 页脚（版权声明、DOI footer、网址 footer）
+  - Received / Accepted 日期（除非在作者信息块内）
+  - 版权声明（"Published on..." / "Licence and permissions"）
+  - 纯网址
+  - 纯 ISSN / DOI footer
+  - 模板空白文字
+
+如果保留：**只输出保留后的文本，不要任何解释**
+如果丢弃：**只输出空字符串**
+
+输入（原文）：
+"""
+{{PARAGRAPH}}
+"""
+
+输出：`
+
+// MinerU 天然分段：空行分隔的连续非空行块
+function splitIntoParagraphs(md) {
+  const lines = md.split('\n')
+  const blocks = []; let cur = []
+  for (const l of lines) {
+    if (l.trim()) cur.push(l)
+    else { if (cur.length) { blocks.push(cur); cur = [] } }
+  }
+  if (cur.length) blocks.push(cur)
+  return blocks
+}
+
+// 单段分类 → 返回 { tag: 'PARA_EN'|'IMG'|'TABLE'|'REF_ALL'|'SKIP_HEADING'|'SKIP_OTHER'|null, keep: true/false }
+//   - tag = null 表示这段丢弃（AI clean 返回空或判定为垃圾）
+//   - tag = SKIP_HEADING / SKIP_OTHER 表示保留但不进翻译流水线
+function classifyParagraph(blockLines, cleanedText) {
+  // 先看 cleaned 后的实际内容
+  const t = cleanedText.trim()
+  if (!t) return { tag: null, keep: false }  // AI clean 判为垃圾 → 丢弃
+
+  const hasLetter = /[A-Za-z]/.test(t)
+  const hasCn = /[\u4e00-\u9fa5]/.test(t)
+  const isImg = blockLines.every(l => /^!\[/.test(l.trim())) || t.startsWith('![')
+  const isTable = blockLines.some(l => /^\s*\|/.test(l.trim()))
+  const isHeading = /^#{1,6}\s/.test(blockLines[0]?.trim() || '')
+  const isRefHeading = /^#+\s*(References|Bibliography)/i.test(blockLines[0]?.trim() || '')
+  const isFormulaOnly = blockLines.every(l => !l.trim() || /^\s*\$\$?[\s\S]*\$\$?\s*$/.test(l.trim()))
+
+  // 顺序：IMG > TABLE > REF_ALL > HEADING > 正文 > SKIP
+  if (isImg) return { tag: 'IMG', keep: true }
+  if (isTable) return { tag: 'TABLE', keep: true }
+  if (isRefHeading) return { tag: 'REF_ALL', keep: true }
+  if (isHeading) return { tag: 'SKIP_HEADING', keep: true }  // 标题保留在原文，不翻译
+  if (isFormulaOnly) return { tag: 'SKIP_FORMULA', keep: true }
+  // 正文段：有英文字母（不是中文、不是数字、不是纯符号）
+  if (hasLetter && !hasCn && t.length >= 10) return { tag: 'PARA_EN', keep: true }
+  if (hasCn && t.length >= 5) return { tag: 'PARA_CN', keep: true }  // 中文段落
+  // 短段落 / 纯符号 → 保留但跳过翻译
+  return { tag: 'SKIP_OTHER', keep: true }
+}
+
 function autoInsertParaTags(md) {
   const lines = md.split('\n'); const out = []; let inCB = false; let buf = []; let bufTable = false
   const flush = () => {
