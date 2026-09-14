@@ -18,22 +18,42 @@ const NOT_IN_SOURCE_TAG = '[NOT_IN_SOURCE]'
 const EVIDENCE_START = '@@EVIDENCE@@'
 const EVIDENCE_END = '@@END_EVIDENCE@@'
 
-// ─── AI 调用（复用 ai-service.mjs 的 aiCall 签名） ────────────────
+// ─── AI 调用（复用 ai-service.mjs 的 aiCall 签名 + retry） ────────────────
 // provider 可选覆盖：{ baseUrl, apiKey, model } — DualEngineTestPanel 用；不传则用 Secrets
 async function aiCall(engine, system, user, provider) {
   const baseUrl = provider?.baseUrl || (engine === 2 ? AI2_BASE_URL : AI1_BASE_URL)
   const apiKey  = provider?.apiKey  || (engine === 2 ? AI2_API_KEY  : AI1_API_KEY)
   const model   = provider?.model   || (engine === 2 ? AI2_MODEL    : AI1_MODEL)
-  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 0.1, max_tokens: 16000 }),
-  })
-  if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`AI ${engine} ${resp.status}: ${t.slice(0, 300)}`) }
-  const j = await resp.json()
-  const choice = j.choices?.[0] || {}
-  const msg = choice.message || {}
-  return { content: msg.content || '', usage: j.usage || EMPTY_USAGE }
+
+  // ── 5 次 retry + 指数退避 ──
+  const MAX_RETRY = 5
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    try {
+      const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 0.1, max_tokens: 16000 }),
+      })
+      if (!resp.ok) {
+        const t = await resp.text().catch(() => '')
+        // 401/403/404 是不可恢复的鉴权问题，不 retry
+        if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
+          throw new Error(`AI ${engine} ${resp.status} (不可重试): ${t.slice(0, 300)}`)
+        }
+        throw new Error(`AI ${engine} ${resp.status}: ${t.slice(0, 300)}`)
+      }
+      const j = await resp.json()
+      const choice = j.choices?.[0] || {}
+      const msg = choice.message || {}
+      return { content: msg.content || '', usage: j.usage || EMPTY_USAGE }
+    } catch (e) {
+      if (attempt === MAX_RETRY) throw e
+      const wait = Math.min(2 ** attempt * 1000, 16_000) + Math.floor(Math.random() * 1000)
+      console.warn(`  [dual-engine] aiCall(engine=${engine}) attempt ${attempt}/${MAX_RETRY} failed (${e.message?.slice(0, 80)}), retry in ${wait}ms...`)
+      await new Promise(r => setTimeout(r, wait))
+    }
+  }
+  throw new Error(`aiCall failed after ${MAX_RETRY} retries`)
 }
 
 // ─── Prompt 构造 ──────────────────────────────────────────────────

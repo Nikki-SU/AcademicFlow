@@ -5,17 +5,14 @@ on:
     types: [paper_convert]
   workflow_dispatch:
     inputs:
-      ai_provider:
-        description: 'AI Provider (only affects display; workflow uses whatever AI1_*/AI2_* secrets are set)'
+      doi:
+        description: 'DOI (手动调试用，通常由 repository_dispatch 携带)'
         required: false
-        default: 'default'
-        type: choice
-        options:
-          - default
-          - deepseek
-          - kimi
-          - qiniu
-          - custom
+        default: ''
+      pdf_path:
+        description: 'PDF 路径 (手动调试用)'
+        required: false
+        default: ''
 
 # Pipeline 会写 main（git push），并发跑会 non-fast-forward 冲突
 concurrency:

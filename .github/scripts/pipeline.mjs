@@ -36,6 +36,74 @@ const { MINERU_API_TOKEN,
 
 if (!MINERU_API_TOKEN) { console.error('❌ MINERU_API_TOKEN not set'); process.exit(1) }
 
+/**
+ * AI secrets 快速预检 —— MinerU 之前先确认 AI 能用
+ *
+ * 经验教训：MinerU 可能花 3-5 分钟，跑完才发现 AI key 无效 / endpoint 不通，
+ * 白跑浪费时间。现在加一个最小 chat 请求（max_tokens=1, timeout=15s），
+ * 两端都测，任何一端挂了立即 fail 并把 HTTP 状态码 + 错误透出。
+ *
+ * 特殊优化：如果 AI1 和 AI2 共用同一个 baseUrl（预置 provider 场景），
+ *           合并成一次请求 —— 同一个 key 测两次没必要。
+ */
+async function quickAiHealthCheck() {
+  const pairs = [
+    { label: 'AI1', baseUrl: AI1_BASE_URL, apiKey: AI1_API_KEY, model: AI1_MODEL },
+    { label: 'AI2', baseUrl: AI2_BASE_URL, apiKey: AI2_API_KEY, model: AI2_MODEL },
+  ]
+
+  const seen = new Set()
+  for (const p of pairs) {
+    if (!p.baseUrl || !p.apiKey || !p.model) {
+      throw new Error(`${p.label} 配置缺失（baseUrl / apiKey / model 任一为空）`)
+    }
+    // 如果两端完全相同，只测一次
+    const key = `${p.baseUrl}||${p.apiKey}`
+    if (seen.has(key)) {
+      console.log(`  [ai-health] ${p.label} 与对端共用端点 + key，跳过重复测试`)
+      continue
+    }
+    seen.add(key)
+
+    const t0 = Date.now()
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 15_000)
+      const resp = await fetch(`${p.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
+        body: JSON.stringify({
+          model: p.model,
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+        }),
+        signal: ctrl.signal,
+      })
+      clearTimeout(timer)
+
+      const elapsed = Date.now() - t0
+      if (resp.ok) {
+        const data = await resp.json().catch(() => ({}))
+        const tokens = data.usage?.completion_tokens ?? '?'
+        console.log(`  [ai-health] ${p.label} ✓ HTTP ${resp.status} ${elapsed}ms tokens=${tokens}`)
+      } else {
+        const txt = await resp.text().catch(() => '')
+        let hint = ''
+        if (resp.status === 401) hint = 'API Key 无效或已过期'
+        else if (resp.status === 403) hint = '没有权限 —— 可能需要充值 / 开通'
+        else if (resp.status === 404) hint = 'baseUrl 或 model 不存在'
+        else if (resp.status === 429) hint = '限流了'
+        throw new Error(`${p.label} HTTP ${resp.status} ${hint}: ${txt.slice(0, 200)}`)
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        throw new Error(`${p.label} 连接超时（15s）—— 检查 baseUrl 是否正确`)
+      }
+      throw new Error(`${p.label} 预检失败: ${e.message}`)
+    }
+  }
+}
+
 // ============================================================
 // 串行写队列 —— Runner 内串行，不并发写 GitHub
 // ============================================================
@@ -915,6 +983,10 @@ async function main() {
     console.log(`=== Pipeline ABORTED (文献已被删除) ===`)
     return
   }
+
+  // ── 检查 A.5: AI secrets 快速预检（MinerU 之前确认 AI 能用） ──
+  console.log(`  [ai-health] 预检 AI1 / AI2 ...`)
+  await quickAiHealthCheck()
 
   // 初始状态
   writeProgress(slug, { stage: 'queued', message: 'Pipeline 启动...', pct: 0, node: 0 }).catch(() => {})

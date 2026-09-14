@@ -43,20 +43,43 @@ async function aiCall(engine, systemOrOpts, userMaybe) {
     messages = [{ role: 'system', content: systemOrOpts || '' }, { role: 'user', content: userMaybe || '' }]
   }
 
-  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
-  })
-  if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`AI ${engine} ${resp.status}: ${t.slice(0, 300)}`) }
-  const j = await resp.json()
-  const choice = j.choices?.[0] || {}
-  return {
-    content: choice.message?.content || '',
-    usage: j.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-    finish_reason: choice.finish_reason || 'stop',
-    model: j.model || '',
+  // ── 5 次 retry + 指数退避 ──
+  // pipeline.mjs 已验证过 AI 端点可用，但单条请求仍可能遇到瞬时 502 / 限流 / 网络抖动
+  const MAX_RETRY = 5
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    try {
+      const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
+      })
+      if (!resp.ok) {
+        const t = await resp.text().catch(() => '')
+        // 401/403 是不可恢复的鉴权问题，不 retry
+        if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
+          throw new Error(`AI ${engine} ${resp.status} (不可重试): ${t.slice(0, 300)}`)
+        }
+        // 其他 4xx/5xx 或网络错误 → retry
+        throw new Error(`AI ${engine} ${resp.status}: ${t.slice(0, 300)}`)
+      }
+      const j = await resp.json()
+      const choice = j.choices?.[0] || {}
+      return {
+        content: choice.message?.content || '',
+        usage: j.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        finish_reason: choice.finish_reason || 'stop',
+        model: j.model || '',
+      }
+    } catch (e) {
+      // 最后一次直接抛
+      if (attempt === MAX_RETRY) throw e
+      const wait = Math.min(2 ** attempt * 1000, 16_000) + Math.floor(Math.random() * 1000)
+      console.warn(`  [ai-service] aiCall attempt ${attempt}/${MAX_RETRY} failed (${e.message?.slice(0, 80)}), retry in ${wait}ms...`)
+      await new Promise(r => setTimeout(r, wait))
+    }
   }
+  // 理论上到不了这里
+  throw new Error(`aiCall failed after ${MAX_RETRY} retries`)
 }
 
 async function commitFile(outputRelPath, message) {
