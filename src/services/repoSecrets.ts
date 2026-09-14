@@ -55,6 +55,7 @@ function encryptSecret(plaintext: string, publicKey: Uint8Array): string {
 
 /**
  * 写入单个 GitHub Actions Repository Secret
+ * 注意：GitHub API 拒绝空字符串（HTTP 422），所以 value.trim() 为空时返回 skipped
  */
 export async function putRepoSecret(
   owner: string,
@@ -63,13 +64,14 @@ export async function putRepoSecret(
   name: string,
   value: string,
 ): Promise<PutSecretResult> {
-  if (!value || !value.trim()) {
-    // 空值不写——避免覆盖用户可能手动设置的值
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) {
+    // GitHub API 硬限制：secret value 不能为空，跳过（这是 GitHub 限制，不是我们想跳）
     return { ok: true, status: 0, changed: false, name }
   }
 
   const { keyId, publicKey } = await getPublicKey(owner, repo, token)
-  const encryptedValue = encryptSecret(value.trim(), publicKey)
+  const encryptedValue = encryptSecret(trimmed, publicKey)
 
   const res = await githubFetch(
     `/repos/${owner}/${repo}/actions/secrets/${encodeURIComponent(name)}`,
@@ -80,7 +82,6 @@ export async function putRepoSecret(
     },
   )
 
-  // GitHub: 201 = 创建, 204 = 更新, 404 = 没有写权限 / 不是 repo 管理员
   return {
     ok: res.ok,
     status: res.status,
@@ -90,7 +91,8 @@ export async function putRepoSecret(
 }
 
 /**
- * 批量写入多个 secret —— 并行，一个失败不影响其他
+ * 批量写入多个 secret
+ * GitHub API 限制：secret value 不能为空字符串 → 空值条目自动跳过
  */
 export async function putRepoSecrets(
   owner: string,
@@ -98,7 +100,8 @@ export async function putRepoSecrets(
   token: string,
   secrets: Record<string, string>,
 ): Promise<{ results: PutSecretResult[]; errors: string[] }> {
-  const entries = Object.entries(secrets).filter(([, v]) => v && v.trim())
+  // 所有 entries 都尝试写——只有空值被 GitHub API 硬限制跳过
+  const entries = Object.entries(secrets)
   const results: PutSecretResult[] = []
   const errors: string[] = []
 
@@ -111,9 +114,14 @@ export async function putRepoSecrets(
     return { results, errors }
   }
 
-  for (const [name, value] of entries) {
+  for (const [name, rawValue] of entries) {
+    const value = rawValue?.trim() ?? ''
+    if (!value) {
+      // GitHub API 不允许空 secret 值，跳过
+      continue
+    }
     try {
-      const encryptedValue = encryptSecret(value.trim(), keyInfo.publicKey)
+      const encryptedValue = encryptSecret(value, keyInfo.publicKey)
       const res = await githubFetch(
         `/repos/${owner}/${repo}/actions/secrets/${encodeURIComponent(name)}`,
         token,
@@ -173,29 +181,30 @@ export async function syncAllSecrets(
   token: string,
   s: SyncAllSecretsInput,
 ): Promise<{ okCount: number; failCount: number; errors: string[] }> {
-  // 按 provider 模式拼装 secrets map
+  // 按 provider 模式拼装 secrets map —— 所有字段无条件塞进去
+  // 只有空值会被 GitHub API 硬限制跳过（不是我们想跳）
   let secrets: Record<string, string>
   if (s.aiProviderMode === 'custom') {
     secrets = {
-      AI1_BASE_URL: s.customAi1BaseUrl,
-      AI1_API_KEY:  s.customAi1ApiKey,
-      AI1_MODEL:    s.customAi1Model,
-      AI2_BASE_URL: s.customAi2BaseUrl,
-      AI2_API_KEY:  s.customAi2ApiKey,
-      AI2_MODEL:    s.customAi2Model,
+      AI1_BASE_URL:    s.customAi1BaseUrl,
+      AI1_API_KEY:     s.customAi1ApiKey,
+      AI1_MODEL:       s.customAi1Model,
+      AI2_BASE_URL:    s.customAi2BaseUrl,
+      AI2_API_KEY:     s.customAi2ApiKey,
+      AI2_MODEL:       s.customAi2Model,
+      MINERU_API_TOKEN: s.mineruToken,
     }
   } else {
     secrets = {
-      AI1_BASE_URL: SILICONFLOW_BASE_URL,
-      AI1_API_KEY:  s.siliconflowApiKey,
-      AI1_MODEL:    s.ai1Model,
-      AI2_BASE_URL: SILICONFLOW_BASE_URL,
-      AI2_API_KEY:  s.siliconflowApiKey,
-      AI2_MODEL:    s.ai2Model,
+      AI1_BASE_URL:    SILICONFLOW_BASE_URL,
+      AI1_API_KEY:     s.siliconflowApiKey,
+      AI1_MODEL:       s.ai1Model,
+      AI2_BASE_URL:    SILICONFLOW_BASE_URL,
+      AI2_API_KEY:     s.siliconflowApiKey,
+      AI2_MODEL:       s.ai2Model,
+      MINERU_API_TOKEN: s.mineruToken,
     }
   }
-  // MINERU_API_TOKEN 独立
-  if (s.mineruToken?.trim()) secrets.MINERU_API_TOKEN = s.mineruToken.trim()
 
   const { results, errors } = await putRepoSecrets(owner, repo, token, secrets)
   const okCount = results.filter((r) => r.ok).length
