@@ -36,6 +36,9 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
 
+/** AI/MinerU secrets 只能写到这个私库。主仓库 AcademicFlow 是 AGPL v3 公开的，绝对不能写。 */
+const PRIVATE_SECRETS_REPO = 'academicflow-workspace'
+
 function formatFetchedAt(ts: number | null): string {
   if (!ts) return '未拉取'
   const diffMs = Date.now() - ts
@@ -113,11 +116,21 @@ function Settings() {
   const [secretItems, setSecretItems] = useState<SecretItemStatus[]>([])
 
   const runSync = async () => {
-    if (!owner || !repoName || !auth.token || !isInitialized) return
+    if (!owner || !auth.token || !isInitialized) return
+    // ──── 硬保险：secrets 只写到固定私库 academicflow-workspace ────
+    // 绝对不能用 ws.repo.name，因为 ws.repo.name 在某些初始化阶段可能
+    // 暂时是空/主仓库名（导致 secrets 错误写入 AGPL v3 主仓库）。
+    const targetRepo = PRIVATE_SECRETS_REPO
+    if (ws.repo?.name && ws.repo.name !== targetRepo) {
+      // 只有在 ws.repo 已设置但指向其他 repo 时才警告
+      toast.error(
+        `⚠️ workspace repo 是 ${ws.repo.name}，但 secrets 强制写到私库 ${targetRepo}`
+      )
+    }
     setSecretSyncing(true)
-    console.log(`[syncAllSecrets] target repo: ${owner}/${repoName}`)
+    console.log(`[syncAllSecrets] target repo (FORCE): ${owner}/${targetRepo}`)
     try {
-      const items = await syncAllSecrets(owner, repoName, auth.token!, {
+      const items = await syncAllSecrets(owner, targetRepo, auth.token!, {
         aiProviderMode,
         siliconflowApiKey,
         ai1Model,
@@ -145,13 +158,13 @@ function Settings() {
 
   // 用户改值 → debounce 800ms 后 sync
   useEffect(() => {
-    if (!owner || !repoName || !auth.token || !isInitialized) return
+    if (!owner || !auth.token || !isInitialized) return
     if (secretSyncTimer.current) clearTimeout(secretSyncTimer.current)
     secretSyncTimer.current = setTimeout(runSync, 800)
     return () => { if (secretSyncTimer.current) clearTimeout(secretSyncTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    isInitialized, owner, repoName, auth.token,
+    isInitialized, owner, auth.token,
     aiProviderMode, advancedMode,
     siliconflowApiKey, ai1Model, ai2Model,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
@@ -162,10 +175,10 @@ function Settings() {
   // mount 后强制 sync 一次（即便依赖项没变）
   useEffect(() => {
     if (didMountSyncRef.current) return
-    if (!isInitialized || !owner || !repoName || !auth.token) return
+    if (!isInitialized || !owner || !auth.token) return
     runSync()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized, owner, repoName, auth.token])
+  }, [isInitialized, owner, auth.token])
 
   /** 过滤后的 chat 类模型清单（用于 UI 下拉） */
   const chatModels = useMemo(() => {

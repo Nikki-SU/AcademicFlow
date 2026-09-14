@@ -24,7 +24,6 @@ import {
   Zap,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth'
-import { useWorkspaceStore } from '../../stores/workspace'
 import { useSettingsStore } from '../../stores/settings'
 import {
   checkMineruConnectivity,
@@ -37,6 +36,9 @@ import {
   type RunStatus,
 } from '../../services/workflowClient'
 
+/** AI/MinerU secrets + Actions workflow 都只跑在这个私库 */
+const PRIVATE_REPO = 'academicflow-workspace'
+
 /** 把 timestamp（秒）转成可读时间字符串，undefined 返回 '—' */
 function fmtDate(d: Date | undefined): string {
   if (!d) return '—'
@@ -46,11 +48,11 @@ function fmtDate(d: Date | undefined): string {
 export default function MineruConnectivityPanel() {
   const store = useSettingsStore()
   const auth = useAuthStore()
-  const ws = useWorkspaceStore()
   const token = store.mineruToken
   const workerUrl = store.mineruWorkerUrl
   const owner = auth.user?.login ?? ''
-  const repo = ws.repo?.name ?? ''
+  // ──── 硬保险：强制私库名，不用 ws.repo.name（可能为空/主仓库名） ────
+  const repo = PRIVATE_REPO
   const ghToken = auth.token ?? ''
   const isInitialized = store.isInitialized
 

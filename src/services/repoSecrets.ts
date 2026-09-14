@@ -234,6 +234,17 @@ export async function syncAllSecrets(
   token: string,
   s: SyncAllSecretsInput,
 ): Promise<SecretItemStatus[]> {
+  // ──── 硬保险：secrets 绝对不能写到主仓库（AGPL v3，公开可见） ────
+  // 前端必须传私库 academicflow-workspace。如果传错，直接抛异常拒绝写入，
+  // 而不是"悄悄跳过"让用户以为写成功了。
+  if (!repo || repo !== 'academicflow-workspace') {
+    throw new Error(
+      `syncAllSecrets 拒绝写入非私库 repo="${repo}"。` +
+      `AI/MinerU secrets 只能写到私库 academicflow-workspace，` +
+      `主仓库 ${owner}/AcademicFlow 是 AGPL v3 公开的。`
+    )
+  }
+
   // 按 provider 模式拼装 —— 7 个全部塞进去
   const secretsMap: Record<AiSecretName, string> = {
     MINERU_API_TOKEN: s.mineruToken,
