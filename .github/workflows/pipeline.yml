@@ -40,6 +40,12 @@ jobs:
         with:
           node-version: '20'
 
+      # ── git config (required for pipeline.mjs git commit) ──
+      - name: Configure git
+        run: |
+          git config user.name "AcademicFlow Bot"
+          git config user.email "academicflow@users.noreply.github.com"
+
       # ── 单一 pipeline step ──
       # 前端 Settings → sync 时把选中 provider 的 base_url/api_key/model
       # 直接写到不带前缀的 AI1_BASE_URL / AI1_API_KEY / AI1_MODEL / AI2_*

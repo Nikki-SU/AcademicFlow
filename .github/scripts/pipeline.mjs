@@ -266,17 +266,17 @@ async function commitLocalFiles(fileRelPaths, message) {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms))
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     try {
-      // 每次 push 前都 pull --rebase 同步最新 main
+      // 每次 push 前 fetch 同步最新 main，然后 force-with-lease 推
+      // force-with-lease: 只有当远程没有被别人更新过时才真 force，安全覆盖
+      // 避免 rebase 冲突（runner 本地 checkout 和远程手动 commit 不兼容时）
       execSync(`git fetch origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
-      execSync(`git rebase origin/main`, { cwd: REPO_ROOT, stdio: 'pipe' })
-      execSync(`git push origin main`, { cwd: REPO_ROOT, stdio: 'pipe' })
+      execSync(`git push origin main --force-with-lease`, { cwd: REPO_ROOT, stdio: 'pipe' })
       return // ✅ 成功
     } catch (e) {
       const stderr = e.stderr?.toString() || ''
-      const isConflict = stderr.includes('could not apply') || stderr.includes('conflict') || stderr.includes('non-fast-forward')
+      const isConflict = stderr.includes('could not apply') || stderr.includes('conflict') || stderr.includes('non-fast-forward') || stderr.includes('force-with-lease')
       if (attempt < MAX_RETRY && isConflict) {
-        // rebase 冲突 → abort + 等一下 + 重试
-        try { execSync(`git rebase --abort`, { cwd: REPO_ROOT, stdio: 'pipe' }) } catch {}
+        // force-with-lease 被拒（远程有新 commit）→ 等一下 + 重试
         console.warn(`  [commitLocalFiles] push attempt ${attempt} failed (conflict), retrying after ${attempt * 3}s...`)
         await sleep(attempt * 3000)
       } else {
