@@ -37,3 +37,4 @@ dist-ssr
 .stylelintcache
 .cache
 .parcel-cache
+.trae-html-share-packages/
