@@ -30,7 +30,7 @@ import {
   checkMineruConnectivity,
   type MineruConnectivityReport,
 } from '../../services/mineruConnectivity'
-import { putRepoSecret } from '../../services/repoSecrets'
+import { syncAllSecrets } from '../../services/repoSecrets'
 import {
   dispatchMineruTest,
   getLatestRun,
@@ -61,28 +61,37 @@ export default function MineruConnectivityPanel() {
   const [e2eRun, setE2eRun] = useState<RunStatus | null>(null)
   const [secretSyncing, setSecretSyncing] = useState(false)
 
-  // 确保 MINERU_API_TOKEN secret 已写入私库
-  // 返回 true 表示已就绪（写入成功或已是最新），false 表示写入失败
-  const ensureMineruSecret = useCallback(async (): Promise<boolean> => {
-    if (!owner || !repo || !ghToken || !token.trim()) return false
+  // 确保**全部 7 个** secrets（MINERU + AI1/AI2 各 3 个）都已写入私库
+  // 以前只 sync MINERU 一个 → 用户没等 Settings debounce 就点端到端测试，AI secrets 没写
+  const ensureAllSecrets = useCallback(async (): Promise<boolean> => {
+    if (!owner || !repo || !ghToken) return false
     setSecretSyncing(true)
     try {
-      const res = await putRepoSecret(owner, repo, ghToken, 'MINERU_API_TOKEN', token.trim())
-      if (!res.ok) {
-        toast.error(`写入 MINERU_API_TOKEN secret 失败：HTTP ${res.status}`)
+      const res = await syncAllSecrets(owner, repo, ghToken, {
+        aiProviderMode: store.aiProviderMode,
+        siliconflowApiKey: store.siliconflowApiKey,
+        ai1Model: store.ai1Model,
+        ai2Model: store.ai2Model,
+        customAi1BaseUrl: store.customAi1BaseUrl,
+        customAi1ApiKey: store.customAi1ApiKey,
+        customAi1Model: store.customAi1Model,
+        customAi2BaseUrl: store.customAi2BaseUrl,
+        customAi2ApiKey: store.customAi2ApiKey,
+        customAi2Model: store.customAi2Model,
+        mineruToken: store.mineruToken,
+      })
+      if (res.failCount > 0) {
+        toast.error(`写入 secrets 失败：${res.failCount} 个失败 — ${res.errors.join('; ')}`)
         return false
-      }
-      if (res.changed) {
-        toast.success('MINERU_API_TOKEN secret 已写入私库')
       }
       return true
     } catch (e: any) {
-      toast.error(`写入 secret 失败：${e?.message || String(e)}`)
+      toast.error(`写入 secrets 异常：${e?.message || String(e)}`)
       return false
     } finally {
       setSecretSyncing(false)
     }
-  }, [owner, repo, ghToken, token])
+  }, [owner, repo, ghToken, store])
 
   // 页面挂载后自动跑一次快速检测 + 端到端测试
   // 等 auth/repo/isInitialized/token 四件事都齐了再触发
@@ -104,7 +113,7 @@ export default function MineruConnectivityPanel() {
       finally { setChecking(false) }
 
       // 2. 确保 secret 已写入（避免 race: Settings sync 还没跑）
-      const secretOk = await ensureMineruSecret()
+      const secretOk = await ensureAllSecrets()
       if (!secretOk) {
         toast.warning('Secret 未就绪，跳过端到端测试')
         return
@@ -161,7 +170,7 @@ export default function MineruConnectivityPanel() {
     setE2eRun(null)
     try {
       // 先确保 secret 就绪
-      const secretOk = await ensureMineruSecret()
+      const secretOk = await ensureAllSecrets()
       if (!secretOk) {
         toast.error('MINERU_API_TOKEN secret 未就绪，请手动重试')
         setE2eRunning(false)
@@ -191,7 +200,7 @@ export default function MineruConnectivityPanel() {
     } finally {
       setE2eRunning(false)
     }
-  }, [owner, repo, ghToken, ensureMineruSecret])
+  }, [owner, repo, ghToken, ensureAllSecrets])
 
   // 状态条配色
   const ok = report?.overallOk ?? false

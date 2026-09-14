@@ -141,3 +141,63 @@ export const AI_SECRET_NAMES = [
   'AI1_BASE_URL', 'AI1_API_KEY', 'AI1_MODEL',
   'AI2_BASE_URL', 'AI2_API_KEY', 'AI2_MODEL',
 ] as const
+
+/**
+ * 统一同步所有 7 个 secrets —— 前端 Settings → GitHub Actions Secrets
+ *
+ * 接收完整的 settings state，自动按 aiProviderMode 拼装 secrets map，
+ * 只写有值的（空字符串跳过，避免覆盖用户手动配的值）。
+ *
+ * 这是唯一的写入入口。Settings.tsx 的 useEffect 和 MineruConnectivityPanel
+ * 的自动跑都调这个函数，避免分散逻辑。
+ */
+export interface SyncAllSecretsInput {
+  aiProviderMode: 'siliconflow' | 'custom'
+  siliconflowApiKey: string
+  ai1Model: string
+  ai2Model: string
+  customAi1BaseUrl: string
+  customAi1ApiKey: string
+  customAi1Model: string
+  customAi2BaseUrl: string
+  customAi2ApiKey: string
+  customAi2Model: string
+  mineruToken: string
+}
+
+const SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1'
+
+export async function syncAllSecrets(
+  owner: string,
+  repo: string,
+  token: string,
+  s: SyncAllSecretsInput,
+): Promise<{ okCount: number; failCount: number; errors: string[] }> {
+  // 按 provider 模式拼装 secrets map
+  let secrets: Record<string, string>
+  if (s.aiProviderMode === 'custom') {
+    secrets = {
+      AI1_BASE_URL: s.customAi1BaseUrl,
+      AI1_API_KEY:  s.customAi1ApiKey,
+      AI1_MODEL:    s.customAi1Model,
+      AI2_BASE_URL: s.customAi2BaseUrl,
+      AI2_API_KEY:  s.customAi2ApiKey,
+      AI2_MODEL:    s.customAi2Model,
+    }
+  } else {
+    secrets = {
+      AI1_BASE_URL: SILICONFLOW_BASE_URL,
+      AI1_API_KEY:  s.siliconflowApiKey,
+      AI1_MODEL:    s.ai1Model,
+      AI2_BASE_URL: SILICONFLOW_BASE_URL,
+      AI2_API_KEY:  s.siliconflowApiKey,
+      AI2_MODEL:    s.ai2Model,
+    }
+  }
+  // MINERU_API_TOKEN 独立
+  if (s.mineruToken?.trim()) secrets.MINERU_API_TOKEN = s.mineruToken.trim()
+
+  const { results, errors } = await putRepoSecrets(owner, repo, token, secrets)
+  const okCount = results.filter((r) => r.ok).length
+  return { okCount, failCount: errors.length, errors }
+}

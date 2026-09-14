@@ -29,11 +29,11 @@ import MineruConnectivityPanel from '../components/settings/MineruConnectivityPa
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
 import BackendCapabilitiesPanel from '../components/settings/BackendCapabilitiesPanel'
-import { isChatModel, getModelVendor, SILICONFLOW_BASE_URL } from '../services/ai/models'
+import { isChatModel, getModelVendor } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
-import { putRepoSecrets } from '../services/repoSecrets'
+import { syncAllSecrets } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
 
 function formatFetchedAt(ts: number | null): string {
@@ -99,8 +99,16 @@ function Settings() {
     return () => window.removeEventListener('af:credential-cleaned', onCleaned)
   }, [])
 
-  /** ──── AI Secrets 自动同步（Settings → GitHub Actions） ──── */
+  /** ──── Secrets 自动同步（前端 Settings → GitHub Actions Secrets） ────
+   *
+   *  统一入口：syncAllSecrets（一次写 7 个：MINERU + AI1/AI2 各 3 个）
+   *  双重保险：
+   *   1. 用户改任意字段 → 800ms debounce 后 sync（下面依赖项数组驱动）
+   *   2. mount-ref 确保页面挂载后至少 sync 一次——即便所有依赖项都没变
+   *      （防止"Settings 页打开后用户什么都没改，但 GitHub secrets 和前端值不同步"）
+   */
   const aiSecretsSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const didMountSyncRef = useRef(false)
   const [aiSecretsSyncStatus, setAiSecretsSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
   const [aiSecretsSyncMsg, setAiSecretsSyncMsg] = useState('')
 
@@ -110,50 +118,43 @@ function Settings() {
     // 还没初始化完也跳过
     if (!isInitialized) return
 
-    // 收集要 sync 的 secrets
-    let secrets: Record<string, string> = {}
-    if (aiProviderMode === 'custom') {
-      // 自定义端点
-      secrets = {
-        AI1_BASE_URL: customAi1BaseUrl,
-        AI1_API_KEY:  customAi1ApiKey,
-        AI1_MODEL:    customAi1Model,
-        AI2_BASE_URL: customAi2BaseUrl,
-        AI2_API_KEY:  customAi2ApiKey,
-        AI2_MODEL:    customAi2Model,
-      }
-    } else {
-      // 默认：硅基流动
-      secrets = {
-        AI1_BASE_URL: SILICONFLOW_BASE_URL,
-        AI1_API_KEY:  siliconflowApiKey,
-        AI1_MODEL:    ai1Model,
-        AI2_BASE_URL: SILICONFLOW_BASE_URL,
-        AI2_API_KEY:  siliconflowApiKey,
-        AI2_MODEL:    ai2Model,
-      }
-    }
-    // MINERU_API_TOKEN 跟 provider 无关，独立加
-    if (mineruToken?.trim()) secrets.MINERU_API_TOKEN = mineruToken.trim()
+    // 收集要 sync 的 secrets map（和 syncAllSecrets 保持一致的拼装）
+    const hasAnyValue =
+      (aiProviderMode === 'custom'
+        ? (customAi1BaseUrl || customAi1ApiKey || customAi1Model ||
+           customAi2BaseUrl || customAi2ApiKey || customAi2Model)
+        : (siliconflowApiKey || ai1Model || ai2Model)) ||
+      mineruToken
 
-    // 只 sync 有值的；全部空就不同步
-    const hasAny = Object.values(secrets).some((v) => v && v.trim())
-    if (!hasAny) return
+    // 全部空就不同步（新用户刚打开还没填任何东西）
+    if (!hasAnyValue) return
 
     // debounce 800ms —— 用户还在打字就不同步
     if (aiSecretsSyncTimer.current) clearTimeout(aiSecretsSyncTimer.current)
     aiSecretsSyncTimer.current = setTimeout(async () => {
       setAiSecretsSyncStatus('syncing')
       try {
-        const { results, errors } = await putRepoSecrets(owner, repoName, auth.token!, secrets)
-        const okCount = results.filter((r) => r.ok).length
-        if (errors.length > 0) {
+        const res = await syncAllSecrets(owner, repoName, auth.token!, {
+          aiProviderMode,
+          siliconflowApiKey,
+          ai1Model,
+          ai2Model,
+          customAi1BaseUrl,
+          customAi1ApiKey,
+          customAi1Model,
+          customAi2BaseUrl,
+          customAi2ApiKey,
+          customAi2Model,
+          mineruToken,
+        })
+        if (res.failCount > 0) {
           setAiSecretsSyncStatus('error')
-          setAiSecretsSyncMsg(`${okCount}/${results.length} 已同步，${errors.length} 失败`)
+          setAiSecretsSyncMsg(`${res.okCount} 已同步，${res.failCount} 失败：${res.errors.join('; ')}`)
         } else {
           setAiSecretsSyncStatus('synced')
-          setAiSecretsSyncMsg(`${okCount} 个 secrets 已同步`)
+          setAiSecretsSyncMsg(`${res.okCount} 个 secrets 已同步`)
         }
+        didMountSyncRef.current = true
       } catch (e: any) {
         setAiSecretsSyncStatus('error')
         setAiSecretsSyncMsg(e?.message || String(e))
@@ -163,14 +164,61 @@ function Settings() {
     return () => {
       if (aiSecretsSyncTimer.current) clearTimeout(aiSecretsSyncTimer.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    isInitialized, owner, repoName, auth.token, aiProviderMode,
+    isInitialized, owner, repoName, auth.token,
+    aiProviderMode, advancedMode,
     siliconflowApiKey, ai1Model, ai2Model,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
   ])
+
+  /** mount 后强制 sync 一次——即便依赖项没触发 */
+  useEffect(() => {
+    if (didMountSyncRef.current) return
+    if (!isInitialized) return
+    if (!owner || !repoName || !auth.token) return
+
+    // 和上面一样的"全部空就跳过"逻辑
+    const hasAnyValue =
+      (aiProviderMode === 'custom'
+        ? (customAi1BaseUrl || customAi1ApiKey || customAi1Model ||
+           customAi2BaseUrl || customAi2ApiKey || customAi2Model)
+        : (siliconflowApiKey || ai1Model || ai2Model)) ||
+      mineruToken
+    if (!hasAnyValue) return
+
+    ;(async () => {
+      setAiSecretsSyncStatus('syncing')
+      try {
+        const res = await syncAllSecrets(owner, repoName, auth.token!, {
+          aiProviderMode,
+          siliconflowApiKey,
+          ai1Model,
+          ai2Model,
+          customAi1BaseUrl,
+          customAi1ApiKey,
+          customAi1Model,
+          customAi2BaseUrl,
+          customAi2ApiKey,
+          customAi2Model,
+          mineruToken,
+        })
+        if (res.failCount > 0) {
+          setAiSecretsSyncStatus('error')
+          setAiSecretsSyncMsg(`首屏同步：${res.okCount} 已同步，${res.failCount} 失败`)
+        } else {
+          setAiSecretsSyncStatus('synced')
+          setAiSecretsSyncMsg(`首屏已同步 ${res.okCount} 个 secrets`)
+        }
+        didMountSyncRef.current = true
+      } catch (e: any) {
+        setAiSecretsSyncStatus('error')
+        setAiSecretsSyncMsg(`首屏同步失败：${e?.message || String(e)}`)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized, owner, repoName, auth.token])
 
   /** 过滤后的 chat 类模型清单（用于 UI 下拉） */
   const chatModels = useMemo(() => {
