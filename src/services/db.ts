@@ -42,7 +42,9 @@ export const SETTING_KEYS = {
   // 设置（M3，SPEC v0.3 §7.3）
   ADVANCED_MODE: 'advanced_mode',
   AI_PROVIDER_MODE: 'ai_provider_mode',
-  SILICONFLOW_API_KEY: 'siliconflow_api_key',
+  DEEPSEEK_API_KEY: 'deepseek_api_key',
+  KIMI_API_KEY: 'kimi_api_key',
+  QINIU_API_KEY: 'qiniu_api_key',
   AI_1_MODEL: 'ai_1_model',
   AI_2_MODEL: 'ai_2_model',
   CUSTOM_AI_1_BASE_URL: 'custom_ai_1_base_url',

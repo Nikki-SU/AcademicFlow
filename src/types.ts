@@ -86,8 +86,43 @@ export interface WorkspaceState {
 // M3: 设置页 + AI 双引擎（SPEC v0.3 §7.3 / §9）
 // ============================================================
 
-/** AI 服务提供方模式：普通模式锁定硅基流动，高级模式可切自定义 OpenAI 兼容端点 */
-export type AIProviderMode = 'siliconflow' | 'custom'
+/** 硬编码的 4 家 AI Provider 配置（不写配置文件，直接嵌代码） */
+export const AI_PROVIDERS = {
+  deepseek: {
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    defaultModel1: 'deepseek-chat',
+    defaultModel2: 'deepseek-chat',
+    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
+    note: '跨太平洋链路稳定，runner 到 SF 丢包严重，换这个 1s 返回',
+  },
+  kimi: {
+    label: '月之暗面 Kimi',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    defaultModel1: 'moonshot-v1-32k',
+    defaultModel2: 'moonshot-v1-32k',
+    apiKeyUrl: 'https://platform.moonshot.cn/',
+    note: '超长上下文强',
+  },
+  qiniu: {
+    label: '七牛云 AI',
+    baseUrl: 'https://aiapi.qiniu.com/v1',
+    defaultModel1: 'deepseek-chat',
+    defaultModel2: 'deepseek-chat',
+    apiKeyUrl: 'https://ai.qiniu.com/',
+    note: '国内唯一同时兼容 OpenAI + Anthropic 协议',
+  },
+  custom: {
+    label: '自定义端点',
+    baseUrl: '', // 用户填
+    defaultModel1: '',
+    defaultModel2: '',
+    apiKeyUrl: '',
+    note: '填自己的 OpenAI 兼容端点',
+  },
+} as const
+
+export type AIProviderMode = keyof typeof AI_PROVIDERS
 
 /** OpenAI /v1/models 兼容响应中的单个模型 */
 export interface AIModel {
@@ -99,21 +134,25 @@ export interface AIModel {
 
 /** 用户可编辑的完整设置数据（SPEC v0.3 §7.3） */
 export interface SettingsData {
-  /** 高级模式总开关：false 只暴露硅基流动+AI-1/AI-2 下拉；true 解锁自定义端点 */
+  /** 高级模式总开关：false 预置 provider（默认 DeepSeek）；true 解锁自定义端点 */
   advancedMode: boolean
-  /** AI 服务提供方模式：普通=siliconflow，高级可切 custom */
+  /** AI 服务提供方模式 */
   aiProviderMode: AIProviderMode
-  /** 硅基流动 API Key（普通模式必填） */
-  siliconflowApiKey: string
+  /** DeepSeek API Key */
+  deepseekApiKey: string
+  /** 月之暗面 Kimi API Key */
+  kimiApiKey: string
+  /** 七牛云 AI API Key */
+  qiniuApiKey: string
   /** AI-1（生成位）默认模型 id */
   ai1Model: string
   /** AI-2（审阅位）默认模型 id */
   ai2Model: string
-  /** 高级模式：AI-1 自定义端点 */
+  /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string
   customAi1Model: string
-  /** 高级模式：AI-2 自定义端点 */
+  /** 自定义端点：AI-2 */
   customAi2BaseUrl: string
   customAi2ApiKey: string
   customAi2Model: string

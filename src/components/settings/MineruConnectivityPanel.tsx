@@ -74,7 +74,9 @@ export default function MineruConnectivityPanel() {
     try {
       const items = await syncAllSecrets(owner, repo, ghToken, {
         aiProviderMode: store.aiProviderMode,
-        siliconflowApiKey: store.siliconflowApiKey,
+        deepseekApiKey: store.deepseekApiKey,
+        kimiApiKey: store.kimiApiKey,
+        qiniuApiKey: store.qiniuApiKey,
         ai1Model: store.ai1Model,
         ai2Model: store.ai2Model,
         customAi1BaseUrl: store.customAi1BaseUrl,

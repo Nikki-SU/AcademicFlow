@@ -121,20 +121,21 @@ async function parseErrorBody(res: Response): Promise<string> {
 }
 
 /**
- * 从硅基流动拉取 /v1/models 完整列表
+ * 通用：从任意 OpenAI 兼容端点拉取 /v1/models 完整列表
  * @throws AIAuthError / AIQuotaError / AIPermissionError / AIRateLimitError / AINetworkError / AIClientError
  */
-export async function fetchSiliconflowModels(apiKey: string): Promise<AIModel[]> {
-  if (!apiKey || !apiKey.trim()) {
-    throw new AIAuthError('未配置硅基流动 API Key')
+export async function fetchProviderModels(baseUrl: string, apiKey: string): Promise<AIModel[]> {
+  if (!baseUrl || !apiKey || !apiKey.trim()) {
+    throw new AIAuthError('未配置 API Key')
   }
+  const trimmedUrl = baseUrl.trim().replace(/\/$/, '')
 
   let res: Response
   try {
-    res = await fetch(`${SILICONFLOW_BASE_URL}/models`, {
+    res = await fetch(`${trimmedUrl}/models`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey.trim()}`,
         Accept: 'application/json',
       },
     })
@@ -154,6 +155,11 @@ export async function fetchSiliconflowModels(apiKey: string): Promise<AIModel[]>
 
   const data = (await res.json()) as { data?: AIModel[] }
   return data.data ?? []
+}
+
+/** 从硅基流动拉取 /v1/models 完整列表（保留作向后兼容别名） */
+export async function fetchSiliconflowModels(apiKey: string): Promise<AIModel[]> {
+  return fetchProviderModels(SILICONFLOW_BASE_URL, apiKey)
 }
 
 /** 从 IndexedDB 读取缓存的模型清单，返回 null 表示无缓存或已过期 */

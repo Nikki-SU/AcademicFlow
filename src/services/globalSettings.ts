@@ -61,7 +61,7 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
         result.advancedMode = value === 'true'
         break
       case 'ai_provider_mode':
-        result.aiProviderMode = value || 'siliconflow'
+        result.aiProviderMode = value || 'deepseek'
         break
       case 'ai1_model':
         result.ai1Model = value

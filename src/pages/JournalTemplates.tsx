@@ -47,7 +47,7 @@ type View = 'list' | 'create' | 'edit'
 
 function JournalTemplatesPage() {
   const { repo } = useWorkspaceStore()
-  const { siliconflowApiKey, getDualEngineConfig } = useSettingsStore()
+  const { getDualEngineConfig } = useSettingsStore()
   const [view, setView] = useState<View>('list')
   const [templates, setTemplates] = useState<JournalTemplate[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<JournalTemplate | null>(null)
@@ -150,14 +150,20 @@ function JournalTemplatesPage() {
       toast.error('请先粘贴投稿须知内容')
       return
     }
-    if (!siliconflowApiKey.trim()) {
-      toast.error('请先配置 AI API Key')
+
+    // 预检 AI 配置
+    let ai1, ai2
+    try {
+      const cfg = getDualEngineConfig()
+      ai1 = cfg.ai1
+      ai2 = cfg.ai2
+    } catch (e: any) {
+      toast.error(e?.message || 'AI 配置不完整，请在设置页填写 API Key')
       return
     }
 
     setIsExtracting(true)
     try {
-      const { ai1, ai2 } = getDualEngineConfig()
       const result = await extractGuidelinesWithAI({
         guidelinesText: formGuidelinesContent,
         ai1,

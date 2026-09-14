@@ -15,11 +15,10 @@
  */
 import { create } from 'zustand'
 import {
-  fetchSiliconflowModels,
+  fetchProviderModels,
   loadCachedModels,
   loadCachedModelsFetchedAt,
   saveModelsCache,
-  SILICONFLOW_BASE_URL,
 } from '../services/ai/models'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
@@ -31,14 +30,32 @@ import type {
   SettingsData,
   SettingsState,
 } from '../types'
+import { AI_PROVIDERS } from '../types'
+
+/** 根据 provider 拿到对应的 baseUrl */
+function getProviderBaseUrl(mode: keyof typeof AI_PROVIDERS): string {
+  return AI_PROVIDERS[mode].baseUrl
+}
+
+/** 根据 provider mode + store 状态拿到对应的 apiKey 字段值 */
+function getProviderApiKey(mode: keyof typeof AI_PROVIDERS, s: SettingsData): string {
+  switch (mode) {
+    case 'deepseek': return s.deepseekApiKey.trim()
+    case 'kimi': return s.kimiApiKey.trim()
+    case 'qiniu': return s.qiniuApiKey.trim()
+    default: return ''
+  }
+}
 
 /** SPEC v0.3 §7.3 默认值 */
 const DEFAULT_SETTINGS: SettingsData = {
   advancedMode: false,
-  aiProviderMode: 'siliconflow',
-  siliconflowApiKey: '',
-  ai1Model: 'Qwen/Qwen3.6-27B',
-  ai2Model: 'deepseek-ai/DeepSeek-V3.2',
+  aiProviderMode: 'deepseek',
+  deepseekApiKey: '',
+  kimiApiKey: '',
+  qiniuApiKey: '',
+  ai1Model: 'deepseek-chat',
+  ai2Model: 'deepseek-chat',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
@@ -54,7 +71,9 @@ const DEFAULT_SETTINGS: SettingsData = {
 
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
 const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
-  'siliconflowApiKey',
+  'deepseekApiKey',
+  'kimiApiKey',
+  'qiniuApiKey',
   'customAi1ApiKey',
   'customAi2ApiKey',
   'mineruToken',
@@ -72,7 +91,9 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
 
 /** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
 const SENSITIVE_KEY_MAP: Record<string, string> = {
-  siliconflowApiKey: SETTING_KEYS.SILICONFLOW_API_KEY,
+  deepseekApiKey: SETTING_KEYS.DEEPSEEK_API_KEY,
+  kimiApiKey: SETTING_KEYS.KIMI_API_KEY,
+  qiniuApiKey: SETTING_KEYS.QINIU_API_KEY,
   customAi1ApiKey: SETTING_KEYS.CUSTOM_AI_1_API_KEY,
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
@@ -93,9 +114,10 @@ function deserialize(
     return (raw === '1') as SettingsData[typeof key]
   }
   if (key === 'aiProviderMode') {
-    return (raw === 'custom'
-      ? 'custom'
-      : 'siliconflow') as SettingsData[typeof key]
+    // 只接受合法 provider 名，否则 fallback 到 deepseek
+    const valid = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
+    const ok = (valid as readonly string[]).includes(raw ?? '')
+    return (ok ? raw : 'deepseek') as SettingsData[typeof key]
   }
   return raw as SettingsData[typeof key]
 }
@@ -104,14 +126,16 @@ function deserialize(
  * 检测受污染的 secret 字段
  * -------------------------------------------------
  * 场景：Chrome/Edge 密码管理器保存了 Login 页的 GitHub PAT (ghp_/github_pat_/gho_/ghu_)，
- * 之后 autofill 到 Settings 页的 SiliconFlow / MinerU / Custom AI key 字段。
- * 检测规则：这些字段绝不可能以 GitHub token 前缀开头（SiliconFlow 用 sk-*，MinerU 用 JWT eyJ*）
+ * 之后 autofill 到 Settings 页的 AI Key / MinerU Token 字段。
+ * 检测规则：这些字段绝不可能以 GitHub token 前缀开头。
  */
 function detectPatContamination(
   patch: Partial<SettingsData>,
 ): (keyof SettingsData)[] {
   const secretFields: (keyof SettingsData)[] = [
-    'siliconflowApiKey',
+    'deepseekApiKey',
+    'kimiApiKey',
+    'qiniuApiKey',
     'customAi1ApiKey',
     'customAi2ApiKey',
     'mineruToken',
@@ -264,7 +288,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         if (loaded) {
           const patch: Partial<SettingsData> = {}
           if (loaded.advancedMode !== undefined) patch.advancedMode = loaded.advancedMode
-          if (loaded.aiProviderMode !== undefined) patch.aiProviderMode = loaded.aiProviderMode as 'siliconflow' | 'custom'
+          if (loaded.aiProviderMode !== undefined) patch.aiProviderMode = loaded.aiProviderMode as SettingsData['aiProviderMode']
           if (loaded.ai1Model !== undefined) patch.ai1Model = loaded.ai1Model
           if (loaded.ai2Model !== undefined) patch.ai2Model = loaded.ai2Model
           if (loaded.customAi1BaseUrl !== undefined) patch.customAi1BaseUrl = loaded.customAi1BaseUrl
@@ -318,10 +342,24 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
 
     refreshModels: async (force = false) => {
       const state = get()
-      const apiKey = state.siliconflowApiKey.trim()
-      if (!apiKey) {
-        set({ error: '请先填写硅基流动 API Key' })
-        throw new Error('missing siliconflow api key')
+      const mode = state.aiProviderMode
+      // custom 模式需要 AI-1 端点有 baseUrl 才能拉模型
+      if (mode === 'custom') {
+        if (!state.customAi1BaseUrl.trim()) {
+          set({ error: '自定义端点模式下请先填写 AI-1 的 Base URL' })
+          throw new Error('custom provider missing baseUrl')
+        }
+        if (!state.customAi1ApiKey.trim()) {
+          set({ error: '自定义端点模式下请先填写 AI-1 的 API Key' })
+          throw new Error('custom provider missing apiKey')
+        }
+      } else {
+        // 预置 provider：查 API Key 是否填了
+        const apiKey = getProviderApiKey(mode, state)
+        if (!apiKey) {
+          set({ error: `请先填写 ${AI_PROVIDERS[mode].label} API Key` })
+          throw new Error(`missing ${mode} api key`)
+        }
       }
 
       if (!force) {
@@ -338,7 +376,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
 
       set({ isLoadingModels: true, error: null })
       try {
-        const models = await fetchSiliconflowModels(apiKey)
+        const baseUrl =
+          mode === 'custom' ? state.customAi1BaseUrl.trim() : getProviderBaseUrl(mode)
+        const apiKey =
+          mode === 'custom' ? state.customAi1ApiKey.trim() : getProviderApiKey(mode, state)
+        const models = await fetchProviderModels(baseUrl, apiKey)
         const at = await saveModelsCache(models)
         set({
           siliconflowModels: models,
@@ -355,7 +397,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
 
     getDualEngineConfig: () => {
       const state = get()
-      if (state.aiProviderMode === 'custom' && state.advancedMode) {
+      const mode = state.aiProviderMode
+      if (mode === 'custom') {
         const ai1BaseUrl = state.customAi1BaseUrl.trim()
         const ai1ApiKey = state.customAi1ApiKey.trim()
         const ai1Model = state.customAi1Model.trim()
@@ -363,21 +406,25 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         const ai2ApiKey = state.customAi2ApiKey.trim()
         const ai2Model = state.customAi2Model.trim()
         if (!ai1BaseUrl || !ai1ApiKey || !ai1Model) {
-          throw new Error('高级模式下 AI-1 端点/Key/模型均需填写')
+          throw new Error('自定义端点模式下 AI-1 端点/Key/模型均需填写')
         }
         if (!ai2BaseUrl || !ai2ApiKey || !ai2Model) {
-          throw new Error('高级模式下 AI-2 端点/Key/模型均需填写')
+          throw new Error('自定义端点模式下 AI-2 端点/Key/模型均需填写')
         }
         return {
           ai1: { baseUrl: ai1BaseUrl, apiKey: ai1ApiKey, model: ai1Model },
           ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
         }
       }
-      const apiKey = state.siliconflowApiKey.trim()
-      if (!apiKey) throw new Error('请先填写硅基流动 API Key')
+      // 预置 provider：deepseek / kimi / qiniu —— 两端共用 baseUrl + apiKey
+      const apiKey = getProviderApiKey(mode, state)
+      if (!apiKey) {
+        throw new Error(`请先填写 ${AI_PROVIDERS[mode].label} API Key`)
+      }
+      const baseUrl = getProviderBaseUrl(mode)
       return {
-        ai1: { baseUrl: SILICONFLOW_BASE_URL, apiKey, model: state.ai1Model },
-        ai2: { baseUrl: SILICONFLOW_BASE_URL, apiKey, model: state.ai2Model },
+        ai1: { baseUrl, apiKey, model: state.ai1Model },
+        ai2: { baseUrl, apiKey, model: state.ai2Model },
       }
     },
 
@@ -416,7 +463,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
 
     resetToDefaults: async () => {
       const keep: Partial<SettingsData> = {
-        siliconflowApiKey: get().siliconflowApiKey,
+        deepseekApiKey: get().deepseekApiKey,
+        kimiApiKey: get().kimiApiKey,
+        qiniuApiKey: get().qiniuApiKey,
         customAi1ApiKey: get().customAi1ApiKey,
         customAi2ApiKey: get().customAi2ApiKey,
       }

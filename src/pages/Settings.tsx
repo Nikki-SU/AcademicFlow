@@ -35,6 +35,7 @@ import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
+import { AI_PROVIDERS } from '../types'
 
 /** AI/MinerU secrets 只能写到这个私库。主仓库 AcademicFlow 是 AGPL v3 公开的，绝对不能写。 */
 const PRIVATE_SECRETS_REPO = 'academicflow-workspace'
@@ -60,7 +61,9 @@ function Settings() {
     isInitialized,
     advancedMode,
     aiProviderMode,
-    siliconflowApiKey,
+    deepseekApiKey,
+    kimiApiKey,
+    qiniuApiKey,
     ai1Model,
     ai2Model,
     customAi1BaseUrl,
@@ -87,7 +90,9 @@ function Settings() {
     const onCleaned = (e: Event) => {
       const detail = (e as CustomEvent<{ fields: string[] }>).detail
       const fieldLabelMap: Record<string, string> = {
-        siliconflowApiKey: '硅基流动 API Key',
+        deepseekApiKey: 'DeepSeek API Key',
+        kimiApiKey: '月之暗面 Kimi API Key',
+        qiniuApiKey: '七牛云 AI API Key',
         customAi1ApiKey: '自定义 AI-1 API Key',
         customAi2ApiKey: '自定义 AI-2 API Key',
         mineruToken: 'MinerU Token',
@@ -132,7 +137,9 @@ function Settings() {
     try {
       const items = await syncAllSecrets(owner, targetRepo, auth.token!, {
         aiProviderMode,
-        siliconflowApiKey,
+        deepseekApiKey,
+        kimiApiKey,
+        qiniuApiKey,
         ai1Model,
         ai2Model,
         customAi1BaseUrl,
@@ -166,7 +173,7 @@ function Settings() {
   }, [
     isInitialized, owner, auth.token,
     aiProviderMode, advancedMode,
-    siliconflowApiKey, ai1Model, ai2Model,
+    deepseekApiKey, kimiApiKey, qiniuApiKey, ai1Model, ai2Model,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
@@ -214,7 +221,7 @@ function Settings() {
     )
   }
 
-  const showCustom = advancedMode && aiProviderMode === 'custom'
+  const showCustom = aiProviderMode === 'custom'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
@@ -261,14 +268,14 @@ function Settings() {
               </div>
               <p className="text-xs text-slate-500 pl-8">
                 {advancedMode
-                  ? '已解锁自定义 OpenAI 兼容端点、MinerU / 词典高级选项'
-                  : '关闭时使用预置的硅基流动配置，最省心；开启后可自定义 AI 端点'}
+                  ? '已解锁所有 AI Provider 选项 + 自定义 OpenAI 兼容端点 + MinerU / 词典高级选项'
+                  : '默认使用 DeepSeek，最省心；开启后可选择更多 Provider 或自定义 AI 端点'}
               </p>
             </div>
           </button>
         </section>
 
-        {/* AI 服务提供方（高级模式时可切） */}
+        {/* AI 服务提供方选择（高级模式时可切） */}
         {advancedMode && (
           <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
             <h2 className="font-semibold text-slate-800 flex items-center gap-2">
@@ -276,47 +283,74 @@ function Settings() {
               AI 服务提供方
             </h2>
             <div className="grid grid-cols-2 gap-2">
-              {(['siliconflow', 'custom'] as AIProviderMode[]).map((mode) => (
+              {(Object.keys(AI_PROVIDERS) as AIProviderMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
-                  onClick={() => updateSettings({ aiProviderMode: mode })}
+                  disabled={mode === 'custom' && !advancedMode}
+                  onClick={() => {
+                    // 切换 provider 时自动填默认模型
+                    const cfg = AI_PROVIDERS[mode]
+                    updateSettings({
+                      aiProviderMode: mode,
+                      ai1Model: cfg.defaultModel1 || ai1Model,
+                      ai2Model: cfg.defaultModel2 || ai2Model,
+                    })
+                  }}
                   className={`px-3 py-2 text-sm rounded-md border transition ${
                     aiProviderMode === mode
                       ? 'bg-indigo-50 border-indigo-400 text-indigo-800 font-medium'
                       : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'
-                  }`}
+                  } ${mode === 'custom' && !advancedMode ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
-                  {mode === 'siliconflow' ? '硅基流动（预置）' : '自定义端点'}
+                  {AI_PROVIDERS[mode].label}
                 </button>
               ))}
             </div>
+            {aiProviderMode !== 'custom' && (
+              <p className="text-xs text-slate-500">
+                {AI_PROVIDERS[aiProviderMode].note}
+              </p>
+            )}
           </section>
         )}
 
-        {/* 硅基流动配置 */}
-        {aiProviderMode === 'siliconflow' && (
+        {/* 预置 Provider 配置（deepseek / kimi / qiniu） */}
+        {aiProviderMode !== 'custom' && (() => {
+          const cfg = AI_PROVIDERS[aiProviderMode]
+          // 三个 provider 共用同一字段名不同 key 名
+          const apiKeyField = (aiProviderMode === 'deepseek' ? deepseekApiKey : aiProviderMode === 'kimi' ? kimiApiKey : qiniuApiKey)
+          const apiKeySetter = (v: string) => {
+            const patch: Record<string, string> = {}
+            if (aiProviderMode === 'deepseek') patch.deepseekApiKey = v
+            else if (aiProviderMode === 'kimi') patch.kimiApiKey = v
+            else patch.qiniuApiKey = v
+            updateSettings(patch as Partial<typeof store>)
+          }
+          return (
           <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-slate-800 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-indigo-600" />
-                硅基流动（AI-1 + AI-2 共用）
+                {cfg.label}（AI-1 + AI-2 共用）
               </h2>
-              <a
-                href="https://cloud.siliconflow.cn/account/ak"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-indigo-600 hover:text-indigo-800"
-              >
-                去获取 API Key →
-              </a>
+              {cfg.apiKeyUrl && (
+                <a
+                  href={cfg.apiKeyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-indigo-600 hover:text-indigo-800"
+                >
+                  去获取 API Key →
+                </a>
+              )}
             </div>
 
             <APIKeyInput
-              label="硅基流动 API Key"
-              fieldId="siliconflow"
-              value={siliconflowApiKey}
-              onChange={(v) => updateSettings({ siliconflowApiKey: v })}
+              label={`${cfg.label} API Key`}
+              fieldId={`provider-${aiProviderMode}`}
+              value={apiKeyField}
+              onChange={apiKeySetter}
               hint="仅存在你浏览器的 IndexedDB，不上传任何服务器"
             />
 
@@ -329,7 +363,7 @@ function Settings() {
               <button
                 type="button"
                 onClick={handleRefresh}
-                disabled={isLoadingModels || !siliconflowApiKey.trim()}
+                disabled={isLoadingModels || !apiKeyField.trim()}
                 className="flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-300 rounded-md
                            hover:bg-slate-50 disabled:text-slate-300 disabled:cursor-not-allowed"
               >
@@ -358,12 +392,12 @@ function Settings() {
               />
             </div>
             <p className="text-xs text-slate-500">
-              硅基流动是 AI 聚合平台，上面接入了多家厂商的模型（通义千问、DeepSeek、Llama、GLM 等）。
-              下拉中每个模型都标注了实际提供方，选择时请注意区分。
-              推荐生成位用 Qwen2.5-72B、审阅位用 DeepSeek-R1（可切换）。
+              AI-1 和 AI-2 共用同一个 {cfg.label} API Key 和 base URL。
+              推荐生成位用较强模型、审阅位用更快模型（可切换）。
             </p>
           </section>
-        )}
+          )
+        })()}
 
         {/* 自定义端点 */}
         {showCustom && (

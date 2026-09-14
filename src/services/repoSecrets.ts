@@ -6,6 +6,8 @@
  */
 import sodium from 'libsodium-wrappers'
 import { githubFetch } from './github'
+import { AI_PROVIDERS } from '../types'
+import type { AIProviderMode } from '../types'
 
 /** 公钥缓存 —— 同一个 repo 的 key_id 不会变，缓存一次省得每次 GET */
 const publicKeyCache = new Map<string, { keyId: string; publicKey: Uint8Array }>()
@@ -209,8 +211,10 @@ export interface SecretItemStatus {
 }
 
 export interface SyncAllSecretsInput {
-  aiProviderMode: 'siliconflow' | 'custom'
-  siliconflowApiKey: string
+  aiProviderMode: AIProviderMode
+  deepseekApiKey: string
+  kimiApiKey: string
+  qiniuApiKey: string
   ai1Model: string
   ai2Model: string
   customAi1BaseUrl: string
@@ -221,8 +225,6 @@ export interface SyncAllSecretsInput {
   customAi2Model: string
   mineruToken: string
 }
-
-const SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1'
 
 /**
  * 前端 Settings → GitHub Actions Secrets
@@ -248,15 +250,41 @@ export async function syncAllSecrets(
     )
   }
 
-  // 按 provider 模式拼装 —— 7 个全部塞进去
+  // 根据 provider 模式拼装 —— 7 个 secrets 全部塞进去
+  const mode = s.aiProviderMode
+  let baseUrl1: string, apiKey1: string, model1: string
+  let baseUrl2: string, apiKey2: string, model2: string
+
+  if (mode === 'custom') {
+    baseUrl1 = s.customAi1BaseUrl
+    apiKey1 = s.customAi1ApiKey
+    model1 = s.customAi1Model
+    baseUrl2 = s.customAi2BaseUrl
+    apiKey2 = s.customAi2ApiKey
+    model2 = s.customAi2Model
+  } else {
+    // 预置 provider：deepseek / kimi / qiniu —— 查 AI_PROVIDERS 拿 baseUrl
+    const cfg = AI_PROVIDERS[mode]
+    baseUrl1 = cfg.baseUrl
+    baseUrl2 = cfg.baseUrl
+    switch (mode) {
+      case 'deepseek': apiKey1 = s.deepseekApiKey; apiKey2 = s.deepseekApiKey; break
+      case 'kimi':     apiKey1 = s.kimiApiKey;     apiKey2 = s.kimiApiKey;     break
+      case 'qiniu':    apiKey1 = s.qiniuApiKey;    apiKey2 = s.qiniuApiKey;    break
+      default:         apiKey1 = ''; apiKey2 = '';
+    }
+    model1 = s.ai1Model || cfg.defaultModel1
+    model2 = s.ai2Model || cfg.defaultModel2
+  }
+
   const secretsMap: Record<AiSecretName, string> = {
     MINERU_API_TOKEN: s.mineruToken,
-    AI1_BASE_URL:    s.aiProviderMode === 'custom' ? s.customAi1BaseUrl : SILICONFLOW_BASE_URL,
-    AI1_API_KEY:     s.aiProviderMode === 'custom' ? s.customAi1ApiKey  : s.siliconflowApiKey,
-    AI1_MODEL:       s.aiProviderMode === 'custom' ? s.customAi1Model    : s.ai1Model,
-    AI2_BASE_URL:    s.aiProviderMode === 'custom' ? s.customAi2BaseUrl : SILICONFLOW_BASE_URL,
-    AI2_API_KEY:     s.aiProviderMode === 'custom' ? s.customAi2ApiKey  : s.siliconflowApiKey,
-    AI2_MODEL:       s.aiProviderMode === 'custom' ? s.customAi2Model    : s.ai2Model,
+    AI1_BASE_URL:    baseUrl1,
+    AI1_API_KEY:     apiKey1,
+    AI1_MODEL:       model1,
+    AI2_BASE_URL:    baseUrl2,
+    AI2_API_KEY:     apiKey2,
+    AI2_MODEL:       model2,
   }
 
   // 1. PUT 每一个

@@ -6,19 +6,21 @@ on:
   workflow_dispatch:
     inputs:
       ai_provider:
-        description: 'AI Provider'
+        description: 'AI Provider (only affects display; workflow uses whatever AI1_*/AI2_* secrets are set)'
         required: false
-        default: 'sf'
+        default: 'default'
         type: choice
         options:
-          - sf
-          - ds
+          - default
+          - deepseek
+          - kimi
+          - qiniu
+          - custom
 
-# 关键：Pipeline 会写 main（git push），并发跑会 non-fast-forward 冲突
-# 加 retry + rebase 在脚本里兜住，但源头也要排队避免白白跑 5 分钟再 rebase
+# Pipeline 会写 main（git push），并发跑会 non-fast-forward 冲突
 concurrency:
   group: "pipeline-write-main"
-  cancel-in-progress: false   # 不能杀正在跑的（用户在等结果），让后来的排队
+  cancel-in-progress: false
 
 jobs:
   convert:
@@ -38,43 +40,28 @@ jobs:
         with:
           node-version: '20'
 
-      # 根据 ai_provider 选择对应的 AI secrets
-      # 默认 sf（硅基流动），选 ds 时用 DeepSeek（需预先设置 AI1_*_DS / AI2_*_DS secrets）
-      - name: Run pipeline (SiliconFlow)
-        if: |
-          github.event_name == 'workflow_dispatch' && (inputs.ai_provider == 'sf' || inputs.ai_provider == '')
-          || github.event_name == 'repository_dispatch' && (github.event.client_payload.ai_provider == 'sf' || github.event.client_payload.ai_provider == '')
-          || (github.event_name == 'repository_dispatch' && github.event.client_payload.ai_provider == null)
+      # ── 单一 pipeline step ──
+      # 前端 Settings → sync 时把选中 provider 的 base_url/api_key/model
+      # 直接写到不带前缀的 AI1_BASE_URL / AI1_API_KEY / AI1_MODEL / AI2_*
+      # 所以 workflow 永远只读这 7 个不带前缀的 secrets，不用关心 provider 切换
+      - name: Run pipeline
         env:
           MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
-          AI1_BASE_URL: ${{ secrets.AI1_BASE_URL }}
-          AI1_API_KEY: ${{ secrets.AI1_API_KEY }}
-          AI1_MODEL: ${{ secrets.AI1_MODEL }}
-          AI2_BASE_URL: ${{ secrets.AI2_BASE_URL }}
-          AI2_API_KEY: ${{ secrets.AI2_API_KEY }}
-          AI2_MODEL: ${{ secrets.AI2_MODEL }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPO: ${{ github.event.repository.name }}
-        run: |
-          echo "Using AI provider: SiliconFlow (default)"
-          node .github/scripts/pipeline.mjs '${{ toJSON(github.event.client_payload) }}'
 
-      - name: Run pipeline (DeepSeek)
-        if: |
-          github.event_name == 'workflow_dispatch' && inputs.ai_provider == 'ds'
-          || github.event_name == 'repository_dispatch' && github.event.client_payload.ai_provider == 'ds'
-        env:
-          MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
-          AI1_BASE_URL: ${{ secrets.AI1_BASE_URL_DS }}
-          AI1_API_KEY: ${{ secrets.AI1_API_KEY_DS }}
-          AI1_MODEL: ${{ secrets.AI1_MODEL_DS }}
-          AI2_BASE_URL: ${{ secrets.AI2_BASE_URL_DS }}
-          AI2_API_KEY: ${{ secrets.AI2_API_KEY_DS }}
-          AI2_MODEL: ${{ secrets.AI2_MODEL_DS }}
+          AI1_BASE_URL: ${{ secrets.AI1_BASE_URL }}
+          AI1_API_KEY:  ${{ secrets.AI1_API_KEY }}
+          AI1_MODEL:    ${{ secrets.AI1_MODEL }}
+          AI2_BASE_URL: ${{ secrets.AI2_BASE_URL }}
+          AI2_API_KEY:  ${{ secrets.AI2_API_KEY }}
+          AI2_MODEL:    ${{ secrets.AI2_MODEL }}
+
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPO: ${{ github.event.repository.name }}
+          GITHUB_REPO:  ${{ github.event.repository.name }}
         run: |
-          echo "Using AI provider: DeepSeek"
+          echo "AI1 endpoint:  $AI1_BASE_URL"
+          echo "AI1 model:     $AI1_MODEL"
+          echo "AI2 endpoint:  $AI2_BASE_URL"
+          echo "AI2 model:     $AI2_MODEL"
+          echo "Starting pipeline..."
           node .github/scripts/pipeline.mjs '${{ toJSON(github.event.client_payload) }}'

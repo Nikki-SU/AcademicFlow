@@ -192,11 +192,22 @@ function DualEngineTestPanel() {
     ai1Model,
     ai2Model,
     aiProviderMode,
-    advancedMode,
+    deepseekApiKey,
+    kimiApiKey,
+    qiniuApiKey,
     customAi1Model,
     customAi2Model,
-    siliconflowApiKey,
   } = useSettingsStore()
+
+  // 当前 provider 的 apiKey（仅预置 provider 有余额查询能力，且后端硅基流动余额查询接口已下线）
+  const currentProviderApiKey = (() => {
+    switch (aiProviderMode) {
+      case 'deepseek': return deepseekApiKey.trim()
+      case 'kimi': return kimiApiKey.trim()
+      case 'qiniu': return qiniuApiKey.trim()
+      default: return ''
+    }
+  })()
 
   const [sourceMaterial, setSourceMaterial] = useState(SAMPLE_SOURCE)
   const [ai1Instruction, setAi1Instruction] = useState(SAMPLE_INSTRUCTION)
@@ -226,14 +237,17 @@ function DualEngineTestPanel() {
   const [accountError, setAccountError] = useState<string | null>(null)
   const accountFetchedOnce = useRef(false)
 
-  const useCustom = aiProviderMode === 'custom' && advancedMode
+  const useCustom = aiProviderMode === 'custom'
   const displayAI1Model = useCustom
     ? customAi1Model || '（自定义 AI-1）'
     : ai1Model
   const displayAI2Model = useCustom
     ? customAi2Model || '（自定义 AI-2）'
     : ai2Model
-  const canFetchBalance = !useCustom && !!siliconflowApiKey.trim()
+  // 余额查询仅预置 provider 且有 apiKey —— 但当前实现用的是硅基流动的 /v1/user/info
+  // 已下线 (SiliconFlowUserInfoDeprecatedError)，所以 canFetchBalance 实际上触发后会走 fallback。
+  // 保留开关让 UI 不报错：只有非 custom 模式且有 key 才去试。
+  const canFetchBalance = !useCustom && !!currentProviderApiKey
 
   // 秒表：running 状态下每 250ms 刷新 UI
   useEffect(() => {
@@ -254,7 +268,7 @@ function DualEngineTestPanel() {
     setIsLoadingAccount(true)
     setAccountError(null)
     try {
-      const info = await fetchSiliconflowUserInfo(siliconflowApiKey.trim())
+      const info = await fetchSiliconflowUserInfo(currentProviderApiKey)
       setAccount({
         totalBalance: info.totalBalance,
         chargeBalance: info.chargeBalance,

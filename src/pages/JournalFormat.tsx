@@ -29,7 +29,6 @@ import { useSettingsStore } from '../stores/settings'
 import { convertMarkdownToLatex, type LatexConvertProgress } from '../services/latex-converter'
 import { getAllTemplates } from '../services/journal-templates'
 import type { JournalTemplate, LatexConversionResult } from '../types'
-import { SILICONFLOW_BASE_URL } from '../services/ai/models'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DEMO_SAMPLE_MARKDOWN } from '../data/demo-content'
 import { DoiLink } from '../components/DoiLink'
@@ -51,7 +50,8 @@ const CITATION_SORT_OPTIONS = [
 ] as const
 
 function JournalFormatPage() {
-  const { siliconflowApiKey, ai1Model, ai2Model } = useSettingsStore()
+  const store = useSettingsStore()
+  const { aiProviderMode, deepseekApiKey, kimiApiKey, qiniuApiKey } = store
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -99,8 +99,15 @@ function JournalFormatPage() {
       toast.error('请先选择期刊模板')
       return
     }
-    if (!siliconflowApiKey.trim()) {
-      toast.error('请先在设置页填写 AI API Key')
+
+    // 从 store.getDualEngineConfig() 拿当前 AI 配置（自动适配 provider）
+    let ai1, ai2
+    try {
+      const cfg = store.getDualEngineConfig()
+      ai1 = cfg.ai1
+      ai2 = cfg.ai2
+    } catch (e: any) {
+      toast.error(e?.message || 'AI 配置不完整，请在设置页填写 API Key')
       return
     }
 
@@ -108,21 +115,11 @@ function JournalFormatPage() {
     setResult(null)
 
     try {
-      const aiConfig = {
-        baseUrl: SILICONFLOW_BASE_URL,
-        apiKey: siliconflowApiKey,
-        model: ai1Model,
-      }
-
       const res = await convertMarkdownToLatex({
         markdown,
         template: selectedTemplate,
-        ai1: aiConfig,
-        ai2: {
-          baseUrl: SILICONFLOW_BASE_URL,
-          apiKey: siliconflowApiKey,
-          model: ai2Model,
-        },
+        ai1,
+        ai2,
         citationSortMode: sortMode,
         enableReview: true,
         onProgress: (p) => {
@@ -142,7 +139,7 @@ function JournalFormatPage() {
       setIsConverting(false)
       setProgressStage(null)
     }
-  }, [markdown, selectedTemplate, siliconflowApiKey, ai1Model, ai2Model, sortMode])
+  }, [markdown, selectedTemplate, sortMode, store])
 
   // 复制到剪贴板
   const handleCopy = async (text: string, label: string) => {
@@ -307,18 +304,32 @@ function JournalFormatPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                setTempApiKey(siliconflowApiKey)
+                // 根据当前 provider 拿对应 key
+                const currentKey = (() => {
+                  switch (aiProviderMode) {
+                    case 'deepseek': return deepseekApiKey
+                    case 'kimi': return kimiApiKey
+                    case 'qiniu': return qiniuApiKey
+                    default: return ''
+                  }
+                })()
+                setTempApiKey(currentKey)
                 setShowQuickSettings(true)
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
             >
               <Settings className="w-4 h-4" />
               <span className="hidden sm:inline">API 设置</span>
-              {siliconflowApiKey ? (
-                <span className="w-2 h-2 bg-green-500 rounded-full" title="已配置" />
-              ) : (
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" title="未配置" />
-              )}
+              {(() => {
+                // 只在预置 provider 模式下显示状态灯
+                if (aiProviderMode === 'custom') return null
+                const hasKey = (aiProviderMode === 'deepseek' && deepseekApiKey) ||
+                               (aiProviderMode === 'kimi' && kimiApiKey) ||
+                               (aiProviderMode === 'qiniu' && qiniuApiKey)
+                return hasKey
+                  ? <span className="w-2 h-2 bg-green-500 rounded-full" title="已配置" />
+                  : <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" title="未配置" />
+              })()}
             </button>
             <Link
               to="/management"
@@ -349,7 +360,7 @@ function JournalFormatPage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  硅基流动 API Key
+                  AI Provider API Key
                 </label>
                 <input
                   type="text"
@@ -360,24 +371,24 @@ function JournalFormatPage() {
                   spellCheck={false}
                 />
                 <p className="text-xs text-slate-500 mt-1.5">
-                  用于 AI 格式转换和引用解析。在{' '}
-                  <a
-                    href="https://siliconflow.cn"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-600 hover:underline"
-                  >
-                    硅基流动
-                  </a>{' '}
-                  注册获取。
+                  用于 AI 格式转换和引用解析。建议到{' '}
+                  <Link to="/settings" className="text-indigo-600 hover:underline">
+                    设置页
+                  </Link>{' '}
+                  选择 provider 并填写 API Key。
                 </p>
               </div>
               <div className="pt-2">
                 <button
                   onClick={async () => {
-                    await useSettingsStore.getState().updateSettings({
-                      siliconflowApiKey: tempApiKey.trim(),
-                    })
+                    // 根据当前 provider 存对应 key
+                    const patch: Record<string, string> = {}
+                    if (aiProviderMode === 'deepseek') patch.deepseekApiKey = tempApiKey.trim()
+                    else if (aiProviderMode === 'kimi') patch.kimiApiKey = tempApiKey.trim()
+                    else if (aiProviderMode === 'qiniu') patch.qiniuApiKey = tempApiKey.trim()
+                    await useSettingsStore.getState().updateSettings(
+                      patch as Partial<ReturnType<typeof useSettingsStore.getState>>,
+                    )
                     setShowQuickSettings(false)
                     toast.success('API Key 已保存')
                   }}
