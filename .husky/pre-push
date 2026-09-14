@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# 推 main 前强制跑 build —— 过不了不许推，彻底杜绝 deploy failure 邮件
+# 单次 build 约 2s，本地 node_modules 已就位无需 npm ci
+#
+# 跳过：git push --no-verify (仅限 hotfix，事后必须补修)
+echo "🐺 husky pre-push: running npm run build..."
+if ! npm run build 2>&1 | tail -15; then
+  echo ""
+  echo "❌ BUILD FAILED — push aborted (会导致 deploy workflow 失败)"
+  echo "   修复后再推，或 emergency: git push --no-verify"
+  exit 1
+fi
+echo "✅ build OK — push proceeding"

@@ -7,7 +7,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3   # 从 2 → 3，留足 npm install 时间
     permissions:
       contents: read
 
@@ -17,10 +17,10 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup Node
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Test MinerU connectivity
         env:

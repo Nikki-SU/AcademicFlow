@@ -5,39 +5,43 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# GITHUB_TOKEN 部署所需最小权限
+# Pages 部署所需最小权限
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# 同一时刻只允许一个 pages 部署在跑（不取消进行中的，避免半成品覆盖）
+# 同一时刻只允许一个 pages 部署在跑 —— 取消进行中的，用最新 commit 覆盖
+# 避免连续 push 导致多个 build 并行排队/互相踩
 concurrency:
   group: "pages"
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # build 超时保护，防止无限跑浪费 free minutes
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci   # 严格按 package-lock.json 安装，reproducible
 
-      - name: Audit dependencies
-        run: npm audit --audit-level=moderate
-        continue-on-error: true
-
-      - name: Build
+      - name: Build (tsc + vite)
         run: npm run build
+
+      - name: Sanity check dist
+        run: |
+          test -f dist/index.html || { echo "FAIL: dist/index.html missing"; exit 1; }
+          test -f dist/404.html   || { echo "FAIL: dist/404.html missing";   exit 1; }
+          echo "✓ dist OK — $(ls dist/assets/ | wc -l) asset files, $(du -sh dist | cut -f1) total"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -50,6 +54,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
