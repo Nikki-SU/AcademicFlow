@@ -782,84 +782,93 @@ async function runWordsExtraction(enItems, doi, slug) {
   return { extracted: candidateWords.length, verified: verified.length, added: newRows.length }
 }
 
+
 // ============================================================
-// 单段 clean prompt —— 给 AI 一段文本，让它判断：保留/清理/丢弃
-// 一段 ≈ MinerU 天然分段的一个 block（空行分隔）
+// 通用 block 切分：不假设特定 PDF 提取器的输出格式
+// 按空行 / Markdown 标题 / 图片 / 表格行 等天然断点切分
+// 每个 block 保持原始阅读顺序，不重排
 // ============================================================
-const CLEAN_SINGLE_PROMPT = `你是文献整理专家。处理 PDF 提取文本的**一个段落**。
-
-任务：判断这段内容是否值得保留在正文中。
-
-判断标准（保留 vs 丢弃）：
-✅ 保留：
-  - 论文标题
-  - 作者姓名 + 单位（保留第一页信息块）
-  - 正文段落（含页眉正文）
-  - 图片引用 ![...](...)（**原样保留，不要清理**）
-  - Markdown 表格（**原样保留**）
-  - LaTeX 公式（**原样保留**）
-  - 参考文献条目（保留 References 章节全部条目）
-  - 作者简介（如果是论文自有的 bio block）
-
-❌ 丢弃（**直接输出空字符串**）：
-  - 页眉（期刊标题、卷号、页码）
-  - 页脚（版权声明、DOI footer、网址 footer）
-  - Received / Accepted 日期（除非在作者信息块内）
-  - 版权声明（"Published on..." / "Licence and permissions"）
-  - 纯网址
-  - 纯 ISSN / DOI footer
-  - 模板空白文字
-
-如果保留：**只输出保留后的文本，不要任何解释**
-如果丢弃：**只输出空字符串**
-
-输入（原文）：
-"""
-{{PARAGRAPH}}
-"""
-
-输出：`
-
-// MinerU 天然分段：空行分隔的连续非空行块
-function splitIntoParagraphs(md) {
+function splitIntoBlocks(md) {
   const lines = md.split('\n')
-  const blocks = []; let cur = []
-  for (const l of lines) {
-    if (l.trim()) cur.push(l)
-    else { if (cur.length) { blocks.push(cur); cur = [] } }
+  const blocks = []
+  let cur = []
+  const flush = () => {
+    if (cur.length) { blocks.push(cur.join('\n')); cur = [] }
   }
-  if (cur.length) blocks.push(cur)
+  for (const line of lines) {
+    // 空行 → 切段
+    if (!line.trim()) { flush(); continue }
+    // Markdown 标题行 → 新 block 开始
+    if (/^#{1,6}\s/.test(line.trim())) { flush(); cur.push(line); flush(); continue }
+    // 整行图片 → 独立 block
+    if (/^!\[.*\]\(.+\)\s*$/.test(line.trim())) { flush(); cur.push(line); flush(); continue }
+    // 表格行 → 合并为一个 block（遇到非表格行再 flush）
+    if (/^\s*\|/.test(line.trim())) { cur.push(line); continue }
+    // 普通行 → 累积
+    cur.push(line)
+  }
+  flush()
   return blocks
 }
 
-// 单段分类 → 返回 { tag: 'PARA_EN'|'IMG'|'TABLE'|'REF_ALL'|'SKIP_HEADING'|'SKIP_OTHER'|null, keep: true/false }
-//   - tag = null 表示这段丢弃（AI clean 返回空或判定为垃圾）
-//   - tag = SKIP_HEADING / SKIP_OTHER 表示保留但不进翻译流水线
-function classifyParagraph(blockLines, cleanedText) {
-  // 先看 cleaned 后的实际内容
-  const t = cleanedText.trim()
-  if (!t) return { tag: null, keep: false }  // AI clean 判为垃圾 → 丢弃
+// ============================================================
+// 单段 AI clean prompt —— 带前后文让 AI 判断跨页断句
+// 输入：prev（上一个 block 原文）、current（当前 block 原文）、next（下一个 block 原文）
+// AI 决定：
+//   - 丢弃（纯垃圾）→ 返回 JSON { "action": "discard" }
+//   - 保留 → 返回 JSON { "action": "keep", "text": "...", "merge_with_prev": bool }
+//     如果 merge_with_prev=true，说明 current 是上一段的跨页续行，拼到上一段末尾
+// ============================================================
+const CLEAN_BLOCK_PROMPT = `你是文献整理专家。处理 PDF 提取文本中的一个段落块。
 
-  const hasLetter = /[A-Za-z]/.test(t)
-  const hasCn = /[\u4e00-\u9fa5]/.test(t)
-  const isImg = blockLines.every(l => /^!\[/.test(l.trim())) || t.startsWith('![')
-  const isTable = blockLines.some(l => /^\s*\|/.test(l.trim()))
-  const isHeading = /^#{1,6}\s/.test(blockLines[0]?.trim() || '')
-  const isRefHeading = /^#+\s*(References|Bibliography)/i.test(blockLines[0]?.trim() || '')
-  const isFormulaOnly = blockLines.every(l => !l.trim() || /^\s*\$\$?[\s\S]*\$\$?\s*$/.test(l.trim()))
+你会收到三段原文：PREV（上一段）、CURRENT（当前段）、NEXT（下一段）。
+用 PREV 和 NEXT 作为上下文，判断 CURRENT 段的处理方式。
 
-  // 顺序：IMG > TABLE > REF_ALL > HEADING > 正文 > SKIP
-  if (isImg) return { tag: 'IMG', keep: true }
-  if (isTable) return { tag: 'TABLE', keep: true }
-  if (isRefHeading) return { tag: 'REF_ALL', keep: true }
-  if (isHeading) return { tag: 'SKIP_HEADING', keep: true }  // 标题保留在原文，不翻译
-  if (isFormulaOnly) return { tag: 'SKIP_FORMULA', keep: true }
-  // 正文段：有英文字母（不是中文、不是数字、不是纯符号）
-  if (hasLetter && !hasCn && t.length >= 10) return { tag: 'PARA_EN', keep: true }
-  if (hasCn && t.length >= 5) return { tag: 'PARA_CN', keep: true }  // 中文段落
-  // 短段落 / 纯符号 → 保留但跳过翻译
-  return { tag: 'SKIP_OTHER', keep: true }
-}
+判断标准：
+【丢弃】（action: discard）：
+  - 页眉：期刊标题、卷号、页码（出现在每页顶部、重复出现的那种）
+  - 页脚：版权声明、DOI footer、网址 footer、ISSN footer
+  - 纯 Received / Accepted 日期（不是作者信息块的一部分）
+  - 纯网址、纯 ISSN、纯 DOI footer
+  - Licence and permissions / Published on ... 这类模板文字
+  - 内容为空或只有标点符号
+
+【保留】（action: keep）：
+  - 正文段落（哪怕是正文的跨页续行）
+  - 图片引用 ![...](...)（原样保留）
+  - Markdown 表格（原样保留）
+  - LaTeX 公式（原样保留）
+  - 论文标题、作者、单位、摘要
+  - 各级章节标题（# / ## / ###）
+  - 作者简介块、References 章节全部条目
+  - 基金致谢、通讯作者信息等论文自有元信息
+
+【跨页续行检测】（merge_with_prev: true/false）：
+  - 如果 CURRENT 段是 PREV 段的跨页续行（PREV 段结尾是句子中间、没有句号、CURRENT 段开头小写）
+  - 典型模式：PREV 结尾 "environment, energy, chemicals,"（逗号结尾、截断），CURRENT 开头 "catalysis has been..."（小写开头、继续上一段）
+  - 这种情况 text 字段输出 CURRENT 的清理后文本，merge_with_prev: true，会被拼到上一段末尾
+
+严格 JSON 输出，没有其他文字：
+{"action":"keep","text":"清理后的完整段落文本（可含多行）","merge_with_prev":false}
+或
+{"action":"keep","text":"...","merge_with_prev":true}
+或
+{"action":"discard"}
+
+PREV（上一段原文，可能为空字符串如果当前是第一段）：
+"""
+{{PREV}}
+"""
+CURRENT（当前段原文）：
+"""
+{{CURRENT}}
+"""
+NEXT（下一段原文，可能为空字符串如果当前是最后一段）：
+"""
+{{NEXT}}
+"""
+
+现在输出 JSON：`
 
 function autoInsertParaTags(md) {
   const lines = md.split('\n'); const out = []; let inCB = false; let buf = []; let bufTable = false
@@ -948,57 +957,161 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   const read = (localPath) => fs.existsSync(localPath) ? fs.readFileSync(localPath, 'utf-8') : ''
   const write = (localPath, content) => fs.writeFileSync(localPath, content, 'utf-8')
 
-  // 1. Clean（分块：每块 ≤30K，防止 AI context 溢出）
-  let cleanMd = read(tmpLocal.cleaned)
-  if (!cleanMd) {
-    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI-1 清理...', pct: 10, node: 1 })
-    onProgress?.({ stage: 'ai1_clean', pct: 10 })
-    const CLEAN_CHUNK = 20000
-    const chunks = []
-    for (let i = 0; i < markdown.length; i += CLEAN_CHUNK) chunks.push(markdown.slice(i, i + CLEAN_CHUNK))
-    console.log(`  [clean] markdown=${markdown.length} chars → ${chunks.length} chunks`)
-    let cleanedParts = []
-    for (let i = 0; i < chunks.length; i++) {
-      console.log(`  [clean] chunk ${i+1}/${chunks.length} (${chunks[i].length} chars)...`)
-      const part = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, CLEAN_PROMPT, chunks[i])
-      await new Promise(r => setTimeout(r, 1000))
-      cleanedParts.push(part)
-    }
-    cleanMd = cleanedParts.join('\n')
-    cleanMd = cleanMd.replace(/<span[^>]*>.*?<\/span>/g, '').replace(/^\s*\n/gm, '').trim()
-    write(tmpLocal.cleaned, cleanMd)
-    console.log(`  ✓ clean ok, ${cleanMd.length} chars`)
-  } else {
-    console.log('  [resume] skip clean')
-    await writeProgress(slug, { stage: 'ai1_clean', message: '续跑：跳过 Clean', pct: 10, node: 1 })
-  }
-  // 2. Tag
-  let taggedMd = read(tmpLocal.tagged)
-  if (!taggedMd) {
-    await writeProgress(slug, { stage: 'ai1_tag', message: 'AI-1 打标...', pct: 25, node: 1 })
-    onProgress?.({ stage: 'ai1_tag', pct: 25 })
-    taggedMd = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, TAG_PROMPT, cleanMd)
-    write(tmpLocal.tagged, taggedMd)
-    console.log('  ✓ tag ok')
-  } else {
-    console.log('  [resume] skip tag')
-    await writeProgress(slug, { stage: 'ai1_tag', message: '续跑：跳过 Tag', pct: 25, node: 1 })
-  }
-  // 3. Enumerate
+  // ============ 合并 Clean + Tag + Enumerate：逐 block AI clean → 跨页 merge → 代码分类 → 打标 ============
   let skeletonMd = read(tmpLocal.enumerated)
   let parsed
+
   if (!skeletonMd) {
+    // Step A: MinerU/任何提取器原始 markdown → 按通用规则切 blocks
+    const rawBlocks = splitIntoBlocks(markdown)
+    console.log(`  [blocks] raw markdown=${markdown.length} chars → ${rawBlocks.length} blocks`)
+
+    await writeProgress(slug, { stage: 'ai1_clean', message: `逐段清理中 (0/${rawBlocks.length})...`, pct: 5, node: 1 })
+
+    // Step B: 逐 block AI clean（带前后文），同时检测跨页续行
+    // results[i] = { text, merge_with_prev: bool, discarded: bool }
+    const results = new Array(rawBlocks.length)
+    let discardedCount = 0
+    let mergedCount = 0
+
+    for (let i = 0; i < rawBlocks.length; i++) {
+      const prev = i > 0 ? rawBlocks[i - 1] : ''
+      const curr = rawBlocks[i]
+      const next = i < rawBlocks.length - 1 ? rawBlocks[i + 1] : ''
+
+      // 用 {{PREV}} {{CURRENT}} {{NEXT}} 占位符替换
+      const prompt = CLEAN_BLOCK_PROMPT
+        .replace('{{PREV}}', prev.replace(/"/g, '\\"'))
+        .replace('{{CURRENT}}', curr.replace(/"/g, '\\"'))
+        .replace('{{NEXT}}', next.replace(/"/g, '\\"'))
+
+      let resp
+      try {
+        resp = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, prompt, '')
+      } catch (e) {
+        console.warn(`  [clean-block ${i+1}/${rawBlocks.length}] aiCall failed, 保留原文: ${e.message?.slice(0, 80)}`)
+        results[i] = { text: curr, merge_with_prev: false, discarded: false }
+        continue
+      }
+
+      // 解析 AI 返回的 JSON（容错：有时候 AI 会在 JSON 外面包 ```json```）
+      let parsedResp
+      try {
+        const jsonStr = resp.replace(/^```json?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+        parsedResp = JSON.parse(jsonStr)
+      } catch {
+        // JSON 解析失败 → 当成 keep，直接用 AI 输出全文
+        console.warn(`  [clean-block ${i+1}/${rawBlocks.length}] JSON 解析失败, 当 keep: ${resp?.slice(0, 60)}`)
+        parsedResp = { action: 'keep', text: resp, merge_with_prev: false }
+      }
+
+      if (parsedResp.action === 'discard' || !parsedResp.text?.trim()) {
+        results[i] = { text: '', merge_with_prev: false, discarded: true }
+        discardedCount++
+      } else {
+        results[i] = {
+          text: parsedResp.text.trim(),
+          merge_with_prev: !!parsedResp.merge_with_prev,
+          discarded: false,
+        }
+        if (parsedResp.merge_with_prev) mergedCount++
+      }
+
+      // 每 10 段更新进度
+      if ((i + 1) % 10 === 0 || i === rawBlocks.length - 1) {
+        const pct = 5 + Math.round((i + 1) / rawBlocks.length * 20) // 5% → 25%
+        await writeProgress(slug, { stage: 'ai1_clean', message: `逐段清理中 (${i+1}/${rawBlocks.length})...`, pct, node: 1 })
+        onProgress?.({ stage: 'ai1_clean', pct })
+      }
+
+      // rate limit
+      await new Promise(r => setTimeout(r, 400))
+    }
+
+    console.log(`  ✓ clean done: total=${rawBlocks.length}  discarded=${discardedCount}  merged=${mergedCount}`)
+
+    // Step C: 应用 merge + 组装有序段落列表（顺序绝对不能乱）
+    // 先应用 merge：从后往前，如果 merge_with_prev=true，把 text 拼到 results[i-1] 末尾
+    // 注：合并顺序——从前向后扫更直观
+    const merged = []
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]
+      if (r.discarded) continue
+      if (r.merge_with_prev && merged.length > 0) {
+        // 拼到上一段末尾（去掉上一段末尾换行，加空格）
+        const prevText = merged[merged.length - 1].text
+        merged[merged.length - 1] = { ...merged[merged.length - 1], text: prevText + ' ' + r.text }
+      } else {
+        merged.push({ text: r.text })
+      }
+    }
+    console.log(`  [merge] merged blocks: ${merged.length} (discarded=${discardedCount}, merged=${mergedCount})`)
+
+    // Step D: 逐段代码分类打标（顺序保持不变）
+    // classifyBlock 返回 tag，然后组装成 tagged markdown
+    function classifyBlock(text) {
+      const t = text.trim()
+      if (!t) return { tag: 'SKIP_EMPTY' }
+
+      // 图片块：整段全是 ![
+      const allImg = text.split('\n').every(l => !l.trim() || /^!\[/.test(l.trim()))
+      if (allImg && text.includes('![')) return { tag: 'IMG' }
+
+      // 表格块：有 | 开头的行
+      if (text.split('\n').some(l => /^\s*\|/.test(l.trim()))) return { tag: 'TABLE' }
+
+      // 参考文献章节标题
+      if (/^#+\s*(References|Bibliography)/i.test(text.split('\n')[0]?.trim() || '')) return { tag: 'REF_ALL' }
+
+      // Markdown 标题
+      if (/^#{1,6}\s/.test(text.split('\n')[0]?.trim() || '')) return { tag: 'SKIP_HEADING' }
+
+      // 公式块（$$...$$）
+      const nonEmpty = text.split('\n').filter(l => l.trim())
+      if (nonEmpty.length > 0 && nonEmpty.every(l => /^\s*\$\$?[\s\S]*\$\$?\s*$/.test(l.trim()))) return { tag: 'SKIP_FORMULA' }
+
+      const hasLetter = /[A-Za-z]/.test(t)
+      const hasCn = /[\u4e00-\u9fa5]/.test(t)
+
+      if (hasCn && t.length >= 5) return { tag: 'PARA_CN' }
+      if (hasLetter && !hasCn && t.length >= 10) return { tag: 'PARA_EN' }
+      return { tag: 'SKIP_OTHER' }
+    }
+
+    // 组装 tagged markdown + 统计
+    let taggedMd = ''
+    const tagCounts = {}
+    for (const b of merged) {
+      const { tag } = classifyBlock(b.text)
+      tagCounts[tag] = (tagCounts[tag] || 0) + 1
+
+      switch (tag) {
+        case 'PARA_EN': taggedMd += '<!-- PARA_EN -->\n' + b.text + '\n\n'; break
+        case 'IMG':     taggedMd += '<!-- IMG -->\n' + b.text + '\n\n'; break
+        case 'TABLE':   taggedMd += '<!-- TABLE -->\n' + b.text + '\n\n'; break
+        case 'REF_ALL': taggedMd += '<!-- REF_ALL -->\n' + b.text + '\n\n'; break
+        case 'PARA_CN': taggedMd += '<!-- PARA_CN -->\n' + b.text + '\n\n'; break
+        default:        taggedMd += b.text + '\n\n'; // SKIP_HEADING / SKIP_FORMULA / SKIP_OTHER 保留原文但不插标记
+      }
+    }
+
+    console.log(`  [tag] 分类统计: ${JSON.stringify(tagCounts)}`)
+    console.log(`  ✓ tag ok, ${taggedMd.length} chars`)
+
+    // Step E: Enumerate + parse（复用已有函数）
     await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 40, node: 1 })
     onProgress?.({ stage: 'enumerate', pct: 40 })
     skeletonMd = enumerateTaggedMd(taggedMd)
     write(tmpLocal.enumerated, skeletonMd)
     parsed = parseAlignedMd(skeletonMd)
-    console.log('  ✓ enumerate ok, nodes=', parsed.nodes.length)
+    console.log(`  ✓ enumerate ok, nodes=${parsed.nodes.length}`)
   } else {
-    console.log('  [resume] skip enumerate')
+    console.log('  [resume] skip clean+tag+enumerate')
     parsed = parseAlignedMd(skeletonMd)
+    await writeProgress(slug, { stage: 'ai1_clean', message: '续跑：跳过 Clean/Tag', pct: 25, node: 1 })
     await writeProgress(slug, { stage: 'enumerate', message: '续跑：跳过 Enumerate', pct: 40, node: 1 })
   }
+
   // 4. Translate
   const enNodes = parsed.nodes.filter(n => n.content && /[A-Za-z]/.test(n.content))
   const tableNodes = parsed.nodes.filter(n => n.type === 'table')
