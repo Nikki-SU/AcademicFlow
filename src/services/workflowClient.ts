@@ -8,9 +8,10 @@
  */
 
 import { dispatchWorkflow, readRepoTextFile, githubFetch } from './github'
+import type { PipelineStage } from '../stores/taskQueue'
 
 export interface PipelineProgress {
-  stage: string
+  stage: PipelineStage
   node?: number
   pct?: number
   message?: string

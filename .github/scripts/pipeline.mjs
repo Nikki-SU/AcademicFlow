@@ -34,7 +34,25 @@ const { MINERU_API_TOKEN,
         AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
         GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env
 
-if (!MINERU_API_TOKEN) { console.error('❌ MINERU_API_TOKEN not set'); process.exit(1) }
+// —— 统一入口预检：所有必需的 secrets 先过一遍，任何缺失立即 fail
+//   设计原则：MinerU 要花 1-3 分钟，AI 预检 + GitHub token 检查放在最前面
+//   任何 secrets 缺失都能在几秒钟内 fail，不白跑后续步骤
+const _missing = []
+if (!MINERU_API_TOKEN)    _missing.push('MINERU_API_TOKEN')
+if (!AI1_BASE_URL)        _missing.push('AI1_BASE_URL')
+if (!AI1_API_KEY)         _missing.push('AI1_API_KEY')
+if (!AI1_MODEL)           _missing.push('AI1_MODEL')
+if (!AI2_BASE_URL)        _missing.push('AI2_BASE_URL')
+if (!AI2_API_KEY)         _missing.push('AI2_API_KEY')
+if (!AI2_MODEL)           _missing.push('AI2_MODEL')
+if (!GITHUB_TOKEN)        _missing.push('GITHUB_TOKEN')
+if (!GITHUB_OWNER)        _missing.push('GITHUB_OWNER')
+if (!GITHUB_REPO)         _missing.push('GITHUB_REPO')
+if (_missing.length) {
+  console.error(`❌ Missing ${_missing.length} required secrets: ${_missing.join(', ')}`)
+  process.exit(1)
+}
+console.log(`✓ All ${_missing.length === 0 ? 10 : 10 - _missing.length} required secrets present (MINERU + AI1×3 + AI2×3 + GITHUB×3)`)
 
 /**
  * AI secrets 快速预检 —— MinerU 之前先确认 AI 能用
@@ -165,7 +183,7 @@ async function ghWriteContents(filePath, content, message) {
     try {
       const existing = await ghApi('GET', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filePath}`)
       sha = existing?.sha ?? null
-    } catch {} // 404 就当不存在
+    } catch (e) { if (e?.message?.includes('404')) { /* 文件不存在，正常情况 */ } else { console.warn(`  [ghWriteContents] non-404 error: ${e.message}`) } }
     const body = { message, content: b64 }
     if (sha) body.sha = sha
     try {
@@ -454,7 +472,7 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
     const pollResp = await mineruRequest('GET', `/extract-results/batch/${batchId}`)
     const extracted = pollResp.data?.extract_result?.[0]
     if (!extracted) {
-      onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... 等待解析结果`, pct: 20 + Math.min(10, i) })
+      onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... 等待解析结果`, pct: Math.min(50, 20 + Math.min(10, i)) })
       continue
     }
     const state = extracted.state
@@ -462,9 +480,10 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
     // 用 MinerU API 返回的真实进度（0-100）映射到全局 pct 的 poll 区间 [20, 50]
     let pollPct
     if (apiProgress != null) {
-      pollPct = 20 + Math.round(apiProgress * 0.3)  // API 0-100 → 全局 20-50
+      const clamped = Math.max(0, Math.min(100, apiProgress))
+      pollPct = Math.min(50, 20 + Math.round(clamped * 0.3))  // API 0-100 → 全局 20-50
     } else {
-      pollPct = 20 + Math.min(25, i)  // fallback：按轮询次数
+      pollPct = Math.min(50, 20 + Math.min(10, i))  // fallback：按轮询次数
     }
     const msg = `轮询中 (${i + 1}/60)... state=${state}${apiProgress != null ? ` (MinerU ${apiProgress}%)` : ''}`
     onProgress?.({ stage: 'mineru_poll', message: msg, pct: pollPct })
@@ -596,36 +615,6 @@ async function aiCall(baseUrl, apiKey, model, system, user, signal) {
 // ============================================================
 // Post-Mineru 纯函数（同前端逻辑但 Runner 本地跑）
 // ============================================================
-const CLEAN_PROMPT = `你是文献整理专家。清理 PDF 提取文本：
-1. 移除页眉页脚、页码、版权声明、期刊模板文字
-2. 拼接被打断的段落（处理断词断句）
-3. 保留图片占位 ![image] 但不描述
-4. 保留 Markdown 表格
-5. 保留 LaTeX 公式原样不动
-6. 参考文献章节完整保留
-7. 纯 Markdown 输出，不要代码块
-直接输出清理后的内容。`
-
-const TAG_PROMPT = `你是文献标注专家。任务：在 Markdown 上插入 HTML 注释标记。
-
-严格规则（不遵守就是致命错误）：
-1. 每个英文正文段落（至少含 5 个英文字母、独立成段）前必须插一行：<!-- PARA_EN -->
-2. 每个图片引用 ![...](...) 前必须插一行：<!-- IMG -->
-3. 每个 Markdown 表格（以 | 开头的行）前必须插一行：<!-- TABLE -->
-4. 参考文献章节（标题含 References/Bibliography）前必须插一行：<!-- REF_ALL -->
-
-关键约束：
-- 只插上述标记，**绝对不能修改、删减、重组原 Markdown 的任何文字**
-- 原有标题（# / ## / ###）、段落、图片、表格、公式的位置和内容完全不变
-- 输出长度必须与输入长度基本一致（偏差不超过 5%，仅新增标记行）
-- 如果跳过标记，你会导致整个文献翻译流水线崩溃 — 请务必标记每一个段落
-
-直接输出带标记的完整 Markdown。`
-
-const TRANSLATE_PROMPT = (type) => type === 'table'
-  ? `翻译 Markdown 表格：格式不变，英文翻中文。输出 Markdown 表格。`
-  : `翻译英文段落到中文，保持学术语气。只输出译文。`
-
 // ============================================================
 // 单词提取（AI-1 提取 + AI-2 核验 → vocabulary/vocabulary.csv）
 // ============================================================
@@ -678,11 +667,11 @@ function parseJsonArray(text) {
   let t = text.trim()
   const m = t.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (m) t = m[1].trim()
-  try { return JSON.parse(t) } catch {}
+  try { return JSON.parse(t) } catch { /* AI 返回的不是严格 JSON，继续尝试容错解析 */ }
   const arrStart = t.indexOf('[')
   const arrEnd = t.lastIndexOf(']')
   if (arrStart >= 0 && arrEnd > arrStart) {
-    try { return JSON.parse(t.slice(arrStart, arrEnd + 1)) } catch {}
+    try { return JSON.parse(t.slice(arrStart, arrEnd + 1)) } catch { /* 容错也失败，返回 null */ }
   }
   return null
 }
@@ -706,7 +695,7 @@ async function runWordsExtraction(enItems, doi, slug) {
 
   // 1. AI-1 提取
   if (!skipAI1) {
-    await writeProgress(slug, { stage: 'words_extract', message: 'AI-1 提取学术单词...', pct: 93, node: 3 })
+    await writeProgress(slug, { stage: 'words_extract', message: 'AI-1 提取学术单词...', pct: 93})
     const allEn = enItems.map(p => p.en).join('\n\n')
     const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, allEn)
     candidateWords = parseJsonArray(raw)
@@ -719,7 +708,7 @@ async function runWordsExtraction(enItems, doi, slug) {
   }
 
   // 2. AI-2 核验
-  await writeProgress(slug, { stage: 'words_verify', message: 'AI-2 核验学术单词...', pct: 95, node: 3 })
+  await writeProgress(slug, { stage: 'words_verify', message: 'AI-2 核验学术单词...', pct: 95})
   const allEn = enItems.map(p => p.en).join('\n\n')
   const verifyUser = WORDS_VERIFY_PROMPT
     .replace('{{PARAGRAPHS}}', allEn.slice(0, 8000))
@@ -1118,7 +1107,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   let parsed = null
 
   if (!skeletonMd) {
-    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI 语义分段 + 清理 + 打标...', pct: 51, node: 1 })
+    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI 语义分段 + 清理 + 打标...', pct: 51})
     onProgress?.({ stage: "ai1_clean", pct: 51 })
 
     // 按**真实段落边界**切 → 零重叠 → 零重复
@@ -1160,7 +1149,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       console.log(`  [semantic chunk ${ci+1}/${chunks.length}] -> PARA=${paraCount} IMG=${imgCount} TABLE=${tblCount} REF=${refCount}`)
 
       const pct = 51 + Math.round((ci + 1) / chunks.length * 14)
-      await writeProgress(slug, { stage: 'ai1_clean', message: `AI 语义分段中 (${ci+1}/${chunks.length})...`, pct, node: 1 })
+      await writeProgress(slug, { stage: 'ai1_clean', message: `AI 语义分段中 (${ci+1}/${chunks.length})...`, pct})
       onProgress?.({ stage: "ai1_clean", pct })
       await new Promise(r => setTimeout(r, 300))
     }
@@ -1172,19 +1161,18 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     const totalREF = (taggedMd.match(/<!--\s*REF_ALL\s*-->/g) || []).length
     console.log(`  ✓ semantic done: PARA=${totalPARA} IMG=${totalIMG} TABLE=${totalTABLE} REF=${totalREF}, md length=${taggedMd.length}`)
 
-    // Sanity check：检查拼接后段落数是否合理
-    // 原始 paraUnits 里有 N 个，AI 处理完应该差不多（去掉页眉页脚垃圾后略少）
-    // 如果 AI 丢了大段内容 → 差距会很大 → WARN
+    // sanity check：AI 输出长度如果比输入短 50% 以上 → fail-fast
+    // （之前只是 WARN，但 WARN 不阻断 → 用户拿到残缺文献却以为完成了）
     const paraUnitsWithContent = paraUnits.filter(u => u.charCount > 10).length
-    const outputParaBlocks = (taggedMd.match(/^/gm) || []).length  // 先算总行数
     const outputMarkers = (taggedMd.match(/<!--\s*(PARA_EN|IMG|TABLE|REF_ALL)\s*-->/g) || []).length
-    console.log(`  [sanity] input=${paraUnitsWithContent} meaningful units, output markers=${outputMarkers}, output length=${taggedMd.length}`)
-    if (taggedMd.length < markdown.length * 0.3) {
-      console.warn(`  ⚠️ WARNING: AI output is suspiciously short (${taggedMd.length}/${markdown.length}). May have lost content.`)
+    const ratio = taggedMd.length / markdown.length
+    console.log(`  [sanity] input=${paraUnitsWithContent} meaningful units, output_markers=${outputMarkers}, output_length=${taggedMd.length}/${markdown.length} (${(ratio*100).toFixed(0)}%)`)
+    if (taggedMd.length < markdown.length * 0.5) {
+      throw new Error(`AI semantic segmentation output is too short: ${taggedMd.length}/${markdown.length} chars (${(ratio*100).toFixed(0)}%). Likely lost content. Aborting.`)
     }
 
     // Enumerate（纯代码编号，不调 AI）+ 写续跑文件
-    await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 67, node: 1 })
+    await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 67})
     onProgress?.({ stage: "enumerate", pct: 67 })
     skeletonMd = enumerateTaggedMd(taggedMd)
     write(tmpLocal.enumerated, skeletonMd)
@@ -1219,7 +1207,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     enItems.push({ idx: seg.idx ?? i + 1, total: enNodes.length, en: seg.content, cn })
 
     const pct = 70 + Math.round(20 * i / Math.max(1, enNodes.length))
-    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating para ${i + 1}/${enNodes.length}`, pct, node: 2 })
+    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating para ${i + 1}/${enNodes.length}`, pct})
     onProgress?.({ stage: 'translating', pct })
 
     if (enItems.length % 5 === 0) {
@@ -1234,12 +1222,12 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       seg.content)
     tables.push({ beforeIdx: seg.beforeIdx ?? 0, afterIdx: seg.afterIdx ?? 0, en: seg.content, cn })
 
-    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating table ${i + 1}/${tableNodes.length}`, pct: 90, node: 2 })
+    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating table ${i + 1}/${tableNodes.length}`, pct: 90})
     onProgress?.({ stage: 'translating', pct: 90 })
   }
 
   // ============ Phase 3: 按编号顺序组装最终 Markdown ============
-  await writeProgress(slug, { stage: 'assemble', message: 'Assembling final markdown in order...', pct: 92, node: 3 })
+  await writeProgress(slug, { stage: 'assemble', message: 'Assembling final markdown in order...', pct: 92})
   onProgress?.({ stage: 'assemble', pct: 92 })
 
   // 用 skeletonMd 作为骨架：遇到 PARA en X/Y 标记处插入翻译内容
@@ -1314,7 +1302,7 @@ async function main() {
   await quickAiHealthCheck()
 
   // 初始状态
-  writeProgress(slug, { stage: 'queued', message: 'Pipeline 启动...', pct: 0, node: 0 }).catch(() => {})
+  writeProgress(slug, { stage: 'queued', message: 'Pipeline 启动...', pct: 0}).catch(() => {})
   updateLocalCsvField(doi, 'md_status', 'converting')
 
   try {
@@ -1340,8 +1328,8 @@ async function main() {
     console.log(`  ✓ PDF ${pdfBuf.length} bytes`)
 
     // 2. MinerU
-    await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 5, node: 0 })
-    const mineru = await mineruConvert(pdfBuf, `${slug}.pdf`, (p) => writeProgress(slug, { ...p, node: 0 }))
+    await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 5})
+    const mineru = await mineruConvert(pdfBuf, `${slug}.pdf`, (p) => writeProgress(slug, { ...p}))
     console.log(`  ✓ MinerU done, md length=${mineru.markdown.length}`)
 
     // ── 检查 B: MinerU 跑完后（可能花了好几分钟），用户可能删了文献 ──
@@ -1363,11 +1351,14 @@ async function main() {
       console.log(`  ✓ Words: extracted=${wres.extracted}, verified=${wres.verified}, added=${wres.added}`)
     } catch (e) {
       // words 提取失败不阻断主流程（vocabulary 是学习辅助功能，不是核心产物）
-      console.warn(`  ⚠️ Words extraction failed: ${e.message}`)
+      // 但要给用户明显信号：写一条 WARNING 级别的 progress，让前端在 UI 上能看到
+      const wmsg = `⚠️ Words extraction skipped: ${e.message}`
+      console.warn(`  ${wmsg}`)
+      try { await writeProgress(slug, { stage: 'words_extract', message: wmsg, pct: 93, warning: true }) } catch {}
     }
 
     // 4. 提交所有变更到 GitHub（一次 git commit + push）
-    await writeProgress(slug, { stage: 'commit', message: '提交到 GitHub...', pct: 98, node: 3 })
+    await writeProgress(slug, { stage: 'commit', message: '提交到 GitHub...', pct: 98})
     await commitLocalFiles([
       'literatures/literatures.csv',
       `literatures/${slug}/fulltext.md`,
@@ -1378,7 +1369,7 @@ async function main() {
     ], `[pipeline] convert ${slug}: ${title}`)
 
     // 4.5 写终态 stage=done（给前端 UI 最后一次进度反馈）
-    await writeProgress(slug, { stage: 'done', message: '转换完成', pct: 100, node: 3 })
+    await writeProgress(slug, { stage: 'done', message: '转换完成', pct: 100})
 
     // 5. 终态：写 md_status=done，删 progress
     await updateLocalCsvField(doi, 'md_status', 'done')
@@ -1394,7 +1385,7 @@ async function main() {
       updateLocalCsvField(doi, 'md_status', 'failed')
       await writeProgress(slug, {
         stage: 'failed', message: `失败: ${err.message}`,
-        pct: 0, node: 3, error: err.message || String(err),
+        pct: 0, error: err.message || String(err),
       })
       await commitLocalFiles([
         'literatures/literatures.csv',

@@ -31,6 +31,17 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Check package-lock.json is in sync with package.json
+        run: |
+          # npm ci 要求 package-lock 和 package.json 严格匹配
+          # 这里提前跑一次 dry-run 检查，如果不一致直接 fail 并提示
+          if ! npm ci --dry-run 2>&1; then
+            echo "FAIL: package-lock.json is out of sync with package.json"
+            echo "Run 'npm install' locally, commit package-lock.json, then push."
+            exit 1
+          fi
+          echo "✓ package-lock.json in sync"
+
       - name: Install dependencies
         run: npm ci   # 严格按 package-lock.json 安装，reproducible
 
