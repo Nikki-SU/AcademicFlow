@@ -23,6 +23,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ── git config (required for ai-service.mjs git commit) ──
+      - name: Configure git
+        run: |
+          git config user.name "AcademicFlow Bot"
+          git config user.email "academicflow@users.noreply.github.com"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
