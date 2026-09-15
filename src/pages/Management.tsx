@@ -2044,11 +2044,42 @@ export default function ManagementPage() {
                               <StatusBadge status={paper.mdStatus} />
                               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
                                 <button
+                                  disabled={paper.mdStatus === 'converting' || !paper.doi}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleOpenReading(paper)
+                                  }}
+                                  className={`p-1 rounded transition ${
+                                    paper.mdStatus === 'converting' || !paper.doi
+                                      ? 'text-slate-300 cursor-not-allowed'
+                                      : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                                  }`}
+                                  title={!paper.doi ? '无 DOI 无法阅读' : paper.mdStatus === 'converting' ? '转换中，暂时无法阅读' : '阅读'}
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  disabled={paper.mdStatus === 'converting' || !paper.doi}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleReconvertPaper(paper)
+                                  }}
+                                  className={`p-1 rounded transition ${
+                                    paper.mdStatus === 'converting' || !paper.doi
+                                      ? 'text-slate-300 cursor-not-allowed'
+                                      : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                                  }`}
+                                  title={!paper.doi ? '无 DOI 无法转换' : paper.mdStatus === 'converting' ? '正在转换' : '重新转换'}
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 ${paper.mdStatus === 'converting' ? 'animate-spin' : ''}`} />
+                                </button>
+                                <button
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     handleEditPaper(paper)
                                   }}
                                   className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                                  title="编辑"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>

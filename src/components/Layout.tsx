@@ -91,7 +91,7 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
               ? 'bg-slate-200 text-slate-500'
               : 'bg-indigo-100 text-indigo-700'
         }`}>
-          {method === 'device_flow' ? 'Device Flow' : 'PAT'}
+          {'PAT'}
         </div>
         {daysUntilExpire !== null && (
           <span className={`text-xs ${isExpiringSoon && daysUntilExpire >= 0 ? 'text-red-600' : 'text-slate-400'}`}>

@@ -18,7 +18,7 @@ import { useWorkspaceStore } from './workspace'
 interface AuthActions {
   /** 应用启动时调用：从 IndexedDB 恢复登录态 */
   init: () => Promise<void>
-  /** 用户登录（支持 Device Flow 和 PAT） */
+  /** 用户登录（Fine-grained PAT） */
   login: (token: string, method: 'device_flow' | 'pat', expiresAt?: number) => Promise<void>
   /** 登出：清空 IndexedDB 中的凭据 + 内存态 */
   logout: () => Promise<void>
