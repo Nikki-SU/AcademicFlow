@@ -26,6 +26,7 @@ import {
   loadSentences, saveSentences,
   loadTranslations, saveTranslations,
 } from '../services/learningData'
+import { normalizeDoi, getCitationEntries } from '../services/citation'
 import {
   FolderCog,
   BookMarked,
@@ -336,6 +337,8 @@ export default function ManagementPage() {
   const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1' as '1' | '2', categoryIds: [] as string[] })
   const [doiFetching, setDoiFetching] = useState(false)
   const [doiFetchError, setDoiFetchError] = useState<string | null>(null)
+  const [doiQuickInput, setDoiQuickInput] = useState('')
+  const [isAddingByDoi, setIsAddingByDoi] = useState(false)
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
@@ -755,6 +758,63 @@ export default function ManagementPage() {
       setDoiFetching(false)
     }
   }
+
+  /** 工具栏 DOI 快捷入库 — 输入 DOI → Crossref 查元数据 → 直接入库 */
+  const handleAddByDoi = useCallback(async () => {
+    const normalized = normalizeDoi(doiQuickInput)
+    if (!normalized.valid || !normalized.doi) {
+      toast.error('请输入有效的 DOI 或 DOI 链接（如 10.1000/sample.00000001）')
+      return
+    }
+    const doi = normalized.doi
+
+    // DOI 去重
+    if (papers.some((p) => p.doi && normalizeDoi(p.doi).doi === doi)) {
+      toast.error('该 DOI 已存在于文献库', {
+        description: '如需覆盖，请先删除旧条目',
+        action: { label: '清空输入', onClick: () => setDoiQuickInput('') },
+      })
+      return
+    }
+
+    setIsAddingByDoi(true)
+    try {
+      const { entries, failed } = await getCitationEntries([doi])
+      if (failed.includes(doi) || entries.length === 0) {
+        toast.error('DOI 解析失败，请检查输入或 Crossref 是否收录该文献')
+        return
+      }
+      const meta = entries[0]
+
+      // 转成 Paper 结构入库
+      const paper: Paper = {
+        id: doi,
+        title: meta.title,
+        authors: (meta.authors || []).join(', '),
+        year: String(meta.year || ''),
+        journal: meta.journal || '',
+        doi,
+        keywords: [],
+        tier: 1,
+        hasNotes: false,
+        mdStatus: 'none',
+        mdProgress: 0,
+        categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [],
+      }
+      const updated = [paper, ...papers]
+      setPapers(updated)
+      await savePapers(updated)
+      setDoiQuickInput('')
+      toast.success('已添加到文献库', {
+        description: meta.title.slice(0, 60) + (meta.title.length > 60 ? '…' : ''),
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`DOI 入库失败：${msg}`)
+    } finally {
+      setIsAddingByDoi(false)
+    }
+  }, [doiQuickInput, papers, activePaperCategory])
 
   const handleAddPaper = () => {
     if (!newPaper.title.trim()) return
@@ -1703,6 +1763,33 @@ export default function ManagementPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {/* DOI 快捷添加 — inline 紧凑版，优先于批量/手动 */}
+                <div className="flex items-center bg-white rounded-lg border border-slate-200 overflow-hidden focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+                  <span className="pl-2.5 text-xs font-medium text-slate-400 whitespace-nowrap">DOI</span>
+                  <input
+                    type="text"
+                    value={doiQuickInput}
+                    onChange={(e) => setDoiQuickInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !isAddingByDoi && handleAddByDoi()}
+                    placeholder="输入 DOI 或链接..."
+                    className="w-56 px-2 py-1.5 text-sm bg-transparent focus:outline-none"
+                    title="快捷 DOI 入库（Enter 触发）"
+                  />
+                  <button
+                    onClick={handleAddByDoi}
+                    disabled={isAddingByDoi || !doiQuickInput.trim()}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    title="通过 DOI 快捷添加"
+                  >
+                    {isAddingByDoi ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5" />
+                    )}
+                    添加
+                  </button>
+                </div>
+
                 {batchMode && (
                   <>
                     <button
