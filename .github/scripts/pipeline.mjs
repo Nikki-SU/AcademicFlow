@@ -437,7 +437,7 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
   // ⚠️ 关键坑：**不能带 Content-Type header**。OSS 预签名 URL 的 StringToSign 里
   //    Content-Type 是空字符串，带了就 SignatureDoesNotMatch (HTTP 403)。
   //    Node fetch 默认会加 Content-Type，所以必须显式覆盖为空对象。
-  onProgress?.({ stage: 'mineru_upload', message: '上传 PDF...', pct: 25 })
+  onProgress?.({ stage: 'mineru_upload', message: '上传 PDF...', pct: 15 })
   const putResp = await fetch(uploadUrl, {
     method: 'PUT',
     headers: {},
@@ -447,20 +447,20 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
 
   // 3. 轮询 /extract-results/batch/{batch_id}
   //    v4 MineruFileState: waiting-file / pending / running / converting / done / failed / error
-  onProgress?.({ stage: 'mineru_poll', message: '轮询转换状态...', pct: 40 })
+  onProgress?.({ stage: 'mineru_poll', message: '轮询转换状态...', pct: 20 })
   let fileResult = null
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 5000))
     const pollResp = await mineruRequest('GET', `/extract-results/batch/${batchId}`)
     const extracted = pollResp.data?.extract_result?.[0]
     if (!extracted) {
-      onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... 等待解析结果`, pct: 40 + Math.min(45, i) })
+      onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... 等待解析结果`, pct: 20 + Math.min(45, i) })
       continue
     }
     const state = extracted.state
     const progress = extracted.extract_progress
     const msg = `轮询中 (${i + 1}/60)... state=${state}${progress != null ? ` (${progress}%)` : ''}`
-    onProgress?.({ stage: 'mineru_poll', message: msg, pct: 40 + Math.min(45, i) })
+    onProgress?.({ stage: 'mineru_poll', message: msg, pct: 20 + Math.min(45, i) })
 
     if (state === 'done') { fileResult = extracted; break }
     if (state === 'failed' || state === 'error') {
@@ -473,7 +473,7 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
   if (!fileResult.full_zip_url) {
     throw new Error(`MinerU state=done 但无 full_zip_url: ${JSON.stringify(fileResult).slice(0, 500)}`)
   }
-  onProgress?.({ stage: 'mineru_download', message: '下载产物 zip...', pct: 90 })
+  onProgress?.({ stage: 'mineru_download', message: '下载产物 zip...', pct: 48 })
   const zipResp = await fetch(fileResult.full_zip_url)
   if (!zipResp.ok) throw new Error(`下载 zip: ${zipResp.status} ${await zipResp.text().catch(() => '')}`)
   const zipBuf = Buffer.from(await zipResp.arrayBuffer())
@@ -523,7 +523,7 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
   // 7. 清理临时目录
   try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
 
-  onProgress?.({ stage: 'mineru_download', message: '下载完成', pct: 100 })
+  onProgress?.({ stage: 'mineru_download', message: '下载完成', pct: 50 })
   return { markdown, fileName }
 }
 
@@ -699,7 +699,7 @@ async function runWordsExtraction(enItems, doi, slug) {
 
   // 1. AI-1 提取
   if (!skipAI1) {
-    await writeProgress(slug, { stage: 'words_extract', message: 'AI-1 提取学术单词...', pct: 0, node: 3 })
+    await writeProgress(slug, { stage: 'words_extract', message: 'AI-1 提取学术单词...', pct: 93, node: 3 })
     const allEn = enItems.map(p => p.en).join('\n\n')
     const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, allEn)
     candidateWords = parseJsonArray(raw)
@@ -712,7 +712,7 @@ async function runWordsExtraction(enItems, doi, slug) {
   }
 
   // 2. AI-2 核验
-  await writeProgress(slug, { stage: 'words_verify', message: 'AI-2 核验学术单词...', pct: 50, node: 3 })
+  await writeProgress(slug, { stage: 'words_verify', message: 'AI-2 核验学术单词...', pct: 95, node: 3 })
   const allEn = enItems.map(p => p.en).join('\n\n')
   const verifyUser = WORDS_VERIFY_PROMPT
     .replace('{{PARAGRAPHS}}', allEn.slice(0, 8000))
@@ -1111,8 +1111,8 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   let parsed = null
 
   if (!skeletonMd) {
-    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI 语义分段 + 清理 + 打标...', pct: 5, node: 1 })
-    onProgress?.({ stage: "ai1_clean", pct: 5 })
+    await writeProgress(slug, { stage: 'ai1_clean', message: 'AI 语义分段 + 清理 + 打标...', pct: 51, node: 1 })
+    onProgress?.({ stage: "ai1_clean", pct: 51 })
 
     // 按**真实段落边界**切 → 零重叠 → 零重复
     // 设计：每个段落单元只属于一个 chunk，从输入层面杜绝重复
@@ -1152,7 +1152,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       const refCount = (cleaned.match(/<!--\s*REF_ALL\s*-->/g) || []).length
       console.log(`  [semantic chunk ${ci+1}/${chunks.length}] -> PARA=${paraCount} IMG=${imgCount} TABLE=${tblCount} REF=${refCount}`)
 
-      const pct = 5 + Math.round((ci + 1) / chunks.length * 20)
+      const pct = 51 + Math.round((ci + 1) / chunks.length * 14)
       await writeProgress(slug, { stage: 'ai1_clean', message: `AI 语义分段中 (${ci+1}/${chunks.length})...`, pct, node: 1 })
       onProgress?.({ stage: "ai1_clean", pct })
       await new Promise(r => setTimeout(r, 300))
@@ -1177,8 +1177,8 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     }
 
     // Enumerate（纯代码编号，不调 AI）+ 写续跑文件
-    await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 25, node: 1 })
-    onProgress?.({ stage: "enumerate", pct: 25 })
+    await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 67, node: 1 })
+    onProgress?.({ stage: "enumerate", pct: 67 })
     skeletonMd = enumerateTaggedMd(taggedMd)
     write(tmpLocal.enumerated, skeletonMd)
     parsed = parseAlignedMd(skeletonMd)
@@ -1211,7 +1211,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       seg.content)
     enItems.push({ idx: seg.idx ?? i + 1, total: enNodes.length, en: seg.content, cn })
 
-    const pct = 30 + Math.round(55 * i / Math.max(1, enNodes.length))
+    const pct = 70 + Math.round(20 * i / Math.max(1, enNodes.length))
     await writeProgress(slug, { stage: 'translating', message: `AI-2 translating para ${i + 1}/${enNodes.length}`, pct, node: 2 })
     onProgress?.({ stage: 'translating', pct })
 
@@ -1227,12 +1227,12 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       seg.content)
     tables.push({ beforeIdx: seg.beforeIdx ?? 0, afterIdx: seg.afterIdx ?? 0, en: seg.content, cn })
 
-    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating table ${i + 1}/${tableNodes.length}`, pct: 88, node: 2 })
+    await writeProgress(slug, { stage: 'translating', message: `AI-2 translating table ${i + 1}/${tableNodes.length}`, pct: 90, node: 2 })
     onProgress?.({ stage: 'translating', pct: 88 })
   }
 
   // ============ Phase 3: 按编号顺序组装最终 Markdown ============
-  await writeProgress(slug, { stage: 'assemble', message: 'Assembling final markdown in order...', pct: 95, node: 3 })
+  await writeProgress(slug, { stage: 'assemble', message: 'Assembling final markdown in order...', pct: 92, node: 3 })
   onProgress?.({ stage: 'assemble', pct: 95 })
 
   // 用 skeletonMd 作为骨架：遇到 PARA en X/Y 标记处插入翻译内容
@@ -1333,7 +1333,7 @@ async function main() {
     console.log(`  ✓ PDF ${pdfBuf.length} bytes`)
 
     // 2. MinerU
-    await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 10, node: 0 })
+    await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 5, node: 0 })
     const mineru = await mineruConvert(pdfBuf, `${slug}.pdf`, (p) => writeProgress(slug, { ...p, node: 0 }))
     console.log(`  ✓ MinerU done, md length=${mineru.markdown.length}`)
 

@@ -37,8 +37,7 @@ export type PipelineStage =
   | 'mineru_poll'      // 轮询解析状态
   | 'mineru_download'  // 下载 zip 产物
   // --- UI 节点 1：标注（AI-1 Clean + AI-1 Tag + 纯代码 Enumerate）---
-  | 'ai1_clean'        // AI-1 清理
-  | 'ai1_tag'          // AI-1 打标 <!-- PARA_EN / IMG / TABLE -->
+  | 'ai1_clean'        // AI-1 语义分段 + 清理 + 打标（一步完成，输出带标记的 Markdown）
   | 'enumerate'        // 纯代码编号（瞬间完成）
   // --- UI 节点 2：翻译（AI-2 逐段）---
   | 'translating'
@@ -60,20 +59,19 @@ export const STAGE_META: Record<PipelineStage, { node: 0 | 1 | 2 | 3; pctBase: n
   // 节点 0：转换
   queued:          { node: 0, pctBase: 0,  label: '排队中' },
   mineru_apply:    { node: 0, pctBase: 5,  label: 'MinerU 申请上传 URL' },
-  mineru_upload:   { node: 0, pctBase: 25, label: 'MinerU 上传 PDF' },
-  mineru_poll:     { node: 0, pctBase: 60, label: 'MinerU 解析中' },
-  mineru_download: { node: 0, pctBase: 85, label: 'MinerU 下载产物' },
+  mineru_upload:   { node: 0, pctBase: 15, label: 'MinerU 上传 PDF' },
+  mineru_poll:     { node: 0, pctBase: 20, label: 'MinerU 解析中' },
+  mineru_download: { node: 0, pctBase: 48, label: 'MinerU 下载产物' },
   // 节点 1：标注
-  ai1_clean:       { node: 1, pctBase: 10, label: 'AI-1 清理' },
-  ai1_tag:         { node: 1, pctBase: 60, label: 'AI-1 标注' },
-  enumerate:       { node: 1, pctBase: 95, label: '编号对齐' },
+  ai1_clean:       { node: 1, pctBase: 51, label: 'AI-1 语义分段 + 清理 + 打标' },
+  enumerate:       { node: 1, pctBase: 67, label: '纯代码编号对齐' },
   // 节点 2：翻译
-  translating:     { node: 2, pctBase: 0,  label: 'AI-2 逐段翻译' },
+  translating:     { node: 2, pctBase: 70, label: 'AI-2 逐段翻译' },
   // 节点 3：提词 + 组装 + 提交
-  words_extract:   { node: 3, pctBase: 0,  label: 'AI-1 提取单词' },
-  words_verify:    { node: 3, pctBase: 50, label: 'AI-2 核验单词' },
-  assemble:        { node: 3, pctBase: 75, label: '组装最终文件' },
-  commit:          { node: 3, pctBase: 90, label: '提交到 GitHub' },
+  words_extract:   { node: 3, pctBase: 93, label: 'AI-1 提取学术单词' },
+  words_verify:    { node: 3, pctBase: 95, label: 'AI-2 核验学术单词' },
+  assemble:        { node: 3, pctBase: 97, label: '组装最终 Markdown' },
+  commit:          { node: 3, pctBase: 98, label: '提交到 GitHub' },
   // 终态
   done:            { node: 3, pctBase: 100, label: '完成' },
   failed:          { node: 3, pctBase: 0,   label: '失败' },
