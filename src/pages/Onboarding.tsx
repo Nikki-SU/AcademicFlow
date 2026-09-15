@@ -14,6 +14,7 @@ import {
   Rocket,
   ShieldCheck,
   BookMarked,
+  RefreshCw,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -156,7 +157,15 @@ function Onboarding() {
               <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
               <div className="text-sm text-red-800 flex-1">
                 <div className="font-semibold mb-0.5">初始化失败</div>
-                <div className="text-xs">{error}</div>
+                <div className="text-xs mb-2">{error}</div>
+                <button
+                  onClick={handleStart}
+                  disabled={isLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-md transition disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                  重试初始化
+                </button>
               </div>
             </div>
           )}

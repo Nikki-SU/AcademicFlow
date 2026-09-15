@@ -334,6 +334,8 @@ export default function ManagementPage() {
   const [editingPaper, setEditingPaper] = useState<Paper | null>(null)
   const [papers, setPapers] = useState<Paper[]>([])
   const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1' as '1' | '2', categoryIds: [] as string[] })
+  const [doiFetching, setDoiFetching] = useState(false)
+  const [doiFetchError, setDoiFetchError] = useState<string | null>(null)
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
@@ -702,6 +704,58 @@ export default function ManagementPage() {
   }, [books])
 
   // 文献操作
+  // Crossref DOI 自动填充
+  const handleFetchFromDoi = async (doi: string) => {
+    const trimmed = doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')
+    if (!trimmed) return
+    setDoiFetching(true)
+    setDoiFetchError(null)
+    try {
+      const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(trimmed)}`, {
+        headers: { 'User-Agent': 'AcademicFlow/1.0 (https://academicflow.dev)' },
+      })
+      if (!res.ok) {
+        throw new Error(res.status === 404 ? 'DOI 不存在或 Crossref 未收录' : `Crossref 返回 ${res.status}`)
+      }
+      const data = await res.json()
+      const m = data.message as Record<string, unknown>
+
+      const title = (Array.isArray(m.title) ? (m.title as string[])[0] : '') || ''
+      const authors = Array.isArray(m.author)
+        ? (m.author as Array<{ given?: string; family?: string; name?: string }>)
+            .map((a) => (a.name || `${a.given || ''} ${a.family || ''}`).trim())
+            .filter(Boolean)
+            .join(', ')
+        : ''
+      const year = (() => {
+        const pd = (m['published-print'] || m['published-online'] || m.created || m.issued) as Record<string, unknown> | undefined
+        const parts = pd?.['date-parts'] as Array<number[]> | undefined
+        if (parts?.[0]?.[0]) return String(parts[0][0])
+        return ''
+      })()
+      const journal = Array.isArray(m['container-title']) ? (m['container-title'] as string[])[0] || '' : ''
+      const doiFinal = (m.DOI as string) || trimmed
+      const keywords = Array.isArray(m.subject) ? (m.subject as string[]).join(', ') : ''
+
+      setNewPaper((prev) => ({
+        ...prev,
+        title: title || prev.title,
+        authors: authors || prev.authors,
+        year: year || prev.year,
+        journal: journal || prev.journal,
+        doi: doiFinal || prev.doi,
+        keywords: keywords || prev.keywords,
+      }))
+      toast.success('已从 Crossref 自动填充，请确认后保存')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setDoiFetchError(msg)
+      toast.error(`Crossref 获取失败：${msg}`)
+    } finally {
+      setDoiFetching(false)
+    }
+  }
+
   const handleAddPaper = () => {
     if (!newPaper.title.trim()) return
     const paper: Paper = {
@@ -2524,6 +2578,47 @@ export default function ManagementPage() {
       {showAddPaperModal && (
         <Modal title="手动添加文献" onClose={() => setShowAddPaperModal(false)}>
           <div className="space-y-4">
+            {/* Crossref DOI 自动填充工具条 */}
+            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-2">
+              <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                从 DOI 自动填充（Crossref）
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newPaper.doi}
+                  onChange={(e) => { setNewPaper({ ...newPaper, doi: e.target.value }); setDoiFetchError(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !doiFetching) handleFetchFromDoi(newPaper.doi) }}
+                  placeholder="粘贴 DOI，例如 10.1038/s41586-024-07500-3 或 https://doi.org/..."
+                  className="flex-1 px-3 py-2 border border-indigo-300 rounded-lg text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white"
+                />
+                <button
+                  onClick={() => handleFetchFromDoi(newPaper.doi)}
+                  disabled={doiFetching || !newPaper.doi.trim()}
+                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed rounded-lg transition flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  {doiFetching ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      获取中…
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      自动填充
+                    </>
+                  )}
+                </button>
+              </div>
+              {doiFetchError && (
+                <p className="text-xs text-red-600">{doiFetchError}</p>
+              )}
+              <p className="text-[11px] text-indigo-500/70">
+                DOI 填充后可手动调整标题/作者/期刊/关键词等字段
+              </p>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">标题 *</label>
               <input

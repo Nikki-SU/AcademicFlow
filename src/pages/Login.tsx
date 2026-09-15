@@ -1,7 +1,5 @@
 /**
- * 登录页首屏（双路径：Device Flow + Fine-grained PAT）
- * -------------------------------------------------
- * spec §5.0.1: 两个平权 tab，默认停在 Device Flow
+ * 登录页 — Fine-grained PAT 单路径
  */
 import { useState, useCallback } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
@@ -22,12 +20,9 @@ import {
   testGitHubConnectivity,
 } from '../services/github'
 
-type AuthMode = 'device' | 'pat'
-
 function Login() {
   const { token, login, isLoading, error, clearError } = useAuthStore()
   const location = useLocation()
-  const [authMode] = useState<AuthMode>('pat')
   const [patInput, setPatInput] = useState('')
   const [showPAT, setShowPAT] = useState(false)
   const [patExpiresAt, setPatExpiresAt] = useState<string>(() => {
@@ -35,10 +30,6 @@ function Login() {
     d.setDate(d.getDate() + 90)
     return d.toISOString().split('T')[0]
   })
-  // Device Flow — 鸽掉以后做（GitHub OAuth App client_id 不存在）
-  // const [deviceCode, setDeviceCode] = useState<DeviceCodeResponse | null>(null)
-  // const [isPolling, setIsPolling] = useState(false)
-  // const [countdown, setCountdown] = useState(0)
   const [diagnosing, setDiagnosing] = useState(false)
   const [diagnosticResult, setDiagnosticResult] = useState<string | null>(null)
 
@@ -47,21 +38,6 @@ function Login() {
       (location.state as { from?: { pathname: string } } | null)?.from?.pathname || '/tracking'
     return <Navigate to={from} replace />
   }
-
-  // Device Flow countdown effect — 鸽掉
-  // useEffect(() => {
-  //   if (!deviceCode) return
-  //   setCountdown(deviceCode.expires_in)
-  //   const timer = setInterval(() => {
-  //     setCountdown((c) => (c > 0 ? c - 1 : 0))
-  //   }, 1000)
-  //   return () => clearInterval(timer)
-  // }, [deviceCode])
-
-  // Device Flow handlers — 鸽掉
-  // const handleDeviceFlow = useCallback(async () => { ... }, [])
-  // const handlePollToken = useCallback(async () => { ... }, [])
-  // useEffect(() => { ... handlePollToken ... }, [deviceCode, isPolling, handlePollToken])
 
   const handleSubmitPAT = async () => {
     clearError()
@@ -92,13 +68,6 @@ function Login() {
     }
   }, [])
 
-  // Device Flow formatCountdown — 鸽掉
-  // const formatCountdown = (seconds: number) => {
-  //   const m = Math.floor(seconds / 60)
-  //   const s = seconds % 60
-  //   return `${m}:${s.toString().padStart(2, '0')}`
-  // }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50 flex items-center justify-center p-6">
       <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl border border-slate-200 p-8 md:p-10">
@@ -116,9 +85,8 @@ function Login() {
         </div>
 
         {/* PAT 手贴 */}
-        {authMode === 'pat' && (
-          <div className="space-y-4">
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+        <div className="space-y-4">
+          <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
               <p className="text-sm font-semibold text-slate-700">
                 如果你希望权限精确到单个仓库，可用 PAT 手贴登录
               </p>
@@ -219,7 +187,6 @@ function Login() {
               )}
             </button>
           </div>
-        )}
 
         {/* 网络诊断 */}
         <div className="mb-4 pt-4 border-t border-slate-200">
