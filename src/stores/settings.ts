@@ -16,8 +16,13 @@
 import { create } from 'zustand'
 import type { AIProviderMode } from "../types"
 import { runDualEngine } from '../services/ai/dual-engine'
+import { MODELS_CACHE_TTL_MS } from '../services/ai/models'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
 import { loadGlobalSettings, saveGlobalSettings } from '../services/globalSettings'
+import { dispatchAi } from '../services/workflowClient'
+import { readRepoTextFile } from '../services/github'
+import { useAuthStore } from './auth'
+import { useWorkspaceStore } from './workspace'
 import type {
   AIModel,
   DualEngineProgressCallback,
@@ -343,24 +348,103 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       }
     },
 
-    refreshModels: async (_force = false) => {
-      // 彻底删掉前端直连 /v1/models 的 fetch —— 浏览器会被墙
-      // 改成读 AI_PROVIDERS 静态推荐列表（实测过能用的）
+    refreshModels: async (force = false) => {
       const state = get()
       const mode = state.aiProviderMode
 
-      if (mode === 'custom') {
-        // 自定义端点没有内置模型 —— 让用户手动填 model ID
-        const empty: AIModel[] = []
-        set({ siliconflowModels: empty, siliconflowModelsFetchedAt: Date.now(), error: null })
-        return empty
+      // ── 缓存检查（TTL 24h，与 SPEC §9.3 对齐） ──
+      if (
+        !force &&
+        state.siliconflowModelsFetchedAt &&
+        Date.now() - state.siliconflowModelsFetchedAt < MODELS_CACHE_TTL_MS &&
+        state.siliconflowModels.length > 0
+      ) {
+        return state.siliconflowModels
       }
 
-      const recommended = AI_PROVIDERS[mode].recommendedModels
-      const models: AIModel[] = recommended.map((m) => ({
+      // ── 解析 baseUrl + apiKey ──
+      let baseUrl: string
+      let apiKey: string
+      if (mode === 'custom') {
+        baseUrl = state.customAi1BaseUrl.trim()
+        apiKey = state.customAi1ApiKey.trim()
+        if (!baseUrl) {
+          const empty: AIModel[] = []
+          set({ siliconflowModels: empty, siliconflowModelsFetchedAt: Date.now(), error: null })
+          return empty
+        }
+      } else {
+        baseUrl = getProviderBaseUrl(mode)
+        apiKey = getProviderApiKey(mode, state)
+      }
+
+      // ── 后端上下文 ──
+      const auth = useAuthStore.getState()
+      const ws = useWorkspaceStore.getState()
+      const owner = auth.user?.login ?? ''
+      const repo = ws.repo?.name ?? ''
+      const token = auth.token ?? ''
+      if (!token || !owner || !repo) {
+        // 未登录 → fallback 静态推荐列表（首次启动还没 dispatch 能力）
+        const fallback: AIModel[] = AI_PROVIDERS[mode].recommendedModels.map((m) => ({
+          id: m.id, object: 'model', owned_by: mode,
+        }))
+        set({ siliconflowModels: fallback, siliconflowModelsFetchedAt: Date.now(), error: null })
+        return fallback
+      }
+
+      set({ isLoadingModels: true, error: null })
+
+      // ── dispatch list_models 到 runner ──
+      const ts = Date.now()
+      const rand = Math.random().toString(36).slice(2, 8)
+      const outputPath = `temp/ai/models/models_${ts}_${rand}.json`
+      const taskId = `list_models_${rand}`
+
+      try {
+        await dispatchAi(
+          taskId, 'list_models',
+          { baseUrl, apiKey },
+          outputPath, 1,
+          owner, repo, token,
+        )
+      } catch (e: any) {
+        set({ isLoadingModels: false, error: `触发后端拉模型失败: ${e?.message || e}` })
+        throw e
+      }
+
+      // ── 轮询 output_path（3s × 200 = 10min） ──
+      let raw: string | null = null
+      for (let i = 0; i < 200; i++) {
+        await new Promise((r) => setTimeout(r, 3000))
+        try {
+          const result = await readRepoTextFile(owner, repo, outputPath, token)
+          if (result?.content) { raw = result.content; break }
+        } catch { /* 继续等 */ }
+      }
+
+      set({ isLoadingModels: false })
+
+      if (!raw) {
+        set({ error: '后端拉模型超时（10min 未返回）' })
+        throw new Error('后端拉模型超时')
+      }
+
+      let parsed: any
+      try { parsed = JSON.parse(raw) } catch {
+        set({ error: '后端返回的 JSON 无法解析' })
+        throw new Error('后端返回的 JSON 无法解析')
+      }
+
+      if (parsed.error) {
+        set({ error: `后端拉模型失败: ${parsed.error}` })
+        throw new Error(parsed.error)
+      }
+
+      const models: AIModel[] = (parsed.data || []).map((m: any) => ({
         id: m.id,
-        object: 'model',
-        owned_by: mode,
+        object: m.object || 'model',
+        owned_by: m.owned_by || mode,
       }))
 
       set({

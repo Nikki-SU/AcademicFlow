@@ -178,6 +178,72 @@ const HANDLERS = {
     const result = await runDualEngine(input)
     return { data: result, content: result.ai1Output }
   },
+
+  // 从 AI provider 的 /v1/models 拉模型清单
+  // input: { baseUrl, apiKey } —— 由前端从 settings store 解析后传入
+  // 不走 secrets，因为预置/自定义端点的 key 都在前端 IndexedDB，
+  // 前端调用 syncAllSecrets 写入 runner 可读的位置，但模型清单拉取是轻量即时需求，
+  // 直接从前端 input_json 传 baseUrl+apiKey 更省一次 sync 往返
+  list_models: async (input, _engine) => {
+    const baseUrl = (input.baseUrl || '').replace(/\/$/, '')
+    const apiKey = input.apiKey || ''
+    if (!baseUrl) throw new Error('list_models: baseUrl 不能为空')
+
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 15_000)
+    const resp = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '')
+      throw new Error(`list_models HTTP ${resp.status}: ${body.slice(0, 300)}`)
+    }
+
+    const j = await resp.json()
+    const rawList = Array.isArray(j.data) ? j.data : []
+
+    // 过滤 chat 类模型 —— 与前端 models.ts 保持一致的简化版
+    const CHAT_ALLOW = [
+      'Qwen/Qwen', 'deepseek-ai/DeepSeek', 'Pro/deepseek-ai/DeepSeek',
+      'meta-llama/Llama', 'zai-org/GLM', 'moonshotai/Kimi', 'Pro/moonshotai/Kimi',
+      'MiniMaxAI/MiniMax', 'ByteDance-Seed/Seed', 'internlm/internlm',
+      'THUDM/GLM', 'deepseek/', 'moonshotai/', 'minimax/', 'qwen/', 'bytedance/',
+      'qwen-', 'doubao-', 'glm-', 'kimi-k',
+      // 官方直连风格（无前缀）—— 按前缀匹配
+      'deepseek-flash', 'deepseek-chat', 'deepseek-v4', 'deepseek-v3', 'deepseek-r1',
+      'kimi-k2', 'kimi-k3', 'minimax-m', 'MiniMax-M',
+    ]
+    const CHAT_DENY = ['embedding', 'reranker', 'CosyVoice', 'SenseVoice',
+      'Kolors', 'PaddleOCR', 'Qwen-Image', 'vision', '-vl-', 'vl-', 'vl/']
+
+    const filtered = rawList.filter((m) => {
+      const id = String(m.id || '')
+      if (!id) return false
+      const lower = id.toLowerCase()
+      const hasAllow = CHAT_ALLOW.some((p) => id.startsWith(p) || lower.startsWith(p.toLowerCase()))
+      if (!hasAllow) return false
+      const hasDeny = CHAT_DENY.some((k) => lower.includes(k.toLowerCase()))
+      return !hasDeny
+    })
+
+    return {
+      data: filtered.map((m) => ({
+        id: m.id,
+        object: m.object || 'model',
+        owned_by: m.owned_by || '',
+      })),
+      count: filtered.length,
+      raw_count: rawList.length,
+      fetched_from: baseUrl,
+    }
+  },
 }
 
 async function main() {
