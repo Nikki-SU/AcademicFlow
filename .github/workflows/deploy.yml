@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 10   # build 超时保护，防止无限跑浪费 free minutes
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
