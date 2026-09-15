@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { loadLiteratures, saveLiteratures, doiToSlug, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
@@ -6,7 +7,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch, deleteRepoFiles } from '../services/github'
-import { pollProgressJson, getRun } from '../services/workflowClient'
+import { pollProgressJson, getRun, dispatchPipeline } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
@@ -316,7 +317,11 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
 }
 
 export default function ManagementPage() {
+  const navigate = useNavigate()
   const { repo } = useWorkspaceStore()
+  const auth = useAuthStore()
+  const owner = repo?.owner ?? auth.user?.login ?? ''
+  const token = auth.token ?? ''
   const [activeTab, setActiveTab] = useState<SubTabId>('library')
 
   // 文献库状态
@@ -968,6 +973,53 @@ export default function ManagementPage() {
       setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
     }
   }
+
+  /** 跳转到阅读页 */
+  const handleOpenReading = useCallback((paper: Paper) => {
+    if (!paper.doi) {
+      toast.error('这篇文献没有 DOI，无法阅读')
+      return
+    }
+    const slug = doiToSlug(paper.doi)
+    navigate(`/reading/${slug}`)
+  }, [navigate])
+
+  /** 重新触发 pipeline（不需要重新上传 PDF，用已有的 source.pdf） */
+  const handleReconvertPaper = useCallback(async (paper: Paper) => {
+    if (!paper.doi) {
+      toast.error('这篇文献没有 DOI，无法重新转换')
+      return
+    }
+    if (!repo || !token || !owner) {
+      toast.error('工作区未初始化，请先登录并完成 Onboarding')
+      return
+    }
+    const slug = doiToSlug(paper.doi)
+    const pdfPath = `literatures/${slug}/source/source.pdf`
+
+    // 1. 先把 mdStatus 设成 converting
+    setPapers((prev) => prev.map((p) => (p.id === paper.id ? { ...p, mdStatus: 'converting' as const, mdProgress: 0 } : p)))
+
+    // 2. 清理旧的 .progress.json
+    try {
+      await deleteRepoFiles(
+        [`literatures/${slug}/.progress.json`],
+        `chore: clear progress before reconvert ${slug}`,
+        owner as string,
+        repo.name,
+        token,
+      )
+    } catch { /* 文件不存在或删不掉，不阻塞 */ }
+
+    // 3. dispatch pipeline
+    try {
+      await dispatchPipeline(paper.doi, paper.title || slug, pdfPath, owner as string, repo.name, token)
+      toast.success('已重新提交后端处理', { description: '右侧后台监控面板可查看实时进度' })
+    } catch (err: any) {
+      setPapers((prev) => prev.map((p) => (p.id === paper.id ? { ...p, mdStatus: 'failed' as const } : p)))
+      toast.error(`触发后端失败：${err?.message || String(err)}`)
+    }
+  }, [repo, token, owner])
 
   const handleEditPaper = (paper: Paper) => {
     setEditingPaper({ ...paper })
@@ -1800,8 +1852,29 @@ export default function ManagementPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1">
-                              <button className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition" title="阅读">
+                              <button
+                                disabled={paper.mdStatus === 'converting'}
+                                onClick={() => handleOpenReading(paper)}
+                                className={`p-1.5 rounded-md transition ${
+                                  paper.mdStatus === 'converting'
+                                    ? 'text-slate-300 cursor-not-allowed'
+                                    : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                                }`}
+                                title={paper.mdStatus === 'converting' ? '转换中，暂时无法阅读' : '阅读'}
+                              >
                                 <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                disabled={paper.mdStatus === 'converting' || !paper.doi}
+                                onClick={() => handleReconvertPaper(paper)}
+                                className={`p-1.5 rounded-md transition ${
+                                  paper.mdStatus === 'converting' || !paper.doi
+                                    ? 'text-slate-300 cursor-not-allowed'
+                                    : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                                }`}
+                                title={!paper.doi ? '无 DOI 无法转换' : paper.mdStatus === 'converting' ? '正在转换' : '重新转换'}
+                              >
+                                <RefreshCw className={`w-4 h-4 ${paper.mdStatus === 'converting' ? 'animate-spin' : ''}`} />
                               </button>
                               <button
                                 onClick={() => handleEditPaper(paper)}

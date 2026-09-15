@@ -3,7 +3,7 @@
  * -------------------------------------------------
  * spec §5.0.1: 两个平权 tab，默认停在 Device Flow
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import {
   BookOpen,
@@ -13,18 +13,13 @@ import {
   KeyRound,
   Loader2,
   ShieldCheck,
-  ArrowRight,
-  Circle,
   Wifi,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
 import {
   buildPATCreateURL,
-  getDeviceCode,
-  pollDeviceToken,
   testGitHubConnectivity,
-  type DeviceCodeResponse,
 } from '../services/github'
 
 type AuthMode = 'device' | 'pat'
@@ -32,7 +27,7 @@ type AuthMode = 'device' | 'pat'
 function Login() {
   const { token, login, isLoading, error, clearError } = useAuthStore()
   const location = useLocation()
-  const [authMode, setAuthMode] = useState<AuthMode>('device')
+  const [authMode] = useState<AuthMode>('pat')
   const [patInput, setPatInput] = useState('')
   const [showPAT, setShowPAT] = useState(false)
   const [patExpiresAt, setPatExpiresAt] = useState<string>(() => {
@@ -40,9 +35,10 @@ function Login() {
     d.setDate(d.getDate() + 90)
     return d.toISOString().split('T')[0]
   })
-  const [deviceCode, setDeviceCode] = useState<DeviceCodeResponse | null>(null)
-  const [isPolling, setIsPolling] = useState(false)
-  const [countdown, setCountdown] = useState(0)
+  // Device Flow — 鸽掉以后做（GitHub OAuth App client_id 不存在）
+  // const [deviceCode, setDeviceCode] = useState<DeviceCodeResponse | null>(null)
+  // const [isPolling, setIsPolling] = useState(false)
+  // const [countdown, setCountdown] = useState(0)
   const [diagnosing, setDiagnosing] = useState(false)
   const [diagnosticResult, setDiagnosticResult] = useState<string | null>(null)
 
@@ -52,65 +48,20 @@ function Login() {
     return <Navigate to={from} replace />
   }
 
-  useEffect(() => {
-    if (!deviceCode) return
-    setCountdown(deviceCode.expires_in)
-    const timer = setInterval(() => {
-      setCountdown((c) => (c > 0 ? c - 1 : 0))
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [deviceCode])
+  // Device Flow countdown effect — 鸽掉
+  // useEffect(() => {
+  //   if (!deviceCode) return
+  //   setCountdown(deviceCode.expires_in)
+  //   const timer = setInterval(() => {
+  //     setCountdown((c) => (c > 0 ? c - 1 : 0))
+  //   }, 1000)
+  //   return () => clearInterval(timer)
+  // }, [deviceCode])
 
-  const handleDeviceFlow = useCallback(async () => {
-    try {
-      const code = await getDeviceCode()
-      setDeviceCode(code)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '获取授权码失败')
-    }
-  }, [])
-
-  const handlePollToken = useCallback(async () => {
-    if (!deviceCode) return
-    setIsPolling(true)
-    const startTime = Date.now()
-    const expiresAt = startTime + deviceCode.expires_in * 1000
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-    let intervalSeconds = deviceCode.interval
-
-    const poll = async () => {
-      try {
-        if (Date.now() > expiresAt) {
-          throw new Error('授权码已过期')
-        }
-        const result = await pollDeviceToken(deviceCode.device_code, intervalSeconds)
-        if (result.type === 'token') {
-          await login(result.token.access_token, 'device_flow')
-          toast.success('登录成功！')
-          return
-        }
-        // 更新下一次轮询间隔（slow_down 时会增加）
-        intervalSeconds = result.interval
-        const remaining = expiresAt - Date.now()
-        if (remaining <= 0) {
-          throw new Error('授权码已过期')
-        }
-        timeoutId = setTimeout(poll, Math.min(intervalSeconds * 1000, remaining))
-      } catch (e) {
-        if (timeoutId) clearTimeout(timeoutId)
-        setIsPolling(false)
-        toast.error(e instanceof Error ? e.message : '授权失败')
-        setDeviceCode(null)
-      }
-    }
-    poll()
-  }, [deviceCode, login])
-
-  useEffect(() => {
-    if (deviceCode && !isPolling) {
-      handlePollToken()
-    }
-  }, [deviceCode, isPolling, handlePollToken])
+  // Device Flow handlers — 鸽掉
+  // const handleDeviceFlow = useCallback(async () => { ... }, [])
+  // const handlePollToken = useCallback(async () => { ... }, [])
+  // useEffect(() => { ... handlePollToken ... }, [deviceCode, isPolling, handlePollToken])
 
   const handleSubmitPAT = async () => {
     clearError()
@@ -141,11 +92,12 @@ function Login() {
     }
   }, [])
 
-  const formatCountdown = (seconds: number) => {
-    const m = Math.floor(seconds / 60)
-    const s = seconds % 60
-    return `${m}:${s.toString().padStart(2, '0')}`
-  }
+  // Device Flow formatCountdown — 鸽掉
+  // const formatCountdown = (seconds: number) => {
+  //   const m = Math.floor(seconds / 60)
+  //   const s = seconds % 60
+  //   return `${m}:${s.toString().padStart(2, '0')}`
+  // }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50 flex items-center justify-center p-6">
@@ -162,88 +114,6 @@ function Login() {
             </p>
           </div>
         </div>
-
-        {/* 双路径 Tab */}
-        <div className="flex mb-6 rounded-lg border border-slate-200 p-1">
-          <button
-            onClick={() => setAuthMode('device')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
-              authMode === 'device'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Circle className={`w-4 h-4 ${authMode === 'device' ? 'fill-indigo-600 text-indigo-600' : 'text-slate-300'}`} />
-            Device Flow（推荐）
-          </button>
-          <button
-            onClick={() => setAuthMode('pat')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
-              authMode === 'pat'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Circle className={`w-4 h-4 ${authMode === 'pat' ? 'fill-indigo-600 text-indigo-600' : 'text-slate-300'}`} />
-            Fine-grained PAT
-          </button>
-        </div>
-
-        {/* Device Flow */}
-        {authMode === 'device' && (
-          <div className="space-y-4">
-            {!deviceCode ? (
-              <div className="text-center">
-                <p className="text-sm text-slate-600 mb-4">
-                  获取一个临时授权码，在 GitHub 上完成授权后自动登录
-                </p>
-                <button
-                  onClick={handleDeviceFlow}
-                  disabled={isLoading}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white font-medium rounded-lg transition"
-                >
-                  <ArrowRight className="w-4 h-4" />
-                  获取授权码
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="text-center">
-                    <p className="text-xs text-slate-500 mb-2">授权码</p>
-                    <div className="text-2xl font-mono font-bold text-indigo-600 tracking-wider">
-                      {deviceCode.user_code}
-                    </div>
-                    <p className="text-xs text-slate-400 mt-2">
-                      有效时间：{formatCountdown(countdown)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => window.open(deviceCode.verification_uri, '_blank')}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded-lg transition"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    跳转 GitHub 授权
-                  </button>
-                  <button
-                    onClick={() => setDeviceCode(null)}
-                    className="px-4 py-2.5 border border-slate-300 text-slate-600 font-medium rounded-lg hover:bg-slate-50 transition"
-                  >
-                    重试
-                  </button>
-                </div>
-                {isPolling && (
-                  <div className="text-center text-sm text-slate-500 flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    等待授权...
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* PAT 手贴 */}
         {authMode === 'pat' && (
@@ -378,27 +248,6 @@ function Login() {
               {diagnosticResult}
             </div>
           )}
-        </div>
-
-        {/* 底部信息（spec §5.0.1） */}
-        <div className="mt-6 pt-6 border-t border-slate-200 space-y-3">
-          <p className="text-xs text-slate-500 leading-relaxed">
-            🔒 <strong>你的 token 只保存在你自己浏览器的 IndexedDB 里</strong>，不会上传到任何服务器。
-            AcademicFlow 是纯前端应用（
-            <a
-              href="https://github.com/Nikki-SU/AcademicFlow"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-indigo-600 hover:underline"
-            >
-              查看源码
-            </a>
-            ），所有数据读写都在你 → GitHub 之间直接完成。
-          </p>
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>AGPL-3.0</span>
-            <span>v0.2.5</span>
-          </div>
         </div>
       </div>
     </div>
