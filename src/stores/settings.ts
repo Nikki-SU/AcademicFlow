@@ -385,12 +385,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       const repo = ws.repo?.name ?? ''
       const token = auth.token ?? ''
       if (!token || !owner || !repo) {
-        // 未登录 → fallback 静态推荐列表（首次启动还没 dispatch 能力）
-        const fallback: AIModel[] = AI_PROVIDERS[mode].recommendedModels.map((m) => ({
-          id: m.id, object: 'model', owned_by: mode,
-        }))
-        set({ siliconflowModels: fallback, siliconflowModelsFetchedAt: Date.now(), error: null })
-        return fallback
+        // 未登录 → 空列表，不给静态猜测
+        // 理由：静态列表可能过时、可能跟用户实际选的 provider 不匹配，
+        // 调到不存在的模型一定报错。登录后 runner 拉真实清单才有意义。
+        set({ siliconflowModels: [], siliconflowModelsFetchedAt: null, error: null })
+        return []
       }
 
       set({ isLoadingModels: true, error: null })
