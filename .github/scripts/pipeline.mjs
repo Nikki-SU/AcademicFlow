@@ -454,13 +454,20 @@ async function mineruConvert(pdfBuf, fileName, onProgress) {
     const pollResp = await mineruRequest('GET', `/extract-results/batch/${batchId}`)
     const extracted = pollResp.data?.extract_result?.[0]
     if (!extracted) {
-      onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... 等待解析结果`, pct: 20 + Math.min(45, i) })
+      onProgress?.({ stage: 'mineru_poll', message: `轮询中 (${i + 1}/60)... 等待解析结果`, pct: 20 + Math.min(10, i) })
       continue
     }
     const state = extracted.state
-    const progress = extracted.extract_progress
-    const msg = `轮询中 (${i + 1}/60)... state=${state}${progress != null ? ` (${progress}%)` : ''}`
-    onProgress?.({ stage: 'mineru_poll', message: msg, pct: 20 + Math.min(45, i) })
+    const apiProgress = extracted.extract_progress
+    // 用 MinerU API 返回的真实进度（0-100）映射到全局 pct 的 poll 区间 [20, 50]
+    let pollPct
+    if (apiProgress != null) {
+      pollPct = 20 + Math.round(apiProgress * 0.3)  // API 0-100 → 全局 20-50
+    } else {
+      pollPct = 20 + Math.min(25, i)  // fallback：按轮询次数
+    }
+    const msg = `轮询中 (${i + 1}/60)... state=${state}${apiProgress != null ? ` (MinerU ${apiProgress}%)` : ''}`
+    onProgress?.({ stage: 'mineru_poll', message: msg, pct: pollPct })
 
     if (state === 'done') { fileResult = extracted; break }
     if (state === 'failed' || state === 'error') {
@@ -1228,12 +1235,12 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     tables.push({ beforeIdx: seg.beforeIdx ?? 0, afterIdx: seg.afterIdx ?? 0, en: seg.content, cn })
 
     await writeProgress(slug, { stage: 'translating', message: `AI-2 translating table ${i + 1}/${tableNodes.length}`, pct: 90, node: 2 })
-    onProgress?.({ stage: 'translating', pct: 88 })
+    onProgress?.({ stage: 'translating', pct: 90 })
   }
 
   // ============ Phase 3: 按编号顺序组装最终 Markdown ============
   await writeProgress(slug, { stage: 'assemble', message: 'Assembling final markdown in order...', pct: 92, node: 3 })
-  onProgress?.({ stage: 'assemble', pct: 95 })
+  onProgress?.({ stage: 'assemble', pct: 92 })
 
   // 用 skeletonMd 作为骨架：遇到 PARA en X/Y 标记处插入翻译内容
   let out = ''
