@@ -331,6 +331,7 @@ export default function ManagementPage() {
   const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1' as '1' | '2', categoryIds: [] as string[] })
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
   const [paperCategories, setPaperCategories] = useState<PaperCategory[]>([{ id: 'all', name: '全部文献' }])
   const [activePaperCategory, setActivePaperCategory] = useState<string>('all')
@@ -369,7 +370,8 @@ export default function ManagementPage() {
     const loadData = async () => {
       try {
         const lits = await loadLiteratures(true)
-        setPapers(lits.map(literatureToPaper))
+        // 防缓存：跳过正在删除的 ID —— 即使 CSV 还没 propagate 也不让它冒出来
+        setPapers(lits.map(literatureToPaper).filter((p) => !deletingIds.has(p.id)))
       } catch (err) {
         console.error('加载文献失败:', err)
       }
@@ -903,9 +905,15 @@ export default function ManagementPage() {
     )
     if (!confirmed) return
 
+    // ═══ 防重复点击：正在删就跳过 ═══
+    if (deletingIds.has(id)) return
+
     const paperDoi = paper.doi ?? ''
     const ctx = getRepoContextForDelete()
-    const fileErrors: string[] = []
+    const prevPapers = papers  // 备份，savePapers 失败要回滚
+
+    // ═══ 立即标记为删除中（按钮显示点点动画）═══
+    setDeletingIds((prev) => new Set(prev).add(id))
 
     try {
       // ═══ 0. 立即清理 taskQueue（同步、很快） ═══
@@ -913,18 +921,20 @@ export default function ManagementPage() {
         await cleanupTasksForDoi(paperDoi)
       }
 
-      // ═══ 1. 【乐观更新】立即从本地 papers 移除 + toast ═══
-      // 不管 GitHub 删没删完，UI 先更新，别让用户等
-      const updated = papers.filter((p) => p.id !== id)
-      setPapers(updated)
-      // 持久化 CSV（这步很快，不会卡）
+      // ═══ 1. 【乐观更新 + 持久化】必须 savePapers 成功才从 UI 移除 ═══
+      // 先算好 updated，保存成功再 setPapers —— 防止 save 失败导致"删了又回来"
+      const updated = prevPapers.filter((p) => p.id !== id)
       try {
         await savePapers(updated)
         invalidateCache('literatures/literatures.csv')
+        setPapers(updated)
         toast.success('文献已删除（GitHub 文件清理在后台进行）')
       } catch (saveErr) {
+        // savePapers 失败：不乐观更新，回滚 deletingIds，让用户看到失败
         console.warn('[handleDeletePaper] savePapers 失败:', saveErr)
-        toast.warning(`本地状态已更新但保存失败: ${saveErr instanceof Error ? saveErr.message : String(saveErr)}`)
+        toast.error(`删除失败：无法保存 CSV — ${saveErr instanceof Error ? saveErr.message : String(saveErr)}`, { duration: 5000 })
+        setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+        return  // 提前退出，不继续删 GitHub 文件（CSV 都没更新）
       }
 
       // ═══ 2. GitHub 文件删除（Phase 1 同步等完，Phase 2 后台跑） ═══
@@ -933,7 +943,6 @@ export default function ManagementPage() {
           paperDoi, ctx.owner, ctx.repo, ctx.token,
         )
         if (!result.phase1Ok) {
-          fileErrors.push(`GitHub 文件删除失败: ${result.error}`)
           toast.warning(`GitHub 文件删除失败: ${result.error}，将在后台重试`, { duration: 6000 })
         } else if (result.deletedCount > 0) {
           console.log(`[handleDeletePaper] GitHub 文件已删 ${result.deletedCount} 个`)
@@ -952,6 +961,11 @@ export default function ManagementPage() {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('[handleDeletePaper] 主流程异常:', e)
       toast.error(`删除失败: ${msg}`, { duration: 5000 })
+      // 主流程异常：恢复 papers（乐观更新已做的话）
+      setPapers(prevPapers)
+    } finally {
+      // ═══ 无论成功失败，清除 deletingIds 标记 ═══
+      setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
     }
   }
 
@@ -971,65 +985,80 @@ export default function ManagementPage() {
 
   const handleBatchDelete = async () => {
     const papersToDelete = papers.filter((p) => selectedPapers.has(p.id))
+    if (papersToDelete.length === 0) return
     const ctx = getRepoContextForDelete()
+    const prevPapers = papers
 
-    // ═══ 0. 先清 taskQueue（同步） ═══
-    for (const paper of papersToDelete) {
-      if (paper.doi) await cleanupTasksForDoi(paper.doi)
-    }
+    // ═══ 防重复点击 + 标记所有要删的 ═══
+    const idsToDelete = papersToDelete.map((p) => p.id).filter((id) => !deletingIds.has(id))
+    if (idsToDelete.length === 0) return
+    setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.add(id)); return s })
 
-    // ═══ 1. 【乐观更新】立即从 papers 移除 + toast ═══
-    const updated = papers.filter((p) => !selectedPapers.has(p.id))
-    setPapers(updated)
-    setSelectedPapers(new Set())
-    setBatchMode(false)
     try {
-      await savePapers(updated)
-      invalidateCache('literatures/literatures.csv')
-      toast.success(`已删除 ${papersToDelete.length} 篇文献（GitHub 清理在后台进行）`)
-    } catch (e) {
-      toast.warning(`本地状态已更新但保存失败: ${e instanceof Error ? e.message : String(e)}`)
-    }
+      // ═══ 0. 先清 taskQueue（同步） ═══
+      for (const paper of papersToDelete) {
+        if (paper.doi) await cleanupTasksForDoi(paper.doi)
+      }
 
-    // ═══ 2. GitHub 文件 Phase 1 同步 + Phase 2/3 后台 race cleanup ═══
-    const deleteAsync = async () => {
-      if (!ctx) return
+      // ═══ 1. 【乐观更新 + 持久化】必须 savePapers 成功才从 UI 移除 ═══
+      const updated = prevPapers.filter((p) => !selectedPapers.has(p.id))
       try {
-        // Phase 1: 批量收集 + 立即删
-        const allPaths: string[] = []
-        for (const paper of papersToDelete) {
-          try { const paths = await collectLiteratureFilePaths(paper.doi); allPaths.push(...paths) } catch {}
-        }
-        if (allPaths.length > 0) {
-          await deleteRepoFiles(allPaths, `chore: batch delete ${papersToDelete.length} literatures`, ctx.owner, ctx.repo, ctx.token)
-          console.log(`[handleBatchDelete] phase1 删除 ${allPaths.length} 个文件`)
-        }
+        await savePapers(updated)
+        invalidateCache('literatures/literatures.csv')
+        setPapers(updated)
+        setSelectedPapers(new Set())
+        setBatchMode(false)
+        toast.success(`已删除 ${papersToDelete.length} 篇文献（GitHub 清理在后台进行）`)
       } catch (e) {
-        console.warn('[handleBatchDelete] phase1 失败:', e)
-        toast.warning(`GitHub 文件清理失败: ${e instanceof Error ? e.message : String(e)}`)
+        // savePapers 失败：不乐观更新
+        toast.error(`批量删除失败：无法保存 CSV — ${e instanceof Error ? e.message : String(e)}`, { duration: 5000 })
+        setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.delete(id)); return s })
+        return
       }
 
-      // Phase 2/3: 5s 后批量检查残留 + retry（fire-and-forget）
-      setTimeout(async () => {
+      // ═══ 2. GitHub 文件删除（Phase 1 同步 + Phase 2 后台 race cleanup） ═══
+      if (ctx) {
         try {
-          const retryPaths: string[] = []
+          const allPaths: string[] = []
           for (const paper of papersToDelete) {
-            try { const paths = await collectLiteratureFilePaths(paper.doi); retryPaths.push(...paths) } catch {}
+            try { const paths = await collectLiteratureFilePaths(paper.doi); allPaths.push(...paths) } catch {}
           }
-          if (retryPaths.length > 0) {
-            console.log(`[handleBatchDelete] phase2 残留 ${retryPaths.length} 个，异步重试`)
-            await deleteRepoFiles(retryPaths, `chore: batch delete retry (race)`, ctx.owner, ctx.repo, ctx.token)
+          if (allPaths.length > 0) {
+            await deleteRepoFiles(allPaths, `chore: batch delete ${papersToDelete.length} literatures`, ctx.owner, ctx.repo, ctx.token)
+            console.log(`[handleBatchDelete] phase1 删除 ${allPaths.length} 个文件`)
           }
-        } catch (e) { console.warn('[handleBatchDelete] phase2 失败:', e) }
-      }, 5000)
-    }
-    deleteAsync() // fire-and-forget
+        } catch (e) {
+          console.warn('[handleBatchDelete] phase1 失败:', e)
+          toast.warning(`GitHub 文件清理失败: ${e instanceof Error ? e.message : String(e)}`)
+        }
 
-    // ═══ 3. CSV 关联清理（fire-and-forget） ═══
-    for (const paper of papersToDelete) {
-      if (paper.doi) {
-        cleanUpCsvByDoi(paper.doi).catch((e) => console.warn('[handleBatchDelete] CSV 清理失败:', paper.doi, e))
+        // Phase 2: 5s 后批量检查残留 + retry（fire-and-forget）
+        setTimeout(async () => {
+          try {
+            const retryPaths: string[] = []
+            for (const paper of papersToDelete) {
+              try { const paths = await collectLiteratureFilePaths(paper.doi); retryPaths.push(...paths) } catch {}
+            }
+            if (retryPaths.length > 0) {
+              console.log(`[handleBatchDelete] phase2 残留 ${retryPaths.length} 个，异步重试`)
+              await deleteRepoFiles(retryPaths, `chore: batch delete retry (race)`, ctx.owner, ctx.repo, ctx.token)
+            }
+          } catch (e) { console.warn('[handleBatchDelete] phase2 失败:', e) }
+        }, 5000)
       }
+
+      // ═══ 3. CSV 关联清理（fire-and-forget） ═══
+      for (const paper of papersToDelete) {
+        if (paper.doi) {
+          cleanUpCsvByDoi(paper.doi).catch((e) => console.warn('[handleBatchDelete] CSV 清理失败:', paper.doi, e))
+        }
+      }
+    } catch (e) {
+      console.error('[handleBatchDelete] 主流程异常:', e)
+      toast.error(`批量删除失败: ${e instanceof Error ? e.message : String(e)}`, { duration: 5000 })
+      setPapers(prevPapers)
+    } finally {
+      setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.delete(id)); return s })
     }
   }
 
@@ -1782,11 +1811,24 @@ export default function ManagementPage() {
                                 <Edit3 className="w-4 h-4" />
                               </button>
                               <button
+                                disabled={deletingIds.has(paper.id)}
                                 onClick={() => handleDeletePaper(paper.id)}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                                title="删除"
+                                className={`p-1.5 rounded-md transition ${
+                                  deletingIds.has(paper.id)
+                                    ? 'text-red-500 bg-red-50 cursor-not-allowed'
+                                    : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                                }`}
+                                title={deletingIds.has(paper.id) ? '删除中...' : '删除'}
                               >
-                                <Trash2 className="w-4 h-4" />
+                                {deletingIds.has(paper.id) ? (
+                                  <span className="inline-flex items-center gap-0.5">
+                                    <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                    <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                    <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                  </span>
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
                               </button>
                             </div>
                           </td>
@@ -1884,13 +1926,27 @@ export default function ManagementPage() {
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
+                                  disabled={deletingIds.has(paper.id)}
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     handleDeletePaper(paper.id)
                                   }}
-                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                                  className={`p-1 rounded transition ${
+                                    deletingIds.has(paper.id)
+                                      ? 'text-red-500 bg-red-50 cursor-not-allowed'
+                                      : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                                  }`}
+                                  title={deletingIds.has(paper.id) ? '删除中...' : '删除'}
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  {deletingIds.has(paper.id) ? (
+                                    <span className="inline-flex items-center gap-0.5">
+                                      <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                      <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                      <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                    </span>
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
                                 </button>
                               </div>
                             </div>
