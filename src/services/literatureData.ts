@@ -174,48 +174,49 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
   return results
 }
 
-/** md_status 优先级（越高越"终态"），用来防止前端覆盖 Bot 的进度更新 */
-const MD_STATUS_RANK: Record<MdStatus, number> = {
-  none: 0,
-  converting: 1,
-  failed: 2,
-  done: 3,
-}
-
+/**
+ * saveLiteratures — 前端只管写元数据，状态字段完全信任 GitHub
+ *
+ * 两类字段：
+ *   元数据（前端写）：doi, title, journal, year, authors, keywords,
+ *                    abstract_en, abstract_cn, tier, has_graphical_abstract
+ *   状态字段（GitHub 权威）：added_at, pdf_added_at, source, tracking_group, md_status
+ *
+ * 典型冲突：Bot 刚把 md_status 改成 done，用户点编辑保存元数据，
+ * 前端内存里还拿着 md_status=none → 旧逻辑会把 done 覆盖回 none。
+ * 现在从源头剥掉：前端写前先读 GitHub，把状态字段 merge 回来。
+ */
 export async function saveLiteratures(literatures: Literature[]): Promise<void> {
-  // ======= 乐观锁：先读 GitHub 上最新 CSV，保护 Bot 刚写入的 md_status =======
-  // 典型冲突场景：Bot 刚把某篇 md_status 改成 done，前端还拿着旧值（none），
-  // 点保存就把 done 覆盖回 none，Bot 白干了。
-  let githubStatusMap: Map<string, MdStatus> | null = null
+  // 1. 读 GitHub 最新 CSV，按 doi 建 map
+  let githubMap: Map<string, Literature> | null = null
   try {
     const currentOnGithub = await loadLiteratures(true) // force 跳过缓存
-    githubStatusMap = new Map(currentOnGithub.map((l) => [l.doi, l.mdStatus]))
+    githubMap = new Map(currentOnGithub.map((l) => [l.doi, l]))
   } catch {
-    // 读失败（网络抖动、repo 未就绪等）→ 降级为不保护，让写入继续
-    console.warn('[saveLiteratures] 读 GitHub 最新状态失败，跳过 md_status 保护')
+    console.warn('[saveLiteratures] 读 GitHub 最新 CSV 失败，状态字段可能不准确但继续写入')
   }
 
-  // 冲突检测：GitHub 上 rank 更高的 md_status 保留，不被前端覆盖
-  const protectedLiteratures = literatures.map((lit) => {
-    if (!githubStatusMap) return lit
-    const githubStatus = githubStatusMap.get(lit.doi)
-    if (!githubStatus) return lit
-    const frontendRank = MD_STATUS_RANK[lit.mdStatus] ?? 0
-    const githubRank = MD_STATUS_RANK[githubStatus] ?? 0
-    if (githubRank > frontendRank) {
-      console.info(
-        `[saveLiteratures] 保护 ${lit.doi}: GitHub 上是 ${githubStatus}(rank ${githubRank})，` +
-        `前端要写 ${lit.mdStatus}(rank ${frontendRank}) → 保留 GitHub 的值`,
-      )
-      return { ...lit, mdStatus: githubStatus }
+  // 2. merge：元数据用前端的，状态字段用 GitHub 的
+  const toWrite = literatures.map((lit) => {
+    const gh = githubMap?.get(lit.doi)
+    if (!gh) {
+      // 新文献（GitHub 上还没有）→ added_at 用前端值，md_status 默认 none
+      return lit
     }
-    return lit
+    return {
+      ...lit,
+      addedAt: gh.addedAt,
+      pdfAddedAt: gh.pdfAddedAt,
+      source: gh.source,
+      trackingGroup: gh.trackingGroup,
+      mdStatus: gh.mdStatus, // ✅ 关键：永远不覆盖 Bot 的 md_status
+    }
   })
 
   try {
     await writeCsvFile(
       LITERATURES_PATH,
-      protectedLiteratures,
+      toWrite,
       LITERATURE_HEADERS,
       (lit) => [
         lit.doi,
@@ -235,7 +236,7 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
         lit.mdStatus || 'none',
       ],
     )
-    console.log(`[saveLiteratures] OK — ${protectedLiteratures.length} 条写入 ${LITERATURES_PATH}`)
+    console.log(`[saveLiteratures] OK — ${toWrite.length} 条写入 (状态字段来自 GitHub)`)
   } catch (err) {
     console.error(`[saveLiteratures] FAIL — 写入 ${LITERATURES_PATH} 失败:`, err)
     throw err
