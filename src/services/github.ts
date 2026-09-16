@@ -209,17 +209,14 @@ export interface FullConnectivityReport {
 }
 
 /**
- * 全端点连通性测试 —— Settings 页使用
- * 并行探测 6 个 GitHub 相关端点，给出每个的状态 + 总体诊断
+ * 连通性测试 —— Settings 页使用
+ * 仅探测**业务代码实际用到**的 GitHub 端点：
+ *   1. api.github.com（Header 模式 —— 所有 API 调用的正常路径）
+ *   2. api.github.com（Query 模式 —— CORS 预检被拦截时的降级路径）
+ *   3. avatars.githubusercontent.com（登录后拉用户头像）
  */
-export async function testFullGitHubConnectivity(
-  pagesHost?: string,
-): Promise<FullConnectivityReport> {
-  const pagesTarget = pagesHost
-    ? `https://${pagesHost}/`
-    : 'https://nikki-su.github.io/AcademicFlow/' // 默认探测一个公开的 GitHub Pages
-
-  // 定义 6 个端点
+export async function testFullGitHubConnectivity(): Promise<FullConnectivityReport> {
+  // 定义端点 —— 只保留业务代码实际引用的
   const endpoints: Array<{
     key: string
     label: string
@@ -251,33 +248,15 @@ export async function testFullGitHubConnectivity(
       },
     },
     {
-      key: 'githubMain',
-      label: 'github.com（主站）',
-      url: 'https://github.com/',
-      opts: { timeoutMs: 10000 },
-    },
-    {
-      key: 'codeload',
-      label: 'codeload.github.com（下载）',
-      url: 'https://codeload.github.com/',
-      opts: { timeoutMs: 10000 },
-    },
-    {
-      key: 'gitObjects',
-      label: 'objects.githubusercontent.com（Git LFS）',
-      url: 'https://objects.githubusercontent.com/',
+      key: 'avatars',
+      label: 'avatars.githubusercontent.com（用户头像）',
+      url: 'https://avatars.githubusercontent.com/u/0?s=32',
       opts: {
-        timeoutMs: 10000,
-        // 可能返回 403（需要鉴权），但 DNS/TLS 通了就算可达
+        timeoutMs: 8000,
+        // 404（user 0 不存在）就算 DNS/TLS 通了
         expectedStatusMin: 200,
         expectedStatusMax: 499,
       },
-    },
-    {
-      key: 'pages',
-      label: 'GitHub Pages',
-      url: pagesTarget,
-      opts: { timeoutMs: 10000 },
     },
   ]
 

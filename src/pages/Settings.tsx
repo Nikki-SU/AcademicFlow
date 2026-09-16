@@ -520,8 +520,8 @@ function Settings() {
               GitHub 连通性
             </label>
             <p className="text-xs text-slate-500">
-              探测 6 个 GitHub 相关端点的网络可达性。登录前有基础检测，这里是完整诊断，
-              包含 github.com 主站、codeload、Git LFS、GitHub Pages 等。
+              探测 3 个业务代码实际用到的 GitHub 端点：api.github.com（Header + Query 两种认证模式）
+              和 avatars.githubusercontent.com（用户头像 CDN）。
             </p>
             <GitHubConnectivityPanel />
           </div>

@@ -1,17 +1,13 @@
 /**
- * GitHub 全端点连通性检测面板 —— Settings 页
+ * GitHub 连通性检测面板 —— Settings 页
  * -------------------------------------------------
- * 测试 6 个 GitHub 相关端点的网络连通性：
+ * 探测**业务代码实际用到**的 GitHub 端点：
  *   1. api.github.com（Header 模式 —— 带自定义头，触发 CORS 预检）
  *   2. api.github.com（Query 模式 —— 零自定义头，不触发预检）
- *   3. github.com（主站）
- *   4. codeload.github.com（仓库下载）
- *   5. objects.githubusercontent.com（Git LFS 对象存储）
- *   6. GitHub Pages（用户 Pages 站点）
+ *   3. avatars.githubusercontent.com（登录后拉用户头像）
  *
- * 与登录前的单端点 testGitHubConnectivity 互补：
- *   - 登录前：只测 api.github.com 一个端点，判断能不能登录
- *   - Settings 页：全端点体检，诊断登录后实际使用中哪些端点会挂
+ * 与登录前的基础检测互补：登录前只测 Header 模式能否通，
+ * 这里额外测 Query 降级路径 + 头像 CDN，诊断更全面。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -25,7 +21,6 @@ import {
   ChevronRight,
   Globe,
 } from 'lucide-react'
-import { useAuthStore } from '../../stores/auth'
 import {
   testFullGitHubConnectivity,
   type FullConnectivityReport,
@@ -33,15 +28,9 @@ import {
 } from '../../services/github'
 
 export default function GitHubConnectivityPanel() {
-  const auth = useAuthStore()
   const [testing, setTesting] = useState(false)
   const [report, setReport] = useState<FullConnectivityReport | null>(null)
   const [expanded, setExpanded] = useState(false)
-
-  // 用户 GitHub Pages 域名（<user>.github.io）
-  const pagesHost = auth.user?.login
-    ? `${auth.user.login}.github.io`
-    : undefined
 
   // 页面挂载后自动跑一次测试
   const didAutoRunRef = useRef(false)
@@ -57,10 +46,10 @@ export default function GitHubConnectivityPanel() {
     setReport(null)
     setExpanded(false)
     try {
-      const r = await testFullGitHubConnectivity(pagesHost)
+      const r = await testFullGitHubConnectivity()
       setReport(r)
       if (r.allOk) {
-        toast.success('GitHub 全端点连通性正常 🎉')
+        toast.success('GitHub 连通性正常 🎉')
       } else {
         const failedCount = r.endpoints.filter((e) => !e.ok).length
         toast.warning(`${failedCount} 个端点不可达，点击查看详情`)
@@ -72,7 +61,7 @@ export default function GitHubConnectivityPanel() {
     } finally {
       setTesting(false)
     }
-  }, [pagesHost])
+  }, [])
 
   // 配色
   const tone =
