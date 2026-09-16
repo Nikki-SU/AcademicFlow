@@ -1491,7 +1491,7 @@ export default function ManagementPage() {
 
   /**
    * 上传某篇 paper 的 PDF 并立即触发后端转换。
-   * 调用后立即 set mdStatus='converting' 让卡片 UI 秒级反馈，
+   * 调用后立即 set mdStatus='converting' 让卡片 UI + 编辑模态框同步秒级反馈，
    * 然后等 taskQueue + 后端 progress.json 驱动后续进度。
    */
   const startPaperMineruConvert = async (paper: Paper, file: File) => {
@@ -1502,30 +1502,28 @@ export default function ManagementPage() {
     }
     const prevProgress = paper.mdProgress
 
+    // helper：同时更新全局 papers 数组 + 正在编辑的 editingPaper（如果是同一篇）
+    const syncStatus = (patch: { mdStatus: Paper['mdStatus']; mdProgress: number }) => {
+      setPapers((prev) => prev.map((p) =>
+        p.id === paper.id ? { ...p, ...patch } : p,
+      ))
+      setEditingPaper((prev) =>
+        prev && prev.id === paper.id ? { ...prev, ...patch } : prev,
+      )
+    }
+
     // 立即更新 UI：状态变 converting，进度从 0 开始
-    setPapers((prev) => prev.map((p) =>
-      p.id === paper.id
-        ? { ...p, mdStatus: 'converting' as const, mdProgress: 0 }
-        : p,
-    ))
+    syncStatus({ mdStatus: 'converting', mdProgress: 0 })
 
     try {
       const result = await enqueuePaperMineruConvert(paperDoi, file, paper.title)
       if (!result.ok) {
-        // enqueue 失败：回滚 UI 状态
-        setPapers((prev) => prev.map((p) =>
-          p.id === paper.id
-            ? { ...p, mdStatus: 'failed' as const, mdProgress: prevProgress }
-            : p,
-        ))
+        // enqueue 失败：回滚 UI 状态为 failed
+        syncStatus({ mdStatus: 'failed', mdProgress: prevProgress })
       }
     } catch (err) {
-      // 异常：回滚 UI 状态
-      setPapers((prev) => prev.map((p) =>
-        p.id === paper.id
-          ? { ...p, mdStatus: 'failed' as const, mdProgress: prevProgress }
-          : p,
-      ))
+      // 异常：回滚 UI 状态为 failed
+      syncStatus({ mdStatus: 'failed', mdProgress: prevProgress })
       toast.error(`上传异常：${err instanceof Error ? err.message : String(err)}`)
     }
   }
