@@ -321,7 +321,7 @@ export default function ManagementPage() {
   const navigate = useNavigate()
   const { repo } = useWorkspaceStore()
   const auth = useAuthStore()
-  const owner = repo?.owner ?? auth.user?.login ?? ''
+  const owner = repo?.owner?.login ?? auth.user?.login ?? ''
   const token = auth.token ?? ''
   const [activeTab, setActiveTab] = useState<SubTabId>('library')
 
