@@ -817,15 +817,34 @@ export default function ManagementPage() {
   }, [doiQuickInput, papers, activePaperCategory])
 
   const handleAddPaper = async () => {
-    if (!newPaper.title.trim()) return
+    if (!newPaper.title.trim()) {
+      toast.warning('请先填写文献标题')
+      return
+    }
+    const doiResult = normalizeDoi(newPaper.doi)
+    if (!doiResult.valid || !doiResult.doi) {
+      toast.error('DOI 无效', { description: 'DOI 不能为空，格式应为 10.XXXX/XXXXXX' })
+      return
+    }
+    const doi = doiResult.doi
+
+    // DOI 去重
+    if (papers.some((p) => p.doi && normalizeDoi(p.doi).doi === doi)) {
+      toast.error('该 DOI 已存在于文献库', {
+        description: '如需覆盖，请先删除旧条目',
+        action: { label: '清空 DOI', onClick: () => setNewPaper((p) => ({ ...p, doi: '' })) },
+      })
+      return
+    }
+
     const prevPapers = papers
     const paper: Paper = {
-      id: newPaper.doi || String(Date.now()),
-      title: newPaper.title,
-      authors: newPaper.authors,
+      id: doi,
+      title: newPaper.title.trim(),
+      authors: newPaper.authors.trim(),
       year: newPaper.year,
-      journal: newPaper.journal,
-      doi: newPaper.doi,
+      journal: newPaper.journal.trim(),
+      doi,
       keywords: newPaper.keywords.split(',').map((k) => k.trim()).filter(Boolean),
       tier: Number(newPaper.tier) as 1 | 2,
       hasNotes: false,

@@ -96,12 +96,50 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
 
   if (!rows || rows.length <= 1) return []
 
-  // 旧 CSV 可能没有 md_status 列（第 15 列），容错处理
-  const MD_STATUS_COL = 14 // 0-based: doi(0) ... tracking_group(13), md_status(14)
+  const EXPECTED_COLS = LITERATURE_HEADERS.length // 15
+  const results: Literature[] = []
+  const dirtyRows: number[] = []
 
-  return rows.slice(1).map((r) => {
-    const doi = r[0] || ''
-    const csvStatus: MdStatus = (r[MD_STATUS_COL] as MdStatus) || 'none'
+  rows.slice(1).forEach((r, idx) => {
+    const rowNum = idx + 1 // 含 header
+    // ======= 脏行跳过条件 =======
+    if (!r || r.length === 0) return
+    const doi = (r[0] || '').trim()
+    if (!doi) {
+      dirtyRows.push(rowNum)
+      console.warn(`[loadLiteratures] row ${rowNum}: doi 为空，跳过 (r=${JSON.stringify(r.slice(0, 5))})`)
+      return
+    }
+
+    let fixedRow = r
+
+    // ======= 列数修复 =======
+    if (r.length !== EXPECTED_COLS) {
+      if (r.length < EXPECTED_COLS) {
+        // 尾部补空
+        fixedRow = [...r, ...Array(EXPECTED_COLS - r.length).fill('')]
+      } else {
+        // 列数过多 → 中间字段被逗号拆散
+        // 策略：从后往前保留最后 7 列是可靠的
+        // （tier, has_graphical_abstract, added_at, pdf_added_at, source, tracking_group, md_status）
+        // 合并中间被拆散的字段（authors, keywords, abstract_en, abstract_cn）
+        const tail7 = r.slice(-7)
+        const head3 = r.slice(0, 3) // doi, title, journal — 通常不会被拆散
+        const year = r[3] || ''
+        // positions 4 to r.length-7 全部合并成 authors
+        const mergedMiddle = r.slice(4, r.length - 7).join(', ')
+        fixedRow = [...head3, year, mergedMiddle, '', '', '', ...tail7]
+        if (fixedRow.length !== EXPECTED_COLS) {
+          dirtyRows.push(rowNum)
+          console.warn(`[loadLiteratures] row ${rowNum}: 列数不匹配 (${r.length} vs ${EXPECTED_COLS})，修复后 ${fixedRow.length} 列，跳过`)
+          return
+        }
+        dirtyRows.push(rowNum)
+        console.warn(`[loadLiteratures] row ${rowNum}: 列数不匹配 (${r.length} vs ${EXPECTED_COLS})，已自动修复`)
+      }
+    }
+
+    const csvStatus: MdStatus = (fixedRow[14] as MdStatus) || 'none'
     // 如果 git trees 可用，以 GitHub 实际文件为准（权威来源）
     const inferredStatus = fileSet
       ? inferMdStatusFromFiles(doi, fileSet)
@@ -110,31 +148,74 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
     const finalStatus: MdStatus =
       csvStatus === 'failed' ? 'failed' : inferredStatus
 
-    return {
+    results.push({
       doi,
-      title: r[1] || '',
-      journal: r[2] || '',
-      year: parseInt(r[3] || '0', 10),
-      authors: r[4] || '',
-      keywords: r[5] || '',
-      abstractEn: r[6] || '',
-      abstractCn: r[7] || '',
-      tier: parseInt(r[8] || '0', 10),
-      hasGraphicalAbstract: r[9] === 'true',
-      addedAt: parseInt(r[10] || '0', 10),
-      pdfAddedAt: parseInt(r[11] || '0', 10),
-      source: r[12] || '',
-      trackingGroup: r[13] || '',
+      title: fixedRow[1] || '',
+      journal: fixedRow[2] || '',
+      year: parseInt(fixedRow[3] || '0', 10),
+      authors: fixedRow[4] || '',
+      keywords: fixedRow[5] || '',
+      abstractEn: fixedRow[6] || '',
+      abstractCn: fixedRow[7] || '',
+      tier: parseInt(fixedRow[8] || '0', 10),
+      hasGraphicalAbstract: fixedRow[9] === 'true',
+      addedAt: parseInt(fixedRow[10] || '0', 10),
+      pdfAddedAt: parseInt(fixedRow[11] || '0', 10),
+      source: fixedRow[12] || '',
+      trackingGroup: fixedRow[13] || '',
       mdStatus: finalStatus,
-    }
+    })
   })
+
+  if (dirtyRows.length > 0) {
+    console.warn(`[loadLiteratures] 共 ${dirtyRows.length} 行脏数据（rows ${dirtyRows.join(', ')}），已修复 ${dirtyRows.length - (rows.length - 1 - results.length)} 行`)
+  }
+
+  return results
+}
+
+/** md_status 优先级（越高越"终态"），用来防止前端覆盖 Bot 的进度更新 */
+const MD_STATUS_RANK: Record<MdStatus, number> = {
+  none: 0,
+  converting: 1,
+  failed: 2,
+  done: 3,
 }
 
 export async function saveLiteratures(literatures: Literature[]): Promise<void> {
+  // ======= 乐观锁：先读 GitHub 上最新 CSV，保护 Bot 刚写入的 md_status =======
+  // 典型冲突场景：Bot 刚把某篇 md_status 改成 done，前端还拿着旧值（none），
+  // 点保存就把 done 覆盖回 none，Bot 白干了。
+  let githubStatusMap: Map<string, MdStatus> | null = null
+  try {
+    const currentOnGithub = await loadLiteratures(true) // force 跳过缓存
+    githubStatusMap = new Map(currentOnGithub.map((l) => [l.doi, l.mdStatus]))
+  } catch {
+    // 读失败（网络抖动、repo 未就绪等）→ 降级为不保护，让写入继续
+    console.warn('[saveLiteratures] 读 GitHub 最新状态失败，跳过 md_status 保护')
+  }
+
+  // 冲突检测：GitHub 上 rank 更高的 md_status 保留，不被前端覆盖
+  const protectedLiteratures = literatures.map((lit) => {
+    if (!githubStatusMap) return lit
+    const githubStatus = githubStatusMap.get(lit.doi)
+    if (!githubStatus) return lit
+    const frontendRank = MD_STATUS_RANK[lit.mdStatus] ?? 0
+    const githubRank = MD_STATUS_RANK[githubStatus] ?? 0
+    if (githubRank > frontendRank) {
+      console.info(
+        `[saveLiteratures] 保护 ${lit.doi}: GitHub 上是 ${githubStatus}(rank ${githubRank})，` +
+        `前端要写 ${lit.mdStatus}(rank ${frontendRank}) → 保留 GitHub 的值`,
+      )
+      return { ...lit, mdStatus: githubStatus }
+    }
+    return lit
+  })
+
   try {
     await writeCsvFile(
       LITERATURES_PATH,
-      literatures,
+      protectedLiteratures,
       LITERATURE_HEADERS,
       (lit) => [
         lit.doi,
@@ -154,7 +235,7 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
         lit.mdStatus || 'none',
       ],
     )
-    console.log(`[saveLiteratures] OK — ${literatures.length} 条写入 ${LITERATURES_PATH}`)
+    console.log(`[saveLiteratures] OK — ${protectedLiteratures.length} 条写入 ${LITERATURES_PATH}`)
   } catch (err) {
     console.error(`[saveLiteratures] FAIL — 写入 ${LITERATURES_PATH} 失败:`, err)
     throw err
