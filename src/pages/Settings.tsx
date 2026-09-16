@@ -27,6 +27,7 @@ import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
 import MineruConnectivityPanel from '../components/settings/MineruConnectivityPanel'
+import GitHubConnectivityPanel from '../components/settings/GitHubConnectivityPanel'
 
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
@@ -512,6 +513,19 @@ function Settings() {
             <Sparkles className="w-4 h-4 text-cyan-600" />
             后端处理能力（GitHub Actions）
           </h2>
+
+          {/* GitHub 全端点连通性 —— 登录后也能看网络诊断 */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">
+              GitHub 连通性
+            </label>
+            <p className="text-xs text-slate-500">
+              探测 6 个 GitHub 相关端点的网络可达性。登录前有基础检测，这里是完整诊断，
+              包含 github.com 主站、codeload、Git LFS、GitHub Pages 等。
+            </p>
+            <GitHubConnectivityPanel />
+          </div>
+
           <BackendCapabilitiesPanel />
 
           {/* MinerU API Token — PDF 转换必需（后端 pipeline 从 GitHub Secrets 取） */}

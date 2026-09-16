@@ -135,6 +135,195 @@ export async function testGitHubConnectivity(): Promise<ConnectivityResult> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// 全端点连通性诊断（Settings 页用）
+// ═════════════════════════════════════════════════════════════════════════
+
+export interface EndpointProbeResult {
+  /** 端点标识 */
+  key: string
+  /** 显示名称 */
+  label: string
+  /** 完整 URL */
+  url: string
+  /** 是否可达 */
+  ok: boolean
+  /** HTTP 状态码（0 表示网络错误） */
+  status: number
+  /** 耗时（毫秒） */
+  latencyMs: number
+  /** 错误信息（失败时） */
+  error?: string
+}
+
+interface ProbeOptions {
+  headers?: Record<string, string>
+  timeoutMs?: number
+  /** 期待的 HTTP 状态码（默认 200-399） */
+  expectedStatusMin?: number
+  expectedStatusMax?: number
+}
+
+/** 通用 URL 探针 —— fetch + 超时，返回状态码和耗时 */
+async function probeUrl(
+  url: string,
+  opts: ProbeOptions = {},
+): Promise<{ ok: boolean; status: number; latencyMs: number; error?: string }> {
+  const timeoutMs = opts.timeoutMs ?? 8000
+  const expectedMin = opts.expectedStatusMin ?? 200
+  const expectedMax = opts.expectedStatusMax ?? 399
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  const start = performance.now()
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: ctrl.signal,
+      cache: 'no-store',
+      headers: opts.headers,
+      referrerPolicy: 'no-referrer',
+    })
+    const latencyMs = Math.round(performance.now() - start)
+    const ok = res.status >= expectedMin && res.status <= expectedMax
+    return { ok, status: res.status, latencyMs }
+  } catch (e: unknown) {
+    const latencyMs = Math.round(performance.now() - start)
+    const errMsg = e instanceof Error ? e.message : String(e)
+    const isAbort = e instanceof DOMException && e.name === 'AbortError'
+    return {
+      ok: false,
+      status: 0,
+      latencyMs,
+      error: isAbort ? `超时（${timeoutMs}ms）` : errMsg,
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export interface FullConnectivityReport {
+  endpoints: EndpointProbeResult[]
+  summary: string
+  allOk: boolean
+  headerModeOk: boolean
+  queryModeOk: boolean
+}
+
+/**
+ * 全端点连通性测试 —— Settings 页使用
+ * 并行探测 6 个 GitHub 相关端点，给出每个的状态 + 总体诊断
+ */
+export async function testFullGitHubConnectivity(
+  pagesHost?: string,
+): Promise<FullConnectivityReport> {
+  const pagesTarget = pagesHost
+    ? `https://${pagesHost}/`
+    : 'https://nikki-su.github.io/AcademicFlow/' // 默认探测一个公开的 GitHub Pages
+
+  // 定义 6 个端点
+  const endpoints: Array<{
+    key: string
+    label: string
+    url: string
+    opts?: ProbeOptions
+  }> = [
+    {
+      key: 'apiHeader',
+      label: 'api.github.com（Header 模式）',
+      url: `${API_BASE}/user`,
+      opts: {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        // 401/403 也算"可达"（只是没鉴权），关键是网络通
+        expectedStatusMin: 200,
+        expectedStatusMax: 499,
+      },
+    },
+    {
+      key: 'apiSimple',
+      label: 'api.github.com（Query 模式）',
+      url: `${API_BASE}/zen`,
+      opts: {
+        // 零自定义头 → 不触发 CORS 预检
+        expectedStatusMin: 200,
+        expectedStatusMax: 399,
+      },
+    },
+    {
+      key: 'githubMain',
+      label: 'github.com（主站）',
+      url: 'https://github.com/',
+      opts: { timeoutMs: 10000 },
+    },
+    {
+      key: 'codeload',
+      label: 'codeload.github.com（下载）',
+      url: 'https://codeload.github.com/',
+      opts: { timeoutMs: 10000 },
+    },
+    {
+      key: 'gitObjects',
+      label: 'objects.githubusercontent.com（Git LFS）',
+      url: 'https://objects.githubusercontent.com/',
+      opts: {
+        timeoutMs: 10000,
+        // 可能返回 403（需要鉴权），但 DNS/TLS 通了就算可达
+        expectedStatusMin: 200,
+        expectedStatusMax: 499,
+      },
+    },
+    {
+      key: 'pages',
+      label: 'GitHub Pages',
+      url: pagesTarget,
+      opts: { timeoutMs: 10000 },
+    },
+  ]
+
+  // 并行探测所有端点
+  const results = await Promise.all(
+    endpoints.map(async (ep) => {
+      const r = await probeUrl(ep.url, ep.opts)
+      return {
+        key: ep.key,
+        label: ep.label,
+        url: ep.url,
+        ...r,
+      } satisfies EndpointProbeResult
+    }),
+  )
+
+  const headerModeOk = results.find((r) => r.key === 'apiHeader')?.ok ?? false
+  const queryModeOk = results.find((r) => r.key === 'apiSimple')?.ok ?? false
+  const allOk = results.every((r) => r.ok)
+
+  // 生成诊断总结
+  let summary = ''
+  const failed = results.filter((r) => !r.ok)
+  if (allOk) {
+    summary = '🎉 所有 GitHub 端点连通性正常！网络环境良好。'
+  } else {
+    const failedNames = failed.map((f) => f.label).join('、')
+    summary = `以下端点不可达：${failedNames}\n\n`
+    if (!headerModeOk && queryModeOk) {
+      summary += '提示：api.github.com 的 Header 模式被拦截（CORS 预检被阻断），但 Query 模式正常。应用会自动降级。\n'
+    } else if (!headerModeOk && !queryModeOk) {
+      summary += '⚠️ api.github.com 完全不可达！请检查 VPN/代理配置。\n'
+    }
+    summary += `\n失败详情：\n${failed.map((f) => `• ${f.label}: ${f.error || `HTTP ${f.status}`}`).join('\n')}`
+  }
+
+  return {
+    endpoints: results,
+    summary,
+    allOk,
+    headerModeOk,
+    queryModeOk,
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // 核心 API 请求
 // ═════════════════════════════════════════════════════════════════════════
 
