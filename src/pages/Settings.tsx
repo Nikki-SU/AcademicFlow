@@ -12,22 +12,20 @@
 import {
   ArrowLeft,
   BookOpen,
-  CheckCircle,
   Loader2,
   RefreshCw,
   Settings as SettingsIcon,
   Sparkles,
   ToggleLeft,
   ToggleRight,
-  XCircle,
+  Wifi,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
-import MineruConnectivityPanel from '../components/settings/MineruConnectivityPanel'
-import GitHubConnectivityPanel from '../components/settings/GitHubConnectivityPanel'
+import ConnectivityPanel from '../components/settings/ConnectivityPanel'
 
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
@@ -37,12 +35,6 @@ import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
-import {
-  dispatchAiConnectivityTest,
-  getLatestRun,
-  getRun,
-  type RunStatus,
-} from '../services/workflowClient'
 import type { AIProviderMode } from '../types'
 import { AI_PROVIDERS } from '../types'
 
@@ -363,14 +355,6 @@ function Settings() {
               hint="仅存在你浏览器的 IndexedDB，不上传任何服务器"
             />
 
-            {/* 测试连接 + 拉取模型 */}
-            <ProviderConnectionTest
-              providerMode={aiProviderMode}
-              apiKey={apiKeyField}
-              baseUrl={cfg.baseUrl}
-              defaultModel={cfg.defaultModel1}
-            />
-
             <div className="flex items-center justify-between pt-1">
               <div className="text-xs text-slate-500">
                 模型清单：{chatModels.length} 个 chat 类 · 上次更新{' '}
@@ -450,12 +434,6 @@ function Settings() {
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
                            focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-              <ProviderConnectionTest
-                providerMode="custom-ai1"
-                apiKey={customAi1ApiKey}
-                baseUrl={customAi1BaseUrl}
-                defaultModel={customAi1Model}
-              />
             </div>
 
             {/* AI-2 */}
@@ -485,12 +463,6 @@ function Settings() {
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
                            focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-              <ProviderConnectionTest
-                providerMode="custom-ai2"
-                apiKey={customAi2ApiKey}
-                baseUrl={customAi2BaseUrl}
-                defaultModel={customAi2Model}
-              />
             </div>
           </section>
         )}
@@ -507,24 +479,25 @@ function Settings() {
           <DualEngineTestPanel />
         </section>
 
+        {/* 服务连通性测试 —— 统一面板：GitHub + AI + MinerU */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
+          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Wifi className="w-4 h-4 text-indigo-600" />
+            服务连通性测试
+          </h2>
+          <p className="text-xs text-slate-500">
+            GitHub API（前端直连）、AI Provider（Runner 端到端）、MinerU（快速 JWT + Runner 端到端）。
+            点"全部测试"串行跑完三项，或各自点独立按钮。Runner 端到端测试各需 1-2 分钟。
+          </p>
+          <ConnectivityPanel />
+        </section>
+
         {/* 后端处理能力（GitHub Actions） */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
           <h2 className="font-semibold text-slate-800 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-cyan-600" />
             后端处理能力（GitHub Actions）
           </h2>
-
-          {/* GitHub 全端点连通性 —— 登录后也能看网络诊断 */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-700">
-              GitHub 连通性
-            </label>
-            <p className="text-xs text-slate-500">
-              探测 3 个业务代码实际用到的 GitHub 端点：api.github.com（Header + Query 两种认证模式）
-              和 avatars.githubusercontent.com（用户头像 CDN）。
-            </p>
-            <GitHubConnectivityPanel />
-          </div>
 
           <BackendCapabilitiesPanel />
 
@@ -545,8 +518,6 @@ function Settings() {
               onChange={(e) => updateSettings({ mineruToken: e.target.value })}
               className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500"
             />
-            {/* 联通检测：本地 JWT 校验 + worker 代理探活，避免填错 token 要等 pipeline 跑挂才发现 */}
-            <MineruConnectivityPanel />
           </div>
 
           {/* Secrets 同步明细 —— 每条都亮出来，拒绝黑箱 */}
@@ -694,211 +665,6 @@ function ModelSelect(props: {
           ))
         )}
       </select>
-    </div>
-  )
-}
-
-
-/**
- * Provider 连接测试组件
- * 用户填完 API Key 后可一键验证：鉴权 + 最小 chat 请求
- */
-/**
- * AI Provider 连通性测试 —— 后端 Runner 模式
- *
- * 架构说明：
- *   AI API 在 GitHub Actions Runner（后端）里跑，**前端不直连 AI API**。
- *   这里做两件事：
- *     1. syncAllSecrets() —— 确保用户填的 key 已写入私库
- *     2. dispatchAiConnectivityTest() —— 触发 ai-connectivity-test workflow，
- *        Runner 端真调 ${baseUrl}/chat/completions 来测
- *
- *   前端直连 fetch 被墙（国内浏览器直连不了 api.deepseek.com），
- *   但 Runner 有正常网络 + 代理，所以 Runner 测 = 生产环境实际能力。
- */
-function ProviderConnectionTest({
-  providerMode,
-  apiKey,
-  baseUrl,
-  defaultModel,
-}: {
-  providerMode: string
-  apiKey: string
-  baseUrl: string
-  defaultModel: string
-}) {
-  const [status, setStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle')
-  const [message, setMessage] = useState('')
-  const [runUrl, setRunUrl] = useState<string | null>(null)
-
-  // 从 auth/workspace/settings store 拿 dispatch 所需的 owner/repo/token 和当前配置
-  const auth = useAuthStore()
-  const ws = useWorkspaceStore()
-  const store = useSettingsStore()
-  const owner = auth.user?.login ?? ''
-  const repo = ws.repo?.name ?? ''
-  const ghToken = auth.token ?? ''
-
-  // 根据 providerMode 决定 target（前端组件粒度：单 provider 测单引擎，
-  // 预置 provider 默认 AI1+AI2 都用同一个 key，测 both 有意义；
-  // 自定义端点用户可能只测一边，但为了简单统一跑 both）
-  const target: 'ai1' | 'ai2' | 'both' = 'both'
-  void providerMode; void defaultModel; // 保留签名但不直接用
-
-  const runBackendTest = async () => {
-    if (!apiKey.trim()) {
-      setStatus('error')
-      setMessage('请先填 API Key')
-      return
-    }
-    if (!baseUrl) {
-      setStatus('error')
-      setMessage('baseUrl 未配置')
-      return
-    }
-    if (!owner || !repo || !ghToken) {
-      setStatus('error')
-      setMessage('未登录或私库未配置')
-      return
-    }
-
-    // Step 1: 先 syncAllSecrets —— Runner 读 secrets，不是读本地 store
-    setStatus('syncing')
-    setMessage('写入私库 secrets...')
-    setRunUrl(null)
-    try {
-      await syncAllSecrets(owner, repo, ghToken, {
-        aiProviderMode: store.aiProviderMode,
-        deepseekApiKey: store.deepseekApiKey,
-        kimiApiKey: store.kimiApiKey,
-        qiniuApiKey: store.qiniuApiKey,
-        ai1Model: store.ai1Model,
-        ai2Model: store.ai2Model,
-        customAi1BaseUrl: store.customAi1BaseUrl,
-        customAi1ApiKey: store.customAi1ApiKey,
-        customAi1Model: store.customAi1Model,
-        customAi2BaseUrl: store.customAi2BaseUrl,
-        customAi2ApiKey: store.customAi2ApiKey,
-        customAi2Model: store.customAi2Model,
-        mineruToken: store.mineruToken,
-      })
-    } catch (e: any) {
-      setStatus('error')
-      setMessage(`写入 secrets 失败：${e?.message || String(e)}`)
-      return
-    }
-
-    // Step 2: 等 2s 让 GitHub secret 索引生效，再 dispatch
-    await new Promise((r) => setTimeout(r, 2000))
-
-    // Step 3: dispatch + 轮询 runner 结果
-    //   关键：dispatch 前先记住旧 run 的 created_at，dispatch 后只 poll 比它新的 run
-    //   拿到新 run 的 run_id 后，固定用 getRun(runId) 跟踪，不会串到别的 run
-    setStatus('loading')
-    setMessage('触发后端 runner 测试中...')
-    try {
-      const beforeRun = await getLatestRun('ai_connectivity_test', owner, repo, ghToken)
-      const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
-
-      await dispatchAiConnectivityTest(owner, repo, ghToken, target)
-      // dispatch → API 索引到新 run 有 ~1s 延迟，先等一下再 poll
-      await new Promise((r) => setTimeout(r, 2500))
-
-      // Phase 1: 找到这次 dispatch 产生的新 run（created_at > beforeCreatedAt）
-      let myRunId: number | null = null
-      for (let i = 0; i < 20; i++) {
-        const rs = await getLatestRun('ai_connectivity_test', owner, repo, ghToken, beforeCreatedAt)
-        if (rs) { myRunId = rs.run_id; break }
-        await new Promise((r) => setTimeout(r, 1500))
-      }
-
-      if (!myRunId) {
-        setStatus('error')
-        setMessage('runner 未出现（GitHub 索引延迟？），请稍后查看 Actions 日志')
-        return
-      }
-
-      // Phase 2: 固定用 getRun(myRunId) 跟踪这个 run 的完整生命周期
-      let finalRun: RunStatus | null = null
-      for (let i = 0; i < 60; i++) {
-        const rs = await getRun(myRunId, owner, repo, ghToken)
-        if (!rs) { await new Promise(r => setTimeout(r, 1500)); continue }
-        finalRun = rs
-        setRunUrl(rs.html_url)
-        if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
-        setMessage(`Runner 运行中 #${rs.run_id}...`)
-        await new Promise((r) => setTimeout(r, 2000))
-      }
-
-      if (!finalRun) {
-        setStatus('error')
-        setMessage('runner 结果未返回，请稍后查看 Actions 日志')
-        return
-      }
-      setRunUrl(finalRun.html_url)
-
-      if (finalRun.status === 'completed' && finalRun.conclusion === 'success') {
-        setStatus('success')
-        setMessage('✓ Runner 端测试通过 — AI key 有效、端点可达')
-      } else if (finalRun.status === 'completed') {
-        setStatus('error')
-        setMessage(`✗ Runner 端失败（${finalRun.conclusion || 'unknown'}）— 点查看日志`)
-      } else {
-        setStatus('error')
-        setMessage('⏳ runner 状态未知，请手动查日志')
-      }
-    } catch (e: any) {
-      setStatus('error')
-      setMessage(`触发失败：${e?.message || String(e)}`)
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-2 pt-2">
-      <button
-        type="button"
-        onClick={runBackendTest}
-        disabled={status === 'loading' || status === 'syncing' || !apiKey.trim()}
-        title="把 key 写入私库 secrets → 触发 GitHub Actions runner 在后端真测 chat/completions"
-        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md
-                   border border-slate-300 bg-white
-                   hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700
-                   disabled:text-slate-300 disabled:cursor-not-allowed disabled:hover:bg-white
-                   transition-colors"
-      >
-        {(status === 'loading' || status === 'syncing') ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        ) : (
-          <CheckCircle className="w-3.5 h-3.5" />
-        )}
-        {status === 'syncing' ? '写入 secret...' : '测试连接'}
-      </button>
-
-      {status === 'success' && (
-        <a
-          href={runUrl ?? '#'}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700"
-        >
-          <CheckCircle className="w-3.5 h-3.5" />
-          {message}
-        </a>
-      )}
-      {status === 'error' && (
-        <a
-          href={runUrl ?? '#'}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
-        >
-          <XCircle className="w-3.5 h-3.5" />
-          {message}
-        </a>
-      )}
-      {(status === 'loading' || status === 'syncing') && (
-        <span className="text-xs text-slate-500">{message}</span>
-      )}
     </div>
   )
 }

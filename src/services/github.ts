@@ -210,13 +210,11 @@ export interface FullConnectivityReport {
 
 /**
  * 连通性测试 —— Settings 页使用
- * 仅探测**业务代码实际用到**的 GitHub 端点：
+ * 仅探测业务关键的 GitHub API 端点：
  *   1. api.github.com（Header 模式 —— 所有 API 调用的正常路径）
  *   2. api.github.com（Query 模式 —— CORS 预检被拦截时的降级路径）
- *   3. avatars.githubusercontent.com（登录后拉用户头像）
  */
 export async function testFullGitHubConnectivity(): Promise<FullConnectivityReport> {
-  // 定义端点 —— 只保留业务代码实际引用的
   const endpoints: Array<{
     key: string
     label: string
@@ -232,7 +230,6 @@ export async function testFullGitHubConnectivity(): Promise<FullConnectivityRepo
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
         },
-        // 401/403 也算"可达"（只是没鉴权），关键是网络通
         expectedStatusMin: 200,
         expectedStatusMax: 499,
       },
@@ -242,25 +239,12 @@ export async function testFullGitHubConnectivity(): Promise<FullConnectivityRepo
       label: 'api.github.com（Query 模式）',
       url: `${API_BASE}/zen`,
       opts: {
-        // 零自定义头 → 不触发 CORS 预检
         expectedStatusMin: 200,
         expectedStatusMax: 399,
       },
     },
-    {
-      key: 'avatars',
-      label: 'avatars.githubusercontent.com（用户头像）',
-      url: 'https://avatars.githubusercontent.com/u/0?s=32',
-      opts: {
-        timeoutMs: 8000,
-        // 404（user 0 不存在）就算 DNS/TLS 通了
-        expectedStatusMin: 200,
-        expectedStatusMax: 499,
-      },
-    },
   ]
 
-  // 并行探测所有端点
   const results = await Promise.all(
     endpoints.map(async (ep) => {
       const r = await probeUrl(ep.url, ep.opts)
@@ -277,20 +261,15 @@ export async function testFullGitHubConnectivity(): Promise<FullConnectivityRepo
   const queryModeOk = results.find((r) => r.key === 'apiSimple')?.ok ?? false
   const allOk = results.every((r) => r.ok)
 
-  // 生成诊断总结
   let summary = ''
-  const failed = results.filter((r) => !r.ok)
   if (allOk) {
-    summary = '🎉 所有 GitHub 端点连通性正常！网络环境良好。'
+    summary = 'api.github.com 两种认证模式都可达，GitHub API 完全正常。'
+  } else if (!headerModeOk && queryModeOk) {
+    summary = '⚠️ Header 模式被 CORS 预检拦截，但 Query 模式正常。应用会自动降级到 Query 参数认证。'
+  } else if (!headerModeOk && !queryModeOk) {
+    summary = '❌ api.github.com 完全不可达！请检查 VPN/代理是否生效。'
   } else {
-    const failedNames = failed.map((f) => f.label).join('、')
-    summary = `以下端点不可达：${failedNames}\n\n`
-    if (!headerModeOk && queryModeOk) {
-      summary += '提示：api.github.com 的 Header 模式被拦截（CORS 预检被阻断），但 Query 模式正常。应用会自动降级。\n'
-    } else if (!headerModeOk && !queryModeOk) {
-      summary += '⚠️ api.github.com 完全不可达！请检查 VPN/代理配置。\n'
-    }
-    summary += `\n失败详情：\n${failed.map((f) => `• ${f.label}: ${f.error || `HTTP ${f.status}`}`).join('\n')}`
+    summary = '⚠️ 诊断异常状态，请检查网络。'
   }
 
   return {
