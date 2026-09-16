@@ -816,8 +816,9 @@ export default function ManagementPage() {
     }
   }, [doiQuickInput, papers, activePaperCategory])
 
-  const handleAddPaper = () => {
+  const handleAddPaper = async () => {
     if (!newPaper.title.trim()) return
+    const prevPapers = papers
     const paper: Paper = {
       id: newPaper.doi || String(Date.now()),
       title: newPaper.title,
@@ -834,9 +835,15 @@ export default function ManagementPage() {
     }
     const updated = [paper, ...papers]
     setPapers(updated)
-    savePapers(updated)
-    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: [] })
-    setShowAddPaperModal(false)
+    try {
+      await savePapers(updated)
+      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: [] })
+      setShowAddPaperModal(false)
+      toast.success('文献已保存', { description: '刷新后仍会保留' })
+    } catch (err) {
+      setPapers(prevPapers)
+      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+    }
   }
 
   /** 递归列出 GitHub 仓库目录下所有文件（用 Contents API），404 返回空数组 */
@@ -1140,13 +1147,20 @@ export default function ManagementPage() {
     setShowEditPaperModal(true)
   }
 
-  const handleSavePaper = () => {
+  const handleSavePaper = async () => {
     if (!editingPaper) return
+    const prevPapers = papers
     const updated = papers.map((p) => (p.id === editingPaper.id ? editingPaper : p))
     setPapers(updated)
-    savePapers(updated)
-    setShowEditPaperModal(false)
-    setEditingPaper(null)
+    try {
+      await savePapers(updated)
+      setShowEditPaperModal(false)
+      setEditingPaper(null)
+      toast.success('修改已保存')
+    } catch (err) {
+      setPapers(prevPapers)
+      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+    }
   }
 
   const handleBatchDelete = async () => {
@@ -1475,8 +1489,45 @@ export default function ManagementPage() {
   // 后台化：所有 PDF 转换都走 taskQueue（fire-and-forget）
   // ============================================================
 
-  const startPaperMineruConvert = async (paperDoi: string, file: File, title: string) => {
-    await enqueuePaperMineruConvert(paperDoi, file, title)
+  /**
+   * 上传某篇 paper 的 PDF 并立即触发后端转换。
+   * 调用后立即 set mdStatus='converting' 让卡片 UI 秒级反馈，
+   * 然后等 taskQueue + 后端 progress.json 驱动后续进度。
+   */
+  const startPaperMineruConvert = async (paper: Paper, file: File) => {
+    const paperDoi = paper.doi
+    if (!paperDoi) {
+      toast.error('这篇文献没有 DOI，无法上传转换')
+      return
+    }
+    const prevProgress = paper.mdProgress
+
+    // 立即更新 UI：状态变 converting，进度从 0 开始
+    setPapers((prev) => prev.map((p) =>
+      p.id === paper.id
+        ? { ...p, mdStatus: 'converting' as const, mdProgress: 0 }
+        : p,
+    ))
+
+    try {
+      const result = await enqueuePaperMineruConvert(paperDoi, file, paper.title)
+      if (!result.ok) {
+        // enqueue 失败：回滚 UI 状态
+        setPapers((prev) => prev.map((p) =>
+          p.id === paper.id
+            ? { ...p, mdStatus: 'failed' as const, mdProgress: prevProgress }
+            : p,
+        ))
+      }
+    } catch (err) {
+      // 异常：回滚 UI 状态
+      setPapers((prev) => prev.map((p) =>
+        p.id === paper.id
+          ? { ...p, mdStatus: 'failed' as const, mdProgress: prevProgress }
+          : p,
+      ))
+      toast.error(`上传异常：${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   const startBookMineruConvert = async (
@@ -1993,6 +2044,25 @@ export default function ManagementPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1">
+                              {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
+                              {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
+                                <label
+                                  className="p-1.5 rounded-md transition cursor-pointer text-indigo-500 hover:text-indigo-600 hover:bg-indigo-50"
+                                  title="上传 PDF 开始转换"
+                                >
+                                  <Upload className="w-4 h-4" />
+                                  <input
+                                    type="file"
+                                    accept=".pdf"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0]
+                                      if (file) void startPaperMineruConvert(paper, file)
+                                      e.target.value = ''
+                                    }}
+                                  />
+                                </label>
+                              )}
                               <button
                                 disabled={paper.mdStatus === 'converting'}
                                 onClick={() => handleOpenReading(paper)}
@@ -2130,6 +2200,26 @@ export default function ManagementPage() {
                             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                               <StatusBadge status={paper.mdStatus} />
                               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                                {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
+                                {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
+                                  <label
+                                    className="p-1 rounded transition cursor-pointer text-indigo-500 hover:text-indigo-600 hover:bg-indigo-50"
+                                    title="上传 PDF 开始转换"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Upload className="w-3.5 h-3.5" />
+                                    <input
+                                      type="file"
+                                      accept=".pdf"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0]
+                                        if (file) void startPaperMineruConvert(paper, file)
+                                        e.target.value = ''
+                                      }}
+                                    />
+                                  </label>
+                                )}
                                 <button
                                   disabled={paper.mdStatus === 'converting' || !paper.doi}
                                   onClick={(e) => {
@@ -3072,7 +3162,7 @@ export default function ManagementPage() {
                         onChange={(e) => {
                           const file = e.target.files?.[0]
                           if (file && editingPaper) {
-                            void startPaperMineruConvert(editingPaper.doi, file, editingPaper.title)
+                            void startPaperMineruConvert(editingPaper, file)
                           }
                           e.target.value = ''
                         }}
