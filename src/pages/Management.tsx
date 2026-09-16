@@ -1140,26 +1140,59 @@ export default function ManagementPage() {
     // 1. 先把 mdStatus 设成 converting
     setPapers((prev) => prev.map((p) => (p.id === paper.id ? { ...p, mdStatus: 'converting' as const, mdProgress: 0 } : p)))
 
-    // 2. 清理旧的 .progress.json
+    console.log('[handleReconvertPaper] step 1 done, registering taskQueue...')
+
+    // 2. 注册进 taskQueue — 右侧后台监控面板立即可见任务
+    const taskId = `paper_${slug}_${Date.now()}`
+    const now = Date.now()
     try {
-      await deleteRepoFiles(
-        [`literatures/${slug}/.progress.json`],
-        `chore: clear progress before reconvert ${slug}`,
-        owner as string,
-        repo.name,
-        token,
-      )
-    } catch { /* 文件不存在或删不掉，不阻塞 */ }
+      await taskQueue.add_task({
+        id: taskId,
+        type: 'paper_convert',
+        doi: paper.doi,
+        book_id: undefined,
+        title: paper.title,
+        stage: 'queued',
+        node_index: STAGE_META.queued.node,
+        progress: 0,
+        status: 'pending',
+        message: '重新转换已注册，等待后端处理...',
+        created_at: now,
+        updated_at: now,
+        error: undefined,
+        metadata: {
+          pdf_github_path: pdfPath,
+          slug,
+          source: 'reconvert',
+        },
+      })
+      console.log('[handleReconvertPaper] taskQueue 已注册:', taskId, 'tasks=', taskQueue.tasks.length)
+    } catch (err: any) {
+      console.warn('[handleReconvert] taskQueue.add_task 失败:', err?.message)
+    }
+
+    console.log('[handleReconvertPaper] dispatching pipeline...')
 
     // 3. dispatch pipeline
     try {
       await dispatchPipeline(paper.doi, paper.title || slug, pdfPath, owner as string, repo.name, token)
+      console.log('[handleReconvertPaper] dispatch success')
       toast.success('已重新提交后端处理', { description: '右侧后台监控面板可查看实时进度' })
     } catch (err: any) {
+      // dispatch 失败 → 标记 taskQueue 任务为 failed
+      try {
+        await taskQueue.update_task(taskId, {
+          status: 'failed',
+          stage: 'failed',
+          node_index: STAGE_META.failed.node,
+          message: `触发后端失败：${err?.message || String(err)}`,
+          error: err?.message || String(err),
+        })
+      } catch {}
       setPapers((prev) => prev.map((p) => (p.id === paper.id ? { ...p, mdStatus: 'failed' as const } : p)))
       toast.error(`触发后端失败：${err?.message || String(err)}`)
     }
-  }, [repo, token, owner])
+  }, [repo, token, owner, taskQueue])
 
   const handleEditPaper = (paper: Paper) => {
     setEditingPaper({ ...paper })
