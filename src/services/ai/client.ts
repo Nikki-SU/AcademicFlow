@@ -7,7 +7,7 @@
  * 前端传了也会被忽略（保留参数只是为了接口签名不变）。
  */
 import type { AIRequest, AIResponse } from '../../types'
-import { dispatchAi } from '../workflowClient'
+import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -118,7 +118,7 @@ export async function callAI(req: AIRequest): Promise<AIResponse> {
   if (req.temperature !== undefined) inputJson.temperature = req.temperature
   if (req.maxTokens !== undefined) inputJson.maxTokens = req.maxTokens
 
-  await dispatchAi(taskId, 'chat', inputJson, outputPath, 1, owner, repoName, token)
+  await dispatchAiCall(taskId, 'chat', inputJson, outputPath, 1, owner, repoName, token)
   return pollResult(outputPath, owner, repoName, token, req.signal)
 }
 

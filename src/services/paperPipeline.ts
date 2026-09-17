@@ -3,7 +3,7 @@
  * ---------------------------------------------------
  * 真实进度链路：
  *   1. 前端上传 PDF → GitHub 仓库 literatures/{slug}/source/
- *   2. 前端 dispatchPipeline → 触发 GitHub Actions
+ *   2. 前端 dispatchPaperConvert → 触发 GitHub Actions
  *   3. **同时注册进 taskQueue** → 右侧 BackendMonitorPanel 立即可见
  *   4. GitHub Actions 写 .progress.json → 前端轮询同步回 taskQueue
  *   5. 右侧面板随 taskQueue 实时更新（四节点进度条 + stage + 耗时）
@@ -17,7 +17,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
 import { doiToSlug } from './literatureData'
 import { writeFileBatch, type BatchFileOp } from './github'
-import { dispatchPipeline, getLatestRun } from './workflowClient'
+import { dispatchPaperConvert, getLatestRun } from './workflowClient'
 
 const MAX_PDF_SIZE = 100 * 1024 * 1024
 
@@ -123,7 +123,7 @@ export async function enqueuePaperMineruConvert(
     const beforeRun = await getLatestRun('paper_convert', owner, repo, token)
     const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
 
-    await dispatchPipeline(paperDoi, title || slug, pdfPath, owner, repo, token)
+    await dispatchPaperConvert(paperDoi, title || slug, pdfPath, owner, repo, token)
 
     // poll 到新 run 的 run_id（GitHub 索引延迟 ~1-2s），存进 metadata 供后续 run 状态兜底
     let newRunId: number | null = null

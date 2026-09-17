@@ -7,7 +7,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch, deleteRepoFiles } from '../services/github'
-import { pollProgressJson, getRun, dispatchPipeline } from '../services/workflowClient'
+import { pollProgressJson, getRun, dispatchPaperConvert } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
@@ -1175,7 +1175,7 @@ export default function ManagementPage() {
 
     // 3. dispatch pipeline
     try {
-      await dispatchPipeline(paper.doi, paper.title || slug, pdfPath, owner as string, repo.name, token)
+      await dispatchPaperConvert(paper.doi, paper.title || slug, pdfPath, owner as string, repo.name, token)
       console.log('[handleReconvertPaper] dispatch success')
       toast.success('已重新提交后端处理', { description: '右侧后台监控面板可查看实时进度' })
     } catch (err: any) {

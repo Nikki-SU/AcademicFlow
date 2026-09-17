@@ -25,14 +25,13 @@ import { testFullGitHubConnectivity, type FullConnectivityReport } from '../../s
 import { syncAllSecrets } from '../../services/repoSecrets'
 import {
   dispatchAiConnectivityTest,
-  dispatchMineruTest,
+  dispatchMineruConnectivityTest,
   getLatestRun,
   getRun,
   type RunStatus,
+  type WorkflowEvent,
 } from '../../services/workflowClient'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../../constants/skeleton'
-
-type WorkflowEventType = 'ai_connectivity_test' | 'mineru_connectivity_test'
 
 // 私库硬保险 —— workflow 文件在私库 academicflow-workspace 里,不能用 ws.repo.name
 
@@ -41,7 +40,7 @@ type WorkflowEventType = 'ai_connectivity_test' | 'mineru_connectivity_test'
 // ═════════════════════════════════════════════════════════════════════════
 
 async function runWorkflowE2ETest(
-  eventType: WorkflowEventType,
+  eventType: WorkflowEvent,
   dispatch: () => Promise<void>,
   owner: string,
   repo: string,
@@ -232,7 +231,7 @@ export default function ConnectivityPanel() {
 
       const run = await runWorkflowE2ETest(
         'mineru_connectivity_test',
-        () => dispatchMineruTest(owner, repo, ghToken),
+        () => dispatchMineruConnectivityTest(owner, repo, ghToken),
         owner, repo, ghToken,
         'MinerU',
       )

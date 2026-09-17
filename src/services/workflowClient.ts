@@ -37,7 +37,7 @@ export type WorkflowEvent =
 
 // ===================== dispatch =====================
 
-export async function dispatchPipeline(
+export async function dispatchPaperConvert(
   doi: string,
   title: string,
   pdf_path: string,
@@ -48,7 +48,7 @@ export async function dispatchPipeline(
   await dispatchWorkflow('paper_convert', { doi, title, pdf_path }, owner, repo, token)
 }
 
-export async function dispatchAi(
+export async function dispatchAiCall(
   task_id: string,
   task_type: string,
   input_json: Record<string, any>,
@@ -65,7 +65,7 @@ export async function dispatchAi(
   )
 }
 
-export async function dispatchMineruTest(
+export async function dispatchMineruConnectivityTest(
   owner: string,
   repo: string,
   token: string,

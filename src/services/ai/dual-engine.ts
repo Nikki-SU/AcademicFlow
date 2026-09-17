@@ -17,7 +17,7 @@ import type {
   DualEngineResult,
   DualEngineProgressCallback,
 } from '../../types'
-import { dispatchAi } from '../workflowClient'
+import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -115,7 +115,7 @@ export async function runDualEngine(
   })
 
   // dispatch
-  await dispatchAi(taskId, 'dual_engine', inputJson, outputPath, 1, owner, repoName, token)
+  await dispatchAiCall(taskId, 'dual_engine', inputJson, outputPath, 1, owner, repoName, token)
 
   // poll 结果
   const result = await pollResultFile(outputPath, owner, repoName, token, params.onProgress)

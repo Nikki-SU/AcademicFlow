@@ -19,7 +19,7 @@ import { runDualEngine } from '../services/ai/dual-engine'
 import { MODELS_CACHE_TTL_MS } from '../services/ai/models'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
 import { loadGlobalSettings, saveGlobalSettings } from '../services/globalSettings'
-import { dispatchAi } from '../services/workflowClient'
+import { dispatchAiCall } from '../services/workflowClient'
 import { readRepoTextFile } from '../services/github'
 import { useAuthStore } from './auth'
 import { useWorkspaceStore } from './workspace'
@@ -401,7 +401,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       const taskId = `list_models_${rand}`
 
       try {
-        await dispatchAi(
+        await dispatchAiCall(
           taskId, 'list_models',
           { baseUrl, apiKey },
           outputPath, 1,
