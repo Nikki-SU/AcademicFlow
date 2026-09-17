@@ -8,7 +8,7 @@
  * 不缓存任何 Vite 编译资源，否则会挡住 HMR 和代码更新。
  */
 
-const CACHE_NAME = 'academicflow-v1'
+const CACHE_NAME = 'academicflow-v2'
 
 // Dev 检测：localhost 或 127.0.0.1 时不缓存
 function isDevUrl(url) {
@@ -62,6 +62,20 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // ⚠️ 关键：跨域请求一律直连网络，绝不进 SW 缓存。
+  // api.github.com / raw.githubusercontent.com 等是实时业务数据，
+  // 一旦 cache-first，actions/runs 列表会永远返回 dispatch 前的旧快照，
+  // 表现为"dispatch 成功但 30s 找不到新 run"。
+  if (url.origin !== self.location.origin) {
+    return
+  }
+
+  // 同源但带 query string 的请求也不缓存（SPA 内部状态/路由）
+  if (url.search) {
+    return
+  }
+
+  // 仅对同源静态资源（HTML 壳、hashed assets）做 cache-first
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached

@@ -11,11 +11,34 @@ const isDev = (() => {
 })()
 
 if (!isDev && 'serviceWorker' in navigator) {
+  // v1 SW 曾错误地 cache-first 缓存了 api.github.com 的实时响应,
+  // 导致 dispatch 后 actions/runs 列表永远是旧快照。
+  // 新 JS 一加载就无条件清掉所有非 v2 缓存, 兜底。
+  if ('caches' in window) {
+    caches.keys().then(function (keys) {
+      keys.forEach(function (k) {
+        if (k !== 'academicflow-v2') {
+          caches.delete(k).then(function () {
+            console.log('[SW] 已清理旧缓存:', k)
+          })
+        }
+      })
+    })
+  }
+
+  // 新 SW (skipWaiting) 接管后自动刷新一次, 保证用户拿到修复版
+  var reloaded = false
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (!reloaded) { reloaded = true; window.location.reload() }
+  })
+
   window.addEventListener('load', function () {
     navigator.serviceWorker
       .register('sw.js')
       .then(function (registration) {
         console.log('[SW] 注册成功:', registration.scope)
+        // 立即检查 sw.js 更新, 不等浏览器默认周期
+        return registration.update()
       })
       .catch(function (err) {
         console.warn('[SW] 注册失败:', err)

@@ -89,6 +89,10 @@ export async function dispatchAiConnectivityTest(
  *   - eventType 同时匹配 run.name（yml 的 name: 字段）
  *   - GitHub API 的 event 参数只有底层触发源，所有 repository_dispatch 触发的 run 的 event 全是 "repository_dispatch"
  *   - 所以必须先拉一批，再按 run.name 过滤
+ *
+ * 认证: 默认 Header 模式 (用户实测稳定), githubFetch 内部在 401/403 时
+ * 自动 fallback 到 Query 模式 —— 一个调用点覆盖两条通道, 不再手工重试。
+ * cache: no-store 已在 githubFetch 内强制设置, 杜绝 SW/HTTP 缓存返回旧 run 列表。
  */
 export async function getLatestRun(
   eventType: WorkflowEvent,
@@ -97,33 +101,30 @@ export async function getLatestRun(
   token: string,
   minCreatedAt?: string,
 ): Promise<RunStatus | null> {
-  // 强制 Query 模式 — 绕过 Header 模式 CORS + PAT 兼容性问题
-  let res = await githubFetch(
-    `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=50`,
-    token,
-    {},
-    'query',   // authMode: 直接用 query, 不用 header
-  )
-  if (!res.ok) {
-    console.warn(`[getLatestRun] Query 模式失败 HTTP ${res.status}, 试 header fallback...`)
+  let res: Response
+  try {
     res = await githubFetch(
       `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=50`,
       token,
-      {},
-      'header',
     )
-    if (!res.ok) {
-      console.error(`[getLatestRun] header 也失败 HTTP ${res.status}`)
-      return null
-    }
+  } catch (e) {
+    console.warn(`[getLatestRun] ${eventType} 网络异常:`, e)
+    return null
+  }
+  if (!res.ok) {
+    console.warn(`[getLatestRun] ${eventType} HTTP ${res.status}`)
+    return null
   }
   interface _GhRunLite { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; updated_at: string; name: string }
   const data = (await res.json()) as { workflow_runs?: _GhRunLite[] }
-  const candidate = data.workflow_runs?.find((r) => {
-    if (r.name !== eventType) return false
-    if (minCreatedAt && r.created_at <= minCreatedAt) return false
-    return true
-  })
+  const all = data.workflow_runs ?? []
+  const sameName = all.filter((r) => r.name === eventType)
+  const candidate = sameName.find((r) => !minCreatedAt || r.created_at > minCreatedAt)
+  console.log(
+    `[getLatestRun] ${eventType} 拉到 ${all.length} 个 dispatch run, ` +
+    `同名 ${sameName.length} 个${minCreatedAt ? `, 阈值 ${minCreatedAt}` : ''} → ` +
+    (candidate ? `命中 #${candidate.id} (${candidate.created_at})` : '无新 run'),
+  )
   if (!candidate) return null
   return {
     id: candidate.id,
@@ -141,24 +142,16 @@ export async function getRun(
   repo: string,
   token: string,
 ): Promise<RunStatus | null> {
-  let res = await githubFetch(
-    `/repos/${owner}/${repo}/actions/runs/${id}`,
-    token,
-    {},
-    'query',
-  )
+  let res: Response
+  try {
+    res = await githubFetch(`/repos/${owner}/${repo}/actions/runs/${id}`, token)
+  } catch (e) {
+    console.warn(`[getRun] #${id} 网络异常:`, e)
+    return null
+  }
   if (!res.ok) {
-    console.warn(`[getRun] Query 模式失败 HTTP ${res.status}, 试 header fallback...`)
-    res = await githubFetch(
-      `/repos/${owner}/${repo}/actions/runs/${id}`,
-      token,
-      {},
-      'header',
-    )
-    if (!res.ok) {
-      console.error(`[getRun] header 也失败 HTTP ${res.status}`)
-      return null
-    }
+    console.warn(`[getRun] #${id} HTTP ${res.status}`)
+    return null
   }
   const run = await res.json()
   return {
