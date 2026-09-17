@@ -40,7 +40,7 @@ import { DEFAULT_WORKSPACE_REPO_NAME } from '../../constants/skeleton'
 // 步骤状态 + 结果类型
 // ═════════════════════════════════════════════════════════════════════════
 
-export type StepStatus = 'pending' | 'running' | 'done' | 'error'
+export type StepStatus = 'pending' | 'running' | 'done' | 'warn' | 'error'
 
 export interface Step {
   key: string
@@ -218,25 +218,27 @@ export default function ConnectivityPanel() {
   // ═══════ GitHub 测试 ═══════
   const runGitHubTest = useCallback(async () => {
     setGhTesting(true)
-    // reset + 开始
     setGhSteps(GITHUB_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
     try {
       // 带 token 时真测 /user 的 Header + Query 认证, 不带 token 时测网络层
       const r = await testFullGitHubConnectivity(ghToken || undefined)
       setGhSteps((prev) => prev.map((s) => {
-        // endpoint key 已经改成精确的 'header' / 'query', 直接 === 匹配
         const ep = r.endpoints.find((e) => e.key === s.key)
         const ok = ep?.ok ?? false
-        return {
-          ...s,
-          status: ok ? 'done' : 'error',
-          detail: ep ? `HTTP ${ep.status} · ${ep.latencyMs}ms` : undefined,
+        if (ok) {
+          return { ...s, status: 'done' as StepStatus, detail: ep ? `HTTP ${ep.status} · ${ep.latencyMs}ms` : undefined }
         }
+        // 失败: 另一个模式成功 → warn (降级情况), 否则 → error
+        const otherOk = s.key === 'header' ? r.queryModeOk : r.headerModeOk
+        const status: StepStatus = otherOk ? 'warn' : 'error'
+        const errDetail = ep
+          ? `HTTP ${ep.status}${ep.error ? ` · ${ep.error}` : ''}${otherOk ? ' · 不影响 (另一种模式可用)' : ''}`
+          : undefined
+        return { ...s, status, detail: errDetail }
       }))
       setGhReport(r)
     } catch (e: unknown) {
-      // 全部标 error
-      setGhSteps((prev) => prev.map((s) => ({ ...s, status: 'error' })))
+      setGhSteps((prev) => prev.map((s) => ({ ...s, status: 'error' as StepStatus })))
       toast.error(`GitHub 测试失败:${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setGhTesting(false)
@@ -393,7 +395,7 @@ export default function ConnectivityPanel() {
   }
 
   const greenCount = [
-    ghReport?.allOk,
+    ghReport?.flowOk,
     aiResult?.ok,
     mineruResult?.ok,
   ].filter(Boolean).length
@@ -422,7 +424,9 @@ export default function ConnectivityPanel() {
         icon={<Cloud className="w-4 h-4" />}
         title="GitHub API"
         subtitle="前端直连 api.github.com (Header + Query 两种认证模式)"
-        tone={ghReport ? (ghReport.allOk ? 'ok' : 'err') : ghTesting ? 'running' : 'idle'}
+        tone={ghReport
+          ? (ghReport.flowOk ? (ghReport.allOk ? 'ok' : 'warn') : 'err')
+          : ghTesting ? 'running' : 'idle'}
         buttonLabel={ghTesting ? '测试中...' : '单独测试'}
         onButton={runGitHubTest}
         buttonDisabled={ghTesting}
@@ -536,6 +540,8 @@ function StepTimeline({ steps }: { steps: Step[] }) {
         return <Loader2 className="w-3 h-3 text-indigo-500 animate-spin" />
       case 'done':
         return <CheckCircle2 className="w-3 h-3 text-green-600" />
+      case 'warn':
+        return <AlertTriangle className="w-3 h-3 text-amber-500" />
       case 'error':
         return <XCircleImpl />
     }
@@ -553,6 +559,7 @@ function StepTimeline({ steps }: { steps: Step[] }) {
       case 'pending':  return 'text-slate-400'
       case 'running':  return 'text-indigo-600 font-medium'
       case 'done':     return 'text-green-700'
+      case 'warn':     return 'text-amber-600 font-medium'
       case 'error':    return 'text-red-600 font-medium'
     }
   }
@@ -565,9 +572,11 @@ function StepTimeline({ steps }: { steps: Step[] }) {
         const connector = i < steps.length - 1
           ? (s.status === 'done'
               ? 'bg-green-300'
-              : s.status === 'error'
-                ? 'bg-red-300'
-                : 'bg-slate-200')
+              : s.status === 'warn'
+                ? 'bg-amber-300'
+                : s.status === 'error'
+                  ? 'bg-red-300'
+                  : 'bg-slate-200')
           : ''
         return (
           <div key={s.key} className="flex items-start gap-2">

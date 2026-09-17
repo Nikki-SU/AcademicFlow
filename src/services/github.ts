@@ -206,6 +206,8 @@ export interface FullConnectivityReport {
   allOk: boolean
   headerModeOk: boolean
   queryModeOk: boolean
+  /** 流程级别的成功: 只要有一个模式能通就叫通 (githubFetch 内部有 fallback) */
+  flowOk: boolean
 }
 
 /**
@@ -293,18 +295,25 @@ export async function testFullGitHubConnectivity(
   const headerModeOk = results.find((r) => r.key === 'header')?.ok ?? false
   const queryModeOk = results.find((r) => r.key === 'query')?.ok ?? false
   const allOk = results.every((r) => r.ok)
+  // 流程是否通：只要有一个认证模式能拿到 2xx, githubFetch 就能跑
+  //   - githubFetch 内部已经有 Header → Query 自动 fallback
+  //   - 对用户来说 "有一个能用" 就够了
+  const flowOk = headerModeOk || queryModeOk
 
   let summary = ''
   if (token) {
-    if (allOk) summary = '✅ 两种认证模式都成功, GitHub API 完全正常'
-    else if (headerModeOk && !queryModeOk) summary = '⚠️ Header 模式成功但 Query 模式失败, 罕见情况, 请反馈'
-    else if (!headerModeOk && queryModeOk) summary = '⚠️ Header 模式被拦截, 但 Query 模式可用 (系统会自动降级)'
-    else summary = '❌ 两种认证模式都失败! 可能 token 无效或网络阻断 api.github.com'
+    if (allOk) summary = '✅ GitHub API 流程完全通 (两种认证模式都成功)'
+    else if (flowOk) {
+      // 只有一个模式成功也不叫"失败"——系统自动用能通的那个
+      const onlyHeader = headerModeOk && !queryModeOk
+      const onlyQuery = !headerModeOk && queryModeOk
+      if (onlyHeader) summary = '✅ GitHub API 可用 (Header 模式成功, Query 模式失败不影响)'
+      else if (onlyQuery) summary = '✅ GitHub API 可用 (Header 失败但 Query 模式可用, 已自动降级)'
+    } else summary = '❌ GitHub API 完全不可用! token 无效或网络阻断 api.github.com'
   } else {
-    if (allOk) summary = '✅ GitHub API 网络连通性正常 (仅测试网络层, 未带 token)'
-    else if (!headerModeOk && queryModeOk) summary = '⚠️ Header 模式触发的 CORS 预检被拦截, 但简单请求正常'
-    else if (!headerModeOk && !queryModeOk) summary = '❌ api.github.com 完全不可达! 请检查 VPN/代理'
-    else summary = '⚠️ 诊断异常状态'
+    if (allOk) summary = '✅ api.github.com 网络正常 (未带 token, 仅测网络层)'
+    else if (flowOk) summary = '⚠️ 网络部分受阻 (但至少一种路径可用)'
+    else summary = '❌ api.github.com 完全不可达! 请检查 VPN/代理'
   }
 
   return {
@@ -313,6 +322,7 @@ export async function testFullGitHubConnectivity(
     allOk,
     headerModeOk,
     queryModeOk,
+    flowOk, // 新增: 流程级别的成功判定
   }
 }
 
