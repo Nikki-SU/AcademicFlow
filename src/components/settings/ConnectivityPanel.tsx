@@ -5,10 +5,6 @@
  *   - GitHub: 前端直连 api.github.com (Header + Query 两种模式)
  *   - AI: sync secrets → dispatch → Runner 端到端真调 chat/completions
  *   - MinerU: sync secrets → dispatch → Runner 端到端真调 mineru.net
- *
- * 全部测试按钮串行跑完三项。
- * 自动触发:只跑 GitHub(毫秒级)+ MinerU Token 快速 JWT 校验
- * 手动触发:全部测试 或 各自独立端到端按钮
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -18,6 +14,8 @@ import {
   Zap,
   Cloud,
   Bot,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth'
 import { useSettingsStore } from '../../stores/settings'
@@ -33,10 +31,17 @@ import {
 } from '../../services/workflowClient'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../../constants/skeleton'
 
-// 私库硬保险 —— workflow 文件在私库 academicflow-workspace 里,不能用 ws.repo.name
+// ═════════════════════════════════════════════════════════════════════════
+// Runner 测试结果类型 (5 种状态, 无信息丢失)
+// ═════════════════════════════════════════════════════════════════════════
+
+type RunnerTestResult =
+  | { ok: true; run: RunStatus }                              // 成功
+  | { ok: false; run: RunStatus; reason?: string }            // run 结束但失败
+  | { ok: false; run: null; reason: string }                  // 没找到 run / dispatch 异常
 
 // ═════════════════════════════════════════════════════════════════════════
-// 共享工具:Runner workflow 触发 + 轮询
+// 共享工具:dispatch + 轮询
 // ═════════════════════════════════════════════════════════════════════════
 
 async function runWorkflowE2ETest(
@@ -45,24 +50,16 @@ async function runWorkflowE2ETest(
   owner: string,
   repo: string,
   ghToken: string,
-  label: string,
-): Promise<RunStatus | null> {
-  console.log(`[ConnectivityPanel] ${label}: 开始`)
-  console.log(`[ConnectivityPanel] ${label}: dispatch 目标 → ${owner}/${repo}`)
-
+): Promise<RunnerTestResult> {
   // 1. 记住 dispatch 前的最新 run
   const beforeRun = await getLatestRun(eventType, owner, repo, ghToken)
   const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
-  console.log(`[ConnectivityPanel] ${label}: dispatch 前最新 run #${beforeRun?.run_id ?? 'none'}, created_at=${beforeCreatedAt}`)
 
   // 2. dispatch
-  console.log(`[ConnectivityPanel] ${label}: POST /dispatches event_type=${eventType}`)
   try {
     await dispatch()
-    console.log(`[ConnectivityPanel] ${label}: dispatch 成功`)
   } catch (e: any) {
-    console.error(`[ConnectivityPanel] ${label}: dispatch 失败:`, e)
-    throw e
+    return { ok: false, run: null, reason: `dispatch 失败: ${e?.message || String(e)}` }
   }
 
   await new Promise((resolve) => setTimeout(resolve, 2500))
@@ -71,37 +68,34 @@ async function runWorkflowE2ETest(
   let myRunId: number | null = null
   for (let i = 0; i < 20; i++) {
     const rs = await getLatestRun(eventType, owner, repo, ghToken, beforeCreatedAt)
-    if (rs) {
-      myRunId = rs.run_id
-      console.log(`[ConnectivityPanel] ${label}: ✅ 找到新 run #${rs.run_id} ${rs.status} (created_at=${rs.created_at})`)
-      break
-    }
-    console.log(`[ConnectivityPanel] ${label}: attempt ${i + 1}/20 — 没找到新 run,再等 1.5s...`)
+    if (rs) { myRunId = rs.run_id; break }
     await new Promise((resolve) => setTimeout(resolve, 1500))
   }
   if (!myRunId) {
-    console.error(`[ConnectivityPanel] ${label}: ❌ 30s 内没找到新 run`)
-    console.error(`[ConnectivityPanel] ${label}: 可能原因:`)
-    console.error(`  - dispatch 打到错误的 repo (当前: ${owner}/${repo})`)
-    console.error(`  - workflow yml 不在该 repo 的 .github/workflows/ 里`)
-    console.error(`  - GitHub 索引延迟超过 30s`)
-    return null
+    return {
+      ok: false, run: null,
+      reason: `GitHub Actions 30s 内没创建新 run。可能原因: dispatch 打到了错误的 repo (当前目标 ${owner}/${repo}), 或 workflow yml 不在 .github/workflows/ 里, 或 Actions 排队超过 30s。`,
+    }
   }
 
   // 4. Phase 2: 固定跟踪这个 run (最多 60 次 × 2s = 120s)
-  console.log(`[ConnectivityPanel] ${label}: Phase 2 跟踪 run #${myRunId}...`)
   let finalRun: RunStatus | null = null
   for (let i = 0; i < 60; i++) {
     const rs = await getRun(myRunId, owner, repo, ghToken)
     if (!rs) { await new Promise((resolve) => setTimeout(resolve, 1500)); continue }
     finalRun = rs
-    if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') {
-      console.log(`[ConnectivityPanel] ${label}: run #${myRunId} 结束 status=${rs.status} conclusion=${rs.conclusion}`)
-      break
-    }
+    if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
     await new Promise((resolve) => setTimeout(resolve, 2000))
   }
-  return finalRun
+
+  if (!finalRun) {
+    return { ok: false, run: null, reason: `run #${myRunId} 120s 内没结束` }
+  }
+
+  if (finalRun.conclusion === 'success') {
+    return { ok: true, run: finalRun }
+  }
+  return { ok: false, run: finalRun, reason: finalRun.conclusion ?? 'unknown' }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -111,24 +105,20 @@ async function runWorkflowE2ETest(
 export default function ConnectivityPanel() {
   const store = useSettingsStore()
   const auth = useAuthStore()
-
-  // owner 来自 GitHub 登录用户,永远正确
   const owner = auth.user?.login ?? ''
-  // repo 用硬编码私库常量 — workflow 文件和 secrets 都在私库 academicflow-workspace
   const repo = DEFAULT_WORKSPACE_REPO_NAME
   const ghToken = auth.token ?? ''
 
-  // ── GitHub 状态 ──
+  // ── GitHub ──
   const [ghTesting, setGhTesting] = useState(false)
   const [ghReport, setGhReport] = useState<FullConnectivityReport | null>(null)
 
-  // ── AI 状态 ──
+  // ── Runner 测试结果 (5 态) ──
   const [aiTesting, setAiTesting] = useState(false)
-  const [aiRun, setAiRun] = useState<RunStatus | null>(null)
+  const [aiResult, setAiResult] = useState<RunnerTestResult | null>(null)
 
-  // ── MinerU 状态 (端到端 only) ──
-  const [mineruE2ETesting, setMineruE2ETesting] = useState(false)
-  const [mineruRun, setMineruRun] = useState<RunStatus | null>(null)
+  const [mineruTesting, setMineruTesting] = useState(false)
+  const [mineruResult, setMineruResult] = useState<RunnerTestResult | null>(null)
 
   const [allTesting, setAllTesting] = useState(false)
 
@@ -151,12 +141,10 @@ export default function ConnectivityPanel() {
   // ═══════ Secret 写入 ═══════
   const ensureAllSecrets = useCallback(async (): Promise<boolean> => {
     if (!owner || !repo || !ghToken) {
-      console.warn('[ConnectivityPanel] ensureAllSecrets: owner/repo/token 缺失', { owner, repo, hasToken: !!ghToken })
       toast.error('未登录或私库未配置,无法写入 secrets')
       return false
     }
     try {
-      console.log(`[ConnectivityPanel] ensureAllSecrets → ${owner}/${repo}`)
       await syncAllSecrets(owner, repo, ghToken, {
         aiProviderMode: store.aiProviderMode,
         deepseekApiKey: store.deepseekApiKey,
@@ -174,7 +162,6 @@ export default function ConnectivityPanel() {
       })
       return true
     } catch (e: any) {
-      console.error('[ConnectivityPanel] syncAllSecrets 失败:', e)
       toast.error(`写入 secrets 失败:${e?.message || String(e)}`)
       return false
     }
@@ -182,31 +169,27 @@ export default function ConnectivityPanel() {
 
   // ═══════ AI Runner 端到端测试 ═══════
   const runAITest = useCallback(async () => {
-    if (!owner || !repo || !ghToken) {
-      toast.error('未登录或私库未配置')
-      return
-    }
+    if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
     setAiTesting(true)
-    setAiRun(null)
+    setAiResult(null)
     try {
       const secretOk = await ensureAllSecrets()
-      if (!secretOk) { setAiTesting(false); return }
+      if (!secretOk) { setAiTesting(false); setAiResult({ ok: false, run: null, reason: '写入 GitHub Secrets 失败,Runner 拿不到凭据' }); return }
       await new Promise((resolve) => setTimeout(resolve, 2000))
 
-      const run = await runWorkflowE2ETest(
+      const result = await runWorkflowE2ETest(
         'ai_connectivity_test',
         () => dispatchAiConnectivityTest(owner, repo, ghToken, 'both'),
         owner, repo, ghToken,
-        'AI',
       )
-      setAiRun(run)
-      if (run?.conclusion === 'success') {
-        toast.success('AI 端到端测试通过 ✅')
-      } else {
-        toast.error(`AI 测试失败:${run?.conclusion ?? 'runner 未出现'}`)
-      }
+      setAiResult(result)
+      toast[result.ok ? 'success' : 'error'](
+        result.ok ? 'AI 端到端通过 ✅' : `AI 端到端失败:${result.reason}`
+      )
     } catch (e: any) {
-      toast.error(`AI 测试异常:${e?.message || String(e)}`)
+      const reason = e?.message || String(e)
+      setAiResult({ ok: false, run: null, reason })
+      toast.error(`AI 测试异常:${reason}`)
     } finally {
       setAiTesting(false)
     }
@@ -214,37 +197,30 @@ export default function ConnectivityPanel() {
 
   // ═══════ MinerU Runner 端到端测试 ═══════
   const runMineruE2ETest = useCallback(async () => {
-    if (!owner || !repo || !ghToken) {
-      toast.error('未登录或私库未配置')
-      return
-    }
-    if (!mineruToken.trim()) {
-      toast.warning('请先填写 MinerU API Token')
-      return
-    }
-    setMineruE2ETesting(true)
-    setMineruRun(null)
+    if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
+    if (!mineruToken.trim()) { toast.warning('请先填写 MinerU API Token'); return }
+    setMineruTesting(true)
+    setMineruResult(null)
     try {
       const secretOk = await ensureAllSecrets()
-      if (!secretOk) { setMineruE2ETesting(false); return }
+      if (!secretOk) { setMineruTesting(false); setMineruResult({ ok: false, run: null, reason: '写入 GitHub Secrets 失败,Runner 拿不到凭据' }); return }
       await new Promise((resolve) => setTimeout(resolve, 2000))
 
-      const run = await runWorkflowE2ETest(
+      const result = await runWorkflowE2ETest(
         'mineru_connectivity_test',
         () => dispatchMineruConnectivityTest(owner, repo, ghToken),
         owner, repo, ghToken,
-        'MinerU',
       )
-      setMineruRun(run)
-      if (run?.conclusion === 'success') {
-        toast.success('MinerU 端到端测试通过 ✅')
-      } else {
-        toast.error(`MinerU 端到端失败:${run?.conclusion ?? 'runner 未出现'}`)
-      }
+      setMineruResult(result)
+      toast[result.ok ? 'success' : 'error'](
+        result.ok ? 'MinerU 端到端通过 ✅' : `MinerU 端到端失败:${result.reason}`
+      )
     } catch (e: any) {
-      toast.error(`MinerU 测试异常:${e?.message || String(e)}`)
+      const reason = e?.message || String(e)
+      setMineruResult({ ok: false, run: null, reason })
+      toast.error(`MinerU 测试异常:${reason}`)
     } finally {
-      setMineruE2ETesting(false)
+      setMineruTesting(false)
     }
   }, [owner, repo, ghToken, mineruToken, ensureAllSecrets])
 
@@ -263,26 +239,31 @@ export default function ConnectivityPanel() {
     }
   }, [isInitialized, runGitHubTest, runAITest, runMineruE2ETest])
 
-  // ── 自动:只跑 GitHub (毫秒级),不自动触发 Runner (太慢) ──
+  // ── 首次挂载自动跑 GitHub ──
   const didAutoRunRef = useRef(false)
   useEffect(() => {
     if (didAutoRunRef.current) return
     didAutoRunRef.current = true
-    console.log('[ConnectivityPanel] 首次挂载,自动跑 GitHub 测试')
     runGitHubTest()
   }, [runGitHubTest])
 
-  // ═══════ 渲染 ═══════
+  // ═══════ 渲染辅助 ═══════
+  // 根据 testing + result 计算 tone
+  const runnerTone = (testing: boolean, result: RunnerTestResult | null): BlockTone => {
+    if (testing) return 'running'
+    if (!result) return 'idle'
+    return result.ok ? 'ok' : 'err'
+  }
+
   const greenCount = [
     ghReport?.allOk,
-    aiRun?.conclusion === 'success',
-    mineruRun?.conclusion === 'success',
+    aiResult?.ok,
+    mineruResult?.ok,
   ].filter(Boolean).length
-  const totalTests = 3
 
   return (
     <div className="space-y-4">
-      {/* 顶部:全部测试按钮 */}
+      {/* 顶部 */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <button
           type="button"
@@ -291,20 +272,15 @@ export default function ConnectivityPanel() {
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-indigo-400 bg-indigo-50 text-indigo-700 rounded-md
                      hover:bg-indigo-100 disabled:text-slate-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:border-slate-200"
         >
-          {allTesting ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Zap className="w-4 h-4" />
-          )}
+          {allTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
           {allTesting ? '全部测试中...' : '🔌 全部测试'}
         </button>
-
         <span className="text-xs text-slate-500">
-          {greenCount} / {totalTests} 通过 · dispatch 目标:{owner}/{repo}
+          {greenCount} / 3 通过 · dispatch 目标:{owner}/{repo}
         </span>
       </div>
 
-      {/* ── GitHub API ── */}
+      {/* GitHub API */}
       <TestBlock
         icon={<Cloud className="w-4 h-4" />}
         title="GitHub API"
@@ -314,70 +290,33 @@ export default function ConnectivityPanel() {
         onButton={runGitHubTest}
         buttonDisabled={ghTesting}
       >
-        {ghReport && (
-          <>
-            <div className="flex items-center gap-4 text-[12px] font-mono">
-              <ModeDot label="Header 模式" ok={ghReport.headerModeOk} />
-              <ModeDot label="Query 模式" ok={ghReport.queryModeOk} />
-            </div>
-            <div className="border border-slate-200 rounded-md bg-slate-50 overflow-hidden">
-              <div className="divide-y divide-slate-200 text-[11px] font-mono">
-                {ghReport.endpoints.map((ep) => (
-                  <div key={ep.key} className="flex items-center gap-2 px-3 py-1.5">
-                    <span className="w-4 text-center shrink-0">
-                      {ep.ok ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}
-                    </span>
-                    <span className="text-slate-700 w-40 shrink-0 truncate">{ep.label}</span>
-                    <span className="text-slate-400 truncate flex-1 max-w-[180px]">
-                      {ep.url.replace('https://', '')}
-                    </span>
-                    <span className={ep.ok ? 'text-slate-500' : 'text-red-500'}>
-                      {ep.ok ? `HTTP ${ep.status}` : ep.error || `HTTP ${ep.status || '—'}`}
-                    </span>
-                    <span className="text-slate-400 ml-auto tabular-nums">{ep.latencyMs}ms</span>
-                  </div>
-                ))}
-              </div>
-              <div className="px-3 py-1.5 bg-white border-t border-slate-200 text-[11px] text-slate-600">
-                {ghReport.summary}
-              </div>
-            </div>
-          </>
-        )}
+        {ghReport && <GitHubReportDetail report={ghReport} />}
       </TestBlock>
 
-      {/* ── AI Provider ── */}
+      {/* AI Provider */}
       <TestBlock
         icon={<Bot className="w-4 h-4" />}
         title={`AI Provider (${store.aiProviderMode === 'custom' ? '自定义端点' : '预置'})`}
         subtitle="sync secrets → GitHub Actions Runner 真调 chat/completions"
-        tone={
-          aiRun
-            ? aiRun.conclusion === 'success' ? 'ok' : 'err'
-            : aiTesting ? 'running' : 'idle'
-        }
+        tone={runnerTone(aiTesting, aiResult)}
         buttonLabel={aiTesting ? '测试中...' : '端到端测试'}
         onButton={runAITest}
         buttonDisabled={aiTesting || !owner || !repo}
       >
-        {aiRun && <RunStatusLink run={aiRun} />}
+        <RunnerResultView result={aiResult} />
       </TestBlock>
 
-      {/* ── MinerU (端到端 only) ── */}
+      {/* MinerU */}
       <TestBlock
         icon={<Wifi className="w-4 h-4" />}
         title="MinerU (PDF 转换)"
         subtitle="sync secrets → GitHub Actions Runner 真调 mineru.net"
-        tone={
-          mineruRun
-            ? mineruRun.conclusion === 'success' ? 'ok' : 'err'
-            : mineruE2ETesting ? 'running' : 'idle'
-        }
-        buttonLabel={mineruE2ETesting ? '测试中...' : '端到端测试'}
+        tone={runnerTone(mineruTesting, mineruResult)}
+        buttonLabel={mineruTesting ? '测试中...' : '端到端测试'}
         onButton={runMineruE2ETest}
-        buttonDisabled={mineruE2ETesting || !owner || !repo || !mineruToken.trim()}
+        buttonDisabled={mineruTesting || !owner || !repo || !mineruToken.trim()}
       >
-        {mineruRun && <RunStatusLink run={mineruRun} />}
+        <RunnerResultView result={mineruResult} />
       </TestBlock>
     </div>
   )
@@ -406,7 +345,6 @@ function TestBlock(props: {
     warn:    'border-amber-200 bg-amber-50/40',
     err:     'border-red-200 bg-red-50/40',
   }
-
   const toneBadge: Record<BlockTone, React.ReactNode> = {
     idle:    null,
     running: <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">测试中</span>,
@@ -445,6 +383,39 @@ function TestBlock(props: {
   )
 }
 
+function GitHubReportDetail({ report }: { report: FullConnectivityReport }) {
+  return (
+    <>
+      <div className="flex items-center gap-4 text-[12px] font-mono">
+        <ModeDot label="Header 模式" ok={report.headerModeOk} />
+        <ModeDot label="Query 模式" ok={report.queryModeOk} />
+      </div>
+      <div className="border border-slate-200 rounded-md bg-slate-50 overflow-hidden">
+        <div className="divide-y divide-slate-200 text-[11px] font-mono">
+          {report.endpoints.map((ep) => (
+            <div key={ep.key} className="flex items-center gap-2 px-3 py-1.5">
+              <span className="w-4 text-center shrink-0">
+                {ep.ok ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}
+              </span>
+              <span className="text-slate-700 w-40 shrink-0 truncate">{ep.label}</span>
+              <span className="text-slate-400 truncate flex-1 max-w-[180px]">
+                {ep.url.replace('https://', '')}
+              </span>
+              <span className={ep.ok ? 'text-slate-500' : 'text-red-500'}>
+                {ep.ok ? `HTTP ${ep.status}` : ep.error || `HTTP ${ep.status || '—'}`}
+              </span>
+              <span className="text-slate-400 ml-auto tabular-nums">{ep.latencyMs}ms</span>
+            </div>
+          ))}
+        </div>
+        <div className="px-3 py-1.5 bg-white border-t border-slate-200 text-[11px] text-slate-600">
+          {report.summary}
+        </div>
+      </div>
+    </>
+  )
+}
+
 function ModeDot({ label, ok }: { label: string; ok: boolean }) {
   return (
     <span className="flex items-center gap-1">
@@ -454,30 +425,88 @@ function ModeDot({ label, ok }: { label: string; ok: boolean }) {
   )
 }
 
-function RunStatusLink({ run }: { run: RunStatus }) {
-  const toneClass =
-    run.conclusion === 'success'
-      ? 'bg-green-50 border-green-200 text-green-700'
-      : run.conclusion
-        ? 'bg-red-50 border-red-200 text-red-600'
-        : 'bg-blue-50 border-blue-200 text-blue-600'
-  return (
-    <a
-      href={run.html_url}
-      target="_blank"
-      rel="noreferrer"
-      className={`block p-2 rounded-md border text-[11px] ${toneClass}`}
-    >
-      {run.conclusion === 'success' ? (
-        <div className="font-semibold">✓ Runner 端到端测试通过</div>
-      ) : run.conclusion ? (
-        <div className="font-semibold">✗ Runner 端到端失败:{run.conclusion}</div>
-      ) : (
-        <div>⏳ Runner 运行中…</div>
-      )}
-      <div className="opacity-70 mt-0.5">
-        run #{run.run_id} · {run.status} · 查看日志 →
+/**
+ * Runner 测试结果展示 —— 覆盖全部 3 种终态:
+ *   1. ok=true:   ✅ run 成功
+ *   2. ok=false + run!=null: ❌ run 结束但 conclusion!=success (failure/cancelled)
+ *   3. ok=false + run=null:  ❌ 没找到 run 或 dispatch 异常 (reason 解释)
+ */
+function RunnerResultView({ result }: { result: RunnerTestResult | null }) {
+  if (!result) {
+    // idle 状态 — 还没跑过, 给个占位提示
+    return (
+      <div className="text-[11px] text-slate-400 italic">
+        点 "端到端测试" 开始
       </div>
-    </a>
+    )
+  }
+
+  if (result.ok && result.run) {
+    // ── 成功 ──
+    return (
+      <ResultCard
+        icon={<CheckCircle2 className="w-4 h-4" />}
+        tone="ok"
+        title="Runner 端到端通过 ✅"
+        subtitle="Runner 真调成功,凭据和网络都 OK"
+        run={result.run}
+      />
+    )
+  }
+
+  // ── 失败 (run 存在或不存在) ──
+  return (
+    <ResultCard
+      icon={<AlertTriangle className="w-4 h-4" />}
+      tone="err"
+      title={
+        result.run
+          ? `Runner 失败:${result.run.conclusion ?? 'unknown'}`
+          : 'Runner 没出现'
+      }
+      subtitle={result.reason ?? ''}
+      run={result.run}
+    />
+  )
+}
+
+function ResultCard(props: {
+  icon: React.ReactNode
+  tone: 'ok' | 'err'
+  title: string
+  subtitle?: string
+  run: RunStatus | null
+}) {
+  const outer = props.tone === 'ok'
+    ? 'bg-green-50 border-green-200 text-green-800'
+    : 'bg-red-50 border-red-200 text-red-800'
+  const body = props.tone === 'ok' ? 'text-green-600' : 'text-red-600'
+
+  return (
+    <div className={`rounded-md border p-2.5 text-[11px] ${outer}`}>
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5">{props.icon}</span>
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="font-semibold leading-tight">{props.title}</div>
+          {props.subtitle && (
+            <div className={`opacity-80 leading-relaxed ${body}`}>{props.subtitle}</div>
+          )}
+          {props.run && (
+            <a
+              href={props.run.html_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 opacity-70 hover:opacity-100 underline underline-offset-2"
+            >
+              <span>run #{props.run.run_id}</span>
+              <span>·</span>
+              <span>{props.run.status}</span>
+              <span>·</span>
+              <span>查看 GitHub Actions 日志 →</span>
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
