@@ -3,7 +3,7 @@
  *
  * 三个按钮：
  *   1. 检测 4 个 workflow (paper_convert / ai_call / 两个 connectivity_test) 是否安装
- *   2. 重写 4 个 yml + 4 个 runner 脚本
+ *   2. 重写 4 个 yml + 4 个 runner 脚本（并清理旧版 pipeline/ai-service 残留）
  *   3. 配置 GitHub Actions Secrets（打开新窗口 + 引导模板）
  */
 import { useCallback, useState } from 'react'
@@ -23,7 +23,7 @@ export default function BackendCapabilitiesPanel() {
 
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
-  const [checkResult, setCheckResult] = useState<{ installed: boolean; missing: string[]; sizes: Record<string, number> } | null>(null)
+  const [checkResult, setCheckResult] = useState<{ installed: boolean; missing: string[]; legacy: string[]; sizes: Record<string, number> } | null>(null)
   const [runStatus, setRunStatus] = useState<{ pipeline?: string; ai?: string }>({})
 
   const runCheck = useCallback(async () => {
@@ -32,8 +32,14 @@ export default function BackendCapabilitiesPanel() {
     try {
       const r = await checkPipelineInstalled(owner, repo, token)
       setCheckResult(r)
-      if (r.installed) toast.success('后端 workflow 已安装 ✓')
-      else toast.warning(`缺少 ${r.missing.length} 个文件：${r.missing.join(', ')}`)
+      if (r.installed) {
+        toast.success('后端 workflow 已安装 ✓（新版已就绪，无旧版残留）')
+      } else {
+        const parts: string[] = []
+        if (r.missing.length > 0) parts.push(`缺 ${r.missing.length} 个新文件`)
+        if (r.legacy.length > 0) parts.push(`残留 ${r.legacy.length} 个旧版文件`)
+        toast.warning(parts.join('；') + '，请点"重写后端"一键修复')
+      }
 
       // 同时查最近 run 状态
       try {
@@ -55,7 +61,10 @@ export default function BackendCapabilitiesPanel() {
     try {
       const r = await writePipelineFiles(owner, repo, token)
       if (r.ok) {
-        toast.success(`写入成功 ${r.written?.length ?? 4} 个文件`)
+        const cleanMsg = r.legacyDeleted?.length
+          ? `，已清理 ${r.legacyDeleted.length} 个旧版文件`
+          : ''
+        toast.success(`写入成功 ${r.written?.length ?? 4} 个文件${cleanMsg}`)
         await runCheck() // 重新检测
       } else {
         toast.error(`写入失败：${r.details?.filter(d => !d.ok).map(d => `${d.path}: ${d.error}`).join('; ') || 'unknown'}`)
@@ -86,9 +95,11 @@ export default function BackendCapabilitiesPanel() {
         : 'bg-slate-50 border-slate-200 text-slate-600'
       }`}>
         {installed === true ? (
-          <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已就绪，最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
+          <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已就绪（新版），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
         ) : installed === false ? (
-          <><AlertTriangle className="w-4 h-4 text-amber-600" /> 后端未完全安装（缺少 {checkResult?.missing?.length ?? '?'} 个文件）</>
+          <><AlertTriangle className="w-4 h-4 text-amber-600" /> 后端未完全就绪（
+            缺 {checkResult?.missing?.length ?? '?'} 个新文件 · 残留 {checkResult?.legacy?.length ?? '?'} 个旧版文件）
+          </>
         ) : (
           <><Server className="w-4 h-4 text-slate-400" /> 状态未知，点下方"检测"按钮</>
         )}
@@ -135,6 +146,19 @@ export default function BackendCapabilitiesPanel() {
           <div className="text-xs font-semibold text-amber-800">缺失文件：</div>
           {checkResult.missing.map(p => (
             <div key={p} className="flex items-center gap-1 text-xs font-mono text-amber-700">
+              <XCircle className="w-3 h-3" /> {p}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {checkResult && checkResult.legacy.length > 0 && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md space-y-1">
+          <div className="text-xs font-semibold text-red-800">
+            残留的旧版文件（会与新版重复触发 / 造成 "no jobs were run"），点"重写后端"自动清理：
+          </div>
+          {checkResult.legacy.map(p => (
+            <div key={p} className="flex items-center gap-1 text-xs font-mono text-red-700">
               <XCircle className="w-3 h-3" /> {p}
             </div>
           ))}

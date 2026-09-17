@@ -15,16 +15,52 @@ import {
   AI_CONNECTIVITY_TEST_YML_B64, AI_CONNECTIVITY_TEST_MJS_B64,
   PIPELINE_FILES,
 } from '../constants/skeleton'
-import { githubFetch, writeRepoTextFile } from './github'
+import { githubFetch, writeRepoTextFile, deleteRepoFiles } from './github'
 
 const MAX_PIPELINE_FILE = 500 * 1024 // 500KB — 所有 pipeline 文件都远小于此
+
+/**
+ * 老版 workflow/脚本文件名（已废弃）。
+ * 它们与新版文件使用相同的 repository_dispatch event_type，会重复触发，
+ * 造成每次 dispatch 出现双份 run、甚至 "no jobs were run"。
+ * 引导安装时必须把这些残留文件删掉，做到真正切到新版。
+ */
+export const LEGACY_PIPELINE_FILES = [
+  '.github/workflows/pipeline.yml',
+  '.github/workflows/ai-service.yml',
+  '.github/workflows/mineru-test.yml',
+  '.github/workflows/ai-connectivity-test.yml',
+  '.github/scripts/pipeline.mjs',
+  '.github/scripts/ai-service.mjs',
+  '.github/scripts/mineru-test.mjs',
+  '.github/scripts/ai-connectivity-test.mjs',
+] as const
 
 export interface PipelineInstallResult {
   ok: boolean
   written?: string[]
   skipped?: string[]
+  legacyDeleted?: string[]
   error?: string
   details?: { path: string; ok: boolean; error?: string }[]
+}
+
+/** 检测私库里还残留哪些老版文件（存在即返回其路径） */
+export async function detectLegacyPipelineFiles(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<string[]> {
+  const legacy: string[] = []
+  for (const path of LEGACY_PIPELINE_FILES) {
+    try {
+      const res = await githubFetch(`/repos/${owner}/${repo}/contents/${encodeURI(path)}`, token)
+      if (res.ok) legacy.push(path)
+    } catch {
+      // 读不到就当作不存在
+    }
+  }
+  return legacy
 }
 
 /**
@@ -35,7 +71,7 @@ export async function checkPipelineInstalled(
   owner: string,
   repo: string,
   token: string,
-): Promise<{ installed: boolean; missing: string[]; sizes: Record<string, number> }> {
+): Promise<{ installed: boolean; missing: string[]; legacy: string[]; sizes: Record<string, number> }> {
   const missing: string[] = []
   const sizes: Record<string, number> = {}
   for (const f of PIPELINE_FILES) {
@@ -52,7 +88,9 @@ export async function checkPipelineInstalled(
       missing.push(f.path)
     }
   }
-  return { installed: missing.length === 0, missing, sizes }
+  // 还要确认老版文件已清理干净，否则老 workflow 会和新版重复触发
+  const legacy = await detectLegacyPipelineFiles(owner, repo, token)
+  return { installed: missing.length === 0 && legacy.length === 0, missing, legacy, sizes }
 }
 
 /**
@@ -100,7 +138,26 @@ export async function writePipelineFiles(
   }
 
   const allOk = details.every(d => d.ok)
-  return { ok: allOk, written, skipped, details }
+  if (!allOk) {
+    return { ok: false, written, skipped, details }
+  }
+
+  // 新版写入成功后，删除老版残留文件。
+  // 老 workflow 与新版共用相同的 repository_dispatch event_type，会重复触发、
+  // 产生双份 run 和 "no jobs were run"，必须清掉才算真正切到新版。
+  let legacyDeleted: string[] = []
+  try {
+    const legacy = await detectLegacyPipelineFiles(owner, repo, token)
+    if (legacy.length > 0) {
+      await deleteRepoFiles(legacy, '[academicflow] remove legacy pipeline files', owner, repo, token)
+      legacyDeleted = legacy
+    }
+  } catch (e: any) {
+    details.push({ path: '(legacy cleanup)', ok: false, error: e?.message || String(e) })
+    return { ok: false, written, skipped, legacyDeleted, details }
+  }
+
+  return { ok: true, written, skipped, legacyDeleted, details }
 }
 
 /**
