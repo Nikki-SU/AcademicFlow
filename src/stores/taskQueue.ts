@@ -227,9 +227,18 @@ interface TaskQueueActions {
   set_executor: (fn: TaskExecutor) => void
   _run_next: () => Promise<void>
   _persist: () => Promise<void>
+  /** 进度类高频更新的合并写（debounce），结构性变化仍应直接调 _persist */
+  _persistSoon: () => void
 }
 
 type TaskQueueStore = TaskQueueState & TaskQueueActions
+
+// 进度抖动（progress/message/updated_at）的合并写计时器。
+// runner 在 GitHub Actions 里跑时，前端每几秒一个 "Update background_tasks.csv" commit
+// 会不断推进 main，把 runner 末尾的 force-with-lease push 顶成 cannot lock ref 失败。
+// 所以纯进度更新走 5s debounce，只有 stage/status 等结构性变化才立即落盘。
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+const PERSIST_DEBOUNCE_MS = 5000
 
 export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
   tasks: [],
@@ -243,12 +252,23 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
   },
 
   _persist: async () => {
+    // 立即落盘：取消任何挂起的合并写，避免旧数据后写覆盖新数据
+    if (persistTimer) { clearTimeout(persistTimer); persistTimer = null }
     const { tasks } = get()
     try {
       await writeCsvFile<BackgroundTask>(CSV_PATH, tasks, CSV_HEADERS_V2, serializeTask)
     } catch (err) {
       console.warn('[taskQueue] 持久化 CSV 失败（非致命）:', err)
     }
+  },
+
+  _persistSoon: () => {
+    // 合并写：5s 内的连续进度抖动只会产生一个 CSV commit
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      void get()._persist()
+    }, PERSIST_DEBOUNCE_MS)
   },
 
   load_tasks: async () => {
@@ -398,13 +418,28 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
     // 之前的 cleanup 逻辑会把用户上传的 PDF 自动删掉、csv 里的 pdf_github_path 也清掉
     // → 导致：下次 executor 断点续跑时 ensure_file() 找不到 PDF
     // 原始 PDF 是用户数据，不是临时文件，只有用户手动删文献时才会删
+    const prev = get().tasks.find((t) => t.id === id)
     const tasks = get().tasks.map((t) => {
       if (t.id !== id) return t
       const merged: BackgroundTask = { ...t, ...patch, updated_at: Date.now() }
       return merged
     })
     set({ tasks })
-    await get()._persist()
+
+    // 结构性变化（status/stage/error/metadata 真的变了，含进入终态）立即落盘；
+    // 仅 progress/message/node_index 抖动（轮询进度时几秒一次）走 debounce 合并写，
+    // 避免 background_tasks.csv 高频 commit 抢 main 导致 runner push 失败。
+    const structural =
+      !prev ||
+      (patch.status !== undefined && patch.status !== prev.status) ||
+      (patch.stage !== undefined && patch.stage !== prev.stage) ||
+      patch.error !== undefined ||
+      patch.metadata !== undefined
+    if (structural) {
+      await get()._persist()
+    } else {
+      get()._persistSoon()
+    }
   },
 
   remove_task: async (id: string) => {
