@@ -30,11 +30,11 @@ import {
   getRun,
   type RunStatus,
 } from '../../services/workflowClient'
+import { DEFAULT_WORKSPACE_REPO_NAME } from '../../constants/skeleton'
 
 type WorkflowEventType = 'ai_connectivity_test' | 'mineru_connectivity_test'
 
 // 私库硬保险 —— workflow 文件在私库 academicflow-workspace 里,不能用 ws.repo.name
-const PRIVATE_SECRETS_REPO = 'academicflow-workspace'
 
 // ═════════════════════════════════════════════════════════════════════════
 // 共享工具:Runner workflow 触发 + 轮询
@@ -116,7 +116,7 @@ export default function ConnectivityPanel() {
   // owner 来自 GitHub 登录用户,永远正确
   const owner = auth.user?.login ?? ''
   // repo 用硬编码私库常量 — workflow 文件和 secrets 都在私库 academicflow-workspace
-  const repo = PRIVATE_SECRETS_REPO
+  const repo = DEFAULT_WORKSPACE_REPO_NAME
   const ghToken = auth.token ?? ''
 
   // ── GitHub 状态 ──

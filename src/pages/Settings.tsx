@@ -34,12 +34,10 @@ import { isChatModel, getModelVendor } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
+import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
 import { AI_PROVIDERS } from '../types'
-
-/** AI/MinerU secrets 只能写到这个私库。主仓库 AcademicFlow 是 AGPL v3 公开的，绝对不能写。 */
-const PRIVATE_SECRETS_REPO = 'academicflow-workspace'
 
 function formatFetchedAt(ts: number | null): string {
   if (!ts) return '未拉取'
@@ -126,7 +124,7 @@ function Settings() {
     // ──── 硬保险：secrets 只写到固定私库 academicflow-workspace ────
     // 绝对不能用 ws.repo.name，因为 ws.repo.name 在某些初始化阶段可能
     // 暂时是空/主仓库名（导致 secrets 错误写入 AGPL v3 主仓库）。
-    const targetRepo = PRIVATE_SECRETS_REPO
+    const targetRepo = DEFAULT_WORKSPACE_REPO_NAME
     if (ws.repo?.name && ws.repo.name !== targetRepo) {
       // 只有在 ws.repo 已设置但指向其他 repo 时才警告
       toast.error(
