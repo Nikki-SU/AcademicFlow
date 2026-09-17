@@ -1,10 +1,10 @@
 /**
  * workflowClient —— 前端与 GitHub Actions 后端的交互层
  *
- * 三件事：
- *   1. dispatchPipeline / dispatchAi  → 触发 workflow
- *   2. getLatestRun                   → 查最近一次 run 状态
- *   3. pollProgressJson               → 轮询 progress.json
+ * 所有函数的 event_type 参数，同时也是:
+ *   - dispatch payload 里的 event_type（传给 GitHub）
+ *   - workflow yml 的 `name:` 字段（run 过滤用）
+ *   三者同名，零映射。
  */
 
 import { dispatchWorkflow, readRepoTextFile, githubFetch } from './github'
@@ -23,11 +23,17 @@ export interface PipelineProgress {
 export interface RunStatus {
   run_id: number
   status: 'queued' | 'in_progress' | 'completed' | 'failure' | 'cancelled' | string
-  conclusion?: string | null   // GitHub API 可能新增值（如 startup_failure），不硬编码联合类型
+  conclusion?: string | null
   html_url: string
   created_at: string
   updated_at: string
 }
+
+export type WorkflowEvent =
+  | 'paper_convert'
+  | 'ai_call'
+  | 'mineru_connectivity_test'
+  | 'ai_connectivity_test'
 
 // ===================== dispatch =====================
 
@@ -79,34 +85,18 @@ export async function dispatchAiConnectivityTest(
 // ===================== run 查询 =====================
 
 /**
- * 后端 dispatch 事件类型 → workflow yml 的 `name:` 字段映射
- *
- * GitHub Actions API 的 /actions/runs?event= 参数值是底层触发源
- *   （push / pull_request / repository_dispatch / workflow_dispatch 等），
- *   不是我们 payload 里的自定义 event_type。
- * 所以 repository_dispatch 触发的所有 run 在 API 里 event 全是 "repository_dispatch"，
- *   无法直接按 event_type 过滤。必须先拉最近一批，再按 workflow name 筛。
- */
-const EVENT_TYPE_TO_WORKFLOW_NAME = {
-  paper_convert:            'Paper Pipeline',
-  ai_call:                  'AI Service',
-  mineru_connectivity_test: 'MinerU Connectivity Test',
-  ai_connectivity_test:     'AI Connectivity Test',
-} as const
-
-/**
- * 拉最新一次 repository_dispatch run（按 created_at 降序）
- *   - eventType 只用来匹配 workflow name（API event 参数全是 "repository_dispatch"）
- *   - minCreatedAt 如果给了，只返回 created_at > 这个值的 run（用来避开 dispatch 前的旧 run）
+ * 拉最新一次 repository_dispatch run
+ *   - eventType 同时匹配 run.name（yml 的 name: 字段）
+ *   - GitHub API 的 event 参数只有底层触发源，所有 repository_dispatch 触发的 run 的 event 全是 "repository_dispatch"
+ *   - 所以必须先拉一批，再按 run.name 过滤
  */
 export async function getLatestRun(
-  eventType: keyof typeof EVENT_TYPE_TO_WORKFLOW_NAME,
+  eventType: WorkflowEvent,
   owner: string,
   repo: string,
   token: string,
   minCreatedAt?: string,
 ): Promise<RunStatus | null> {
-  const workflowName = EVENT_TYPE_TO_WORKFLOW_NAME[eventType]
   const res = await githubFetch(
     `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=50`,
     token,
@@ -114,9 +104,8 @@ export async function getLatestRun(
   if (!res.ok) return null
   interface _GhRunLite { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; updated_at: string; name: string }
   const data = (await res.json()) as { workflow_runs?: _GhRunLite[] }
-  // 按 created_at 降序（API 默认），过滤掉 minCreatedAt 之前的旧 run
   const candidate = data.workflow_runs?.find((r) => {
-    if (r.name !== workflowName) return false
+    if (r.name !== eventType) return false
     if (minCreatedAt && r.created_at <= minCreatedAt) return false
     return true
   })
@@ -155,12 +144,6 @@ export async function getRun(
 
 // ===================== progress 轮询 =====================
 
-/**
- * 读 literatures/{slug}/.progress.json
- *   - 不存在 → 返回 null（任务还没开始或已清理）
- *   - 存在   → parse 成 PipelineProgress
- *   - done/failed → 调用方停止轮询
- */
 export async function pollProgressJson(
   slug: string,
   owner: string,
@@ -181,10 +164,7 @@ export interface PollOptions {
   onProgress?: (p: PipelineProgress) => void
 }
 
-/**
- * 轮询到 done / failed 或超时
- * 返回最终 progress（或 null 如果从未出现）
- */
+/** 轮询到 done / failed 或超时 */
 export async function pollUntilDone(
   slug: string,
   owner: string,
@@ -193,7 +173,7 @@ export async function pollUntilDone(
   opts: PollOptions = {},
 ): Promise<PipelineProgress | null> {
   const interval = opts.intervalMs ?? 5000
-  const maxAttempts = opts.maxAttempts ?? 120 // 5s × 120 = 10min
+  const maxAttempts = opts.maxAttempts ?? 120
   let last: PipelineProgress | null = null
   for (let i = 0; i < maxAttempts; i++) {
     if (opts.signal?.aborted) return last
