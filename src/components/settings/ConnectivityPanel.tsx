@@ -51,27 +51,42 @@ async function runWorkflowE2ETest(
   repo: string,
   ghToken: string,
 ): Promise<RunnerTestResult> {
+  const tag = `[ConnectivityPanel ${eventType}]`
+  console.log(`${tag} 开始,目标 repo=${owner}/${repo},token 长度=${ghToken.length}`)
+
   // 1. 记住 dispatch 前的最新 run
   const beforeRun = await getLatestRun(eventType, owner, repo, ghToken)
   const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+  console.log(`${tag} dispatch 前最新 run: ${beforeRun ? `id=${beforeRun.run_id} created=${beforeRun.created_at}` : '无'}, beforeCreatedAt=${beforeCreatedAt}`)
 
   // 2. dispatch
   try {
     await dispatch()
+    console.log(`${tag} dispatch 成功`)
   } catch (e: any) {
-    return { ok: false, run: null, reason: `dispatch 失败: ${e?.message || String(e)}` }
+    const msg = e?.message || String(e)
+    console.error(`${tag} dispatch 失败:`, e)
+    return { ok: false, run: null, reason: `dispatch 失败: ${msg}` }
   }
 
+  console.log(`${tag} 等 2.5s 让 GitHub 创建 run...`)
   await new Promise((resolve) => setTimeout(resolve, 2500))
 
   // 3. Phase 1: 找新 run (最多 20 次 × 1.5s = 30s)
   let myRunId: number | null = null
   for (let i = 0; i < 20; i++) {
     const rs = await getLatestRun(eventType, owner, repo, ghToken, beforeCreatedAt)
-    if (rs) { myRunId = rs.run_id; break }
+    if (rs) {
+      myRunId = rs.run_id
+      console.log(`${tag} ✅ Phase 1[${i+1}/20] 找到新 run id=${rs.run_id} created=${rs.created_at} status=${rs.status}`)
+      break
+    }
+    console.log(`${tag} Phase 1[${i+1}/20] 没找到,再等 1.5s...`)
     await new Promise((resolve) => setTimeout(resolve, 1500))
   }
   if (!myRunId) {
+    // debug: 列一下当前能看到的所有 repository_dispatch run name
+    console.error(`${tag} ❌ 30s 内没找到新 run`)
     return {
       ok: false, run: null,
       reason: `GitHub Actions 30s 内没创建新 run。可能原因: dispatch 打到了错误的 repo (当前目标 ${owner}/${repo}), 或 workflow yml 不在 .github/workflows/ 里, 或 Actions 排队超过 30s。`,
@@ -82,19 +97,26 @@ async function runWorkflowE2ETest(
   let finalRun: RunStatus | null = null
   for (let i = 0; i < 60; i++) {
     const rs = await getRun(myRunId, owner, repo, ghToken)
-    if (!rs) { await new Promise((resolve) => setTimeout(resolve, 1500)); continue }
+    if (!rs) {
+      console.log(`${tag} Phase 2[${i+1}/60] getRun 返回 null (404? run_id=${myRunId})`)
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      continue
+    }
     finalRun = rs
+    console.log(`${tag} Phase 2[${i+1}/60] run id=${rs.run_id} status=${rs.status} conclusion=${rs.conclusion ?? '-'}`)
     if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
     await new Promise((resolve) => setTimeout(resolve, 2000))
   }
 
   if (!finalRun) {
-    return { ok: false, run: null, reason: `run #${myRunId} 120s 内没结束` }
+    return { ok: false, run: null, reason: `run id=${myRunId} 120s 内没结束` }
   }
 
   if (finalRun.conclusion === 'success') {
+    console.log(`${tag} ✅ 成功! run id=${finalRun.run_id}`)
     return { ok: true, run: finalRun }
   }
+  console.log(`${tag} ❌ conclusion=${finalRun.conclusion}`)
   return { ok: false, run: finalRun, reason: finalRun.conclusion ?? 'unknown' }
 }
 
