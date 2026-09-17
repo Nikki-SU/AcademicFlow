@@ -49,9 +49,9 @@ export function doiToSlug(doi: string): string {
 
 /**
  * 从 GitHub git trees 一次性拿全仓库文件列表，用来校验 mdStatus
- * 返回 Set<string>，包含所有 literatures/ 下的文件路径
+ * 返回 Map<path, size>，包含所有 literatures/ 下的文件及其字节数
  */
-async function fetchLiteratureFileSet(): Promise<Set<string> | null> {
+async function fetchLiteratureFileSet(): Promise<Map<string, number> | null> {
   const ws = useWorkspaceStore.getState()
   const token = useAuthStore.getState().token
   if (!ws.repo || !token) return null
@@ -62,28 +62,34 @@ async function fetchLiteratureFileSet(): Promise<Set<string> | null> {
     )
     if (!res.ok) return null
     const data = await res.json()
-    const set = new Set<string>()
-    for (const entry of (data.tree ?? []) as Array<{ path: string; type: string }>) {
+    const map = new Map<string, number>()
+    for (const entry of (data.tree ?? []) as Array<{ path: string; type: string; size?: number }>) {
       if (entry.type === 'blob' && entry.path.startsWith('literatures/')) {
-        set.add(entry.path)
+        map.set(entry.path, entry.size ?? 0)
       }
     }
-    return set
+    return map
   } catch {
     return null
   }
 }
 
+/** 小于该字节数的 {slug}.md 视为空壳（runner 历史 bug 会留下 1 字节假成功文件） */
+const MIN_VALID_ALIGNED_BYTES = 50
+
 /**
  * 根据 GitHub 上实际文件推断 mdStatus
- *   - 有 {slug}.md → done（全流程完成）
- *   - 有 fulltext.md → converting（MinerU 成功，post-mineru 未完成/失败）
+ *   - 有 {slug}.md（且非空壳）→ done（全流程完成）
+ *   - 有 fulltext.md 或只有空壳 {slug}.md → converting（MinerU 成功，post-mineru 未完成/失败）
  *   - 什么都没有 → none
  */
-function inferMdStatusFromFiles(doi: string, fileSet: Set<string>): MdStatus {
+function inferMdStatusFromFiles(doi: string, fileSet: Map<string, number>): MdStatus {
   const slug = doiToSlug(doi)
-  if (fileSet.has(`literatures/${slug}/${slug}.md`)) return 'done'
+  const alignedSize = fileSet.get(`literatures/${slug}/${slug}.md`)
+  if (alignedSize !== undefined && alignedSize >= MIN_VALID_ALIGNED_BYTES) return 'done'
   if (fileSet.has(`literatures/${slug}/fulltext.md`)) return 'converting'
+  // 空壳 {slug}.md 也按未完成处理，提示用户重跑转换
+  if (alignedSize !== undefined) return 'converting'
   return 'none'
 }
 
@@ -271,15 +277,17 @@ export async function saveTranslation(doi: string, content: string): Promise<voi
 
 export async function loadAlignedMd(doi: string): Promise<string> {
   const slug = doiToSlug(doi)
+  // 注意：空白内容（如历史 bug 留下的 1 字节空壳 {slug}.md）必须当作不存在，
+  // 否则阅读页会显示空白而不是回退到 fulltext.md 的英文原文。
   // 新版：{slug}.md（标准路径，知识库唯一 md）
   let result = await readMdFile(`literatures/${slug}/${slug}.md`)
-  if (result) return result.content || ''
+  if (result?.content?.trim()) return result.content
   // 兼容：旧版 aligned.md
   result = await readMdFile(`literatures/${slug}/aligned.md`)
-  if (result) return result.content || ''
+  if (result?.content?.trim()) return result.content
   // 兼容：更旧的 fulltext.md（纯原文，无译文）
   result = await readMdFile(`literatures/${slug}/fulltext.md`)
-  if (result) return result.content || ''
+  if (result?.content?.trim()) return result.content
   // 兼容：最旧的 index.md
   result = await readMdFile(`literatures/${slug}/index.md`)
   return result?.content || ''
