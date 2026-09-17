@@ -38,3 +38,4 @@ dist-ssr
 .cache
 .parcel-cache
 .trae-html-share-packages/
+.uploads/
