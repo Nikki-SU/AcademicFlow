@@ -7,7 +7,7 @@
  *   三者同名，零映射。
  */
 
-import { dispatchWorkflow, readRepoTextFile, githubFetch } from './github'
+import { dispatchWorkflow, readRepoTextFile, githubFetch, setResolvedAuthMode } from './github'
 import type { PipelineStage } from '../stores/taskQueue'
 
 export interface PipelineProgress {
@@ -97,11 +97,26 @@ export async function getLatestRun(
   token: string,
   minCreatedAt?: string,
 ): Promise<RunStatus | null> {
-  const res = await githubFetch(
+  // 强制 Query 模式 — 绕过 Header 模式 CORS + PAT 兼容性问题
+  let res = await githubFetch(
     `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=50`,
     token,
+    {},
+    'query',   // authMode: 直接用 query, 不用 header
   )
-  if (!res.ok) return null
+  if (!res.ok) {
+    console.warn(`[getLatestRun] Query 模式失败 HTTP ${res.status}, 试 header fallback...`)
+    res = await githubFetch(
+      `/repos/${owner}/${repo}/actions/runs?event=repository_dispatch&per_page=50`,
+      token,
+      {},
+      'header',
+    )
+    if (!res.ok) {
+      console.error(`[getLatestRun] header 也失败 HTTP ${res.status}`)
+      return null
+    }
+  }
   interface _GhRunLite { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; updated_at: string; name: string }
   const data = (await res.json()) as { workflow_runs?: _GhRunLite[] }
   const candidate = data.workflow_runs?.find((r) => {
@@ -126,11 +141,25 @@ export async function getRun(
   repo: string,
   token: string,
 ): Promise<RunStatus | null> {
-  const res = await githubFetch(
+  let res = await githubFetch(
     `/repos/${owner}/${repo}/actions/runs/${id}`,
     token,
+    {},
+    'query',
   )
-  if (!res.ok) return null
+  if (!res.ok) {
+    console.warn(`[getRun] Query 模式失败 HTTP ${res.status}, 试 header fallback...`)
+    res = await githubFetch(
+      `/repos/${owner}/${repo}/actions/runs/${id}`,
+      token,
+      {},
+      'header',
+    )
+    if (!res.ok) {
+      console.error(`[getRun] header 也失败 HTTP ${res.status}`)
+      return null
+    }
+  }
   const run = await res.json()
   return {
     id: run.id,
