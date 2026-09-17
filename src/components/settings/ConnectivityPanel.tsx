@@ -57,7 +57,7 @@ async function runWorkflowE2ETest(
   // 1. 记住 dispatch 前的最新 run
   const beforeRun = await getLatestRun(eventType, owner, repo, ghToken)
   const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
-  console.log(`${tag} dispatch 前最新 run: ${beforeRun ? `id=${beforeRun.run_id} created=${beforeRun.created_at}` : '无'}, beforeCreatedAt=${beforeCreatedAt}`)
+  console.log(`${tag} dispatch 前最新 run: ${beforeRun ? `id=${beforeRun.id} created=${beforeRun.created_at}` : '无'}, beforeCreatedAt=${beforeCreatedAt}`)
 
   // 2. dispatch
   try {
@@ -77,8 +77,8 @@ async function runWorkflowE2ETest(
   for (let i = 0; i < 20; i++) {
     const rs = await getLatestRun(eventType, owner, repo, ghToken, beforeCreatedAt)
     if (rs) {
-      myRunId = rs.run_id
-      console.log(`${tag} ✅ Phase 1[${i+1}/20] 找到新 run id=${rs.run_id} created=${rs.created_at} status=${rs.status}`)
+      myRunId = rs.id
+      console.log(`${tag} ✅ Phase 1[${i+1}/20] 找到新 run id=${rs.id} created=${rs.created_at} status=${rs.status}`)
       break
     }
     console.log(`${tag} Phase 1[${i+1}/20] 没找到,再等 1.5s...`)
@@ -103,7 +103,7 @@ async function runWorkflowE2ETest(
       continue
     }
     finalRun = rs
-    console.log(`${tag} Phase 2[${i+1}/60] run id=${rs.run_id} status=${rs.status} conclusion=${rs.conclusion ?? '-'}`)
+    console.log(`${tag} Phase 2[${i+1}/60] run id=${rs.id} status=${rs.status} conclusion=${rs.conclusion ?? '-'}`)
     if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') break
     await new Promise((resolve) => setTimeout(resolve, 2000))
   }
@@ -113,7 +113,7 @@ async function runWorkflowE2ETest(
   }
 
   if (finalRun.conclusion === 'success') {
-    console.log(`${tag} ✅ 成功! run id=${finalRun.run_id}`)
+    console.log(`${tag} ✅ 成功! run id=${finalRun.id}`)
     return { ok: true, run: finalRun }
   }
   console.log(`${tag} ❌ conclusion=${finalRun.conclusion}`)
@@ -520,7 +520,7 @@ function ResultCard(props: {
               rel="noreferrer"
               className="inline-flex items-center gap-1 opacity-70 hover:opacity-100 underline underline-offset-2"
             >
-              <span>run #{props.run.run_id}</span>
+              <span>run #{props.run.id}</span>
               <span>·</span>
               <span>{props.run.status}</span>
               <span>·</span>

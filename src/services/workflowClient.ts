@@ -21,7 +21,7 @@ export interface PipelineProgress {
 }
 
 export interface RunStatus {
-  run_id: number
+  id: number
   status: 'queued' | 'in_progress' | 'completed' | 'failure' | 'cancelled' | string
   conclusion?: string | null
   html_url: string
@@ -111,7 +111,7 @@ export async function getLatestRun(
   })
   if (!candidate) return null
   return {
-    run_id: candidate.id,
+    id: candidate.id,
     status: candidate.status,
     conclusion: candidate.conclusion,
     html_url: candidate.html_url,
@@ -121,19 +121,19 @@ export async function getLatestRun(
 }
 
 export async function getRun(
-  runId: number,
+  id: number,
   owner: string,
   repo: string,
   token: string,
 ): Promise<RunStatus | null> {
   const res = await githubFetch(
-    `/repos/${owner}/${repo}/actions/runs/${runId}`,
+    `/repos/${owner}/${repo}/actions/runs/${id}`,
     token,
   )
   if (!res.ok) return null
   const run = await res.json()
   return {
-    run_id: run.id,
+    id: run.id,
     status: run.status,
     conclusion: run.conclusion,
     html_url: run.html_url,

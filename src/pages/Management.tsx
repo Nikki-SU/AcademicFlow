@@ -531,7 +531,7 @@ export default function ManagementPage() {
             await tq.update_task(task.id, patch)
           } else {
             // 没有 progress.json（还没被写出来）→ 用 GitHub Actions run 状态兜底
-            const runId = typeof meta?.run_id === 'number' ? meta.run_id : null
+            const runId = typeof meta?.id === 'number' ? meta.id : null
             if (!runId) continue // 连 run_id 都没，真的没法兜底
 
             const run = await getRun(runId, owner, repo.name, token)
@@ -542,7 +542,7 @@ export default function ManagementPage() {
               await tq.update_task(task.id, {
                 status: 'pending',
                 stage: 'queued',
-                message: `GitHub Actions 排队中（#${run.run_id}）`,
+                message: `GitHub Actions 排队中（#${run.id}）`,
                 updated_at: Date.now(),
               })
             } else if (run.status === 'in_progress') {
@@ -550,7 +550,7 @@ export default function ManagementPage() {
               await tq.update_task(task.id, {
                 status: 'running',
                 stage: 'queued',
-                message: `Runner 运行中（#${run.run_id}），等待后端写进度...`,
+                message: `Runner 运行中（#${run.id}），等待后端写进度...`,
                 updated_at: Date.now(),
               })
             } else if (run.status === 'completed') {
@@ -569,7 +569,7 @@ export default function ManagementPage() {
                   status: 'failed',
                   stage: 'failed',
                   node_index: STAGE_META.failed.node,
-                  message: `Runner ${run.conclusion}（#${run.run_id}）— 点 Actions 日志排查`,
+                  message: `Runner ${run.conclusion}（#${run.id}）— 点 Actions 日志排查`,
                   error: `runner ${run.conclusion}`,
                   updated_at: Date.now(),
                 })

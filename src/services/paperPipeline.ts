@@ -130,9 +130,9 @@ export async function enqueuePaperMineruConvert(
     for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 1000))
       const rs = await getLatestRun('paper_convert', owner, repo, token, beforeCreatedAt)
-      if (rs) { newRunId = rs.run_id; break }
+      if (rs) { newRunId = rs.id; break }
     }
-    if (newRunId) console.log('[paperPipeline] 新 run_id:', newRunId)
+    if (newRunId) console.log('[paperPipeline] 新 id: ', newRunId)
     else console.warn('[paperPipeline] 没找到新 run_id，后续只能靠 progress.json')
 
     // 更新 task metadata，加上 run_id
@@ -145,7 +145,7 @@ export async function enqueuePaperMineruConvert(
             file_size: file.size,
             slug,
             source: 'paperPipeline',
-            run_id: newRunId,
+            id: newRunId,
           },
         })
       } catch { /* 不阻塞 */ }
