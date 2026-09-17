@@ -1,31 +1,27 @@
 /**
  * 服务连通性测试 —— 统一面板
  * -------------------------------------------------
- * 把 GitHub API / AI Provider / MinerU 三个连通性测试集中到一个地方。
+ * 三种测试:
+ *   - GitHub: 前端直连 api.github.com (Header + Query 两种模式)
+ *   - AI: sync secrets → dispatch → Runner 端到端真调 chat/completions
+ *   - MinerU: sync secrets → dispatch → Runner 端到端真调 mineru.net
  *
- * 三种测试的本质区别：
- *   - GitHub：前端浏览器直连 api.github.com（测网络 + CORS）
- *   - AI：前端 → sync secrets → dispatch GitHub Actions → Runner 真调 chat/completions
- *   - MinerU：前端 JWT 快速校验 + 同上 Runner 端到端
- *
- * 顶部"全部测试"按钮会串行跑完三项（GitHub 是毫秒级，AI/MinerU 各需 1-2 分钟）。
+ * 全部测试按钮串行跑完三项。
+ * 自动触发:只跑 GitHub(毫秒级)+ MinerU Token 快速 JWT 校验
+ * 手动触发:全部测试 或 各自独立端到端按钮
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
-  CheckCircle2,
   Loader2,
   Wifi,
-  WifiOff,
   Zap,
   Cloud,
   Bot,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth'
 import { useSettingsStore } from '../../stores/settings'
-import { useWorkspaceStore } from '../../stores/workspace'
 import { testFullGitHubConnectivity, type FullConnectivityReport } from '../../services/github'
-import { checkMineruConnectivity, type MineruConnectivityReport } from '../../services/mineruConnectivity'
 import { syncAllSecrets } from '../../services/repoSecrets'
 import {
   dispatchAiConnectivityTest,
@@ -34,12 +30,14 @@ import {
   getRun,
   type RunStatus,
 } from '../../services/workflowClient'
-import { DEFAULT_WORKSPACE_REPO_NAME } from '../../constants/skeleton'
 
 type WorkflowEventType = 'ai_connectivity_test' | 'mineru_connectivity_test'
 
+// 私库硬保险 —— workflow 文件在私库 academicflow-workspace 里,不能用 ws.repo.name
+const PRIVATE_SECRETS_REPO = 'academicflow-workspace'
+
 // ═════════════════════════════════════════════════════════════════════════
-// 共享工具：Runner workflow 触发 + 轮询（AI 和 MinerU 共用这套模式）
+// 共享工具:Runner workflow 触发 + 轮询
 // ═════════════════════════════════════════════════════════════════════════
 
 async function runWorkflowE2ETest(
@@ -48,30 +46,63 @@ async function runWorkflowE2ETest(
   owner: string,
   repo: string,
   ghToken: string,
+  label: string,
 ): Promise<RunStatus | null> {
+  console.log(`[ConnectivityPanel] ${label}: 开始`)
+  console.log(`[ConnectivityPanel] ${label}: dispatch 目标 → ${owner}/${repo}`)
+
+  // 1. 记住 dispatch 前的最新 run
   const beforeRun = await getLatestRun(eventType, owner, repo, ghToken)
   const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+  console.log(`[ConnectivityPanel] ${label}: dispatch 前最新 run #${beforeRun?.run_id ?? 'none'}, created_at=${beforeCreatedAt}`)
 
-  await dispatch()
+  // 2. dispatch
+  console.log(`[ConnectivityPanel] ${label}: POST /dispatches event_type=${eventType}`)
+  try {
+    await dispatch()
+    console.log(`[ConnectivityPanel] ${label}: dispatch 成功`)
+  } catch (e: any) {
+    console.error(`[ConnectivityPanel] ${label}: dispatch 失败:`, e)
+    throw e
+  }
+
   await new Promise((resolve) => setTimeout(resolve, 2500))
 
-  // Phase 1: 找到新 run
+  // 3. Phase 1: 找新 run (最多 20 次 × 1.5s = 30s)
   let myRunId: number | null = null
   for (let i = 0; i < 20; i++) {
     const rs = await getLatestRun(eventType, owner, repo, ghToken, beforeCreatedAt)
-    if (rs) { myRunId = rs.run_id; break }
+    if (rs) {
+      myRunId = rs.run_id
+      console.log(`[ConnectivityPanel] ${label}: ✅ 找到新 run #${rs.run_id} ${rs.status} (created_at=${rs.created_at})`)
+      break
+    }
+    console.log(`[ConnectivityPanel] ${label}: attempt ${i + 1}/20 — 没找到新 run,再等 1.5s...`)
     await new Promise((resolve) => setTimeout(resolve, 1500))
   }
-  if (!myRunId) return null
+  if (!myRunId) {
+    console.error(`[ConnectivityPanel] ${label}: ❌ 30s 内没找到新 run`)
+    console.error(`[ConnectivityPanel] ${label}: 可能原因:`)
+    console.error(`  - dispatch 打到错误的 repo (当前: ${owner}/${repo})`)
+    console.error(`  - workflow yml 不在该 repo 的 .github/workflows/ 里`)
+    console.error(`  - GitHub 索引延迟超过 30s`)
+    return null
+  }
 
-  // Phase 2: 固定跟踪这个 run
+  // 4. Phase 2: 固定跟踪这个 run (最多 60 次 × 2s = 120s)
+  console.log(`[ConnectivityPanel] ${label}: Phase 2 跟踪 run #${myRunId}...`)
+  let finalRun: RunStatus | null = null
   for (let i = 0; i < 60; i++) {
     const rs = await getRun(myRunId, owner, repo, ghToken)
     if (!rs) { await new Promise((resolve) => setTimeout(resolve, 1500)); continue }
-    if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') return rs
+    finalRun = rs
+    if (rs.status === 'completed' || rs.status === 'failure' || rs.status === 'cancelled') {
+      console.log(`[ConnectivityPanel] ${label}: run #${myRunId} 结束 status=${rs.status} conclusion=${rs.conclusion}`)
+      break
+    }
     await new Promise((resolve) => setTimeout(resolve, 2000))
   }
-  return await getRun(myRunId, owner, repo, ghToken)
+  return finalRun
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -81,25 +112,25 @@ async function runWorkflowE2ETest(
 export default function ConnectivityPanel() {
   const store = useSettingsStore()
   const auth = useAuthStore()
-  const ws = useWorkspaceStore()
+
+  // owner 来自 GitHub 登录用户,永远正确
   const owner = auth.user?.login ?? ''
-  const repo = ws.repo?.name ?? DEFAULT_WORKSPACE_REPO_NAME
+  // repo 用硬编码私库常量 — workflow 文件和 secrets 都在私库 academicflow-workspace
+  const repo = PRIVATE_SECRETS_REPO
   const ghToken = auth.token ?? ''
 
   // ── GitHub 状态 ──
   const [ghTesting, setGhTesting] = useState(false)
   const [ghReport, setGhReport] = useState<FullConnectivityReport | null>(null)
 
-  // ── AI 状态（Runner 端到端） ──
+  // ── AI 状态 ──
   const [aiTesting, setAiTesting] = useState(false)
   const [aiRun, setAiRun] = useState<RunStatus | null>(null)
 
-  // ── MinerU 状态 ──
-  const [mineruReport, setMineruReport] = useState<MineruConnectivityReport | null>(null)
+  // ── MinerU 状态 (端到端 only) ──
   const [mineruE2ETesting, setMineruE2ETesting] = useState(false)
   const [mineruRun, setMineruRun] = useState<RunStatus | null>(null)
 
-  // ── 全部测试 总开关 ──
   const [allTesting, setAllTesting] = useState(false)
 
   const mineruToken = store.mineruToken
@@ -112,16 +143,21 @@ export default function ConnectivityPanel() {
       const r = await testFullGitHubConnectivity()
       setGhReport(r)
     } catch (e: unknown) {
-      toast.error(`GitHub 测试失败：${e instanceof Error ? e.message : String(e)}`)
+      toast.error(`GitHub 测试失败:${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setGhTesting(false)
     }
   }, [])
 
-  // ═══════ Secret 写入（AI + MinerU 端到端测试前都需要） ═══════
+  // ═══════ Secret 写入 ═══════
   const ensureAllSecrets = useCallback(async (): Promise<boolean> => {
-    if (!owner || !repo || !ghToken) return false
+    if (!owner || !repo || !ghToken) {
+      console.warn('[ConnectivityPanel] ensureAllSecrets: owner/repo/token 缺失', { owner, repo, hasToken: !!ghToken })
+      toast.error('未登录或私库未配置,无法写入 secrets')
+      return false
+    }
     try {
+      console.log(`[ConnectivityPanel] ensureAllSecrets → ${owner}/${repo}`)
       await syncAllSecrets(owner, repo, ghToken, {
         aiProviderMode: store.aiProviderMode,
         deepseekApiKey: store.deepseekApiKey,
@@ -139,7 +175,8 @@ export default function ConnectivityPanel() {
       })
       return true
     } catch (e: any) {
-      toast.error(`写入 secrets 失败：${e?.message || String(e)}`)
+      console.error('[ConnectivityPanel] syncAllSecrets 失败:', e)
+      toast.error(`写入 secrets 失败:${e?.message || String(e)}`)
       return false
     }
   }, [owner, repo, ghToken, store])
@@ -161,40 +198,29 @@ export default function ConnectivityPanel() {
         'ai_connectivity_test',
         () => dispatchAiConnectivityTest(owner, repo, ghToken, 'both'),
         owner, repo, ghToken,
+        'AI',
       )
       setAiRun(run)
       if (run?.conclusion === 'success') {
         toast.success('AI 端到端测试通过 ✅')
       } else {
-        toast.error(`AI 测试失败：${run?.conclusion ?? 'runner 未出现'}`)
+        toast.error(`AI 测试失败:${run?.conclusion ?? 'runner 未出现'}`)
       }
     } catch (e: any) {
-      toast.error(`AI 测试异常：${e?.message || String(e)}`)
+      toast.error(`AI 测试异常:${e?.message || String(e)}`)
     } finally {
       setAiTesting(false)
     }
   }, [owner, repo, ghToken, ensureAllSecrets])
 
-  // ═══════ MinerU 快速检测（本地 JWT 解析，零网络） ═══════
-  const runMineruQuickCheck = useCallback(() => {
-    if (!mineruToken.trim()) {
-      toast.warning('请先填写 MinerU API Token')
-      return
-    }
-    try {
-      const r = checkMineruConnectivity(mineruToken)
-      setMineruReport(r)
-      if (r.overallOk) toast.success('MinerU Token 有效')
-      else toast.warning(`MinerU: ${r.overallMessage}`)
-    } catch (e: any) {
-      toast.error(`MinerU 检测失败：${e?.message || String(e)}`)
-    }
-  }, [mineruToken])
-
   // ═══════ MinerU Runner 端到端测试 ═══════
   const runMineruE2ETest = useCallback(async () => {
     if (!owner || !repo || !ghToken) {
       toast.error('未登录或私库未配置')
+      return
+    }
+    if (!mineruToken.trim()) {
+      toast.warning('请先填写 MinerU API Token')
       return
     }
     setMineruE2ETesting(true)
@@ -208,19 +234,20 @@ export default function ConnectivityPanel() {
         'mineru_connectivity_test',
         () => dispatchMineruTest(owner, repo, ghToken),
         owner, repo, ghToken,
+        'MinerU',
       )
       setMineruRun(run)
       if (run?.conclusion === 'success') {
         toast.success('MinerU 端到端测试通过 ✅')
       } else {
-        toast.error(`MinerU 端到端失败：${run?.conclusion ?? 'runner 未出现'}`)
+        toast.error(`MinerU 端到端失败:${run?.conclusion ?? 'runner 未出现'}`)
       }
     } catch (e: any) {
-      toast.error(`MinerU 测试异常：${e?.message || String(e)}`)
+      toast.error(`MinerU 测试异常:${e?.message || String(e)}`)
     } finally {
       setMineruE2ETesting(false)
     }
-  }, [owner, repo, ghToken, ensureAllSecrets])
+  }, [owner, repo, ghToken, mineruToken, ensureAllSecrets])
 
   // ═══════ 全部测试 ═══════
   const runAll = useCallback(async () => {
@@ -228,52 +255,35 @@ export default function ConnectivityPanel() {
     setAllTesting(true)
     try {
       toast.info('开始全部测试...')
-
-      // 1. GitHub（前端直连，毫秒级）
-      toast.info('① GitHub API...')
       await runGitHubTest()
-
-      // 2. MinerU 快速检测（本地解析 JWT，零网络）
-      toast.info('② MinerU Token...')
-      runMineruQuickCheck()
-
-      // 3. AI Runner 端到端（最慢，1-2 分钟）
-      toast.info('③ AI Provider（Runner 端到端）...')
       await runAITest()
-
-      // 4. MinerU Runner 端到端
-      toast.info('④ MinerU（Runner 端到端）...')
       await runMineruE2ETest()
-
-      toast.success('全部测试完成！')
+      toast.success('全部测试完成!')
     } finally {
       setAllTesting(false)
     }
-  }, [isInitialized, runGitHubTest, runMineruQuickCheck, runAITest, runMineruE2ETest])
+  }, [isInitialized, runGitHubTest, runAITest, runMineruE2ETest])
 
-  // ── 页面挂载后自动跑一次 GitHub + MinerU 快速检测（毫秒级） ──
+  // ── 自动:只跑 GitHub (毫秒级),不自动触发 Runner (太慢) ──
   const didAutoRunRef = useRef(false)
   useEffect(() => {
     if (didAutoRunRef.current) return
     didAutoRunRef.current = true
+    console.log('[ConnectivityPanel] 首次挂载,自动跑 GitHub 测试')
     runGitHubTest()
-    if (mineruToken.trim()) runMineruQuickCheck()
-  }, [runGitHubTest, runMineruQuickCheck, mineruToken])
+  }, [runGitHubTest])
 
   // ═══════ 渲染 ═══════
-
-  // 计算"绿灯"数
   const greenCount = [
     ghReport?.allOk,
     aiRun?.conclusion === 'success',
-    mineruReport?.overallOk,
     mineruRun?.conclusion === 'success',
   ].filter(Boolean).length
-  const totalTests = 4
+  const totalTests = 3
 
   return (
     <div className="space-y-4">
-      {/* 顶部：全部测试按钮 + 总体进度 */}
+      {/* 顶部:全部测试按钮 */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <button
           type="button"
@@ -291,7 +301,7 @@ export default function ConnectivityPanel() {
         </button>
 
         <span className="text-xs text-slate-500">
-          {greenCount} / {totalTests} 通过
+          {greenCount} / {totalTests} 通过 · dispatch 目标:{owner}/{repo}
         </span>
       </div>
 
@@ -299,7 +309,7 @@ export default function ConnectivityPanel() {
       <TestBlock
         icon={<Cloud className="w-4 h-4" />}
         title="GitHub API"
-        subtitle="前端直连 api.github.com（Header + Query 两种认证模式）"
+        subtitle="前端直连 api.github.com (Header + Query 两种认证模式)"
         tone={ghReport ? (ghReport.allOk ? 'ok' : 'err') : ghTesting ? 'running' : 'idle'}
         buttonLabel={ghTesting ? '测试中...' : '单独测试'}
         onButton={runGitHubTest}
@@ -307,13 +317,10 @@ export default function ConnectivityPanel() {
       >
         {ghReport && (
           <>
-            {/* 两个端点的状态圆点 */}
             <div className="flex items-center gap-4 text-[12px] font-mono">
               <ModeDot label="Header 模式" ok={ghReport.headerModeOk} />
               <ModeDot label="Query 模式" ok={ghReport.queryModeOk} />
             </div>
-
-            {/* 详细行 */}
             <div className="border border-slate-200 rounded-md bg-slate-50 overflow-hidden">
               <div className="divide-y divide-slate-200 text-[11px] font-mono">
                 {ghReport.endpoints.map((ep) => (
@@ -340,10 +347,10 @@ export default function ConnectivityPanel() {
         )}
       </TestBlock>
 
-      {/* ── AI Provider（Runner 端到端） ── */}
+      {/* ── AI Provider ── */}
       <TestBlock
         icon={<Bot className="w-4 h-4" />}
-        title={`AI Provider（${store.aiProviderMode === 'custom' ? '自定义端点' : '预置'}）`}
+        title={`AI Provider (${store.aiProviderMode === 'custom' ? '自定义端点' : '预置'})`}
         subtitle="sync secrets → GitHub Actions Runner 真调 chat/completions"
         tone={
           aiRun
@@ -357,51 +364,20 @@ export default function ConnectivityPanel() {
         {aiRun && <RunStatusLink run={aiRun} />}
       </TestBlock>
 
-      {/* ── MinerU ── */}
+      {/* ── MinerU (端到端 only) ── */}
       <TestBlock
         icon={<Wifi className="w-4 h-4" />}
-        title="MinerU（PDF 转换）"
-        subtitle="① 快速检测 JWT 是否有效 ② Runner 端到端真调 mineru.net"
+        title="MinerU (PDF 转换)"
+        subtitle="sync secrets → GitHub Actions Runner 真调 mineru.net"
         tone={
-          mineruE2ETesting ? 'running'
-            : mineruRun ? (mineruRun.conclusion === 'success' ? 'ok' : 'err')
-            : mineruReport ? (mineruReport.overallOk ? 'ok' : 'err')
-            : 'idle'
+          mineruRun
+            ? mineruRun.conclusion === 'success' ? 'ok' : 'err'
+            : mineruE2ETesting ? 'running' : 'idle'
         }
         buttonLabel={mineruE2ETesting ? '测试中...' : '端到端测试'}
         onButton={runMineruE2ETest}
         buttonDisabled={mineruE2ETesting || !owner || !repo || !mineruToken.trim()}
-        extraButton={{ label: '快速检测', onClick: runMineruQuickCheck, disabled: !mineruToken.trim() }}
       >
-        {/* Token 快速检测结果 */}
-        {mineruReport && (
-          <div className={`flex items-start gap-1.5 p-2 rounded-md border text-xs ${
-            mineruReport.overallOk
-              ? mineruReport.tokenExpiringSoon
-                ? 'bg-amber-50 border-amber-200 text-amber-800'
-                : 'bg-green-50 border-green-200 text-green-800'
-              : 'bg-red-50 border-red-200 text-red-700'
-          }`}>
-            {mineruReport.overallOk
-              ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 mt-0.5 shrink-0" />
-              : <WifiOff className="w-3.5 h-3.5 text-red-600 mt-0.5 shrink-0" />}
-            <div className="flex-1 space-y-1">
-              <div>{mineruReport.overallMessage}</div>
-              {mineruReport.jwt && !mineruReport.jwt.parseError && (
-                <div className="pl-1 text-[11px] text-slate-500">
-                  有效期至：<code className="font-mono">
-                    {mineruReport.jwt.expiresAt?.toLocaleString()}
-                  </code>
-                  {mineruReport.jwt.remainingDays !== undefined && (
-                    <span className="ml-1">（剩 {mineruReport.jwt.remainingDays} 天）</span>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Runner 端到端结果 */}
         {mineruRun && <RunStatusLink run={mineruRun} />}
       </TestBlock>
     </div>
@@ -414,7 +390,6 @@ export default function ConnectivityPanel() {
 
 type BlockTone = 'idle' | 'running' | 'ok' | 'warn' | 'err'
 
-/** 通用测试块 —— 统一的标题/状态条/按钮/内容区 */
 function TestBlock(props: {
   icon: React.ReactNode
   title: string
@@ -423,7 +398,6 @@ function TestBlock(props: {
   buttonLabel: string
   onButton: () => void
   buttonDisabled?: boolean
-  extraButton?: { label: string; onClick: () => void; disabled?: boolean }
   children?: React.ReactNode
 }) {
   const toneClasses: Record<BlockTone, string> = {
@@ -457,35 +431,21 @@ function TestBlock(props: {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {props.extraButton && (
-            <button
-              type="button"
-              onClick={props.extraButton.onClick}
-              disabled={props.extraButton.disabled}
-              className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-slate-300 bg-white
-                         hover:bg-slate-50 disabled:text-slate-300 disabled:cursor-not-allowed"
-            >
-              {props.extraButton.label}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={props.onButton}
-            disabled={props.buttonDisabled}
-            className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-indigo-300 bg-indigo-50 text-indigo-700
-                       hover:bg-indigo-100 disabled:text-slate-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:border-slate-200"
-          >
-            {props.buttonLabel}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={props.onButton}
+          disabled={props.buttonDisabled}
+          className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-indigo-300 bg-indigo-50 text-indigo-700
+                     hover:bg-indigo-100 disabled:text-slate-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:border-slate-200"
+        >
+          {props.buttonLabel}
+        </button>
       </div>
       {props.children && <div className="pt-1">{props.children}</div>}
     </div>
   )
 }
 
-/** Header 模式 / Query 模式 状态圆点 */
 function ModeDot({ label, ok }: { label: string; ok: boolean }) {
   return (
     <span className="flex items-center gap-1">
@@ -495,7 +455,6 @@ function ModeDot({ label, ok }: { label: string; ok: boolean }) {
   )
 }
 
-/** GitHub Actions Runner 执行结果链接 */
 function RunStatusLink({ run }: { run: RunStatus }) {
   const toneClass =
     run.conclusion === 'success'
@@ -513,7 +472,7 @@ function RunStatusLink({ run }: { run: RunStatus }) {
       {run.conclusion === 'success' ? (
         <div className="font-semibold">✓ Runner 端到端测试通过</div>
       ) : run.conclusion ? (
-        <div className="font-semibold">✗ Runner 端到端失败：{run.conclusion}</div>
+        <div className="font-semibold">✗ Runner 端到端失败:{run.conclusion}</div>
       ) : (
         <div>⏳ Runner 运行中…</div>
       )}
