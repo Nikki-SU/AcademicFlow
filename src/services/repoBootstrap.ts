@@ -1,16 +1,17 @@
 /**
- * Pipeline 安装/检测 —— 前端通过 GitHub Contents API 把 workflow 文件写入用户私库
+ * 后端 workflow 安装/检测 —— 前端通过 GitHub Contents API 把 workflow 文件写入用户私库
  *
  * 为什么不内嵌在 WORKSPACE_SKELETON：
- *   - pipeline.yml + pipeline.mjs + ai-service.yml + ai-service.mjs 合计 ~75KB base64
+ *   - 4 个 workflow yml + 4 个 runner 脚本 (paper_convert / ai_call /
+ *     mineru_connectivity_test / ai_connectivity_test) 合计 ~75KB base64
  *   - 如果初始骨架生成时就塞进去，骨架初始化包膨胀、且老用户升级没有路径
  *   - 这里做成可检测 + 可手动触发写入，老用户也能一键升级
  */
 
 import {
-  PIPELINE_YML_B64, AI_SERVICE_YML_B64,
-  PIPELINE_MJS_B64, AI_SERVICE_MJS_B64,
-  MINERU_TEST_YML_B64, MINERU_TEST_MJS_B64,
+  PAPER_CONVERT_YML_B64, AI_CALL_YML_B64,
+  PAPER_CONVERT_MJS_B64, AI_CALL_MJS_B64,
+  MINERU_CONNECTIVITY_TEST_YML_B64, MINERU_CONNECTIVITY_TEST_MJS_B64,
   AI_CONNECTIVITY_TEST_YML_B64, AI_CONNECTIVITY_TEST_MJS_B64,
   PIPELINE_FILES,
 } from '../constants/skeleton'
@@ -27,8 +28,8 @@ export interface PipelineInstallResult {
 }
 
 /**
- * 检测用户私库是否已经安装了后端 pipeline
- * 试读 pipeline.yml，存在且 size > 1000 字节 → 认为已安装
+ * 检测用户私库是否已经安装了后端 workflow
+ * 逐个试读 PIPELINE_FILES 里的 8 个文件 (4 yml + 4 mjs), 全部存在 → 已安装
  */
 export async function checkPipelineInstalled(
   owner: string,
@@ -65,14 +66,14 @@ export async function writePipelineFiles(
   token: string,
 ): Promise<PipelineInstallResult> {
   const b64Map: Record<string, string> = {
-    'PIPELINE_YML_B64': PIPELINE_YML_B64,
-    'AI_SERVICE_YML_B64': AI_SERVICE_YML_B64,
-    'PIPELINE_MJS_B64': PIPELINE_MJS_B64,
-    'AI_SERVICE_MJS_B64': AI_SERVICE_MJS_B64,
-    'MINERU_TEST_YML_B64': MINERU_TEST_YML_B64,
-    'MINERU_TEST_MJS_B64': MINERU_TEST_MJS_B64,
-    'AI_CONNECTIVITY_TEST_YML_B64': AI_CONNECTIVITY_TEST_YML_B64,
-    'AI_CONNECTIVITY_TEST_MJS_B64': AI_CONNECTIVITY_TEST_MJS_B64,
+    PAPER_CONVERT_YML_B64,
+    AI_CALL_YML_B64,
+    PAPER_CONVERT_MJS_B64,
+    AI_CALL_MJS_B64,
+    MINERU_CONNECTIVITY_TEST_YML_B64,
+    MINERU_CONNECTIVITY_TEST_MJS_B64,
+    AI_CONNECTIVITY_TEST_YML_B64,
+    AI_CONNECTIVITY_TEST_MJS_B64,
   }
   const details: { path: string; ok: boolean; error?: string }[] = []
   const written: string[] = []

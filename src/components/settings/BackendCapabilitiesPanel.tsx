@@ -2,8 +2,8 @@
  * 后端处理能力面板 —— Settings 页
  *
  * 三个按钮：
- *   1. 检测 pipeline.yml 是否安装
- *   2. 重写 pipeline.yml/mjs + ai-service.yml/mjs
+ *   1. 检测 4 个 workflow (paper_convert / ai_call / 两个 connectivity_test) 是否安装
+ *   2. 重写 4 个 yml + 4 个 runner 脚本
  *   3. 配置 GitHub Actions Secrets（打开新窗口 + 引导模板）
  */
 import { useCallback, useState } from 'react'
@@ -32,7 +32,7 @@ export default function BackendCapabilitiesPanel() {
     try {
       const r = await checkPipelineInstalled(owner, repo, token)
       setCheckResult(r)
-      if (r.installed) toast.success('后端 pipeline 已安装 ✓')
+      if (r.installed) toast.success('后端 workflow 已安装 ✓')
       else toast.warning(`缺少 ${r.missing.length} 个文件：${r.missing.join(', ')}`)
 
       // 同时查最近 run 状态
@@ -74,8 +74,9 @@ export default function BackendCapabilitiesPanel() {
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
-        后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上。你需要在私库安装 pipeline.yml / ai-service.yml
-        两个 workflow，并配置 7 个 Secrets。<b>老用户</b>：点"检测"看看私库是否已经升级。
+        后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上。你需要在私库安装
+        <b> paper_convert.yml / ai_call.yml </b>
+        两个主 workflow（外加两个连通性自测 workflow），并配置 7 个 Secrets。<b>老用户</b>：点"检测"看看私库是否已经升级。
       </p>
 
       {/* 状态条 */}
