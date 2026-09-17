@@ -7,7 +7,7 @@
  *   三者同名，零映射。
  */
 
-import { dispatchWorkflow, readRepoTextFile, githubFetch, setResolvedAuthMode } from './github'
+import { dispatchWorkflow, readRepoTextFile, githubFetch } from './github'
 import type { PipelineStage } from '../stores/taskQueue'
 
 export interface PipelineProgress {
