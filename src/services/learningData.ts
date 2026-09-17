@@ -17,12 +17,22 @@ export type TranslationStatus = 'pending' | 'completed'
 
 export interface WordData {
   id: string
+  /** word_en：英文单词 */
   word: string
-  phonetic: string
+  /** word_cn：中文释义（短词，选择题答案用） */
   meaning: string
+  phonetic: string
+  /** definition_cn：中文详细定义（"定义"类题型用） */
+  definitionCn: string
+  /** definition_en：英文定义（复习模式的定义题用，缺失时回退中文定义） */
+  definitionEn: string
+  /** example_context：原文例句（例句挖空题用） */
   exampleEn: string
-  exampleZh: string
-  root: string
+  /**
+   * 例句中文译文（仅内存/AI 生成时携带；vocabulary.csv 无此列，不落盘，
+   * 仅用于单词卡展示）
+   */
+  exampleZh?: string
   sourceDoi: string
   status: WordStatus
   addedAt: number
@@ -30,6 +40,10 @@ export interface WordData {
   reviewCount: number
   sm2Interval: number
   sm2Ease: number
+  /** 连续答对次数（CAT 掌握条件：达到 master_count 即 mastered） */
+  streak: number
+  /** 累计答错次数（>=3 进错词本） */
+  wrongCount: number
 }
 
 export interface SentenceData {
@@ -66,8 +80,10 @@ const TRANSLATION_PATH = 'translation_practice/translation_practice.csv'
 const VOCAB_HEADERS = [
   'word_en', 'word_cn', 'phonetic', 'definition_cn', 'definition_en',
   'example_context', 'source_doi', 'status', 'added_at', 'last_review',
-  'review_count', 'sm2_interval', 'sm2_ease',
+  'review_count', 'sm2_interval', 'sm2_ease', 'wrong_count', 'streak',
 ]
+
+const VALID_WORD_STATUS = new Set(['new', 'learning', 'learned', 'mastered', 'error_book'])
 
 const SENTENCE_HEADERS = [
   'id', 'sentence_en', 'sentence_cn', 'ai_reference_cn', 'source_doi',
@@ -171,22 +187,62 @@ export async function loadWords(force = false): Promise<WordData[]> {
     VOCAB_PATH,
     (rows) => {
       if (rows.length <= 1) return []
-      return rows.slice(1).map((r, i) => ({
-        id: String(i + 1),
-        word: r[0] || '',
-        phonetic: r[2] || '',
-        meaning: r[3] || '',
-        exampleEn: r[5] || '',
-        exampleZh: r[1] || '',
-        root: r[6] || '',
-        sourceDoi: r[7] || '',
-        status: (r[8] as WordStatus) || 'new',
-        addedAt: parseInt(r[9] || '0', 10),
-        lastReview: parseInt(r[10] || '0', 10),
-        reviewCount: parseInt(r[11] || '0', 10),
-        sm2Interval: parseFloat(r[12] || '0'),
-        sm2Ease: parseFloat(r[13] || '2.5'),
-      }))
+      return rows.slice(1)
+        .filter((r) => (r[0] || '').trim())
+        .map((r, i) => {
+          // 历史脏数据自愈：旧版 saveWords 按 14 个值回写 13 列表头，
+          // 导致整行右移一位（status 跑到 added_at 列、source_doi 被词根覆盖等）。
+          // 识别特征：第 8 列(index 8)是合法 status 而第 7 列不是。
+          const shifted = !VALID_WORD_STATUS.has((r[7] || '').trim()) && VALID_WORD_STATUS.has((r[8] || '').trim())
+          const num = (s: string | undefined, d = 0) => {
+            const n = parseInt(s || '', 10)
+            return Number.isFinite(n) ? n : d
+          }
+          const base = {
+            id: String(i + 1),
+            word: r[0] || '',
+            phonetic: r[2] || '',
+            exampleZh: undefined as string | undefined,
+          }
+          if (shifted) {
+            // 右移行：0 word, 1 中文(原 exampleZh 位), 2 音标, 3 definition_cn,
+            // 4 definition_en, 5 example, 6 source_doi, 8 status,
+            // 9 added_at, 10 last_review, 11 review_count, 12 interval, 13 ease
+            return {
+              ...base,
+              meaning: r[1] || r[3] || '',
+              definitionCn: r[3] || '',
+              definitionEn: r[4] || '',
+              exampleEn: r[5] || '',
+              sourceDoi: r[6] || '',
+              status: ((r[8] || 'new').trim() as WordStatus),
+              addedAt: num(r[9]) || num(r[10]),
+              lastReview: num(r[10]),
+              reviewCount: num(r[11]),
+              sm2Interval: parseFloat(r[12] || '1') || 1,
+              sm2Ease: parseFloat(r[13] || '2.5') || 2.5,
+              streak: 0,
+              wrongCount: 0,
+            }
+          }
+          // 正常 13/15 列
+          return {
+            ...base,
+            meaning: r[1] || '',
+            definitionCn: r[3] || '',
+            definitionEn: r[4] || '',
+            exampleEn: r[5] || '',
+            sourceDoi: r[6] || '',
+            status: ((r[7] || 'new').trim() as WordStatus),
+            addedAt: num(r[8]),
+            lastReview: num(r[9]),
+            reviewCount: num(r[10]),
+            sm2Interval: parseFloat(r[11] || '1') || 1,
+            sm2Ease: parseFloat(r[12] || '2.5') || 2.5,
+            wrongCount: num(r[13]),
+            streak: num(r[14]),
+          }
+        })
     },
     force,
   )
@@ -197,14 +253,14 @@ export async function saveWords(words: WordData[]): Promise<void> {
     VOCAB_PATH,
     words,
     VOCAB_HEADERS,
+    // 严格 15 列、按表头顺序；exampleZh 是纯内存字段不落盘
     (w) => [
       w.word,
-      w.exampleZh,
-      w.phonetic,
       w.meaning,
-      '',
+      w.phonetic,
+      w.definitionCn,
+      w.definitionEn,
       w.exampleEn,
-      w.root,
       w.sourceDoi,
       w.status,
       String(w.addedAt),
@@ -212,6 +268,8 @@ export async function saveWords(words: WordData[]): Promise<void> {
       String(w.reviewCount),
       String(w.sm2Interval),
       String(w.sm2Ease),
+      String(w.wrongCount),
+      String(w.streak),
     ],
   )
 }

@@ -10,19 +10,15 @@ import {
   Check,
   X,
   BookOpen,
-  SpellCheck,
   Volume2,
-  Shuffle,
   Sparkles,
   Settings,
-  CheckCircle,
-  XCircle,
   PenTool,
   MessageSquare,
   FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, calcSm2, estimateRepetitions } from '../services/learningData'
+import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { WordData, SentenceData, TranslationData } from '../services/learningData'
@@ -31,7 +27,18 @@ import { runDualEngine } from '../services/ai/dual-engine'
 import { loadLiteratures, loadFulltext, type Literature } from '../services/literatureData'
 
 type TabId = 'words' | 'sentences' | 'translation'
-type QuestionType = 'word' | 'spelling' | 'listening' | 'zhToEn' | 'enToZh' | 'detail'
+
+/**
+ * 单词题型 —— 对齐 CAT 项目 study_service.QUESTION_TYPES：
+ * 全部为四选一选择题，按题型分轮次，答错立刻重做。
+ */
+type WordQuestionType =
+  | 'en_select_cn'     // 英文单词 → 选中文释义
+  | 'cn_select_en'     // 中文释义 → 选英文单词
+  | 'en_select_def'    // 英文单词 → 选（中文）定义
+  | 'def_select_en'    // （中文）定义 → 选英文单词
+  | 'sent_select_cn'   // 例句挖空 → 选中文释义
+  | 'sent_select_def'  // 例句挖空 → 选定义
 
 interface StudyStats {
   todayLearned: string[]
@@ -39,12 +46,13 @@ interface StudyStats {
   lastStudyDate: string
 }
 
-const questionTypes: { id: QuestionType; label: string; icon: typeof Brain }[] = [
-  { id: 'word', label: '单词选择', icon: BookOpen },
-  { id: 'spelling', label: '拼写练习', icon: SpellCheck },
-  { id: 'listening', label: '听音辨词', icon: Volume2 },
-  { id: 'zhToEn', label: '中译英', icon: PenTool },
-  { id: 'enToZh', label: '英译中', icon: MessageSquare },
+const WORD_QUESTION_TYPES: { key: WordQuestionType; label: string; icon: typeof Brain }[] = [
+  { key: 'en_select_cn', label: '英选中', icon: BookOpen },
+  { key: 'cn_select_en', label: '中选英', icon: Languages },
+  { key: 'en_select_def', label: '英选定义', icon: FileText },
+  { key: 'def_select_en', label: '定义选英', icon: PenTool },
+  { key: 'sent_select_cn', label: '例句选中', icon: MessageSquare },
+  { key: 'sent_select_def', label: '例句选定义', icon: Type },
 ]
 
 const subTabs = [
@@ -70,10 +78,125 @@ function getTodayString(): string {
   return new Date().toISOString().split('T')[0]
 }
 
-function getBlankPosition(sentence: string, word: string): number {
-  const lowerSentence = sentence.toLowerCase()
-  const lowerWord = word.toLowerCase()
-  return lowerSentence.indexOf(lowerWord)
+// ============================================================
+// 单词选择题引擎（移植自 CAT 项目 study_service.QUESTION_TYPES）
+// ============================================================
+
+/** 单词的"定义"：复习模式优先英文定义，缺失时回退中文定义/中文释义 */
+function wordDefinition(w: WordData, mode: 'learn' | 'review'): string {
+  if (mode === 'review') return w.definitionEn || w.definitionCn || w.meaning || ''
+  return w.definitionCn || w.meaning || ''
+}
+
+/** 例句中挖空目标单词（大小写不敏感，只替换第一次出现） */
+function blankSentence(sentence: string, word: string): string {
+  if (!word) return sentence
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return sentence.replace(new RegExp(escaped, 'i'), '_____')
+}
+
+/** 该单词是否适合出某题型（缺字段的题型直接整轮跳过该词，对齐 CAT 行为） */
+function isWordEligible(w: WordData, type: WordQuestionType, mode: 'learn' | 'review'): boolean {
+  const hasMeaning = !!w.meaning.trim()
+  const hasDef = !!wordDefinition(w, mode).trim()
+  const hasSentence =
+    !!w.exampleEn.trim() && w.word.length >= 2 &&
+    new RegExp(w.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(w.exampleEn)
+  switch (type) {
+    case 'en_select_cn': return !!w.word.trim() && hasMeaning
+    case 'cn_select_en': return hasMeaning && !!w.word.trim()
+    case 'en_select_def': return !!w.word.trim() && !!w.definitionCn.trim()
+    case 'def_select_en': return hasDef && !!w.word.trim()
+    case 'sent_select_cn': return hasSentence && hasMeaning
+    case 'sent_select_def': return hasSentence && !!w.definitionCn.trim()
+  }
+}
+
+interface GeneratedWordQuestion {
+  wordId: string
+  type: WordQuestionType
+  typeLabel: string
+  isSentence: boolean
+  question: string
+  options: string[]
+  answer: string
+}
+
+/**
+ * 生成一道四选一题：1 个正确项 + 最多 3 个干扰项（从同轮可答词池中取，去重去重）。
+ * 词池不足时降级为 2~3 个选项。
+ */
+function buildQuestion(
+  word: WordData,
+  type: WordQuestionType,
+  pool: WordData[],
+  mode: 'learn' | 'review',
+): GeneratedWordQuestion | null {
+  if (!isWordEligible(word, type, mode)) return null
+  const typeMeta = WORD_QUESTION_TYPES.find((t) => t.key === type)!
+
+  let question = ''
+  let answer = ''
+  let isSentence = false
+  switch (type) {
+    case 'en_select_cn':
+      question = word.word; answer = word.meaning; break
+    case 'cn_select_en':
+      question = word.meaning; answer = word.word; break
+    case 'en_select_def':
+      question = word.word; answer = wordDefinition(word, mode); break
+    case 'def_select_en':
+      question = wordDefinition(word, mode); answer = word.word; break
+    case 'sent_select_cn':
+      question = blankSentence(word.exampleEn, word.word); answer = word.meaning; isSentence = true; break
+    case 'sent_select_def':
+      question = blankSentence(word.exampleEn, word.word); answer = wordDefinition(word, mode); isSentence = true; break
+  }
+  if (!question.trim() || !answer.trim()) return null
+
+  // 干扰项按"答案字段"取，保证四个选项语义同类
+  const answerOf = (w: WordData): string => {
+    switch (type) {
+      case 'en_select_cn':
+      case 'sent_select_cn': return w.meaning
+      case 'cn_select_en':
+      case 'def_select_en': return w.word
+      case 'en_select_def':
+      case 'sent_select_def': return wordDefinition(w, mode)
+    }
+  }
+  const distractors: string[] = []
+  for (const w of shuffleArray(pool.filter((x) => x.id !== word.id))) {
+    const v = answerOf(w).trim()
+    if (v && v !== answer.trim() && !distractors.includes(v)) distractors.push(v)
+    if (distractors.length >= 3) break
+  }
+  const options = shuffleArray([answer, ...distractors.slice(0, 3)])
+  return { wordId: word.id, type, typeLabel: typeMeta.label, isSentence, question, options, answer }
+}
+
+/** SM-2 风格的复习重排（复习模式答对时调用） */
+function rescheduleReview(w: WordData, correct: boolean, now: number): Partial<WordData> {
+  if (correct) {
+    const interval = Math.max(1, Math.round((w.sm2Interval || 1) * w.sm2Ease))
+    return { sm2Interval: interval, lastReview: now, reviewCount: w.reviewCount + 1 }
+  }
+  return { sm2Interval: 1, lastReview: now }
+}
+
+/** 学习模式完成全部适用题型后的新间隔（艾宾浩斯阶梯：1/2/4/7/15/30 天） */
+const LEARN_LADDER = [1, 2, 4, 7, 15, 30]
+function nextLearnInterval(w: WordData): number {
+  return LEARN_LADDER[Math.min(w.reviewCount, LEARN_LADDER.length - 1)]
+}
+
+function speakEnglish(text: string) {
+  if (!text || typeof speechSynthesis === 'undefined') return
+  const u = new SpeechSynthesisUtterance(text)
+  u.lang = 'en-US'
+  u.rate = 0.85
+  speechSynthesis.cancel()
+  speechSynthesis.speak(u)
 }
 
 function formatTime(timestamp?: number): string {
@@ -241,7 +364,8 @@ export default function LearnPage() {
     })
   }, [studyStats])
 
-  const reviewWord = useCallback((wordId: string, quality: number) => {
+  /** 单词会话里每答对一个词记一次学习统计（掌握/重排由 WordSection 会话引擎处理） */
+  const markStudied = useCallback((wordId: string) => {
     setStudyStats((prev) => {
       const today = getTodayString()
       const todayLearned = prev.lastStudyDate === today ? [...prev.todayLearned] : []
@@ -257,21 +381,6 @@ export default function LearnPage() {
         lastStudyDate: today,
       }
     })
-    setWords((prev) =>
-      prev.map((w) => {
-        if (w.id !== wordId) return w
-        const repetitions = estimateRepetitions(w)
-        const result = calcSm2(w.sm2Ease, w.sm2Interval, repetitions, quality)
-        return {
-          ...w,
-          status: result.status,
-          lastReview: Date.now(),
-          reviewCount: w.reviewCount + 1,
-          sm2Interval: result.interval,
-          sm2Ease: result.easeFactor,
-        }
-      })
-    )
   }, [])
 
 
@@ -361,9 +470,11 @@ export default function LearnPage() {
           word: w.word || '',
           phonetic: w.phonetic || '',
           meaning: w.meaning || '',
+          // AI 只给一条中文释义：同时作为 word_cn 和 definition_cn，保证"定义"题型可用
+          definitionCn: w.meaning || '',
+          definitionEn: '',
           exampleEn: w.exampleEn || '',
           exampleZh: w.exampleZh || '',
-          root: '',
           sourceDoi: selectedPaper,
           status: 'new',
           addedAt: now,
@@ -371,6 +482,8 @@ export default function LearnPage() {
           reviewCount: 0,
           sm2Interval: 1,
           sm2Ease: 2.5,
+          streak: 0,
+          wrongCount: 0,
         }))
         setWords((prev) => [...prev, ...newWords])
       }
@@ -538,7 +651,7 @@ export default function LearnPage() {
           words={words}
           setWords={setWords}
           studyStats={studyStats}
-          onReview={reviewWord}
+          onStudied={markStudied}
         />
       )}
       {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} />}
@@ -551,135 +664,333 @@ interface WordSectionProps {
   words: WordData[]
   setWords: React.Dispatch<React.SetStateAction<WordData[]>>
   studyStats: StudyStats
-  onReview: (id: string, quality: number) => void
+  onStudied: (wordId: string) => void
 }
 
-function WordSection({ words, setWords, studyStats, onReview }: WordSectionProps) {
-  const BATCH_SIZE = 7
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [currentType, setCurrentType] = useState<QuestionType>('word')
-  const [randomMode, setRandomMode] = useState<boolean>(false)
-  const [enabledTypes, setEnabledTypes] = useState<QuestionType[]>(['word', 'spelling', 'listening', 'zhToEn', 'enToZh'])
-  const [randomQuestionMode, setRandomQuestionMode] = useState<boolean>(false)
-  const [questionTypeForWord, setQuestionTypeForWord] = useState<QuestionType>('word')
+/** 单词学习设置（对齐 CAT：队列长度 / 题型多选 / 掌握连续正确次数 / 斩词 / 发音） */
+interface WordStudySettings {
+  queueLength: number
+  masterCount: number
+  questionTypes: WordQuestionType[]
+  allowZhan: boolean
+  voiceEnabled: boolean
+}
+
+const DEFAULT_WORD_SETTINGS: WordStudySettings = {
+  queueLength: 5,
+  masterCount: 12,
+  questionTypes: ['en_select_cn'],
+  allowZhan: true,
+  voiceEnabled: true,
+}
+
+/**
+ * 学习会话状态（移植自 CAT StudySession）
+ * - queue：本组单词 id，跨所有题型轮次固定
+ * - wrongIds：本轮答错队列，优先重做（is_retry）
+ * - correctTypes：每个词已答对的题型，全部适用题型答对 → learned
+ */
+interface StudySession {
+  mode: 'learn' | 'review'
+  queue: string[]
+  typeIdx: number
+  wordIdx: number
+  wrongIds: string[]
+  correctTypes: Record<string, string[]>
+  shownCards: string[]
+  correctCount: number
+  wrongCount: number
+  masteredCount: number
+}
+
+const DAY_MS = 86_400_000
+
+function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProps) {
+  const [settings, setSettings] = useState<WordStudySettings>(DEFAULT_WORD_SETTINGS)
   const [showSettings, setShowSettings] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [showDetail, setShowDetail] = useState(false)
-  const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const studyWords = useMemo(() => {
-    const due = words.filter(w => w.status !== 'mastered')
-    const pool = due.length > 0 ? due : words
-    return pool.slice(0, BATCH_SIZE)
-  }, [words])
+  const [session, setSession] = useState<StudySession | null>(null)
+  const [question, setQuestion] = useState<GeneratedWordQuestion | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [answered, setAnswered] = useState(false)
+  const [showCard, setShowCard] = useState(false)
+  const [finished, setFinished] = useState<StudySession | null>(null)
+  const [nowTick, setNowTick] = useState(Date.now())
 
-  const currentWord = studyWords[currentIndex % Math.max(studyWords.length, 1)]
+  // 每分钟刷新一次"待复习"判断
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60_000)
+    return () => clearInterval(t)
+  }, [])
 
-  // 从 GitHub 私库恢复单词学习进度
+  const byId = useMemo(() => new Map(words.map((w) => [w.id, w])), [words])
+
+  // 统计（对齐 CAT wordStats）
+  const stats = useMemo(() => {
+    let newC = 0, learning = 0, learned = 0, mastered = 0, errorBook = 0, due = 0
+    for (const w of words) {
+      if (w.status === 'new') newC++
+      else if (w.status === 'learning') learning++
+      else if (w.status === 'learned') {
+        learned++
+        if (w.lastReview > 0 && w.lastReview + (w.sm2Interval || 1) * DAY_MS <= nowTick) due++
+      } else if (w.status === 'mastered') mastered++
+      if (w.wrongCount >= 3) errorBook++
+    }
+    return { total: words.length, new: newC, learning, learned, mastered, errorBook, due }
+  }, [words, nowTick])
+
+  // ── 设置持久化（learningProgress） ──
   useEffect(() => {
     let cancelled = false
-    async function loadWordProgress() {
-      try {
-        const saved = await loadProgress()
-        if (cancelled) return
-        const idx = saved.wordCurrentIndex ?? 0
-        const wordId = saved.wordCurrentId ?? null
-        const type = (saved.wordCurrentType as QuestionType) || 'word'
-        const random = saved.wordRandomMode ?? false
-        const enabled = (saved.wordEnabledTypes as QuestionType[]) || ['word', 'spelling', 'listening', 'zhToEn', 'enToZh']
-        // 优先用保存的单词 ID 在词表中定位；找不到再回退到索引
-        let restoredIdx = idx
-        if (wordId) {
-          const foundIdx = studyWords.findIndex((w) => w.id === wordId)
-          if (foundIdx >= 0) restoredIdx = foundIdx
-        }
-        const safeIdx = Math.max(0, Math.min(restoredIdx, Math.max(studyWords.length - 1, 0)))
-        setCurrentIndex(safeIdx)
-        setCurrentType(type)
-        setRandomMode(random)
-        setEnabledTypes(enabled)
-      } catch (err) {
-        console.error('[Learn] WordSection 加载进度失败:', err)
-      }
-    }
-    loadWordProgress()
+    loadProgress().then((p) => {
+      if (cancelled) return
+      setSettings((prev) => ({
+        queueLength: [5, 7, 9].includes(p.wordQueueLength) ? p.wordQueueLength : prev.queueLength,
+        masterCount: [6, 12, 18].includes(p.wordMasterCount) ? p.wordMasterCount : prev.masterCount,
+        questionTypes:
+          Array.isArray(p.wordQuestionTypes) && p.wordQuestionTypes.length > 0
+            ? p.wordQuestionTypes
+            : prev.questionTypes,
+        allowZhan: typeof p.wordAllowZhan === 'boolean' ? p.wordAllowZhan : prev.allowZhan,
+        voiceEnabled: typeof p.wordVoiceEnabled === 'boolean' ? p.wordVoiceEnabled : prev.voiceEnabled,
+      }))
+    }).catch(() => {})
     return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
-    updateProgress({ wordCurrentIndex: currentIndex })
-    if (currentWord?.id) {
-      updateProgress({ wordCurrentId: currentWord.id })
+    void updateProgress({
+      wordQueueLength: settings.queueLength,
+      wordMasterCount: settings.masterCount,
+      wordQuestionTypes: settings.questionTypes,
+      wordAllowZhan: settings.allowZhan,
+      wordVoiceEnabled: settings.voiceEnabled,
+    })
+  }, [settings])
+
+  // ── 出题 / 会话推进 ──
+
+  /** 根据会话当前指针出题（wrongIds 优先），并重置答题 UI */
+  const presentQuestion = useCallback((s: StudySession) => {
+    const type = settings.questionTypes[s.typeIdx]
+    const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
+    const eligible = pool.filter((w) => isWordEligible(w, type, s.mode))
+    let wid = s.wrongIds[0]
+    if (!wid) wid = eligible[s.wordIdx]?.id
+    if (!wid) {
+      // 理论上不该发生：安全收尾
+      setFinished(s)
+      setSession(null)
+      setQuestion(null)
+      return
     }
-  }, [currentIndex, currentWord?.id])
-
-  useEffect(() => {
-    updateProgress({ wordCurrentType: currentType })
-  }, [currentType])
-
-  useEffect(() => {
-    updateProgress({ wordRandomMode: randomMode })
-  }, [randomMode])
-
-  useEffect(() => {
-    updateProgress({ wordEnabledTypes: enabledTypes })
-  }, [enabledTypes])
-
-  useEffect(() => {
-    if (randomQuestionMode && enabledTypes.length > 0) {
-      const randomType = enabledTypes[Math.floor(Math.random() * enabledTypes.length)]
-      setQuestionTypeForWord(randomType)
-    } else {
-      setQuestionTypeForWord(enabledTypes.includes(currentType) ? currentType : (enabledTypes[0] || 'word'))
+    const w = byId.get(wid)
+    const q = w ? buildQuestion(w, type, eligible, s.mode) : null
+    if (!q) {
+      setFinished(s)
+      setSession(null)
+      setQuestion(null)
+      return
     }
-  }, [currentIndex, randomQuestionMode, enabledTypes, currentType])
+    setSession(s)
+    setQuestion(q)
+    setSelected(null)
+    setAnswered(false)
+    setShowCard(false)
+  }, [byId, settings.questionTypes])
 
-  useEffect(() => {
-    return () => {
-      if (autoNextTimerRef.current) {
-        clearTimeout(autoNextTimerRef.current)
+  /** 推进到下一题；错题未清先重做题，否则同题型下一词，再否则切下一题型 */
+  const advance = useCallback((s: StudySession) => {
+    const types = settings.questionTypes
+    const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
+
+    if (s.wrongIds.length > 0) {
+      presentQuestion(s)
+      return
+    }
+    const eligibleNow = pool.filter((w) => isWordEligible(w, types[s.typeIdx], s.mode))
+    if (s.wordIdx < eligibleNow.length - 1) {
+      presentQuestion({ ...s, wordIdx: s.wordIdx + 1 })
+      return
+    }
+    for (let ni = s.typeIdx + 1; ni < types.length; ni++) {
+      const eligibleNext = pool.filter((w) => isWordEligible(w, types[ni], s.mode))
+      if (eligibleNext.length > 0) {
+        presentQuestion({ ...s, typeIdx: ni, wordIdx: 0 })
+        return
       }
     }
+    // 全部题型轮完
+    setFinished(s)
+    setSession(null)
+    setQuestion(null)
+  }, [byId, settings.questionTypes, presentQuestion])
+
+  const startSession = useCallback((mode: 'learn' | 'review') => {
+    let queue: WordData[]
+    if (mode === 'learn') {
+      // CAT：learning 优先，new 补齐
+      const learningWords = words
+        .filter((w) => w.status === 'learning')
+        .sort((a, b) => a.addedAt - b.addedAt)
+      const newWords = words
+        .filter((w) => w.status === 'new')
+        .sort((a, b) => a.addedAt - b.addedAt)
+      queue = [...learningWords, ...newWords].slice(0, settings.queueLength)
+    } else {
+      queue = words
+        .filter((w) => w.status === 'learned' && w.lastReview > 0 && w.lastReview + (w.sm2Interval || 1) * DAY_MS <= Date.now())
+        .sort((a, b) => a.lastReview - b.lastReview)
+        .slice(0, 20)
+    }
+    if (queue.length === 0) {
+      toast.error(mode === 'learn' ? '暂无可学习的新词' : '暂无到期复习的单词')
+      return
+    }
+    // 选第一个对这组词"有题可出"的题型
+    let typeIdx = -1
+    settings.questionTypes.some((t, i) => {
+      if (queue.some((w) => isWordEligible(w, t, mode))) { typeIdx = i; return true }
+      return false
+    })
+    if (typeIdx < 0) {
+      toast.error('所选题型在这批单词上都缺少必要字段（释义/定义/例句），请调整题型或补充单词信息')
+      return
+    }
+    setFinished(null)
+    presentQuestion({
+      mode,
+      queue: queue.map((w) => w.id),
+      typeIdx,
+      wordIdx: 0,
+      wrongIds: [],
+      correctTypes: {},
+      shownCards: [],
+      correctCount: 0,
+      wrongCount: 0,
+      masteredCount: 0,
+    })
+  }, [words, settings, presentQuestion])
+
+  const submitAnswer = useCallback(() => {
+    if (!session || !question || !selected || answered) return
+    const isCorrect = selected === question.answer
+    const wid = question.wordId
+    const now = Date.now()
+    setAnswered(true)
+
+    if (isCorrect) {
+      const wrongIds = session.wrongIds.filter((id) => id !== wid)
+      const doneTypes = Array.from(new Set([...(session.correctTypes[wid] || []), question.type]))
+      const correctTypes = { ...session.correctTypes, [wid]: doneTypes }
+      const masterCount = settings.masterCount
+      const mode = session.mode
+      const selectedTypes = settings.questionTypes
+
+      // 先用当前词数据算好新状态（避免在 setState 更新器里做计数副作用）
+      const cur = byId.get(wid)
+      let nextWord: WordData | null = null
+      let masteredNow = false
+      if (cur) {
+        const streak = cur.streak + 1
+        let next: WordData = { ...cur, streak }
+        const applicable = selectedTypes.filter((t) => isWordEligible(cur, t, mode))
+        const allTypesDone = applicable.every((t) => doneTypes.includes(t))
+        if (mode === 'learn') {
+          if (allTypesDone) {
+            if (streak >= masterCount) {
+              next = { ...next, status: 'mastered' }
+              masteredNow = cur.status !== 'mastered'
+            } else {
+              next = {
+                ...next,
+                status: 'learned',
+                sm2Interval: nextLearnInterval(cur),
+                reviewCount: cur.reviewCount + 1,
+              }
+            }
+            next = { ...next, lastReview: now }
+          }
+        } else {
+          // 复习模式：SM-2 重排；连续正确达标 → 掌握
+          const rs = rescheduleReview(cur, true, now)
+          if (streak >= masterCount) {
+            next = { ...next, ...rs, status: 'mastered' }
+            masteredNow = cur.status !== 'mastered'
+          } else {
+            next = { ...next, ...rs, status: 'learned' }
+          }
+        }
+        nextWord = next
+      }
+      if (nextWord) {
+        const planned = nextWord
+        setWords((prev) => prev.map((w) => (w.id === wid ? planned : w)))
+      }
+      onStudied(wid)
+      setSession({
+        ...session,
+        wrongIds,
+        correctTypes,
+        correctCount: session.correctCount + 1,
+        masteredCount: session.masteredCount + (masteredNow ? 1 : 0),
+      })
+    } else {
+      // 答错：streak 清零、wrong_count+1、进错题队列；首轮第一次答错弹单词卡
+      const canShowCard =
+        session.mode === 'learn' &&
+        session.typeIdx === 0 &&
+        !session.shownCards.includes(wid)
+      const shownCards = canShowCard ? [...session.shownCards, wid] : session.shownCards
+      const wrongIds = session.wrongIds.includes(wid) ? session.wrongIds : [...session.wrongIds, wid]
+
+      setWords((prev) => prev.map((w) =>
+        w.id === wid
+          ? { ...w, streak: 0, wrongCount: w.wrongCount + 1, status: 'learning' }
+          : w,
+      ))
+      setShowCard(canShowCard)
+      setSession({
+        ...session,
+        wrongIds,
+        shownCards,
+        wrongCount: session.wrongCount + 1,
+      })
+    }
+  }, [session, question, selected, answered, settings.masterCount, settings.questionTypes, setWords, onStudied, byId])
+
+  /** 看完卡片或点"下一题"后继续（错题优先重做） */
+  const handleNext = useCallback(() => {
+    if (session) advance(session)
+  }, [session, advance])
+
+  /** 斩词：直接标记掌握，移出错题队列 */
+  const handleZhan = useCallback(() => {
+    if (!question) return
+    const wid = question.wordId
+    setWords((prev) => prev.map((w) =>
+      w.id === wid ? { ...w, status: 'mastered', streak: settings.masterCount } : w,
+    ))
+    toast.success('已斩词，标记为掌握')
+    if (session) {
+      const s2 = {
+        ...session,
+        wrongIds: session.wrongIds.filter((id) => id !== wid),
+        masteredCount: session.masteredCount + 1,
+      }
+      advance(s2)
+    }
+  }, [question, session, setWords, settings.masterCount, advance])
+
+  const exitSession = useCallback(() => {
+    setSession(null)
+    setQuestion(null)
+    setFinished(null)
+    setShowCard(false)
+    setAnswered(false)
   }, [])
-
-  const goToNext = useCallback(() => {
-    setShowDetail(false)
-    if (autoNextTimerRef.current) {
-      clearTimeout(autoNextTimerRef.current)
-      autoNextTimerRef.current = null
-    }
-    const len = Math.max(studyWords.length, 1)
-    if (randomMode) {
-      let nextIndex = Math.floor(Math.random() * len)
-      while (nextIndex === currentIndex && len > 1) {
-        nextIndex = Math.floor(Math.random() * len)
-      }
-      setCurrentIndex(nextIndex)
-    } else {
-      setCurrentIndex((i) => (i + 1) % len)
-    }
-  }, [randomMode, studyWords.length, currentIndex])
-
-  const handlePrev = () => {
-    setShowDetail(false)
-    if (autoNextTimerRef.current) {
-      clearTimeout(autoNextTimerRef.current)
-      autoNextTimerRef.current = null
-    }
-    const len = Math.max(studyWords.length, 1)
-    setCurrentIndex((i) => (i - 1 + len) % len)
-  }
-
-  const handleMastered = () => {
-    const wordId = currentWord?.id
-    if (!wordId) return
-    setWords((prev) =>
-      prev.map((w) =>
-        w.id === wordId ? { ...w, status: w.status === 'mastered' ? 'learning' : 'mastered' } : w
-      )
-    )
-    toast.success(currentWord?.status === 'mastered' ? '已取消掌握标记' : '已标记为已掌握')
-  }
 
   const handleAddWord = (word: WordData) => {
     setWords((prev) => [...prev, word])
@@ -687,47 +998,7 @@ function WordSection({ words, setWords, studyStats, onReview }: WordSectionProps
     toast.success('单词已添加')
   }
 
-  const handleCorrect = useCallback(() => {
-    if (currentWord) {
-      onReview(currentWord.id, 4)
-
-      const isFirstTime = currentWord.reviewCount === 0
-      if (isFirstTime) {
-        setTimeout(() => {
-          setShowDetail(true)
-        }, 500)
-      } else {
-        autoNextTimerRef.current = setTimeout(() => {
-          goToNext()
-        }, 800)
-      }
-    }
-  }, [currentWord, onReview, goToNext])
-
-  const handleWrong = useCallback(() => {
-    if (currentWord) {
-      onReview(currentWord.id, 1)
-      setTimeout(() => {
-        setShowDetail(true)
-      }, 800)
-    }
-  }, [currentWord, onReview])
-
-  const toggleType = (type: QuestionType) => {
-    setEnabledTypes((prev) => {
-      if (prev.includes(type)) {
-        if (prev.length === 1) return prev
-        return prev.filter((t) => t !== type)
-      }
-      return [...prev, type]
-    })
-  }
-
-  const activeQuestionType = useMemo(() => {
-    if (showDetail) return 'detail'
-    return questionTypeForWord
-  }, [showDetail, questionTypeForWord])
-
+  // ── 空状态 ──
   if (words.length === 0) {
     return (
       <div className="text-center py-16">
@@ -739,227 +1010,397 @@ function WordSection({ words, setWords, studyStats, onReview }: WordSectionProps
         >
           添加单词
         </button>
+        {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
       </div>
     )
   }
 
+  // ── 会话结束总结 ──
+  if (finished) {
+    return (
+      <div className="max-w-md mx-auto pt-10">
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+          <GraduationCap className="w-14 h-14 text-indigo-500 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-slate-800 mb-1">
+            {finished.mode === 'learn' ? '本组学习完成' : '本轮复习完成'}
+          </h3>
+          <p className="text-sm text-slate-500 mb-6">
+            共 {finished.queue.length} 词 · 答对 {finished.correctCount} 次 · 答错 {finished.wrongCount} 次
+            {finished.masteredCount > 0 ? ` · 新掌握 ${finished.masteredCount} 词` : ''}
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => startSession(finished.mode)}
+              className="flex-1 py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+            >
+              再来一组
+            </button>
+            <button
+              onClick={exitSession}
+              className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+            >
+              返回单词首页
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── 答题中 ──
+  if (session && question) {
+    const currentType = settings.questionTypes[session.typeIdx]
+    const pool = session.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
+    const eligible = pool.filter((w) => isWordEligible(w, currentType, session.mode))
+    const isRetry = session.wrongIds.length > 0
+    const currentWord = byId.get(question.wordId)
+    const progressPct = ((isRetry ? session.wordIdx : session.wordIdx + 1) / Math.max(eligible.length, 1)) * 100
+
+    return (
+      <div className="space-y-4">
+        {/* 顶部状态 */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center justify-between text-sm text-slate-500 mb-2">
+            <span>
+              第 {session.wordIdx + 1}/{eligible.length} 题 · 第 {session.typeIdx + 1}/{settings.questionTypes.length} 轮
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">
+                {question.typeLabel}
+              </span>
+              {isRetry && <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded text-xs">重做</span>}
+              {session.mode === 'review' && (
+                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-xs">复习</span>
+              )}
+            </div>
+          </div>
+          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-2 bg-indigo-600 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+
+        {/* 题目卡 */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <div className="text-center mb-6 min-h-[64px] flex items-center justify-center">
+            {question.isSentence ? (
+              <p className="text-lg text-slate-800 leading-relaxed text-left">
+                {question.question.split('_____').map((part, i, arr) => (
+                  <span key={i}>
+                    {part}
+                    {i < arr.length - 1 && <span className="font-bold text-indigo-600 mx-0.5">_____</span>}
+                  </span>
+                ))}
+              </p>
+            ) : (
+              <div className="flex items-center justify-center gap-3">
+                <h2 className="text-3xl font-bold text-slate-800 break-all">{question.question}</h2>
+                {settings.voiceEnabled && (
+                  <button
+                    onClick={() => speakEnglish(question.question)}
+                    className="p-2 text-slate-400 hover:text-indigo-600 transition"
+                    title="朗读"
+                  >
+                    <Volume2 className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 选项 */}
+          <div className="space-y-3">
+            {question.options.map((option, idx) => {
+              const isSelected = selected === option
+              const isCorrectOpt = answered && option === question.answer
+              const isWrongPick = answered && isSelected && option !== question.answer
+              let cls = 'w-full p-3.5 text-left rounded-lg border transition flex items-center gap-3 '
+              if (answered) {
+                if (isCorrectOpt) cls += 'bg-green-50 border-green-500 text-green-800'
+                else if (isWrongPick) cls += 'bg-red-50 border-red-500 text-red-800'
+                else cls += 'bg-slate-50 border-slate-200 text-slate-400'
+              } else {
+                cls += isSelected
+                  ? 'bg-indigo-50 border-indigo-500 text-indigo-900'
+                  : 'bg-white border-slate-300 text-slate-700 hover:border-indigo-300'
+              }
+              return (
+                <button
+                  key={`${option}-${idx}`}
+                  onClick={() => { if (!answered) setSelected(option) }}
+                  disabled={answered}
+                  className={cls}
+                >
+                  <span className={`shrink-0 w-7 h-7 rounded-full text-center leading-7 text-sm font-bold ${
+                    answered && isCorrectOpt ? 'bg-green-500 text-white'
+                      : answered && isWrongPick ? 'bg-red-500 text-white'
+                      : isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {String.fromCharCode(65 + idx)}
+                  </span>
+                  <span className="text-sm leading-snug">{option}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* 操作区 */}
+          <div className="mt-6 flex gap-3">
+            {!answered ? (
+              <button
+                onClick={submitAnswer}
+                disabled={!selected}
+                className="flex-1 py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                确认答案
+              </button>
+            ) : (
+              <button
+                onClick={handleNext}
+                className="flex-1 py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"
+              >
+                {showCard ? '查看单词卡' : '下一题'}
+                {!showCard && <ChevronRight className="w-4 h-4" />}
+              </button>
+            )}
+            {settings.allowZhan && currentWord && currentWord.status !== 'mastered' && (
+              <button
+                onClick={handleZhan}
+                className="px-4 py-3 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition"
+                title="斩词：直接标记为已掌握"
+              >
+                斩词
+              </button>
+            )}
+            <button
+              onClick={exitSession}
+              className="px-4 py-3 bg-slate-100 text-slate-500 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+            >
+              退出
+            </button>
+          </div>
+        </div>
+
+        {/* 单词卡弹层（首轮首次答错） */}
+        {showCard && currentWord && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto">
+              <div className="text-center mb-4">
+                <h2 className="text-3xl font-bold text-slate-800">{currentWord.word}</h2>
+                <div className="flex items-center justify-center gap-3 mt-1">
+                  {currentWord.phonetic && <span className="text-sm text-slate-400">{currentWord.phonetic}</span>}
+                  {settings.voiceEnabled && (
+                    <button onClick={() => speakEnglish(currentWord.word)} className="text-slate-400 hover:text-indigo-600">
+                      <Volume2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-lg text-indigo-600 font-medium mt-2">{currentWord.meaning}</p>
+              </div>
+              {currentWord.definitionCn && currentWord.definitionCn !== currentWord.meaning && (
+                <p className="text-sm text-slate-600 mb-2">
+                  <span className="font-medium">定义：</span>{currentWord.definitionCn}
+                </p>
+              )}
+              {currentWord.definitionEn && (
+                <p className="text-sm text-slate-500 mb-2">
+                  <span className="font-medium">EN：</span>{currentWord.definitionEn}
+                </p>
+              )}
+              {currentWord.exampleEn && (
+                <div className="mt-3 p-3 bg-slate-50 rounded-lg">
+                  <p className="text-sm text-slate-700 italic leading-relaxed">
+                    {currentWord.exampleEn.split(
+                      new RegExp(`(${currentWord.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i'),
+                    ).map((seg, i) =>
+                      seg.toLowerCase() === currentWord.word.toLowerCase()
+                        ? <strong key={i} className="text-indigo-600 not-italic">{seg}</strong>
+                        : seg,
+                    )}
+                  </p>
+                  {currentWord.exampleZh && <p className="text-sm text-slate-500 mt-1.5">{currentWord.exampleZh}</p>}
+                </div>
+              )}
+              <button
+                onClick={() => { setShowCard(false); handleNext() }}
+                className="mt-5 w-full py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              >
+                继续答题（重做本题）
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── 开始页 ──
+  const statChips: { label: string; value: number; cls: string }[] = [
+    { label: '全部', value: stats.total, cls: 'text-slate-700' },
+    { label: '未学', value: stats.new, cls: 'text-red-500' },
+    { label: '学习中', value: stats.learning, cls: 'text-amber-500' },
+    { label: '已学', value: stats.learned, cls: 'text-blue-500' },
+    { label: '已掌握', value: stats.mastered, cls: 'text-emerald-600' },
+    { label: '错词本', value: stats.errorBook, cls: 'text-red-400' },
+  ]
+
   return (
-    <div className="relative">
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-4">
-            <div className="text-sm">
-              <span className="text-slate-500">今日学习：</span>
-              <span className="font-semibold text-indigo-600">{studyStats.todayLearned.length}</span>
-              <span className="text-slate-400"> 词</span>
+    <div className="space-y-4">
+      {/* 统计条 */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          {statChips.map((c) => (
+            <div key={c.label} className="text-sm">
+              <span className="text-slate-400">{c.label} </span>
+              <span className={`font-semibold ${c.cls}`}>{c.value}</span>
             </div>
-            <div className="text-sm">
-              <span className="text-slate-500">累计学习：</span>
-              <span className="font-semibold text-slate-700">{studyStats.totalLearned.length}</span>
-              <span className="text-slate-400"> 词</span>
-            </div>
+          ))}
+          <div className="text-sm ml-auto">
+            <span className="text-slate-400">今日已学 </span>
+            <span className="font-semibold text-indigo-600">{studyStats.todayLearned.length}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-            >
-              <Plus className="w-4 h-4" />
-              添加
-            </button>
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className={`p-1.5 rounded-lg transition ${
-                showSettings ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="w-full bg-slate-100 rounded-full h-2 mb-3">
-          <div
-            className="bg-indigo-600 h-2 rounded-full transition-all"
-            style={{ width: `${((currentIndex + 1) / Math.max(studyWords.length, 1)) * 100}%` }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>本批进度：{currentIndex + 1} / {studyWords.length}（共 {words.length} 词）</span>
-          <span>当前单词：{currentWord?.word}</span>
         </div>
       </div>
 
-      {showSettings && (
-        <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-          <div className="text-sm font-medium text-slate-700 mb-3">当前题型</div>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {questionTypes.map((qt) => {
-              const Icon = qt.icon
-              const isActive = currentType === qt.id
-              const isEnabled = enabledTypes.includes(qt.id)
-              return (
-                <button
-                  key={qt.id}
-                  onClick={() => {
-                    if (isEnabled) {
-                      setCurrentType(qt.id)
-                    }
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                    isActive
-                      ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
-                      : isEnabled
-                      ? 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
-                      : 'bg-slate-50 text-slate-300 border border-slate-100 cursor-not-allowed'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {qt.label}
-                </button>
-              )
-            })}
-          </div>
-          
-          <div className="text-sm font-medium text-slate-700 mb-2">启用题型</div>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {questionTypes.map((qt) => {
-              const Icon = qt.icon
-              const isEnabled = enabledTypes.includes(qt.id)
-              return (
-                <button
-                  key={qt.id}
-                  onClick={() => toggleType(qt.id)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                    isEnabled
-                      ? 'bg-green-50 text-green-700 border border-green-200'
-                      : 'bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {isEnabled ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                  <Icon className="w-3 h-3" />
-                  {qt.label}
-                </button>
-              )
-            })}
-          </div>
-
-          <div className="space-y-3 pt-3 border-t border-slate-100">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-600">随机题型</span>
-              <button
-                onClick={() => setRandomQuestionMode(!randomQuestionMode)}
-                className={`relative w-11 h-6 rounded-full transition ${
-                  randomQuestionMode ? 'bg-indigo-600' : 'bg-slate-300'
-                }`}
-              >
-                <div
-                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                    randomQuestionMode ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
-              </button>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-600">随机单词顺序</span>
-              <button
-                onClick={() => setRandomMode(!randomMode)}
-                className={`relative w-11 h-6 rounded-full transition ${
-                  randomMode ? 'bg-indigo-600' : 'bg-slate-300'
-                }`}
-              >
-                <div
-                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                    randomMode ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
-              </button>
-            </div>
+      {/* 设置面板 */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-slate-800">学习设置</h3>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1 text-sm text-indigo-600 hover:bg-indigo-50 px-2.5 py-1 rounded-lg transition"
+            >
+              <Plus className="w-4 h-4" /> 添加单词
+            </button>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition"
+            >
+              <Settings className="w-4 h-4" />
+              {showSettings ? '收起' : '展开'}
+            </button>
           </div>
         </div>
-      )}
 
-      {!showDetail && currentWord && (
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-4">
-          {activeQuestionType === 'word' && (
-            <WordQuestion
-              key={currentWord.id + '-word'}
-              word={currentWord}
-              words={words}
-              onCorrect={handleCorrect}
-              onWrong={handleWrong}
-            />
-          )}
-          {activeQuestionType === 'spelling' && (
-            <SpellingQuestion
-              key={currentWord.id + '-spelling'}
-              word={currentWord}
-              onCorrect={handleCorrect}
-              onWrong={handleWrong}
-            />
-          )}
-          {activeQuestionType === 'listening' && (
-            <ListeningQuestion
-              key={currentWord.id + '-listening'}
-              word={currentWord}
-              words={words}
-              onCorrect={handleCorrect}
-              onWrong={handleWrong}
-            />
-          )}
-          {activeQuestionType === 'zhToEn' && (
-            <ZhToEnQuestion
-              key={currentWord.id + '-zhtoen'}
-              word={currentWord}
-              onCorrect={handleCorrect}
-              onWrong={handleWrong}
-            />
-          )}
-          {activeQuestionType === 'enToZh' && (
-            <EnToZhQuestion
-              key={currentWord.id + 'entozh'}
-              word={currentWord}
-              onCorrect={handleCorrect}
-              onWrong={handleWrong}
-            />
-          )}
-        </div>
-      )}
+        {showSettings && (
+          <div className="mt-4 space-y-5">
+            <div>
+              <label className="block text-sm text-slate-600 mb-2">每组词数</label>
+              <div className="flex gap-2">
+                {[5, 7, 9].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setSettings((p) => ({ ...p, queueLength: n }))}
+                    className={`px-4 py-1.5 rounded-lg text-sm transition ${
+                      settings.queueLength === n ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {n} 个/组
+                  </button>
+                ))}
+              </div>
+            </div>
 
-      {showDetail && currentWord && (
-        <WordDetail
-          word={currentWord}
-          onNext={goToNext}
-          onMastered={handleMastered}
-        />
-      )}
+            <div>
+              <label className="block text-sm text-slate-600 mb-2">题型选择（按勾选顺序分轮出题，答错立即重做）</label>
+              <div className="flex flex-wrap gap-2">
+                {WORD_QUESTION_TYPES.map((t) => {
+                  const Icon = t.icon
+                  const checked = settings.questionTypes.includes(t.key)
+                  return (
+                    <label
+                      key={t.key}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm cursor-pointer transition ${
+                        checked ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="accent-indigo-600"
+                        checked={checked}
+                        onChange={(e) => {
+                          setSettings((p) => {
+                            const exists = p.questionTypes.includes(t.key)
+                            if (e.target.checked && !exists) return { ...p, questionTypes: [...p.questionTypes, t.key] }
+                            if (!exists) return p
+                            const next = p.questionTypes.filter((k) => k !== t.key)
+                            return { ...p, questionTypes: next.length ? next : ['en_select_cn'] }
+                          })
+                        }}
+                      />
+                      <Icon className="w-3.5 h-3.5" />
+                      {t.label}
+                    </label>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">
+                定义/例句类题型需要单词含有 definition_cn 或原文例句，缺字段的词会自动跳过该轮
+              </p>
+            </div>
 
-      <div className="flex items-center justify-center gap-3">
+            <div>
+              <label className="block text-sm text-slate-600 mb-2">掌握条件（连续答对次数，中途答错清零）</label>
+              <div className="flex gap-2">
+                {[6, 12, 18].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setSettings((p) => ({ ...p, masterCount: n }))}
+                    className={`px-4 py-1.5 rounded-lg text-sm transition ${
+                      settings.masterCount === n ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {n} 次
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6 pt-1">
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-indigo-600"
+                  checked={settings.allowZhan}
+                  onChange={(e) => setSettings((p) => ({ ...p, allowZhan: e.target.checked }))}
+                />
+                允许斩词
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-indigo-600"
+                  checked={settings.voiceEnabled}
+                  onChange={(e) => setSettings((p) => ({ ...p, voiceEnabled: e.target.checked }))}
+                />
+                朗读发音
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 开始按钮 */}
+      <div className="flex gap-4">
         <button
-          onClick={handlePrev}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+          onClick={() => startSession('learn')}
+          disabled={stats.new + stats.learning === 0}
+          className="flex-1 py-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
-          <ChevronLeft className="w-4 h-4" />
-          上一题
+          <span className="block text-base font-medium">开始学习</span>
+          <span className="text-xs opacity-80">
+            {stats.new + stats.learning > 0 ? `${stats.learning} 个学习中 + ${stats.new} 个新词` : '暂无新词'}
+          </span>
         </button>
         <button
-          onClick={handleMastered}
-          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-            currentWord?.status === 'mastered'
-              ? 'bg-green-100 text-green-700 hover:bg-green-200'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
+          onClick={() => startSession('review')}
+          disabled={stats.due === 0}
+          className="flex-1 py-4 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
-          <Check className="w-4 h-4" />
-          {currentWord?.status === 'mastered' ? '已掌握' : '掌握'}
-        </button>
-        <button
-          onClick={goToNext}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
-        >
-          下一题
-          <ChevronRight className="w-4 h-4" />
+          <span className="block text-base font-medium">开始复习</span>
+          <span className="text-xs opacity-80">
+            {stats.due > 0 ? `${stats.due} 个词已到期` : '暂无到期复习'}
+          </span>
         </button>
       </div>
 
@@ -968,638 +1409,6 @@ function WordSection({ words, setWords, studyStats, onReview }: WordSectionProps
   )
 }
 
-interface QuestionProps {
-  word: WordData
-  words: WordData[]
-  onCorrect: () => void
-  onWrong: () => void
-}
-
-function WordQuestion({ word, words, onCorrect, onWrong }: QuestionProps) {
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const [showResult, setShowResult] = useState(false)
-
-  const options = useMemo(() => {
-    const otherMeanings = words
-      .filter((w) => w.id !== word.id)
-      .map((w) => w.meaning)
-    const shuffledOthers = shuffleArray(otherMeanings).slice(0, 3)
-    return shuffleArray([word.meaning, ...shuffledOthers])
-  }, [word, words])
-
-  const handleSelect = (option: string) => {
-    if (showResult) return
-    setSelectedOption(option)
-    setShowResult(true)
-    if (option === word.meaning) {
-      onCorrect()
-      toast.success('回答正确！')
-    } else {
-      onWrong()
-      toast.error('回答错误')
-    }
-  }
-
-  const isCorrect = selectedOption === word.meaning
-
-  return (
-    <div className="p-6">
-      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
-        <BookOpen className="w-3.5 h-3.5" />
-        单词选择题
-      </div>
-
-      <div className="text-center py-8 mb-6">
-        <h2 className="text-4xl font-bold text-slate-800 mb-3">{word.word}</h2>
-        <p className="text-base text-slate-400">{word.phonetic}</p>
-      </div>
-
-      <p className="text-center text-sm text-slate-600 mb-4">请选择正确的中文释义</p>
-
-      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
-        {options.map((option) => {
-          const isSelected = selectedOption === option
-          const isCorrectAnswer = option === word.meaning
-          let btnClass = 'bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
-          if (showResult) {
-            if (isCorrectAnswer) {
-              btnClass = 'bg-green-50 border-green-500 text-green-700'
-            } else if (isSelected) {
-              btnClass = 'bg-red-50 border-red-500 text-red-700'
-            } else {
-              btnClass = 'bg-slate-50 border-slate-200 text-slate-400'
-            }
-          }
-          return (
-            <button
-              key={option}
-              onClick={() => handleSelect(option)}
-              disabled={showResult}
-              className={`p-4 rounded-xl border-2 text-sm font-medium transition ${btnClass}`}
-            >
-              {option}
-            </button>
-          )
-        })}
-      </div>
-
-      {showResult && (
-        <div className="mt-6 flex flex-col items-center gap-2">
-          <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
-            {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-            <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
-          </div>
-          {!isCorrect && (
-            <p className="text-sm text-slate-500">
-              正确答案：<span className="font-semibold text-indigo-600">{word.meaning}</span>
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-interface SpellingProps {
-  word: WordData
-  onCorrect: () => void
-  onWrong: () => void
-}
-
-function SpellingQuestion({ word, onCorrect, onWrong }: SpellingProps) {
-  const [spelledLetters, setSpelledLetters] = useState<string[]>([])
-  const [shuffledLetters, setShuffledLetters] = useState<string[]>([])
-  const [spellingCorrect, setSpellingCorrect] = useState<boolean | null>(null)
-  const [hasAnswered, setHasAnswered] = useState(false)
-
-  useEffect(() => {
-    setSpelledLetters([])
-    setSpellingCorrect(null)
-    setHasAnswered(false)
-    setShuffledLetters(shuffleArray(word.word.split('')))
-  }, [word.id, word.word])
-
-  const handleLetterClick = (letter: string, index: number) => {
-    if (spellingCorrect !== null) return
-    const newSpelled = [...spelledLetters, letter]
-    setSpelledLetters(newSpelled)
-    const newShuffled = [...shuffledLetters]
-    newShuffled.splice(index, 1)
-    setShuffledLetters(newShuffled)
-
-    if (newSpelled.length === word.word.length) {
-      const isCorrect = newSpelled.join('').toLowerCase() === word.word.toLowerCase()
-      setSpellingCorrect(isCorrect)
-      setHasAnswered(true)
-      if (isCorrect) {
-        onCorrect()
-        toast.success('拼写正确！')
-      } else {
-        onWrong()
-        toast.error('拼写错误')
-      }
-    }
-  }
-
-  const handleUndoLetter = () => {
-    if (spelledLetters.length === 0 || spellingCorrect !== null) return
-    const lastLetter = spelledLetters[spelledLetters.length - 1]
-    setSpelledLetters(spelledLetters.slice(0, -1))
-    setShuffledLetters([...shuffledLetters, lastLetter])
-    setSpellingCorrect(null)
-  }
-
-  const handleResetSpelling = () => {
-    setSpelledLetters([])
-    setShuffledLetters(shuffleArray(word.word.split('')))
-    setSpellingCorrect(null)
-    setHasAnswered(false)
-  }
-
-  return (
-    <div className="p-6">
-      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
-        <SpellCheck className="w-3.5 h-3.5" />
-        拼写题
-      </div>
-
-      <div className="text-center mb-6">
-        <p className="text-sm text-slate-400 mb-2">根据释义拼写单词</p>
-        <p className="text-2xl text-indigo-600 font-semibold mb-2">{word.meaning}</p>
-        <p className="text-sm text-slate-400">{word.phonetic}</p>
-      </div>
-
-      <div className="flex justify-center gap-2 mb-6 min-h-[3.5rem]">
-        {word.word.split('').map((_, i) => {
-          const letter = spelledLetters[i] || ''
-          const isCorrectLetter = spellingCorrect === true
-          const isWrongLetter = spellingCorrect === false && letter && letter.toLowerCase() !== word.word[i].toLowerCase()
-          return (
-            <div
-              key={i}
-              className={`w-11 h-14 flex items-center justify-center text-xl font-bold rounded-lg border-2 transition ${
-                letter
-                  ? isCorrectLetter
-                    ? 'bg-green-50 border-green-400 text-green-700'
-                    : isWrongLetter
-                    ? 'bg-red-50 border-red-400 text-red-700'
-                    : 'bg-indigo-50 border-indigo-400 text-indigo-700'
-                  : 'bg-white border-slate-200'
-              }`}
-            >
-              {letter}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="flex justify-center flex-wrap gap-2 mb-6 max-w-md mx-auto">
-        {shuffledLetters.map((letter, i) => (
-          <button
-            key={`${letter}-${i}`}
-            onClick={() => handleLetterClick(letter, i)}
-            disabled={spellingCorrect !== null}
-            className="w-11 h-11 flex items-center justify-center text-lg font-semibold bg-white border-2 border-slate-200 rounded-lg text-slate-700 hover:border-indigo-400 hover:bg-indigo-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {letter}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex justify-center gap-3 mb-4">
-        <button
-          onClick={handleUndoLetter}
-          disabled={spelledLetters.length === 0 || spellingCorrect !== null}
-          className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          撤销
-        </button>
-        <button
-          onClick={handleResetSpelling}
-          className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
-        >
-          <Shuffle className="w-4 h-4" />
-          重排
-        </button>
-      </div>
-
-      {hasAnswered && (
-        <div className="mt-4 flex flex-col items-center gap-2">
-          <div className={`flex items-center gap-2 ${spellingCorrect ? 'text-green-600' : 'text-red-500'}`}>
-            {spellingCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-            <span className="font-medium">
-              {spellingCorrect ? '拼写正确！' : `正确答案：${word.word}`}
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ListeningQuestion({ word, words, onCorrect, onWrong }: QuestionProps) {
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const [showResult, setShowResult] = useState(false)
-  const [isPlaying, setIsPlaying] = useState(false)
-
-  const options = useMemo(() => {
-    const otherWords = words
-      .filter((w) => w.id !== word.id)
-      .map((w) => w.word)
-    const shuffledOthers = shuffleArray(otherWords).slice(0, 3)
-    return shuffleArray([word.word, ...shuffledOthers])
-  }, [word, words])
-
-  const playPronunciation = () => {
-    setIsPlaying(true)
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(word.word)
-      utterance.lang = 'en-US'
-      utterance.rate = 0.8
-      utterance.onend = () => setIsPlaying(false)
-      utterance.onerror = () => setIsPlaying(false)
-      speechSynthesis.speak(utterance)
-    } else {
-      setTimeout(() => setIsPlaying(false), 1000)
-    }
-  }
-
-  const handleSelect = (option: string) => {
-    if (showResult) return
-    setSelectedOption(option)
-    setShowResult(true)
-    if (option === word.word) {
-      onCorrect()
-      toast.success('回答正确！')
-    } else {
-      onWrong()
-      toast.error('回答错误')
-    }
-  }
-
-  const isCorrect = selectedOption === word.word
-
-  return (
-    <div className="p-6">
-      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
-        <Volume2 className="w-3.5 h-3.5" />
-        听音辨词
-      </div>
-
-      <div className="flex flex-col items-center py-8 mb-6">
-        <button
-          onClick={playPronunciation}
-          disabled={isPlaying}
-          className="w-24 h-24 rounded-full bg-indigo-100 hover:bg-indigo-200 flex items-center justify-center transition disabled:opacity-70"
-        >
-          <Volume2 className={`w-10 h-10 text-indigo-600 ${isPlaying ? 'animate-pulse' : ''}`} />
-        </button>
-        <p className="text-sm text-slate-500 mt-4">点击播放发音</p>
-        <p className="text-xs text-slate-400 mt-1">选择你听到的单词</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
-        {options.map((option) => {
-          const isSelected = selectedOption === option
-          const isCorrectAnswer = option === word.word
-          let btnClass = 'bg-white border-slate-200 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50'
-          if (showResult) {
-            if (isCorrectAnswer) {
-              btnClass = 'bg-green-50 border-green-500 text-green-700'
-            } else if (isSelected) {
-              btnClass = 'bg-red-50 border-red-500 text-red-700'
-            } else {
-              btnClass = 'bg-slate-50 border-slate-200 text-slate-400'
-            }
-          }
-          return (
-            <button
-              key={option}
-              onClick={() => handleSelect(option)}
-              disabled={showResult}
-              className={`p-4 rounded-xl border-2 text-sm font-medium transition ${btnClass}`}
-            >
-              {option}
-            </button>
-          )
-        })}
-      </div>
-
-      {showResult && (
-        <div className="mt-6 flex flex-col items-center gap-2">
-          <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
-            {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-            <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
-          </div>
-          {!isCorrect && (
-            <p className="text-sm text-slate-500">
-              正确答案：<span className="font-semibold text-indigo-600">{word.word}</span>
-              <span className="text-slate-400 ml-2">{word.meaning}</span>
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ZhToEnQuestion({ word, onCorrect, onWrong }: Omit<QuestionProps, 'words'>) {
-  const [inputValue, setInputValue] = useState('')
-  const [showResult, setShowResult] = useState(false)
-  const [isCorrect, setIsCorrect] = useState(false)
-
-  const blankPos = useMemo(() => getBlankPosition(word.exampleZh, word.meaning), [word])
-
-  const sentenceWithBlank = useMemo(() => {
-    if (blankPos === -1) return { before: word.exampleZh, blank: '', after: '' }
-    return {
-      before: word.exampleZh.slice(0, blankPos),
-      blank: word.meaning,
-      after: word.exampleZh.slice(blankPos + word.meaning.length),
-    }
-  }, [word, blankPos])
-
-  const handleSubmit = () => {
-    if (!inputValue.trim()) {
-      toast.error('请填写答案')
-      return
-    }
-    const correct = inputValue.trim().toLowerCase() === word.word.toLowerCase()
-    setIsCorrect(correct)
-    setShowResult(true)
-    if (correct) {
-      onCorrect()
-      toast.success('回答正确！')
-    } else {
-      onWrong()
-      toast.error('回答错误')
-    }
-  }
-
-  return (
-    <div className="p-6">
-      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
-        <PenTool className="w-3.5 h-3.5" />
-        中译英
-      </div>
-
-      <p className="text-sm text-slate-500 mb-4 text-center">根据中文句子，填写正确的英文单词</p>
-
-      <div className="bg-slate-50 rounded-xl p-5 mb-6">
-        <p className="text-lg text-slate-700 leading-relaxed text-center">
-          {sentenceWithBlank.before}
-          <span className="inline-block mx-1 px-3 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
-            {sentenceWithBlank.blank || '____'}
-          </span>
-          {sentenceWithBlank.after}
-        </p>
-      </div>
-
-      <div className="max-w-md mx-auto">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !showResult && handleSubmit()}
-            disabled={showResult}
-            placeholder="请输入英文单词..."
-            className={`flex-1 px-4 py-3 border-2 rounded-xl text-base focus:outline-none transition ${
-              showResult
-                ? isCorrect
-                  ? 'border-green-500 bg-green-50'
-                  : 'border-red-500 bg-red-50'
-                : 'border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
-            }`}
-          />
-          {!showResult ? (
-            <button
-              onClick={handleSubmit}
-              className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition"
-            >
-              提交
-            </button>
-          ) : null}
-        </div>
-
-        {showResult && (
-          <div className="mt-4 flex flex-col items-center gap-2">
-            <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
-              {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-              <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
-            </div>
-            {!isCorrect && (
-              <p className="text-sm text-slate-500">
-                正确答案：<span className="font-semibold text-indigo-600">{word.word}</span>
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function EnToZhQuestion({ word, onCorrect, onWrong }: Omit<QuestionProps, 'words'>) {
-  const [inputValue, setInputValue] = useState('')
-  const [showResult, setShowResult] = useState(false)
-  const [isCorrect, setIsCorrect] = useState(false)
-
-  const blankPos = useMemo(() => getBlankPosition(word.exampleEn, word.word), [word])
-
-  const sentenceWithBlank = useMemo(() => {
-    if (blankPos === -1) return { before: word.exampleEn, blank: '', after: '' }
-    return {
-      before: word.exampleEn.slice(0, blankPos),
-      blank: word.word,
-      after: word.exampleEn.slice(blankPos + word.word.length),
-    }
-  }, [word, blankPos])
-
-  const handleSubmit = () => {
-    if (!inputValue.trim()) {
-      toast.error('请填写答案')
-      return
-    }
-    const correct = inputValue.trim() === word.meaning
-    setIsCorrect(correct)
-    setShowResult(true)
-    if (correct) {
-      onCorrect()
-      toast.success('回答正确！')
-    } else {
-      onWrong()
-      toast.error('回答错误')
-    }
-  }
-
-  return (
-    <div className="p-6">
-      <div className="text-xs font-medium text-slate-400 mb-3 flex items-center gap-1.5">
-        <MessageSquare className="w-3.5 h-3.5" />
-        英译中
-      </div>
-
-      <p className="text-sm text-slate-500 mb-4 text-center">根据英文句子，填写划线单词的中文释义</p>
-
-      <div className="bg-slate-50 rounded-xl p-5 mb-6">
-        <p className="text-lg text-slate-700 leading-relaxed text-center">
-          {sentenceWithBlank.before}
-          <span className="inline-block mx-1 px-3 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
-            {sentenceWithBlank.blank || '____'}
-          </span>
-          {sentenceWithBlank.after}
-        </p>
-      </div>
-
-      <div className="max-w-md mx-auto">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !showResult && handleSubmit()}
-            disabled={showResult}
-            placeholder="请输入中文释义..."
-            className={`flex-1 px-4 py-3 border-2 rounded-xl text-base focus:outline-none transition ${
-              showResult
-                ? isCorrect
-                  ? 'border-green-500 bg-green-50'
-                  : 'border-red-500 bg-red-50'
-                : 'border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
-            }`}
-          />
-          {!showResult ? (
-            <button
-              onClick={handleSubmit}
-              className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition"
-            >
-              提交
-            </button>
-          ) : null}
-        </div>
-
-        {showResult && (
-          <div className="mt-4 flex flex-col items-center gap-2">
-            <div className={`flex items-center gap-2 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
-              {isCorrect ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-              <span className="font-medium">{isCorrect ? '回答正确！' : '回答错误'}</span>
-            </div>
-            {!isCorrect && (
-              <p className="text-sm text-slate-500">
-                正确答案：<span className="font-semibold text-indigo-600">{word.meaning}</span>
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-interface WordDetailProps {
-  word: WordData
-  onNext: () => void
-  onMastered: () => void
-}
-
-function WordDetail({ word, onNext, onMastered }: WordDetailProps) {
-  const playPronunciation = () => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(word.word)
-      utterance.lang = 'en-US'
-      utterance.rate = 0.8
-      speechSynthesis.speak(utterance)
-    }
-  }
-
-  return (
-    <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-4">
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="text-xs font-medium text-indigo-500 flex items-center gap-1.5">
-            <BookOpen className="w-3.5 h-3.5" />
-            单词详解
-          </div>
-          <button
-            onClick={onMastered}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              word.status === 'mastered'
-                ? 'bg-green-100 text-green-700'
-                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-            }`}
-          >
-            <Check className="w-3.5 h-3.5" />
-            {word.status === 'mastered' ? '已掌握' : '标记掌握'}
-          </button>
-        </div>
-
-        <div className="text-center mb-8">
-          <h2 className="text-4xl font-bold text-slate-800 mb-2">{word.word}</h2>
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <p className="text-base text-slate-400">{word.phonetic}</p>
-            <button
-              onClick={playPronunciation}
-              className="p-1.5 rounded-full hover:bg-slate-100 transition text-indigo-500"
-            >
-              <Volume2 className="w-5 h-5" />
-            </button>
-          </div>
-          <p className="text-2xl text-indigo-600 font-semibold">{word.meaning}</p>
-        </div>
-
-        <div className="space-y-4 max-w-lg mx-auto">
-          <div className="bg-slate-50 rounded-xl p-4">
-            <div className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5" />
-              例句
-            </div>
-            <p className="text-sm text-slate-700 mb-2">{word.exampleEn}</p>
-            <p className="text-sm text-slate-500">{word.exampleZh}</p>
-          </div>
-
-          {word.root && (
-            <div className="bg-amber-50 rounded-xl p-4">
-              <div className="text-xs font-medium text-amber-600 mb-1">词根词缀</div>
-              <p className="text-sm text-amber-800">{word.root}</p>
-            </div>
-          )}
-
-          <div className="bg-blue-50 rounded-xl p-4">
-            <div className="text-xs font-medium text-blue-600 mb-2">学习记录</div>
-            <div className="flex flex-wrap gap-4 text-sm">
-              <div>
-                <span className="text-blue-500">复习次数：</span>
-                <span className="text-blue-700 font-medium">{word.reviewCount}</span>
-              </div>
-              <div>
-                <span className="text-blue-500">上次学习：</span>
-                <span className="text-blue-700 font-medium">{formatTime(word.lastReview)}</span>
-              </div>
-              <div>
-                <span className="text-blue-500">学习状态：</span>
-                <span className="text-blue-700 font-medium">{word.status === 'mastered' ? '已掌握' : word.status === 'learning' ? '学习中' : word.status}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t border-slate-100 p-6">
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={onNext}
-            className="flex items-center gap-1.5 px-8 py-3 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition shadow-sm"
-          >
-            下一题
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function SentenceSection({ sentences, setSentences }: { sentences: SentenceData[]; setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>> }) {
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -1944,9 +1753,9 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
   const [word, setWord] = useState('')
   const [phonetic, setPhonetic] = useState('')
   const [meaning, setMeaning] = useState('')
+  const [definitionCn, setDefinitionCn] = useState('')
   const [exampleEn, setExampleEn] = useState('')
   const [exampleZh, setExampleZh] = useState('')
-  const [root, setRoot] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1959,16 +1768,19 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
       word: word.trim(),
       phonetic: phonetic.trim() || '',
       meaning: meaning.trim(),
+      definitionCn: definitionCn.trim() || meaning.trim(),
+      definitionEn: '',
       exampleEn: exampleEn.trim() || '',
       exampleZh: exampleZh.trim() || '',
-      root: root.trim(),
       sourceDoi: '',
       status: 'learning',
       addedAt: Date.now(),
       lastReview: 0,
       reviewCount: 0,
-      sm2Interval: 0,
+      sm2Interval: 1,
       sm2Ease: 2.5,
+      streak: 0,
+      wrongCount: 0,
     }
     onAdd(newWord)
   }
@@ -2043,13 +1855,13 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">词根词缀</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">中文定义（选填，用于"定义"类题型）</label>
             <input
               type="text"
-              value={root}
-              onChange={(e) => setRoot(e.target.value)}
+              value={definitionCn}
+              onChange={(e) => setDefinitionCn(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="例如：photo- (光) + voltaic (电流的)"
+              placeholder="留空则与中文释义相同"
             />
           </div>
 

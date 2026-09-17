@@ -18,6 +18,12 @@ export interface LearningProgress {
   wordCurrentType?: string
   wordRandomMode?: boolean
   wordEnabledTypes?: string[]
+  // 新版 CAT 式单词学习设置
+  wordQueueLength?: number
+  wordMasterCount?: number
+  wordQuestionTypes?: string[]
+  wordAllowZhan?: boolean
+  wordVoiceEnabled?: boolean
   sentenceCurrentIndex?: number
   translationCurrentIndex?: number
   todayLearned?: string[]

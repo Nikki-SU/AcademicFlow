@@ -1124,7 +1124,7 @@ export default function ManagementPage() {
     navigate(`/reading/${slug}`)
   }, [navigate])
 
-  /** 重新触发 pipeline（不需要重新上传 PDF，用已有的 source.pdf） */
+  /** 重新触发 pipeline（复用私库里已上传的 PDF，不要求重新上传） */
   const handleReconvertPaper = useCallback(async (paper: Paper) => {
     if (!paper.doi) {
       toast.error('这篇文献没有 DOI，无法重新转换')
@@ -1135,7 +1135,32 @@ export default function ManagementPage() {
       return
     }
     const slug = doiToSlug(paper.doi)
-    const pdfPath = `literatures/${slug}/source/source.pdf`
+
+    // 关键：PDF 实际上传时带时间戳（如 1789678524767__pdf.pdf），
+    // 不能硬编码 source/source.pdf，否则 runner GET 404 → all jobs failed。
+    // 依次：内存任务队列记录 → 列举 source/ 目录 → 最后才退回默认名。
+    let pdfPath = ''
+    const remembered = useTaskQueueStore
+      .getState()
+      .tasks.filter((t) => t.doi === paper.doi && t.metadata?.pdf_github_path)
+      .sort((a, b) => b.updated_at - a.updated_at)[0]?.metadata?.pdf_github_path as string | undefined
+    if (remembered) pdfPath = remembered
+    if (!pdfPath) {
+      try {
+        const res = await githubFetch(
+          `/repos/${owner}/${repo.name}/contents/literatures/${slug}/source`,
+          token,
+        )
+        if (res.ok) {
+          const files = (await res.json()) as Array<{ name: string; path: string; type: string; size?: number }>
+          const pdf = files
+            .filter((f) => f.type === 'file' && /\.pdf$/i.test(f.name))
+            .sort((a, b) => (b.size ?? 0) - (a.size ?? 0))[0]
+          if (pdf) pdfPath = pdf.path
+        }
+      } catch { /* 目录读不到就走兜底 */ }
+    }
+    if (!pdfPath) pdfPath = `literatures/${slug}/source/source.pdf`
 
     // 1. 先把 mdStatus 设成 converting
     setPapers((prev) => prev.map((p) => (p.id === paper.id ? { ...p, mdStatus: 'converting' as const, mdProgress: 0 } : p)))
