@@ -317,14 +317,26 @@ export async function githubFetch(
     headers.set('X-GitHub-Api-Version', '2022-11-28')
     const res = await fetch(url, { ...init, headers })
     if (res.status === 401 || res.status === 403) {
-      let detail = `GitHub 返回 ${res.status}`
-      try {
-        const data = await res.clone().json()
-        if (data?.message) detail = data.message
-      } catch {
-        // ignore
+      // ⚠️ Header 模式失败 → 自动 fallback 到 Query 模式
+      // 有些 PAT / GitHub Enterprise / 特定环境对 Header 认证有限制,
+      // 但 Query 参数模式通常都能通。
+      console.warn(`[githubFetch] Header 模式 ${res.status}, 自动 fallback 到 Query 模式`)
+      const sep = url.includes('?') ? '&' : '?'
+      const fallbackUrl = `${url}${sep}access_token=${encodeURIComponent(token)}`
+      const safeInit = { ...init }
+      delete safeInit.headers
+      const fallbackRes = await fetch(fallbackUrl, safeInit)
+      if (fallbackRes.status === 401 || fallbackRes.status === 403) {
+        let detail = `GitHub 返回 ${fallbackRes.status}`
+        try {
+          const data = await fallbackRes.clone().json()
+          if (data?.message) detail = data.message
+        } catch {
+          // ignore
+        }
+        triggerAuthError(fallbackRes.status, detail)
       }
-      triggerAuthError(res.status, detail)
+      return fallbackRes
     }
     return res
   }
