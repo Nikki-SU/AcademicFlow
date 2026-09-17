@@ -74,6 +74,17 @@ const GITHUB_STEP_DEFS: { key: string; label: string }[] = [
 
 type SetRunnerSteps = (updater: (prev: Step[]) => Step[]) => void
 
+function patchSteps(
+  prev: Step[],
+  updates: Partial<Record<string, { status?: StepStatus; detail?: string }>>,
+): Step[] {
+  return prev.map((s) => {
+    const u = updates[s.key]
+    if (!u) return s
+    return { ...s, ...u }
+  })
+}
+
 async function runWorkflowE2ETest(
   eventType: WorkflowEvent,
   dispatch: () => Promise<void>,
@@ -83,31 +94,24 @@ async function runWorkflowE2ETest(
   setSteps: SetRunnerSteps,
 ): Promise<RunnerTestResult> {
   const tag = `[ConnectivityPanel ${eventType}]`
-  const mkSteps = (statuses: Record<string, StepStatus>, detail?: Partial<Record<string, string>>): Step[] =>
-    RUNNER_STEP_DEFS.map((s) => ({
-      key: s.key,
-      label: s.label,
-      status: statuses[s.key] ?? 'pending',
-      detail: detail?.[s.key],
-    }))
 
-  // 初始:secrets = running,其他 pending
-  setSteps(() => mkSteps({ secrets: 'running' }))
-
-  // 0. sync secrets 由调用方做,这里只负责后面 3 步
-  //    (调用方在调 runWorkflowE2ETest 之前已经做完 secrets 了,
-  //     所以 secrets 步骤的 done/error 也由调用方 set)
+  // ⚠️ 关键:dispatch 之前先抓 beforeCreatedAt
+  //    否则 GitHub 2.5s 内创建了 run,beforeCreatedAt 就等于新 run 的 timestamp,
+  //    后面 r.created_at > beforeCreatedAt 永远不匹配 → "Runner 没出现"
+  const beforeRun = await getLatestRun(eventType, owner, repo, ghToken)
+  const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+  console.log(`${tag} dispatch 前最新 run: ${beforeRun ? `id=${beforeRun.id} created=${beforeRun.created_at}` : '无'}, beforeCreatedAt=${beforeCreatedAt}`)
 
   // 1. dispatch
-  setSteps(() => mkSteps({ dispatch: 'running' }))
+  setSteps((prev) => patchSteps(prev, { dispatch: { status: 'running' } }))
   try {
     await dispatch()
     console.log(`${tag} dispatch 成功`)
-    setSteps(() => mkSteps({ dispatch: 'done' }))
+    setSteps((prev) => patchSteps(prev, { dispatch: { status: 'done' } }))
   } catch (e: any) {
     const msg = e?.message || String(e)
     console.error(`${tag} dispatch 失败:`, e)
-    setSteps(() => mkSteps({ dispatch: 'error' }, { dispatch: msg }))
+    setSteps((prev) => patchSteps(prev, { dispatch: { status: 'error', detail: msg } }))
     return { ok: false, run: null, reason: `dispatch 失败: ${msg}` }
   }
 
@@ -115,10 +119,7 @@ async function runWorkflowE2ETest(
   await new Promise((resolve) => setTimeout(resolve, 2500))
 
   // 2. Phase 1: 找新 run
-  setSteps(() => mkSteps({ find_run: 'running' }))
-
-  const beforeRun = await getLatestRun(eventType, owner, repo, ghToken)
-  const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+  setSteps((prev) => patchSteps(prev, { find_run: { status: 'running' } }))
 
   let myRunId: number | null = null
   for (let i = 0; i < 20; i++) {
@@ -126,10 +127,10 @@ async function runWorkflowE2ETest(
     if (rs) {
       myRunId = rs.id
       console.log(`${tag} ✅ Phase 1[${i+1}/20] 找到新 run id=${rs.id} created=${rs.created_at}`)
-      setSteps(() => mkSteps(
-        { find_run: 'done', run: 'running' },
-        { find_run: `run #${rs.id}` },
-      ))
+      setSteps((prev) => patchSteps(prev, {
+        find_run: { status: 'done', detail: `run #${rs.id}` },
+        run:      { status: 'running' },
+      }))
       break
     }
     console.log(`${tag} Phase 1[${i+1}/20] 没找到,再等 1.5s...`)
@@ -137,8 +138,8 @@ async function runWorkflowE2ETest(
   }
   if (!myRunId) {
     console.error(`${tag} ❌ 30s 内没找到新 run`)
-    setSteps(() => mkSteps({ find_run: 'error' }, {
-      find_run: '30s 内没创建 run · 可能 repo 不对或 Actions 排队',
+    setSteps((prev) => patchSteps(prev, {
+      find_run: { status: 'error', detail: '30s 内没创建 run · 可能 repo 不对或 Actions 排队' },
     }))
     return {
       ok: false, run: null,
@@ -162,24 +163,18 @@ async function runWorkflowE2ETest(
   }
 
   if (!finalRun) {
-    setSteps(() => mkSteps({ run: 'error' }, { run: '120s 内没结束' }))
+    setSteps((prev) => patchSteps(prev, { run: { status: 'error', detail: '120s 内没结束' } }))
     return { ok: false, run: null, reason: `run id=${myRunId} 120s 内没结束` }
   }
 
   if (finalRun.conclusion === 'success') {
     console.log(`${tag} ✅ 成功! run id=${finalRun.id}`)
-    setSteps(() => mkSteps(
-      { run: 'done' },
-      { run: `run #${finalRun.id} success` },
-    ))
+    setSteps((prev) => patchSteps(prev, { run: { status: 'done', detail: `run #${finalRun.id} success` } }))
     return { ok: true, run: finalRun }
   }
 
   console.log(`${tag} ❌ conclusion=${finalRun.conclusion}`)
-  setSteps(() => mkSteps(
-    { run: 'error' },
-    { run: `conclusion: ${finalRun.conclusion}` },
-  ))
+  setSteps((prev) => patchSteps(prev, { run: { status: 'error', detail: `conclusion: ${finalRun.conclusion}` } }))
   return { ok: false, run: finalRun, reason: finalRun.conclusion ?? 'unknown' }
 }
 
