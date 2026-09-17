@@ -8,6 +8,7 @@ import sodium from 'libsodium-wrappers'
 import { githubFetch } from './github'
 import { AI_PROVIDERS } from '../types'
 import type { AIProviderMode } from '../types'
+import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 
 /** 公钥缓存 —— 同一个 repo 的 key_id 不会变，缓存一次省得每次 GET */
 const publicKeyCache = new Map<string, { keyId: string; publicKey: Uint8Array }>()
@@ -242,7 +243,7 @@ export async function syncAllSecrets(
   // ──── 硬保险：secrets 绝对不能写到主仓库（AGPL v3，公开可见） ────
   // 前端必须传私库 academicflow-workspace。如果传错，直接抛异常拒绝写入，
   // 而不是"悄悄跳过"让用户以为写成功了。
-  if (!repo || repo !== 'academicflow-workspace') {
+  if (!repo || repo !== DEFAULT_WORKSPACE_REPO_NAME) {
     throw new Error(
       `syncAllSecrets 拒绝写入非私库 repo="${repo}"。` +
       `AI/MinerU secrets 只能写到私库 academicflow-workspace，` +
