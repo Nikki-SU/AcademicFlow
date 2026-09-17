@@ -98,7 +98,7 @@ async function runWorkflowE2ETest(
   for (let i = 0; i < 60; i++) {
     const rs = await getRun(myRunId, owner, repo, ghToken)
     if (!rs) {
-      console.log(`${tag} Phase 2[${i+1}/60] getRun 返回 null (404? run_id=${myRunId})`)
+      console.log(`${tag} Phase 2[${i+1}/60] getRun 返回 null (404? id=${myRunId})`)
       await new Promise((resolve) => setTimeout(resolve, 1500))
       continue
     }

@@ -125,7 +125,7 @@ export async function enqueuePaperMineruConvert(
 
     await dispatchPaperConvert(paperDoi, title || slug, pdfPath, owner, repo, token)
 
-    // poll 到新 run 的 run_id（GitHub 索引延迟 ~1-2s），存进 metadata 供后续 run 状态兜底
+    // poll 到新 run 的 id（GitHub 索引延迟 ~1-2s），存进 metadata 供后续 run 状态兜底
     let newRunId: number | null = null
     for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 1000))
@@ -133,9 +133,9 @@ export async function enqueuePaperMineruConvert(
       if (rs) { newRunId = rs.id; break }
     }
     if (newRunId) console.log('[paperPipeline] 新 id: ', newRunId)
-    else console.warn('[paperPipeline] 没找到新 run_id，后续只能靠 progress.json')
+    else console.warn('[paperPipeline] 没找到新 id，后续只能靠 progress.json')
 
-    // 更新 task metadata，加上 run_id
+    // 更新 task metadata，加上 id
     if (newRunId) {
       try {
         await useTaskQueueStore.getState().update_task(taskId, {
