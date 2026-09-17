@@ -76,11 +76,12 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-2 py-1 rounded-md bg-slate-50 hover:bg-slate-100 transition"
       >
-        <img
-          src={`https://avatars.githubusercontent.com/u/${user?.id}?s=32`}
-          alt={user?.login}
-          className="w-5 h-5 rounded-full"
-        />
+        <div
+          className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-300 flex items-center justify-center text-[14px] leading-none shrink-0 shadow-inner"
+          title={user?.login ?? '未登录'}
+        >
+          🕊️
+        </div>
         {orientation === 'landscape' && (
           <span className="text-xs text-slate-600">@{user?.login}</span>
         )}
