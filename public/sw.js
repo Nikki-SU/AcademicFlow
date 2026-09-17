@@ -8,7 +8,7 @@
  * 不缓存任何 Vite 编译资源，否则会挡住 HMR 和代码更新。
  */
 
-const CACHE_NAME = 'academicflow-v2'
+const CACHE_NAME = 'academicflow-v3'
 
 // Dev 检测：localhost 或 127.0.0.1 时不缓存
 function isDevUrl(url) {
@@ -75,7 +75,26 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // 仅对同源静态资源（HTML 壳、hashed assets）做 cache-first
+  // HTML 导航请求: network-first。
+  // 否则新部署 (bundle hash 变了) 后用户仍拿到缓存的旧 index.html → 加载旧 JS,
+  // 表现为"代码明明部署了但浏览器里还是老版本"。离线时才回退缓存壳。
+  if (event.request.mode === 'navigate' || event.request.destination === 'document') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html'))),
+    )
+    return
+  }
+
+  // 仅对同源 hashed 静态资源（JS/CSS/字体/图片）做 cache-first ——
+  // 文件名带内容 hash, 内容变了文件名必变, 缓存永久安全。
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached

@@ -11,13 +11,13 @@ const isDev = (() => {
 })()
 
 if (!isDev && 'serviceWorker' in navigator) {
-  // v1 SW 曾错误地 cache-first 缓存了 api.github.com 的实时响应,
-  // 导致 dispatch 后 actions/runs 列表永远是旧快照。
-  // 新 JS 一加载就无条件清掉所有非 v2 缓存, 兜底。
+  // 旧版 SW 曾错误地 cache-first 缓存了 api.github.com 的实时响应 (v1),
+  // v2 又会缓存 index.html 导致新部署不生效。
+  // 新 JS 一加载就无条件清掉所有非 v3 缓存, 兜底。
   if ('caches' in window) {
     caches.keys().then(function (keys) {
       keys.forEach(function (k) {
-        if (k !== 'academicflow-v2') {
+        if (k !== 'academicflow-v3') {
           caches.delete(k).then(function () {
             console.log('[SW] 已清理旧缓存:', k)
           })
