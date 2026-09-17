@@ -221,14 +221,11 @@ export default function ConnectivityPanel() {
     // reset + 开始
     setGhSteps(GITHUB_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
     try {
-      // 我们没 access 到 testFullGitHubConnectivity 的内部,
-      // 但可以在外面根据 report 来设状态
-      const r = await testFullGitHubConnectivity()
+      // 带 token 时真测 /user 的 Header + Query 认证, 不带 token 时测网络层
+      const r = await testFullGitHubConnectivity(ghToken || undefined)
       setGhSteps((prev) => prev.map((s) => {
-        const ep = r.endpoints.find((e) =>
-          (s.key === 'header' && e.key.includes('header')) ||
-          (s.key === 'query' && e.key.includes('query')),
-        )
+        // endpoint key 已经改成精确的 'header' / 'query', 直接 === 匹配
+        const ep = r.endpoints.find((e) => e.key === s.key)
         const ok = ep?.ok ?? false
         return {
           ...s,
@@ -244,7 +241,7 @@ export default function ConnectivityPanel() {
     } finally {
       setGhTesting(false)
     }
-  }, [])
+  }, [ghToken])
 
   // ═══════ Secret 写入 (runner 测试第一步) ═══════
   const ensureAllSecrets = useCallback(async (

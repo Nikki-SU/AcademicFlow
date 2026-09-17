@@ -210,40 +210,73 @@ export interface FullConnectivityReport {
 
 /**
  * 连通性测试 —— Settings 页使用
- * 仅探测业务关键的 GitHub API 端点：
- *   1. api.github.com（Header 模式 —— 所有 API 调用的正常路径）
- *   2. api.github.com（Query 模式 —— CORS 预检被拦截时的降级路径）
+ *
+ * 有 token 时: 真测 /user 的两种认证方式 (Header Bearer / Query access_token)
+ * 无 token 时: 测网络层 (带自定义头触发 CORS 预检 vs 零头简单请求)
+ *
+ * endpoint key 直接用 'header' / 'query', 和 ConnectivityPanel 的 Step.key 精确对应,
+ * 杜绝大小写不一致导致的 "永远匹配不到 → 永远打叉" bug.
  */
-export async function testFullGitHubConnectivity(): Promise<FullConnectivityReport> {
-  const endpoints: Array<{
-    key: string
+export async function testFullGitHubConnectivity(
+  token?: string,
+): Promise<FullConnectivityReport> {
+  type Endpoint = {
+    key: 'header' | 'query'
     label: string
     url: string
     opts?: ProbeOptions
-  }> = [
-    {
-      key: 'apiHeader',
-      label: 'api.github.com（Header 模式）',
-      url: `${API_BASE}/user`,
-      opts: {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
+  }
+
+  const endpoints: Endpoint[] = token
+    ? [
+        {
+          key: 'header',
+          label: 'Header 模式 (Authorization: Bearer xxx)',
+          url: `${API_BASE}/user`,
+          opts: {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+            expectedStatusMin: 200,
+            expectedStatusMax: 299,
+          },
         },
-        expectedStatusMin: 200,
-        expectedStatusMax: 499,
-      },
-    },
-    {
-      key: 'apiSimple',
-      label: 'api.github.com（Query 模式）',
-      url: `${API_BASE}/zen`,
-      opts: {
-        expectedStatusMin: 200,
-        expectedStatusMax: 399,
-      },
-    },
-  ]
+        {
+          key: 'query',
+          label: 'Query 模式 (?access_token=xxx)',
+          url: `${API_BASE}/user?access_token=${encodeURIComponent(token)}`,
+          opts: {
+            expectedStatusMin: 200,
+            expectedStatusMax: 299,
+          },
+        },
+      ]
+    : [
+        {
+          key: 'header',
+          label: 'Header 模式 (带自定义头, 触发 CORS 预检)',
+          url: `${API_BASE}/user`,
+          opts: {
+            headers: {
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+            expectedStatusMin: 200,
+            expectedStatusMax: 499, // 401 也算"网络通"
+          },
+        },
+        {
+          key: 'query',
+          label: 'Query 模式 (零自定义头, 不触发预检)',
+          url: `${API_BASE}/zen`,
+          opts: {
+            expectedStatusMin: 200,
+            expectedStatusMax: 399,
+          },
+        },
+      ]
 
   const results = await Promise.all(
     endpoints.map(async (ep) => {
@@ -257,19 +290,21 @@ export async function testFullGitHubConnectivity(): Promise<FullConnectivityRepo
     }),
   )
 
-  const headerModeOk = results.find((r) => r.key === 'apiHeader')?.ok ?? false
-  const queryModeOk = results.find((r) => r.key === 'apiSimple')?.ok ?? false
+  const headerModeOk = results.find((r) => r.key === 'header')?.ok ?? false
+  const queryModeOk = results.find((r) => r.key === 'query')?.ok ?? false
   const allOk = results.every((r) => r.ok)
 
   let summary = ''
-  if (allOk) {
-    summary = 'api.github.com 两种认证模式都可达，GitHub API 完全正常。'
-  } else if (!headerModeOk && queryModeOk) {
-    summary = '⚠️ Header 模式被 CORS 预检拦截，但 Query 模式正常。应用会自动降级到 Query 参数认证。'
-  } else if (!headerModeOk && !queryModeOk) {
-    summary = '❌ api.github.com 完全不可达！请检查 VPN/代理是否生效。'
+  if (token) {
+    if (allOk) summary = '✅ 两种认证模式都成功, GitHub API 完全正常'
+    else if (headerModeOk && !queryModeOk) summary = '⚠️ Header 模式成功但 Query 模式失败, 罕见情况, 请反馈'
+    else if (!headerModeOk && queryModeOk) summary = '⚠️ Header 模式被拦截, 但 Query 模式可用 (系统会自动降级)'
+    else summary = '❌ 两种认证模式都失败! 可能 token 无效或网络阻断 api.github.com'
   } else {
-    summary = '⚠️ 诊断异常状态，请检查网络。'
+    if (allOk) summary = '✅ GitHub API 网络连通性正常 (仅测试网络层, 未带 token)'
+    else if (!headerModeOk && queryModeOk) summary = '⚠️ Header 模式触发的 CORS 预检被拦截, 但简单请求正常'
+    else if (!headerModeOk && !queryModeOk) summary = '❌ api.github.com 完全不可达! 请检查 VPN/代理'
+    else summary = '⚠️ 诊断异常状态'
   }
 
   return {
