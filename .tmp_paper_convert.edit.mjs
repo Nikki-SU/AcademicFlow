@@ -504,16 +504,28 @@ async function purgeArtifacts(slug, reason) {
   }
 }
 
-/** 把某阶段产物提交进仓库；失败只告警，绝不阻断主流程 */
+/**
+ * 把某阶段产物提交进仓库；失败只告警，绝不阻断主流程。
+ * 这里用 git 提交（不走 API 写队列），必须自己串行：
+ * 翻译阶段的周期存档与 words 预提取的存档可能同时触发，
+ * 并发 git add/commit 会撞 index.lock（实测出现过一次）。
+ */
+let ckptQueue = Promise.resolve()
 async function saveCheckpoint(slug, relPaths, label) {
   const list = Array.isArray(relPaths) ? relPaths : [relPaths]
   if (!list.some(artifactExists)) return
-  try {
-    await commitLocalFiles(list, `[pipeline] ${slug} checkpoint: ${label}`)
-    console.log(`  [ckpt] ✓ 已存档 ${label}`)
-  } catch (e) {
-    console.warn(`  [ckpt] ⚠ 存档 ${label} 失败（不阻塞主流程）: ${e.message?.slice(0, 120) || e}`)
-  }
+  const run = ckptQueue.catch(() => {}).then(async () => {
+    try {
+      await commitLocalFiles(list, `[pipeline] ${slug} checkpoint: ${label}`)
+      console.log(`  [ckpt] ✓ 已存档 ${label}`)
+    } catch (e) {
+      const detail = (e?.stderr?.toString() || e?.stdout?.toString() || e?.message || String(e))
+        .split('\n').map((s) => s.trim()).filter(Boolean).slice(-3).join(' | ').slice(0, 300)
+      console.warn(`  [ckpt] ⚠ 存档 ${label} 失败（不阻塞主流程）: ${detail}`)
+    }
+  })
+  ckptQueue = run
+  return run
 }
 
 // ── 文献存活检查：防止用户删除后 Runner 仍在跑把文件写回来 ──
@@ -1423,7 +1435,9 @@ async function main() {
         : '缺少源 PDF 指纹，无法确认存档属于本篇')
     }
     const plan = describeResume(slug)
-    console.log(`  [resume] 已存档: ${plan.done.length ? plan.done.join(' → ') : '（无）'}；本次从「${plan.next}」开始`)
+    console.log(`  [resume] ${trusted
+      ? `源 PDF 指纹匹配；已存档: ${plan.done.length ? plan.done.join(' → ') : '（无）'}；本次从「${plan.nextLabel}」开始`
+      : '无可信存档（首次转换，或上次已成功跑完），从头跑'}`)
 
     const mineruMdRel = `literatures/${slug}/full.md`
     const imagesRel = `literatures/${slug}/images`
