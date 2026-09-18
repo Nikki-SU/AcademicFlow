@@ -56,6 +56,9 @@ const DEFAULT_SETTINGS: SettingsData = {
   qiniuApiKey: '',
   ai1Model: 'deepseek-chat',
   ai2Model: 'deepseek-chat',
+  ai2Independent: false,
+  ai2ProviderMode: 'deepseek',
+  ai2ApiKey: '',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
@@ -76,6 +79,7 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'qiniuApiKey',
   'customAi1ApiKey',
   'customAi2ApiKey',
+  'ai2ApiKey',
   'mineruToken',
 ]
 
@@ -87,6 +91,8 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'autoExtractWords', key: SETTING_KEYS.AUTO_EXTRACT_WORDS },
   { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
   { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
+  { field: 'ai2Independent', key: SETTING_KEYS.AI_2_INDEPENDENT },
+  { field: 'ai2ProviderMode', key: SETTING_KEYS.AI_2_PROVIDER_MODE },
 ]
 
 /** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
@@ -96,6 +102,7 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
   qiniuApiKey: SETTING_KEYS.QINIU_API_KEY,
   customAi1ApiKey: SETTING_KEYS.CUSTOM_AI_1_API_KEY,
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
+  ai2ApiKey: SETTING_KEYS.AI_2_API_KEY,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
 }
 
@@ -119,6 +126,11 @@ function deserialize(
     const ok = (valid as readonly string[]).includes(raw ?? '')
     return (ok ? raw : 'deepseek') as SettingsData[typeof key]
   }
+  if (key === 'ai2ProviderMode') {
+    const valid2 = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
+    const ok2 = (valid2 as readonly string[]).includes(raw ?? '')
+    return (ok2 ? raw : 'deepseek') as SettingsData[typeof key]
+  }
   return raw as SettingsData[typeof key]
 }
 
@@ -138,6 +150,7 @@ function detectPatContamination(
     'qiniuApiKey',
     'customAi1ApiKey',
     'customAi2ApiKey',
+    'ai2ApiKey',
     'mineruToken',
   ]
   const patPrefixes = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
@@ -201,6 +214,8 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         aiProviderMode: s.aiProviderMode,
         ai1Model: s.ai1Model,
         ai2Model: s.ai2Model,
+        ai2Independent: s.ai2Independent,
+        ai2ProviderMode: s.ai2ProviderMode,
         customAi1BaseUrl: s.customAi1BaseUrl,
         customAi1Model: s.customAi1Model,
         customAi2BaseUrl: s.customAi2BaseUrl,
@@ -299,6 +314,12 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           }
           if (loaded.ai1Model !== undefined) patch.ai1Model = loaded.ai1Model
           if (loaded.ai2Model !== undefined) patch.ai2Model = loaded.ai2Model
+          if (loaded.ai2Independent !== undefined) patch.ai2Independent = loaded.ai2Independent
+          if (loaded.ai2ProviderMode !== undefined) {
+            const valid2 = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
+            const raw2 = loaded.ai2ProviderMode
+            patch.ai2ProviderMode = (valid2.includes(raw2 as any) ? raw2 : 'deepseek') as SettingsData['ai2ProviderMode']
+          }
           if (loaded.customAi1BaseUrl !== undefined) patch.customAi1BaseUrl = loaded.customAi1BaseUrl
           if (loaded.customAi1Model !== undefined) patch.customAi1Model = loaded.customAi1Model
           if (loaded.customAi2BaseUrl !== undefined) patch.customAi2BaseUrl = loaded.customAi2BaseUrl
@@ -481,6 +502,32 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         throw new Error(`请先填写 ${AI_PROVIDERS[mode].label} API Key`)
       }
       const baseUrl = getProviderBaseUrl(mode)
+
+      // ── AI-2 独立配置：与 repoSecrets → runner secrets 逻辑完全一致 ──
+      if (state.ai2Independent) {
+        if (state.ai2ProviderMode === 'custom') {
+          const ai2BaseUrl = state.customAi2BaseUrl.trim()
+          const ai2ApiKey = state.customAi2ApiKey.trim()
+          const ai2Model = state.customAi2Model.trim()
+          if (!ai2BaseUrl || !ai2ApiKey || !ai2Model) {
+            throw new Error('AI-2 独立自定义端点：Base URL / Key / 模型均需填写')
+          }
+          return {
+            ai1: { baseUrl, apiKey, model: state.ai1Model },
+            ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
+          }
+        }
+        const cfg2 = AI_PROVIDERS[state.ai2ProviderMode]
+        const apiKey2 = state.ai2ApiKey.trim()
+        if (!apiKey2) {
+          throw new Error(`请先填写 AI-2 独立的 ${cfg2.label} API Key`)
+        }
+        return {
+          ai1: { baseUrl, apiKey, model: state.ai1Model },
+          ai2: { baseUrl: cfg2.baseUrl, apiKey: apiKey2, model: cfg2.defaultModel2 },
+        }
+      }
+
       return {
         ai1: { baseUrl, apiKey, model: state.ai1Model },
         ai2: { baseUrl, apiKey, model: state.ai2Model },
@@ -527,6 +574,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         qiniuApiKey: get().qiniuApiKey,
         customAi1ApiKey: get().customAi1ApiKey,
         customAi2ApiKey: get().customAi2ApiKey,
+        ai2ApiKey: get().ai2ApiKey,
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }
       set(merged)
@@ -550,6 +598,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           aiProviderMode: merged.aiProviderMode,
           ai1Model: merged.ai1Model,
           ai2Model: merged.ai2Model,
+          ai2Independent: merged.ai2Independent,
+          ai2ProviderMode: merged.ai2ProviderMode,
           customAi1BaseUrl: merged.customAi1BaseUrl,
           customAi1Model: merged.customAi1Model,
           customAi2BaseUrl: merged.customAi2BaseUrl,

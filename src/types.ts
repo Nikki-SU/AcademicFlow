@@ -190,6 +190,12 @@ export interface SettingsData {
   ai1Model: string
   /** AI-2（审阅位）默认模型 id */
   ai2Model: string
+  /** AI-2 位置是否独立配置 provider/key（不同公司或同公司不同 key）；false = 跟随 AI-1 */
+  ai2Independent: boolean
+  /** AI-2 独立配置时的 provider（预置 deepseek/kimi/qiniu 或 custom） */
+  ai2ProviderMode: AIProviderMode
+  /** AI-2 独立配置时的 API key（敏感，只存 IndexedDB） */
+  ai2ApiKey: string
   /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string

@@ -703,6 +703,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const [nowTick, setNowTick] = useState(Date.now())
   /** 答对后自动跳下一题的定时器（退出会话/卸载时清理） */
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 单词卡滚动时间戳：滚动后 250ms 内的点击视为滚动误触，不触发翻页（借鉴快速刷题流） */
+  const cardScrollAtRef = useRef(0)
 
   useEffect(() => () => {
     if (autoTimer.current) clearTimeout(autoTimer.current)
@@ -1117,10 +1119,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
               const isSelected = selected === option
               const isCorrectOpt = answered && option === question.answer
               const isWrongPick = answered && isSelected && option !== question.answer
+              // 色彩语义（借鉴快速刷题流）：答对→选中项绿；答错→错选红 + 正解橙提示
+              const isPickedCorrect = isCorrectOpt && isSelected
+              const isMissedCorrect = isCorrectOpt && !isSelected
               let cls = 'w-full p-3.5 text-left rounded-lg border transition flex items-center gap-3 '
               if (answered) {
-                if (isCorrectOpt) cls += 'bg-green-50 border-green-500 text-green-800'
+                if (isPickedCorrect) cls += 'bg-green-50 border-green-500 text-green-800'
                 else if (isWrongPick) cls += 'bg-red-50 border-red-500 text-red-800'
+                else if (isMissedCorrect) cls += 'bg-amber-50 border-amber-500 text-amber-800'
                 else cls += 'bg-slate-50 border-slate-200 text-slate-400'
               } else {
                 cls += 'bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50/40 cursor-pointer'
@@ -1133,8 +1139,9 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   className={cls}
                 >
                   <span className={`shrink-0 w-7 h-7 rounded-full text-center leading-7 text-sm font-bold ${
-                    answered && isCorrectOpt ? 'bg-green-500 text-white'
-                      : answered && isWrongPick ? 'bg-red-500 text-white'
+                    isPickedCorrect ? 'bg-green-500 text-white'
+                      : isWrongPick ? 'bg-red-500 text-white'
+                      : isMissedCorrect ? 'bg-amber-500 text-white'
                       : 'bg-slate-100 text-slate-500'
                   }`}>
                     {String.fromCharCode(65 + idx)}
@@ -1172,10 +1179,22 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           </div>
         </div>
 
-        {/* 单词卡弹层：learn 首次出题预展（先学再测） / 答错展卡 */}
+        {/* 单词卡弹层：learn 首次出题预展（先学再测） / 答错展卡。
+            借鉴快速刷题流：点击屏幕任意位置即可继续（大热区），滚动后 250ms 内防误触 */}
         {showCard && currentWord && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto">
+          <div
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 cursor-pointer"
+            onClick={() => {
+              if (Date.now() - cardScrollAtRef.current < 250) return
+              setShowCard(false)
+              // 答错卡：点击任意位置 → 进入下一题（错题优先重做）；预览卡：直接开始本题
+              if (answered) handleNext()
+            }}
+          >
+            <div
+              className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto"
+              onScroll={() => { cardScrollAtRef.current = Date.now() }}
+            >
               {answered && (
                 <div className="mb-3 text-center">
                   <span className="inline-block px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs font-medium">
@@ -1188,7 +1207,10 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 <div className="flex items-center justify-center gap-3 mt-1">
                   {currentWord.phonetic && <span className="text-sm text-slate-400">{currentWord.phonetic}</span>}
                   {settings.voiceEnabled && (
-                    <button onClick={() => speakEnglish(currentWord.word)} className="text-slate-400 hover:text-indigo-600">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); speakEnglish(currentWord.word) }}
+                      className="text-slate-400 hover:text-indigo-600"
+                    >
                       <Volume2 className="w-4 h-4" />
                     </button>
                   )}
@@ -1219,16 +1241,16 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   {currentWord.exampleZh && <p className="text-sm text-slate-500 mt-1.5">{currentWord.exampleZh}</p>}
                 </div>
               )}
+              {/* 主按钮仅为视觉焦点：点击冒泡到 overlay 统一处理（防双触发跳两题） */}
               <button
-                onClick={() => {
-                  setShowCard(false)
-                  // 答错卡：点继续 → 进入下一题（错题优先重做）；预览卡：直接开始本题
-                  if (answered) handleNext()
-                }}
+                type="button"
                 className="mt-5 w-full py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
               >
                 {answered ? '继续下一题' : '开始答题'}
               </button>
+              <p className="mt-2.5 text-center text-xs text-slate-400">
+                👆 点击屏幕任意位置{answered ? '继续' : '开始'}
+              </p>
             </div>
           </div>
         )}

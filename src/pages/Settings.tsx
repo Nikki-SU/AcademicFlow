@@ -65,6 +65,9 @@ function Settings() {
     qiniuApiKey,
     ai1Model,
     ai2Model,
+    ai2Independent,
+    ai2ProviderMode,
+    ai2ApiKey,
     customAi1BaseUrl,
     customAi1ApiKey,
     customAi1Model,
@@ -94,6 +97,7 @@ function Settings() {
         qiniuApiKey: '七牛云 AI API Key',
         customAi1ApiKey: '自定义 AI-1 API Key',
         customAi2ApiKey: '自定义 AI-2 API Key',
+        ai2ApiKey: 'AI-2 独立 API Key',
         mineruToken: 'MinerU Token',
       }
       const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
@@ -141,6 +145,9 @@ function Settings() {
         qiniuApiKey,
         ai1Model,
         ai2Model,
+        ai2Independent,
+        ai2ProviderMode,
+        ai2ApiKey,
         customAi1BaseUrl,
         customAi1ApiKey,
         customAi1Model,
@@ -173,6 +180,7 @@ function Settings() {
     isInitialized, owner, auth.token,
     aiProviderMode, advancedMode,
     deepseekApiKey, kimiApiKey, qiniuApiKey, ai1Model, ai2Model,
+    ai2Independent, ai2ProviderMode, ai2ApiKey,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
@@ -382,17 +390,140 @@ function Settings() {
                 options={chatModels}
                 onChange={(v) => updateSettings({ ai1Model: v })}
               />
-              <ModelSelect
-                label="AI-2（审阅位）"
-                value={ai2Model}
-                options={chatModels}
-                onChange={(v) => updateSettings({ ai2Model: v })}
-              />
+              {ai2Independent ? (
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-700">
+                    AI-2（审阅位）
+                    <span className="ml-2 text-xs font-normal text-indigo-600">独立模式</span>
+                  </label>
+                  <div className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-md bg-slate-50 text-slate-600 truncate">
+                    {ai2ProviderMode === 'custom'
+                      ? (customAi2Model || '（在下方填写自定义 Model ID）')
+                      : AI_PROVIDERS[ai2ProviderMode].defaultModel2}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    独立模式下模型由 AI-2 的 provider 决定，防止跨公司模型名残留
+                  </p>
+                </div>
+              ) : (
+                <ModelSelect
+                  label="AI-2（审阅位）"
+                  value={ai2Model}
+                  options={chatModels}
+                  onChange={(v) => updateSettings({ ai2Model: v })}
+                />
+              )}
             </div>
             <p className="text-xs text-slate-500">
-              AI-1 和 AI-2 共用同一个 {cfg.label} API Key 和 base URL。
+              {ai2Independent
+                ? `AI-1 用 ${cfg.label}；AI-2 用独立配置（见下方）。`
+                : `AI-1 和 AI-2 共用同一个 ${cfg.label} API Key 和 base URL。`}
               推荐生成位用较强模型、审阅位用更快模型（可切换）。
             </p>
+
+            {/* ── AI-2 独立 Key：不同公司或同公司不同 key ── */}
+            <div className="border-t border-slate-200 pt-3 space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const turningOn = !ai2Independent
+                  updateSettings({
+                    ai2Independent: turningOn,
+                    // 开启时默认跟随当前主 provider（同公司不同 key 场景最常见）
+                    // 此分支内 aiProviderMode 必为预置 provider
+                    ...(turningOn ? { ai2ProviderMode: aiProviderMode } : {}),
+                  })
+                }}
+                className="w-full flex items-center justify-between text-left"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    {ai2Independent ? (
+                      <ToggleRight className="w-5 h-5 text-indigo-600" />
+                    ) : (
+                      <ToggleLeft className="w-5 h-5 text-slate-400" />
+                    )}
+                    <span className="text-sm font-semibold text-slate-800">
+                      AI-2 使用独立 Key
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 pl-7">
+                    {ai2Independent
+                      ? `AI-2 走 ${ai2ProviderMode === 'custom' ? '自定义端点' : AI_PROVIDERS[ai2ProviderMode].label}，与 AI-1 互不影响`
+                      : '开启后 AI-2 可选不同公司或同公司另一个 key（并发翻倍、互不抢限额）'}
+                  </p>
+                </div>
+              </button>
+
+              {ai2Independent && (
+                <div className="space-y-3 p-3 bg-indigo-50/40 border border-indigo-200 rounded-md">
+                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                    AI-2 服务提供方
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Object.keys(AI_PROVIDERS) as AIProviderMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={mode === 'custom' && !advancedMode}
+                        onClick={() => updateSettings({ ai2ProviderMode: mode })}
+                        className={`px-3 py-2 text-sm rounded-md border transition ${
+                          ai2ProviderMode === mode
+                            ? 'bg-indigo-50 border-indigo-400 text-indigo-800 font-medium'
+                            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'
+                        } ${mode === 'custom' && !advancedMode ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        {AI_PROVIDERS[mode].label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {ai2ProviderMode === 'custom' ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={customAi2BaseUrl}
+                        onChange={(e) => updateSettings({ customAi2BaseUrl: e.target.value })}
+                        placeholder="Base URL，如 https://api.openai.com/v1"
+                        className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
+                                   focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <APIKeyInput
+                        label="API Key"
+                        fieldId="custom-ai2-independent"
+                        value={customAi2ApiKey}
+                        onChange={(v) => updateSettings({ customAi2ApiKey: v })}
+                      />
+                      <input
+                        type="text"
+                        value={customAi2Model}
+                        onChange={(e) => updateSettings({ customAi2Model: e.target.value })}
+                        placeholder="Model ID，如 gpt-4o-mini"
+                        className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
+                                   focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <APIKeyInput
+                        label={`${AI_PROVIDERS[ai2ProviderMode].label} API Key（AI-2 独立）`}
+                        fieldId={`ai2-independent-${ai2ProviderMode}`}
+                        value={ai2ApiKey}
+                        onChange={(v) => updateSettings({ ai2ApiKey: v })}
+                        hint="仅存本机 IndexedDB；同一家公司也可以填另一个 key"
+                      />
+                      <p className="text-xs text-slate-500">
+                        模型固定用 {AI_PROVIDERS[ai2ProviderMode].label} 审阅位默认
+                        <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">
+                          {AI_PROVIDERS[ai2ProviderMode].defaultModel2}
+                        </code>
+                        ，与 AI-1 并发时互不占用对方的调用限额。
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </section>
           )
         })()}

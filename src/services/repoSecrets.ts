@@ -224,6 +224,10 @@ export interface SyncAllSecretsInput {
   customAi2BaseUrl: string
   customAi2ApiKey: string
   customAi2Model: string
+  /** AI-2 位置独立配置（双 key：不同公司或同公司不同 key） */
+  ai2Independent: boolean
+  ai2ProviderMode: 'deepseek' | 'kimi' | 'qiniu' | 'custom'
+  ai2ApiKey: string
   mineruToken: string
 }
 
@@ -267,18 +271,43 @@ export async function syncAllSecrets(
     // 预置 provider：deepseek / kimi / qiniu —— 查 AI_PROVIDERS 拿 baseUrl
     const cfg = AI_PROVIDERS[mode]
     baseUrl1 = cfg.baseUrl
-    baseUrl2 = cfg.baseUrl
     switch (mode) {
-      case 'deepseek': apiKey1 = s.deepseekApiKey; apiKey2 = s.deepseekApiKey; break
-      case 'kimi':     apiKey1 = s.kimiApiKey;     apiKey2 = s.kimiApiKey;     break
-      case 'qiniu':    apiKey1 = s.qiniuApiKey;    apiKey2 = s.qiniuApiKey;    break
-      default:         apiKey1 = ''; apiKey2 = '';
+      case 'deepseek': apiKey1 = s.deepseekApiKey; break
+      case 'kimi':     apiKey1 = s.kimiApiKey;     break
+      case 'qiniu':    apiKey1 = s.qiniuApiKey;    break
+      default:         apiKey1 = '';
     }
     // 保险：预置 provider 也用 cfg.defaultModel 强制覆盖，
     // 避免 store 里残留的旧 provider 的 model 值（如 deepseek-chat）
     // 写到新 provider（七牛云需要 deepseek/deepseek-v4-flash 带前缀）
     model1 = cfg.defaultModel1
-    model2 = cfg.defaultModel2
+
+    // ── AI-2 位置：支持双 key（不同公司或同公司不同 key） ──
+    if (s.ai2Independent) {
+      if (s.ai2ProviderMode === 'custom') {
+        // 独立自定义端点：直接复用 customAi2* 三元组
+        baseUrl2 = s.customAi2BaseUrl
+        apiKey2 = s.customAi2ApiKey
+        model2 = s.customAi2Model
+      } else {
+        // 独立预置 provider：baseUrl 取对应家，key 用独立 key，
+        // model 强制取该家的审阅位默认模型（防跨家模型名残留）
+        const cfg2 = AI_PROVIDERS[s.ai2ProviderMode]
+        baseUrl2 = cfg2.baseUrl
+        apiKey2 = s.ai2ApiKey
+        model2 = cfg2.defaultModel2
+      }
+    } else {
+      // 跟随 AI-1：同 provider 同 key（历史行为）
+      baseUrl2 = cfg.baseUrl
+      switch (mode) {
+        case 'deepseek': apiKey2 = s.deepseekApiKey; break
+        case 'kimi':     apiKey2 = s.kimiApiKey;     break
+        case 'qiniu':    apiKey2 = s.qiniuApiKey;    break
+        default:         apiKey2 = '';
+      }
+      model2 = cfg.defaultModel2
+    }
   }
 
   const secretsMap: Record<AiSecretName, string> = {
