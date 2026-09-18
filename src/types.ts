@@ -114,15 +114,15 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
   deepseek: {
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
-    defaultModel1: 'deepseek-chat',
+    // 2026-09 实测 /v1/models：官方只剩 deepseek-flash / deepseek-v4-pro 两个模型，
+    // deepseek-chat / reasoner / r1 已下线，不能再推荐
+    defaultModel1: 'deepseek-flash',
     defaultModel2: 'deepseek-v4-pro',
     apiKeyUrl: 'https://platform.deepseek.com/api_keys',
-    note: 'runner 跨太平洋最稳；chat 快，v4-pro 更强',
+    note: 'runner 跨太平洋最稳；flash 快，v4-pro 更强',
     recommendedModels: [
-      { id: 'deepseek-chat', desc: '默认，V3.1 自动路由（最快）' },
+      { id: 'deepseek-flash', desc: '默认，速度最快' },
       { id: 'deepseek-v4-pro', desc: '更强推理（贵 5x）' },
-      { id: 'deepseek-reasoner', desc: 'MoE 深度思考' },
-      { id: 'deepseek-r1', desc: '推理模型，思考过程长' },
     ],
   },
   kimi: {
@@ -131,12 +131,13 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
     defaultModel1: 'kimi-k2.6',
     defaultModel2: 'kimi-k2.7-code',
     apiKeyUrl: 'https://platform.moonshot.cn/',
-    note: 'kimi-k2.6 支持 reasoning_content，新模型需要充值',
+    note: 'kimi-k2.6 支持 reasoning_content，新模型需要充值；清单待你拉取后自动验证',
+    // moonshot-v1-8k/32k 已从各家聚合平台下架，不再推荐；
+    // kimi-k3 系与七牛云聚合的 moonshotai 现役阵容一致
     recommendedModels: [
       { id: 'kimi-k2.6', desc: '默认，带 reasoning_content（需充值）' },
       { id: 'kimi-k2.7-code', desc: '代码专用更强模型' },
-      { id: 'moonshot-v1-8k', desc: '老模型，便宜稳定' },
-      { id: 'moonshot-v1-32k', desc: '老模型，长上下文' },
+      { id: 'kimi-k3', desc: '最新旗舰' },
     ],
   },
   qiniu: {
@@ -146,12 +147,14 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
     defaultModel2: 'minimax/minimax-m2.5',
     apiKeyUrl: 'https://ai.qiniu.com/',
     note: '一家店聚合多家模型（81个可选），模型ID带厂商前缀如 deepseek/xxx',
+    // 2026-09 实测：qwen/qwen-plus 不存在（无版本号的旧命名已下架），
+    // 现役为 qwen/qwen3.x 系列带版本号命名
     recommendedModels: [
       { id: 'deepseek/deepseek-v4-flash', desc: '默认，速度快' },
       { id: 'deepseek/deepseek-v4-pro', desc: '强推理' },
       { id: 'minimax/minimax-m2.5', desc: '多模态强（AI-2 审阅推荐）' },
       { id: 'moonshotai/kimi-k2.6', desc: '走七牛云的 Kimi' },
-      { id: 'qwen/qwen-plus', desc: '通义千问 Plus' },
+      { id: 'qwen/qwen3.7-plus', desc: '通义千问 3.7 Plus' },
     ],
   },
   custom: {
@@ -238,12 +241,16 @@ export interface SettingsState extends SettingsData {
   isInitialized: boolean
   /** AI-1 槽位 /v1/models 拉取的真实模型清单（runner 代拉） */
   slot1Models: AIModel[]
+  /** AI-1 清单拉取时的 provider —— 切 provider 后旧清单不适用于过滤 */
+  slot1ModelsProvider: AIProviderMode | ''
   /** AI-1 槽位模型清单最后一次拉取的时间戳（Unix ms） */
   slot1ModelsFetchedAt: number | null
   /** 正在拉取 AI-1 槽位模型清单 */
   isLoadingSlot1Models: boolean
   /** AI-2 槽位 /v1/models 拉取的真实模型清单（与 AI-1 对称） */
   slot2Models: AIModel[]
+  /** AI-2 清单拉取时的 provider —— 与 AI-1 对称 */
+  slot2ModelsProvider: AIProviderMode | ''
   /** AI-2 槽位模型清单最后一次拉取的时间戳（Unix ms） */
   slot2ModelsFetchedAt: number | null
   /** 正在拉取 AI-2 槽位模型清单 */

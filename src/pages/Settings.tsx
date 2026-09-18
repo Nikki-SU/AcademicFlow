@@ -76,9 +76,11 @@ function Settings() {
     customAi2ApiKey,
     customAi2Model,
     slot1Models,
+    slot1ModelsProvider,
     slot1ModelsFetchedAt,
     isLoadingSlot1Models,
     slot2Models,
+    slot2ModelsProvider,
     slot2ModelsFetchedAt,
     isLoadingSlot2Models,
     mineruToken,
@@ -329,6 +331,7 @@ function Settings() {
           customModel={customAi1Model}
           onCustomModelChange={(v) => updateSettings({ customAi1Model: v })}
           fetchedModels={slot1ChatIds}
+          fetchedProvider={slot1ModelsProvider}
           fetchedAt={slot1ModelsFetchedAt}
           isFetching={isLoadingSlot1Models}
           canFetch={
@@ -369,6 +372,7 @@ function Settings() {
               : undefined
           }
           fetchedModels={slot2ChatIds}
+          fetchedProvider={slot2ModelsProvider}
           fetchedAt={slot2ModelsFetchedAt}
           isFetching={isLoadingSlot2Models}
           canFetch={
@@ -570,6 +574,8 @@ function AISlotSection(props: {
   fallbackKeyNote?: string
   /** 从 runner 拉取的真实模型 id 清单（已过滤 chat 类，下拉第二组） */
   fetchedModels: string[]
+  /** 拉取清单对应的 provider —— 与当前 provider 不一致时旧清单不适用于过滤 */
+  fetchedProvider: string
   /** 真实清单最后一次拉取时间 */
   fetchedAt: number | null
   /** 正在拉取 */
@@ -584,19 +590,38 @@ function AISlotSection(props: {
     apiKey, onApiKeyChange, model, onModelChange,
     customBaseUrl, onCustomBaseUrlChange, customApiKey, onCustomApiKeyChange,
     customModel, onCustomModelChange, fallbackKeyNote,
-    fetchedModels, fetchedAt, isFetching, canFetch, onFetch,
+    fetchedModels, fetchedProvider, fetchedAt, isFetching, canFetch, onFetch,
   } = props
 
   const isCustom = providerMode === 'custom'
   const cfg = AI_PROVIDERS[providerMode]
   const defaultModel = slot === 1 ? cfg.defaultModel1 : cfg.defaultModel2
   const recs = cfg.recommendedModels
-  // 拉取清单里去掉与推荐重复的项（下拉第二组只显示"额外的"）
+  // 清单只在「有内容 且 属于当前 provider」时才可用于验证（防切 provider 后误用旧清单）
+  const hasFetched = fetchedModels.length > 0 && fetchedProvider === providerMode
+  const fetchedSet = new Set(fetchedModels)
+  // 拉取过后：推荐组只显示真实存在的模型（防接不存在的模型）；未拉取时显示全部推荐
+  const verifiedRecs = hasFetched ? recs.filter((m) => fetchedSet.has(m.id)) : recs
   const recIds = new Set(recs.map((m) => m.id))
+  // 第二组：拉取清单里推荐之外的真实模型
   const extraFetched = Array.from(new Set(fetchedModels.filter((id) => !recIds.has(id)))).sort()
-  // 历史残留的别家模型名不在推荐 ∪ 拉取清单里 → 下拉显示该家默认（与 secrets 兜底一致）
-  const knownIds = new Set([...recIds, ...fetchedModels])
-  const shownModel = knownIds.has(model) ? model : (defaultModel || model)
+  // 下拉显示值：优先用户已选且真实存在的；死模型回落到第一个已验证推荐（或清单首项）
+  const displayIds = hasFetched
+    ? new Set([...verifiedRecs.map((m) => m.id), ...fetchedModels])
+    : recIds
+  const fallbackModel = hasFetched
+    ? (verifiedRecs[0]?.id ?? fetchedModels[0])
+    : (defaultModel || model)
+  const shownModel = displayIds.has(model) ? model : fallbackModel
+
+  // 已拉取且存储的模型被证实不存在 → 自动纠正（防止 secrets 同步把死模型带给 runner）
+  useEffect(() => {
+    if (isCustom || !hasFetched || !model) return
+    if (!fetchedSet.has(model) && fallbackModel && fallbackModel !== model) {
+      onModelChange(fallbackModel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCustom, hasFetched, model, fallbackModel])
 
   return (
     <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
@@ -683,7 +708,12 @@ function AISlotSection(props: {
           {/* 拉取真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */}
           <div className="flex items-center justify-between">
             <div className="text-xs text-slate-500">
-              真实清单：{fetchedModels.length > 0 ? `${fetchedModels.length} 个 chat 类` : '未拉取'}
+              真实清单：
+              {hasFetched
+                ? `${fetchedModels.length} 个 chat 类`
+                : fetchedModels.length > 0
+                  ? '已切换 Provider，旧清单不适用'
+                  : '未拉取'}
               {' '}· 上次更新 <span className="font-mono">{formatFetchedAt(fetchedAt)}</span>
             </div>
             <button
@@ -715,13 +745,15 @@ function AISlotSection(props: {
               className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
                          focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
             >
-              <optgroup label="推荐">
-                {recs.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id} · {m.desc}
-                  </option>
-                ))}
-              </optgroup>
+              {verifiedRecs.length > 0 && (
+                <optgroup label={hasFetched ? '推荐（已验证存在）' : '推荐'}>
+                  {verifiedRecs.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id} · {m.desc}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
               {extraFetched.length > 0 && (
                 <optgroup label={`拉取清单（${extraFetched.length} 个）`}>
                   {extraFetched.map((id) => (
@@ -733,7 +765,9 @@ function AISlotSection(props: {
               )}
             </select>
             <p className="text-[11px] text-slate-400">
-              选「拉取」后可从该 Provider 的完整清单里挑模型
+              {hasFetched
+                ? '推荐已按真实清单过滤，不存在的模型不会再出现'
+                : '选「拉取」验证后，只显示真实存在的模型'}
             </p>
           </div>
         </>

@@ -49,8 +49,9 @@ const DEFAULT_SETTINGS: SettingsData = {
   deepseekApiKey: '',
   kimiApiKey: '',
   qiniuApiKey: '',
-  ai1Model: 'deepseek-chat',
-  ai2Model: 'deepseek-chat',
+  // 2026-09 实测：deepseek-chat 已从 DeepSeek 官方 API 下线，默认改为现役的 deepseek-flash
+  ai1Model: 'deepseek-flash',
+  ai2Model: 'deepseek-flash',
   ai2ProviderMode: 'deepseek',
   deepseekApiKey2: '',
   kimiApiKey2: '',
@@ -194,9 +195,11 @@ const initialState: SettingsState = {
   ...DEFAULT_SETTINGS,
   isInitialized: false,
   slot1Models: [],
+  slot1ModelsProvider: '',
   slot1ModelsFetchedAt: null,
   isLoadingSlot1Models: false,
   slot2Models: [],
+  slot2ModelsProvider: '',
   slot2ModelsFetchedAt: null,
   isLoadingSlot2Models: false,
   isRunningDualEngine: false,
@@ -524,8 +527,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
 
       set(
         slot === 1
-          ? { slot1Models: models, slot1ModelsFetchedAt: Date.now(), error: null }
-          : { slot2Models: models, slot2ModelsFetchedAt: Date.now(), error: null },
+          ? { slot1Models: models, slot1ModelsProvider: mode, slot1ModelsFetchedAt: Date.now(), error: null }
+          : { slot2Models: models, slot2ModelsProvider: mode, slot2ModelsFetchedAt: Date.now(), error: null },
       )
       return models
     },

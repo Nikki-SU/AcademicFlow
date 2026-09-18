@@ -41,7 +41,7 @@ const CHAT_MODEL_ALLOW_PREFIXES = [
   'deepseek/', 'moonshotai/', 'minimax/', 'qwen/', 'bytedance/',
   'qwen-', 'doubao-', 'glm-', 'kimi-k', 'deepseek-v3', 'deepseek-r1',
   // 官方直连风格（无前缀）
-  'deepseek-chat', 'deepseek-v4', 'deepseek-v3', 'deepseek-r1',
+  'deepseek-flash', 'deepseek-chat', 'deepseek-v4', 'deepseek-v3', 'deepseek-r1',
   'kimi-k2', 'kimi-k3',
   'minimax-m',
   // 其他
