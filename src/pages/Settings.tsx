@@ -67,7 +67,9 @@ function Settings() {
     ai2Model,
     ai2Independent,
     ai2ProviderMode,
-    ai2ApiKey,
+    deepseekApiKey2,
+    kimiApiKey2,
+    qiniuApiKey2,
     customAi1BaseUrl,
     customAi1ApiKey,
     customAi1Model,
@@ -97,7 +99,9 @@ function Settings() {
         qiniuApiKey: '七牛云 AI API Key',
         customAi1ApiKey: '自定义 AI-1 API Key',
         customAi2ApiKey: '自定义 AI-2 API Key',
-        ai2ApiKey: 'AI-2 独立 API Key',
+        deepseekApiKey2: 'DeepSeek API Key（AI-2 位）',
+        kimiApiKey2: '月之暗面 Kimi API Key（AI-2 位）',
+        qiniuApiKey2: '七牛云 AI API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
       }
       const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
@@ -147,7 +151,9 @@ function Settings() {
         ai2Model,
         ai2Independent,
         ai2ProviderMode,
-        ai2ApiKey,
+        deepseekApiKey2,
+        kimiApiKey2,
+        qiniuApiKey2,
         customAi1BaseUrl,
         customAi1ApiKey,
         customAi1Model,
@@ -180,7 +186,8 @@ function Settings() {
     isInitialized, owner, auth.token,
     aiProviderMode, advancedMode,
     deepseekApiKey, kimiApiKey, qiniuApiKey, ai1Model, ai2Model,
-    ai2Independent, ai2ProviderMode, ai2ApiKey,
+    ai2Independent, ai2ProviderMode,
+    deepseekApiKey2, kimiApiKey2, qiniuApiKey2,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
@@ -505,13 +512,30 @@ function Settings() {
                     </div>
                   ) : (
                     <>
-                      <APIKeyInput
-                        label={`${AI_PROVIDERS[ai2ProviderMode].label} API Key（AI-2 独立）`}
-                        fieldId={`ai2-independent-${ai2ProviderMode}`}
-                        value={ai2ApiKey}
-                        onChange={(v) => updateSettings({ ai2ApiKey: v })}
-                        hint="仅存本机 IndexedDB；同一家公司也可以填另一个 key"
-                      />
+                      {(() => {
+                        // AI-2 位 key 按公司独立槽位存储，与 AI-1 位平等：
+                        // 切换 provider 时各家 key 各自保留，不互相覆盖
+                        const key2Field =
+                          ai2ProviderMode === 'deepseek' ? deepseekApiKey2
+                          : ai2ProviderMode === 'kimi' ? kimiApiKey2
+                          : qiniuApiKey2
+                        const key2Setter = (v: string) => {
+                          const patch: Record<string, string> = {}
+                          if (ai2ProviderMode === 'deepseek') patch.deepseekApiKey2 = v
+                          else if (ai2ProviderMode === 'kimi') patch.kimiApiKey2 = v
+                          else patch.qiniuApiKey2 = v
+                          updateSettings(patch as Partial<typeof store>)
+                        }
+                        return (
+                          <APIKeyInput
+                            label={`${AI_PROVIDERS[ai2ProviderMode].label} API Key（AI-2 位）`}
+                            fieldId={`ai2-${ai2ProviderMode}-key2`}
+                            value={key2Field}
+                            onChange={key2Setter}
+                            hint="仅存本机 IndexedDB；可填同一家公司的另一个 key；各家独立保存、切换不丢"
+                          />
+                        )
+                      })()}
                       <p className="text-xs text-slate-500">
                         模型固定用 {AI_PROVIDERS[ai2ProviderMode].label} 审阅位默认
                         <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">

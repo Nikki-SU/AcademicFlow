@@ -45,6 +45,9 @@ export const SETTING_KEYS = {
   DEEPSEEK_API_KEY: 'deepseek_api_key',
   KIMI_API_KEY: 'kimi_api_key',
   QINIU_API_KEY: 'qiniu_api_key',
+  DEEPSEEK_API_KEY_2: 'deepseek_api_key_2',
+  KIMI_API_KEY_2: 'kimi_api_key_2',
+  QINIU_API_KEY_2: 'qiniu_api_key_2',
   AI_1_MODEL: 'ai_1_model',
   AI_2_MODEL: 'ai_2_model',
   CUSTOM_AI_1_BASE_URL: 'custom_ai_1_base_url',
@@ -55,7 +58,6 @@ export const SETTING_KEYS = {
   CUSTOM_AI_2_MODEL: 'custom_ai_2_model',
   AI_2_INDEPENDENT: 'ai_2_independent',
   AI_2_PROVIDER_MODE: 'ai_2_provider_mode',
-  AI_2_API_KEY: 'ai_2_api_key',
   // AI 模型清单缓存（M3，TTL 24h）
   AI_MODELS_CACHE_SILICONFLOW: 'ai_models_cache_siliconflow',
   AI_MODELS_CACHE_AT: 'ai_models_cache_at',

@@ -180,11 +180,11 @@ export interface SettingsData {
   advancedMode: boolean
   /** AI 服务提供方模式 */
   aiProviderMode: AIProviderMode
-  /** DeepSeek API Key */
+  /** DeepSeek API Key（AI-1 位） */
   deepseekApiKey: string
-  /** 月之暗面 Kimi API Key */
+  /** 月之暗面 Kimi API Key（AI-1 位） */
   kimiApiKey: string
-  /** 七牛云 AI API Key */
+  /** 七牛云 AI API Key（AI-1 位） */
   qiniuApiKey: string
   /** AI-1（生成位）默认模型 id */
   ai1Model: string
@@ -194,8 +194,12 @@ export interface SettingsData {
   ai2Independent: boolean
   /** AI-2 独立配置时的 provider（预置 deepseek/kimi/qiniu 或 custom） */
   ai2ProviderMode: AIProviderMode
-  /** AI-2 独立配置时的 API key（敏感，只存 IndexedDB） */
-  ai2ApiKey: string
+  /** AI-2 位的 DeepSeek API Key（与 AI-1 位的 deepseekApiKey 平等独立，切 provider 不丢） */
+  deepseekApiKey2: string
+  /** AI-2 位的 Kimi API Key */
+  kimiApiKey2: string
+  /** AI-2 位的七牛云 API Key */
+  qiniuApiKey2: string
   /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string

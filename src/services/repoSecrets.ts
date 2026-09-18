@@ -227,7 +227,10 @@ export interface SyncAllSecretsInput {
   /** AI-2 位置独立配置（双 key：不同公司或同公司不同 key） */
   ai2Independent: boolean
   ai2ProviderMode: 'deepseek' | 'kimi' | 'qiniu' | 'custom'
-  ai2ApiKey: string
+  /** AI-2 位的各家公司 key（与 AI-1 位字段平等独立） */
+  deepseekApiKey2: string
+  kimiApiKey2: string
+  qiniuApiKey2: string
   mineruToken: string
 }
 
@@ -290,11 +293,14 @@ export async function syncAllSecrets(
         apiKey2 = s.customAi2ApiKey
         model2 = s.customAi2Model
       } else {
-        // 独立预置 provider：baseUrl 取对应家，key 用独立 key，
+        // 独立预置 provider：baseUrl 取对应家，key 用 AI-2 位的该家 key
+        //（deepseekApiKey2 等——与 AI-1 位平等独立，切 provider 不丢），
         // model 强制取该家的审阅位默认模型（防跨家模型名残留）
         const cfg2 = AI_PROVIDERS[s.ai2ProviderMode]
         baseUrl2 = cfg2.baseUrl
-        apiKey2 = s.ai2ApiKey
+        apiKey2 = s.ai2ProviderMode === 'deepseek' ? s.deepseekApiKey2
+          : s.ai2ProviderMode === 'kimi' ? s.kimiApiKey2
+          : s.qiniuApiKey2
         model2 = cfg2.defaultModel2
       }
     } else {

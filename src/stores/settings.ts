@@ -58,7 +58,9 @@ const DEFAULT_SETTINGS: SettingsData = {
   ai2Model: 'deepseek-chat',
   ai2Independent: false,
   ai2ProviderMode: 'deepseek',
-  ai2ApiKey: '',
+  deepseekApiKey2: '',
+  kimiApiKey2: '',
+  qiniuApiKey2: '',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
@@ -79,7 +81,9 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'qiniuApiKey',
   'customAi1ApiKey',
   'customAi2ApiKey',
-  'ai2ApiKey',
+  'deepseekApiKey2',
+  'kimiApiKey2',
+  'qiniuApiKey2',
   'mineruToken',
 ]
 
@@ -102,7 +106,9 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
   qiniuApiKey: SETTING_KEYS.QINIU_API_KEY,
   customAi1ApiKey: SETTING_KEYS.CUSTOM_AI_1_API_KEY,
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
-  ai2ApiKey: SETTING_KEYS.AI_2_API_KEY,
+  deepseekApiKey2: SETTING_KEYS.DEEPSEEK_API_KEY_2,
+  kimiApiKey2: SETTING_KEYS.KIMI_API_KEY_2,
+  qiniuApiKey2: SETTING_KEYS.QINIU_API_KEY_2,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
 }
 
@@ -150,7 +156,9 @@ function detectPatContamination(
     'qiniuApiKey',
     'customAi1ApiKey',
     'customAi2ApiKey',
-    'ai2ApiKey',
+    'deepseekApiKey2',
+    'kimiApiKey2',
+    'qiniuApiKey2',
     'mineruToken',
   ]
   const patPrefixes = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
@@ -518,9 +526,13 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           }
         }
         const cfg2 = AI_PROVIDERS[state.ai2ProviderMode]
-        const apiKey2 = state.ai2ApiKey.trim()
+        // AI-2 位 key 按公司独立存储（deepseekApiKey2 等），与 AI-1 位平等
+        const apiKey2 =
+          state.ai2ProviderMode === 'deepseek' ? state.deepseekApiKey2.trim()
+          : state.ai2ProviderMode === 'kimi' ? state.kimiApiKey2.trim()
+          : state.qiniuApiKey2.trim()
         if (!apiKey2) {
-          throw new Error(`请先填写 AI-2 独立的 ${cfg2.label} API Key`)
+          throw new Error(`请先填写 AI-2 位的 ${cfg2.label} API Key`)
         }
         return {
           ai1: { baseUrl, apiKey, model: state.ai1Model },
@@ -574,7 +586,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         qiniuApiKey: get().qiniuApiKey,
         customAi1ApiKey: get().customAi1ApiKey,
         customAi2ApiKey: get().customAi2ApiKey,
-        ai2ApiKey: get().ai2ApiKey,
+        deepseekApiKey2: get().deepseekApiKey2,
+        kimiApiKey2: get().kimiApiKey2,
+        qiniuApiKey2: get().qiniuApiKey2,
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }
       set(merged)
