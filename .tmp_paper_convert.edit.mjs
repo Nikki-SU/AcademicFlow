@@ -751,8 +751,13 @@ async function aiCall(baseUrl, apiKey, model, system, user, signal) {
       if (!content || !content.trim()) {
         throw new Error(`AI ${model}: 空 content (finish_reason=${finishReason || '?'}, reasoning_chars=${reasoningChars})，可能输出预算耗尽或被截断`)
       }
+      // 截断的输出绝不能当成功返回。
+      // clean/tag 的输出是"原文的完整副本 + 标记"，一旦被截断就是静默丢正文
+      // （实测：reasoning 吃掉输出预算，某块只回了 6 字符，整篇少了 40% 正文，
+      //  但 run 仍然 success）。当作可重试错误抛出去，让退避重试接管；
+      // 若重试后仍截断，就明确失败，绝不写残缺产物。
       if (finishReason === 'length') {
-        console.warn(`  [aiCall] ⚠ finish_reason=length，输出可能被截断 (content=${content.length} chars, reasoning=${reasoningChars})`)
+        throw new Error(`AI ${model}: 输出被截断 finish_reason=length (content=${content.length} chars, reasoning=${reasoningChars} chars —— 输出预算被 reasoning 占用)`)
       }
       return content
     } catch (e) {
