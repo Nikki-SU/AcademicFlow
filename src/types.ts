@@ -236,12 +236,18 @@ export interface SettingsData {
 export interface SettingsState extends SettingsData {
   /** 是否已从 IndexedDB rehydrate 完成 */
   isInitialized: boolean
-  /** 硅基流动 /v1/models 拉取的模型清单（用于 UI 下拉） */
-  siliconflowModels: AIModel[]
-  /** 模型清单最后一次拉取的时间戳（Unix ms） */
-  siliconflowModelsFetchedAt: number | null
-  /** 正在拉取模型清单 */
-  isLoadingModels: boolean
+  /** AI-1 槽位 /v1/models 拉取的真实模型清单（runner 代拉） */
+  slot1Models: AIModel[]
+  /** AI-1 槽位模型清单最后一次拉取的时间戳（Unix ms） */
+  slot1ModelsFetchedAt: number | null
+  /** 正在拉取 AI-1 槽位模型清单 */
+  isLoadingSlot1Models: boolean
+  /** AI-2 槽位 /v1/models 拉取的真实模型清单（与 AI-1 对称） */
+  slot2Models: AIModel[]
+  /** AI-2 槽位模型清单最后一次拉取的时间戳（Unix ms） */
+  slot2ModelsFetchedAt: number | null
+  /** 正在拉取 AI-2 槽位模型清单 */
+  isLoadingSlot2Models: boolean
   /** 正在跑双引擎试运行 */
   isRunningDualEngine: boolean
   /** 双引擎最近一次结果 */

@@ -274,11 +274,10 @@ export async function syncAllSecrets(
       mode === 'deepseek' ? s.deepseekApiKey
       : mode === 'kimi' ? s.kimiApiKey
       : s.qiniuApiKey
-    // 模型必须是本 provider 的（UI 切 provider 时已重置；此处兜底防历史残留
-    // 的别家模型名写到新 provider，如七牛云需要 deepseek/xxx 带前缀）
-    model1 = cfg.recommendedModels.some((m) => m.id === s.ai1Model)
-      ? s.ai1Model
-      : cfg.defaultModel1
+    // 模型信任 store 值（UI 切 provider 时已重置、syncFromGitHub 已做
+    // 一致性校验），此处只兜空值——不再用 recommendedModels 白名单过滤，
+    // 因为用户可能从「拉取」的真实清单里选非推荐模型
+    model1 = s.ai1Model || cfg.defaultModel1
   }
 
   // ── AI-2（审阅位）：与 AI-1 完全对称 ──
@@ -299,9 +298,7 @@ export async function syncAllSecrets(
       : s.qiniuApiKey2
     // mode2 === mode 已保证两家同家（mode 为 custom 时该等式必为 false，本分支不会误用自定义 key）
     apiKey2 = key2 || (mode2 === mode ? apiKey1 : '')
-    model2 = cfg2.recommendedModels.some((m) => m.id === s.ai2Model)
-      ? s.ai2Model
-      : cfg2.defaultModel2
+    model2 = s.ai2Model || cfg2.defaultModel2
   }
 
   const secretsMap: Record<AiSecretName, string> = {

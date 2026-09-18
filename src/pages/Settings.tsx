@@ -30,6 +30,7 @@ import ConnectivityPanel from '../components/settings/ConnectivityPanel'
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
 import BackendCapabilitiesPanel from '../components/settings/BackendCapabilitiesPanel'
+import { isChatModel } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -37,6 +38,17 @@ import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
 import { AI_PROVIDERS } from '../types'
+
+function formatFetchedAt(ts: number | null): string {
+  if (!ts) return '未拉取'
+  const diffMs = Date.now() - ts
+  const min = Math.floor(diffMs / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min} 分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr} 小时前`
+  return new Date(ts).toLocaleString()
+}
 
 function Settings() {
   const store = useSettingsStore()
@@ -63,8 +75,15 @@ function Settings() {
     customAi2BaseUrl,
     customAi2ApiKey,
     customAi2Model,
+    slot1Models,
+    slot1ModelsFetchedAt,
+    isLoadingSlot1Models,
+    slot2Models,
+    slot2ModelsFetchedAt,
+    isLoadingSlot2Models,
     mineruToken,
     updateSettings,
+    refreshModels,
     init,
   } = store
 
@@ -220,6 +239,21 @@ function Settings() {
     updateSettings(patch as Partial<typeof store>)
   }
 
+  /** 拉取某槽位的真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */
+  const handleFetchModels = async (slot: 1 | 2) => {
+    try {
+      const models = await refreshModels(slot, true)
+      toast.success(`AI-${slot} 槽位已拉取 ${models.length} 个模型`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`AI-${slot} 槽位拉取失败：${msg}`, { duration: 8000 })
+    }
+  }
+
+  // 拉取清单过滤出 chat 类（下拉用），AI-1 / AI-2 对称
+  const slot1ChatIds = slot1Models.map((m) => m.id).filter(isChatModel)
+  const slot2ChatIds = slot2Models.map((m) => m.id).filter(isChatModel)
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
       {/* 顶栏 */}
@@ -294,6 +328,15 @@ function Settings() {
           onCustomApiKeyChange={(v) => updateSettings({ customAi1ApiKey: v })}
           customModel={customAi1Model}
           onCustomModelChange={(v) => updateSettings({ customAi1Model: v })}
+          fetchedModels={slot1ChatIds}
+          fetchedAt={slot1ModelsFetchedAt}
+          isFetching={isLoadingSlot1Models}
+          canFetch={
+            aiProviderMode === 'custom'
+              ? !!(customAi1BaseUrl.trim() && customAi1ApiKey.trim())
+              : !!slot1Key.trim()
+          }
+          onFetch={() => handleFetchModels(1)}
         />
 
         {/* ── AI-2（审阅位）—— 与 AI-1 完全对称 ── */}
@@ -325,6 +368,16 @@ function Settings() {
               ? `未填写：将沿用 AI-1 位的 ${AI_PROVIDERS[ai2ProviderMode].label} Key（同 key 双模型）`
               : undefined
           }
+          fetchedModels={slot2ChatIds}
+          fetchedAt={slot2ModelsFetchedAt}
+          isFetching={isLoadingSlot2Models}
+          canFetch={
+            ai2ProviderMode === 'custom'
+              ? !!(customAi2BaseUrl.trim() && customAi2ApiKey.trim())
+              : !!(slot2Key.trim() ||
+                  (ai2ProviderMode === aiProviderMode && slot1Key.trim()))
+          }
+          onFetch={() => handleFetchModels(2)}
         />
 
         {/* 双引擎试运行 */}
@@ -515,20 +568,35 @@ function AISlotSection(props: {
   onCustomModelChange: (v: string) => void
   /** 本槽位 key 留空时的共用提示（仅 AI-2 位会出现） */
   fallbackKeyNote?: string
+  /** 从 runner 拉取的真实模型 id 清单（已过滤 chat 类，下拉第二组） */
+  fetchedModels: string[]
+  /** 真实清单最后一次拉取时间 */
+  fetchedAt: number | null
+  /** 正在拉取 */
+  isFetching: boolean
+  /** baseUrl + key 已填，可以拉取 */
+  canFetch: boolean
+  /** 触发拉取 */
+  onFetch: () => void
 }) {
   const {
     slot, title, desc, advancedMode, providerMode, onProviderChange,
     apiKey, onApiKeyChange, model, onModelChange,
     customBaseUrl, onCustomBaseUrlChange, customApiKey, onCustomApiKeyChange,
     customModel, onCustomModelChange, fallbackKeyNote,
+    fetchedModels, fetchedAt, isFetching, canFetch, onFetch,
   } = props
 
   const isCustom = providerMode === 'custom'
   const cfg = AI_PROVIDERS[providerMode]
   const defaultModel = slot === 1 ? cfg.defaultModel1 : cfg.defaultModel2
   const recs = cfg.recommendedModels
-  // 历史残留的别家模型名不在本家清单里 → 下拉显示该家默认（与 secrets 同步的兜底逻辑一致）
-  const shownModel = recs.some((m) => m.id === model) ? model : defaultModel
+  // 拉取清单里去掉与推荐重复的项（下拉第二组只显示"额外的"）
+  const recIds = new Set(recs.map((m) => m.id))
+  const extraFetched = Array.from(new Set(fetchedModels.filter((id) => !recIds.has(id)))).sort()
+  // 历史残留的别家模型名不在推荐 ∪ 拉取清单里 → 下拉显示该家默认（与 secrets 兜底一致）
+  const knownIds = new Set([...recIds, ...fetchedModels])
+  const shownModel = knownIds.has(model) ? model : (defaultModel || model)
 
   return (
     <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
@@ -611,6 +679,34 @@ function AISlotSection(props: {
           {fallbackKeyNote && (
             <p className="text-xs text-amber-600 -mt-2">{fallbackKeyNote}</p>
           )}
+
+          {/* 拉取真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */}
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-slate-500">
+              真实清单：{fetchedModels.length > 0 ? `${fetchedModels.length} 个 chat 类` : '未拉取'}
+              {' '}· 上次更新 <span className="font-mono">{formatFetchedAt(fetchedAt)}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onFetch}
+              disabled={isFetching || !canFetch}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-300 rounded-md
+                         hover:bg-slate-50 disabled:text-slate-300 disabled:cursor-not-allowed"
+            >
+              {isFetching ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              拉取
+            </button>
+          </div>
+          {!canFetch && (
+            <p className="text-[11px] text-slate-400 -mt-2">
+              填好 API Key 后可拉取该 Provider 的完整模型清单
+            </p>
+          )}
+
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-slate-700">模型</label>
             <select
@@ -619,12 +715,26 @@ function AISlotSection(props: {
               className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
                          focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
             >
-              {recs.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id} · {m.desc}
-                </option>
-              ))}
+              <optgroup label="推荐">
+                {recs.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id} · {m.desc}
+                  </option>
+                ))}
+              </optgroup>
+              {extraFetched.length > 0 && (
+                <optgroup label={`拉取清单（${extraFetched.length} 个）`}>
+                  {extraFetched.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+            <p className="text-[11px] text-slate-400">
+              选「拉取」后可从该 Provider 的完整清单里挑模型
+            </p>
           </div>
         </>
       )}

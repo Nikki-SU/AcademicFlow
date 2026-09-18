@@ -32,11 +32,6 @@ import type {
 } from '../types'
 import { AI_PROVIDERS } from '../types'
 
-/** 根据 provider 拿到对应的 baseUrl */
-function getProviderBaseUrl(mode: keyof typeof AI_PROVIDERS): string {
-  return AI_PROVIDERS[mode].baseUrl
-}
-
 /** 根据 provider mode + store 状态拿到对应的 apiKey 字段值 */
 function getProviderApiKey(mode: keyof typeof AI_PROVIDERS, s: SettingsData): string {
   switch (mode) {
@@ -173,8 +168,9 @@ interface SettingsActions {
   syncFromGitHub: () => Promise<void>
   /** 局部更新：敏感→IndexedDB，非敏感→防抖写 GitHub global.md */
   updateSettings: (patch: Partial<SettingsData>) => Promise<void>
-  /** 拉取硅基流动 /v1/models（force=true 忽略 24h 缓存） */
-  refreshModels: (force?: boolean) => Promise<AIModel[]>
+  /** 按 AI 槽位拉取该槽位 provider 的 /v1/models 真实清单（runner 代拉；
+   *  slot=1 用 AI-1 位配置，slot=2 用 AI-2 位配置，两端对称） */
+  refreshModels: (slot: 1 | 2, force?: boolean) => Promise<AIModel[]>
   /** 用当前设置跑一次双引擎试运行（M3.5：忠实性核查 · M3.5.1：分阶段进度回调） */
   runFactCheckTest: (
     sourceMaterial: string,
@@ -197,9 +193,12 @@ interface SettingsActions {
 const initialState: SettingsState = {
   ...DEFAULT_SETTINGS,
   isInitialized: false,
-  siliconflowModels: [],
-  siliconflowModelsFetchedAt: null,
-  isLoadingModels: false,
+  slot1Models: [],
+  slot1ModelsFetchedAt: null,
+  isLoadingSlot1Models: false,
+  slot2Models: [],
+  slot2ModelsFetchedAt: null,
+  isLoadingSlot2Models: false,
   isRunningDualEngine: false,
   lastDualEngineResult: null,
   error: null,
@@ -275,16 +274,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         }
       }
 
-      // 2. 模型清单直接从 AI_PROVIDERS 静态常量拿（不再前端 fetch）
-      const defaultMode: AIProviderMode = 'deepseek'
-      const defaultModels: AIModel[] = AI_PROVIDERS[defaultMode].recommendedModels.map(
-        (m) => ({ id: m.id, object: 'model', owned_by: defaultMode }),
-      )
-
+      // 2. 模型拉取清单初始为空（AI-1 / AI-2 两个槽位对称）；
+      //    下拉的静态推荐清单由 AI_PROVIDERS 常量直接提供，
+      //    真实清单由用户在设置页各槽位点「拉取」触发 runner 代拉
       set({
         ...patch,
-        siliconflowModels: defaultModels,
-        siliconflowModelsFetchedAt: Date.now(),
         isInitialized: true,
       })
 
@@ -317,8 +311,24 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
             const migrated = raw === 'siliconflow' ? 'deepseek' : raw
             patch.aiProviderMode = (valid.includes(migrated as any) ? migrated : 'deepseek') as SettingsData['aiProviderMode']
           }
-          if (loaded.ai1Model !== undefined) patch.ai1Model = loaded.ai1Model
-          if (loaded.ai2Model !== undefined) patch.ai2Model = loaded.ai2Model
+          // model 一致性校验：残留的别家模型名回退该家默认，
+          // 但从拉取清单选的非推荐模型不误杀（推荐清单 ∪ 该槽位拉取清单）
+          if (loaded.ai1Model !== undefined) {
+            const m1: AIProviderMode = (patch.aiProviderMode ?? get().aiProviderMode) as AIProviderMode
+            const cfg1 = AI_PROVIDERS[m1]
+            const ok1 = m1 === 'custom'
+              || cfg1.recommendedModels.some((m) => m.id === loaded.ai1Model)
+              || get().slot1Models.some((m) => m.id === loaded.ai1Model)
+            patch.ai1Model = ok1 ? loaded.ai1Model : (cfg1.defaultModel1 || loaded.ai1Model)
+          }
+          if (loaded.ai2Model !== undefined) {
+            const m2: AIProviderMode = (patch.ai2ProviderMode ?? get().ai2ProviderMode) as AIProviderMode
+            const cfg2 = AI_PROVIDERS[m2]
+            const ok2 = m2 === 'custom'
+              || cfg2.recommendedModels.some((m) => m.id === loaded.ai2Model)
+              || get().slot2Models.some((m) => m.id === loaded.ai2Model)
+            patch.ai2Model = ok2 ? loaded.ai2Model : (cfg2.defaultModel2 || loaded.ai2Model)
+          }
           if (loaded.ai2ProviderMode !== undefined) {
             const valid2 = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
             const raw2 = loaded.ai2ProviderMode
@@ -373,34 +383,59 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       }
     },
 
-    refreshModels: async (force = false) => {
+    refreshModels: async (slot: 1 | 2, force = false) => {
       const state = get()
-      const mode = state.aiProviderMode
 
-      // ── 缓存检查（TTL 24h，与 SPEC §9.3 对齐） ──
-      if (
-        !force &&
-        state.siliconflowModelsFetchedAt &&
-        Date.now() - state.siliconflowModelsFetchedAt < MODELS_CACHE_TTL_MS &&
-        state.siliconflowModels.length > 0
-      ) {
-        return state.siliconflowModels
-      }
-
-      // ── 解析 baseUrl + apiKey ──
+      // ── 解析该槽位的 baseUrl + apiKey（与 getDualEngineConfig 对称一致） ──
       let baseUrl: string
       let apiKey: string
-      if (mode === 'custom') {
-        baseUrl = state.customAi1BaseUrl.trim()
-        apiKey = state.customAi1ApiKey.trim()
-        if (!baseUrl) {
-          const empty: AIModel[] = []
-          set({ siliconflowModels: empty, siliconflowModelsFetchedAt: Date.now(), error: null })
-          return empty
+      let mode: AIProviderMode
+      if (slot === 1) {
+        mode = state.aiProviderMode
+        if (mode === 'custom') {
+          baseUrl = state.customAi1BaseUrl.trim()
+          apiKey = state.customAi1ApiKey.trim()
+        } else {
+          baseUrl = AI_PROVIDERS[mode].baseUrl
+          apiKey = getProviderApiKey(mode, state)
         }
       } else {
-        baseUrl = getProviderBaseUrl(mode)
-        apiKey = getProviderApiKey(mode, state)
+        mode = state.ai2ProviderMode
+        if (mode === 'custom') {
+          baseUrl = state.customAi2BaseUrl.trim()
+          apiKey = state.customAi2ApiKey.trim()
+        } else {
+          baseUrl = AI_PROVIDERS[mode].baseUrl
+          // AI-2 位 key：独立槽位优先；同家留空沿用 AI-1 位 key
+          const key2 =
+            mode === 'deepseek' ? state.deepseekApiKey2.trim()
+            : mode === 'kimi' ? state.kimiApiKey2.trim()
+            : state.qiniuApiKey2.trim()
+          apiKey = key2 || (mode === state.aiProviderMode ? getProviderApiKey(mode, state) : '')
+        }
+      }
+
+      // ── 缓存检查（TTL 24h，与 SPEC §9.3 对齐） ──
+      const cachedModels = slot === 1 ? state.slot1Models : state.slot2Models
+      const cachedAt = slot === 1 ? state.slot1ModelsFetchedAt : state.slot2ModelsFetchedAt
+      if (
+        !force &&
+        cachedAt &&
+        Date.now() - cachedAt < MODELS_CACHE_TTL_MS &&
+        cachedModels.length > 0
+      ) {
+        return cachedModels
+      }
+
+      if (!baseUrl || !apiKey) {
+        if (slot === 1) {
+          throw new Error(`请先填写 AI-1 位的 ${AI_PROVIDERS[state.aiProviderMode].label} API Key`)
+        }
+        throw new Error(
+          mode === state.aiProviderMode
+            ? `请先填写 AI-2 位的 ${AI_PROVIDERS[mode].label} API Key（或 AI-1 位的 key）`
+            : `请先填写 AI-2 位的 ${AI_PROVIDERS[mode].label} API Key`,
+        )
       }
 
       // ── 后端上下文 ──
@@ -413,17 +448,25 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         // 未登录 → 空列表，不给静态猜测
         // 理由：静态列表可能过时、可能跟用户实际选的 provider 不匹配，
         // 调到不存在的模型一定报错。登录后 runner 拉真实清单才有意义。
-        set({ siliconflowModels: [], siliconflowModelsFetchedAt: null, error: null })
+        if (slot === 1) {
+          set({ slot1Models: [], slot1ModelsFetchedAt: null, error: null })
+        } else {
+          set({ slot2Models: [], slot2ModelsFetchedAt: null, error: null })
+        }
         return []
       }
 
-      set({ isLoadingModels: true, error: null })
+      set(
+        slot === 1
+          ? { isLoadingSlot1Models: true, error: null }
+          : { isLoadingSlot2Models: true, error: null },
+      )
 
       // ── dispatch list_models 到 runner ──
       const ts = Date.now()
       const rand = Math.random().toString(36).slice(2, 8)
-      const outputPath = `temp/ai/models/models_${ts}_${rand}.json`
-      const taskId = `list_models_${rand}`
+      const outputPath = `temp/ai/models/slot${slot}_models_${ts}_${rand}.json`
+      const taskId = `list_models_s${slot}_${rand}`
 
       try {
         await dispatchAiCall(
@@ -433,7 +476,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           owner, repo, token,
         )
       } catch (e: any) {
-        set({ isLoadingModels: false, error: `触发后端拉模型失败: ${e?.message || e}` })
+        set(
+          slot === 1
+            ? { isLoadingSlot1Models: false, error: `触发后端拉模型失败: ${e?.message || e}` }
+            : { isLoadingSlot2Models: false, error: `触发后端拉模型失败: ${e?.message || e}` },
+        )
         throw e
       }
 
@@ -447,7 +494,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         } catch { /* 继续等 */ }
       }
 
-      set({ isLoadingModels: false })
+      set(
+        slot === 1
+          ? { isLoadingSlot1Models: false }
+          : { isLoadingSlot2Models: false },
+      )
 
       if (!raw) {
         set({ error: '后端拉模型超时（10min 未返回）' })
@@ -471,11 +522,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         owned_by: m.owned_by || mode,
       }))
 
-      set({
-        siliconflowModels: models,
-        siliconflowModelsFetchedAt: Date.now(),
-        error: null,
-      })
+      set(
+        slot === 1
+          ? { slot1Models: models, slot1ModelsFetchedAt: Date.now(), error: null }
+          : { slot2Models: models, slot2ModelsFetchedAt: Date.now(), error: null },
+      )
       return models
     },
 
@@ -503,8 +554,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         ai1 = {
           baseUrl: cfg.baseUrl,
           apiKey,
-          // 模型必须是本 provider 的（历史残留的别家模型名 → 回退默认）
+          // 模型必须属于本 provider：推荐清单 ∪ AI-1 槽位拉取清单；
+          // 都没有（历史残留的别家模型名）→ 回退默认
           model: cfg.recommendedModels.some((m) => m.id === state.ai1Model)
+            || state.slot1Models.some((m) => m.id === state.ai1Model)
             ? state.ai1Model
             : cfg.defaultModel1,
         }
@@ -536,6 +589,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           baseUrl: cfg2.baseUrl,
           apiKey: apiKey2,
           model: cfg2.recommendedModels.some((m) => m.id === state.ai2Model)
+            || state.slot2Models.some((m) => m.id === state.ai2Model)
             ? state.ai2Model
             : cfg2.defaultModel2,
         }
