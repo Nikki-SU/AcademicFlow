@@ -30,6 +30,7 @@ export interface ContentNode {
   afterIdx?: number    // img/table：后一段的 idx
   path?: string        // img：图片路径
   content?: string     // en/cn/table/ref：markdown 文本
+  cn?: string          // table：中文译表
 }
 
 export interface ParsedAlignedMd {
@@ -44,8 +45,9 @@ export interface ParsedAlignedMd {
 // ============================================================
 
 // group1 区分类型：en/cn/img/table/ref
+// 分组编号：1=整体 2=en|cn 3=段idx 4=段total 5=img前 6=img后 7=表前 8=表后 9=译表前 10=译表后
 const FINAL_MARK_RE =
-  /<!--\s*(PARA\s+(en|cn)\s+(\d+)\/(\d+)|IMG\s+between\s+(\d+)\s+and\s+(\d+)|TABLE\s+between\s+(\d+)\s+and\s+(\d+)|REF\s+ALL)\s*-->/g
+  /<!--\s*(PARA\s+(en|cn)\s+(\d+)\/(\d+)|IMG\s+between\s+(\d+)\s+and\s+(\d+)|TABLE\s+between\s+(\d+)\s+and\s+(\d+)|TABLE\s+cn\s+(\d+)-(\d+)|REF\s+ALL)\s*-->/g
 
 // 第二遍 tag 阶段的无编号标记（保留供未来扩展）
 // const TAG_ONLY_RE = /<!--\s*(PARA_EN|IMG|TABLE|REF_ALL)\s*-->/g
@@ -214,7 +216,7 @@ export function parseAlignedMd(md: string): ParsedAlignedMd {
   let totalPara = 0
 
   interface Mark {
-    type: ContentNodeType
+    type: ContentNodeType | 'tcn'
     idx?: number
     total?: number
     beforeIdx?: number
@@ -228,7 +230,7 @@ export function parseAlignedMd(md: string): ParsedAlignedMd {
   let m: RegExpExecArray | null
   while ((m = FINAL_MARK_RE.exec(md)) !== null) {
     const full = m[1]
-    let type: ContentNodeType
+    let type: Mark['type']
     let idx: number | undefined
     let total: number | undefined
     let beforeIdx: number | undefined
@@ -236,20 +238,24 @@ export function parseAlignedMd(md: string): ParsedAlignedMd {
 
     if (full.startsWith('PARA en')) {
       type = 'en'
-      idx = parseInt(m[2]!, 10)
-      total = parseInt(m[3]!, 10)
+      idx = parseInt(m[3]!, 10)
+      total = parseInt(m[4]!, 10)
     } else if (full.startsWith('PARA cn')) {
       type = 'cn'
-      idx = parseInt(m[4]!, 10)
-      total = parseInt(m[5]!, 10)
+      idx = parseInt(m[3]!, 10)
+      total = parseInt(m[4]!, 10)
     } else if (full.startsWith('IMG')) {
       type = 'img'
-      beforeIdx = parseInt(m[6]!, 10)
-      afterIdx = parseInt(m[7]!, 10)
+      beforeIdx = parseInt(m[5]!, 10)
+      afterIdx = parseInt(m[6]!, 10)
+    } else if (full.startsWith('TABLE cn')) {
+      type = 'tcn'
+      beforeIdx = parseInt(m[9]!, 10)
+      afterIdx = parseInt(m[10]!, 10)
     } else if (full.startsWith('TABLE')) {
       type = 'table'
-      beforeIdx = parseInt(m[8]!, 10)
-      afterIdx = parseInt(m[9]!, 10)
+      beforeIdx = parseInt(m[7]!, 10)
+      afterIdx = parseInt(m[8]!, 10)
     } else {
       type = 'ref'
     }
@@ -278,6 +284,15 @@ export function parseAlignedMd(md: string): ParsedAlignedMd {
       const match = content.match(/!\[[^\]]*\]\(([^)]+)\)/)
       if (match) path = match[1] ?? content
       nodes.push({ type: 'img', beforeIdx: cur.beforeIdx, afterIdx: cur.afterIdx, path, content })
+      continue
+    }
+    if (cur.type === 'tcn') {
+      // 译表：挂到同位置的英文表节点上
+      const t = [...nodes].reverse().find(
+        (n) => n.type === 'table' && n.beforeIdx === cur.beforeIdx && n.afterIdx === cur.afterIdx,
+      )
+      if (t) t.cn = content
+      else nodes.push({ type: 'table', beforeIdx: cur.beforeIdx, afterIdx: cur.afterIdx, cn: content })
       continue
     }
     if (cur.type === 'table') {

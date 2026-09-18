@@ -171,6 +171,7 @@ export function renderAlignedMdHtml(
   // 策略：en 段作为锚点，找到对应的 cn 段（按 idx），按 mode 显示
   const enNodes = parsed.nodes.filter((n) => n.type === 'en')
   const imgNodes = parsed.nodes.filter((n) => n.type === 'img')
+  const tableNodes = parsed.nodes.filter((n) => n.type === 'table')
   const refNode = parsed.nodes.find((n) => n.type === 'ref')
 
   for (const en of enNodes) {
@@ -213,6 +214,14 @@ export function renderAlignedMdHtml(
         const imgMd = img.content.includes('![') ? img.content : (img.path?.startsWith('![') ? img.path : `![image](${img.path})`)
         chunks.push(render(imgMd))
       }
+    }
+
+    // 插在这段后面的表格（beforeIdx=idx）；中文模式优先显示译表
+    for (const tbl of tableNodes) {
+      if (tbl.beforeIdx !== idx) continue
+      const useCn = (mode === 'chinese' || mode === 'bilingual') && !!tbl.cn?.trim()
+      const body = useCn ? tbl.cn! : tbl.content
+      if (body?.trim()) chunks.push(render(body))
     }
   }
 

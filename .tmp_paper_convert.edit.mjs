@@ -794,9 +794,16 @@ async function runWordsExtraction(enItems, doi, slug) {
   const verifyUser = WORDS_VERIFY_PROMPT
     .replace('{{PARAGRAPHS}}', allEn.slice(0, 8000))
     .replace('{{CANDIDATES}}', JSON.stringify(candidateWords, null, 2))
-  const rawV = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, verifyUser)
+  const rawV = await aiCall(
+    AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
+    '你是严谨的学术词汇审核助手。严格按用户要求的 JSON 数组格式输出，不要任何解释文字。',
+    verifyUser,
+  )
   const verified = parseJsonArray(rawV) || []
   console.log(`  [words] AI-2 verified ${verified.length}/${candidateWords.length}`)
+  if (!verified.length) {
+    console.warn(`  [words] ⚠ AI-2 核验返回 0 条，raw 前200: ${rawV?.slice(0, 200)}`)
+  }
 
   // 3. 追加到 vocabulary/vocabulary.csv（去重：word_en 相同跳过）
   const vocabPath = path.join(REPO_ROOT, VOCAB_CSV_PATH)
@@ -1119,9 +1126,33 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   await writeProgress(slug, { stage: 'assemble', message: '组装最终文件...', pct: 95, node: 3 })
   onProgress?.({ stage: 'assemble', pct: 95 })
   let out = ''
-  for (const p of enItems) { out += `<!-- PARA_EN -->\n${p.en}\n\n${p.cn}\n\n` }
-  if (tables.length) { out += '\n---\n\n'; for (const t of tables) out += t.cn + '\n\n' }
-  if (parsed.refContent) out += `\n<!-- REF_ALL -->\n${parsed.refContent}\n`
+  // 输出格式必须与前端 parseAlignedMd 的语法严格一致：
+  //   <!-- PARA en i/N --> / <!-- PARA cn i/N --> / <!-- TABLE between a and b --> / <!-- TABLE cn a-b --> / <!-- REF ALL -->
+  // 旧代码写的是无编号 <!-- PARA_EN -->（且 cn 没有标记），前端解析出 0 个节点
+  // → 阅读页"中英对照 / 全中文"只剩一句"翻译尚未生成"的警告，正文全部空白。
+  const totalPara = enItems.length
+  const tablesUsed = new Set()
+  for (let i = 0; i < enItems.length; i++) {
+    const p = enItems[i]
+    const n = (typeof p.idx === 'number' && p.idx > 0) ? p.idx : i + 1
+    out += `<!-- PARA en ${n}/${totalPara} -->\n${(p.en || '').trim()}\n\n`
+    if (p.cn && p.cn.trim()) out += `<!-- PARA cn ${n}/${totalPara} -->\n${p.cn.trim()}\n\n`
+    for (let ti = 0; ti < tables.length; ti++) {
+      const t = tables[ti]
+      if (t.beforeIdx !== n) continue
+      tablesUsed.add(ti)
+      out += `<!-- TABLE between ${t.beforeIdx} and ${t.afterIdx} -->\n${(t.en || '').trim()}\n\n`
+      if (t.cn && t.cn.trim()) out += `<!-- TABLE cn ${t.beforeIdx}-${t.afterIdx} -->\n${t.cn.trim()}\n\n`
+    }
+  }
+  // 兜底：beforeIdx 没对上任何段落的表格也要落盘，不能丢内容
+  for (let ti = 0; ti < tables.length; ti++) {
+    if (tablesUsed.has(ti)) continue
+    const t = tables[ti]
+    out += `<!-- TABLE between ${t.beforeIdx} and ${t.afterIdx} -->\n${(t.en || '').trim()}\n\n`
+    if (t.cn && t.cn.trim()) out += `<!-- TABLE cn ${t.beforeIdx}-${t.afterIdx} -->\n${t.cn.trim()}\n\n`
+  }
+  if (parsed.refContent) out += `<!-- REF ALL -->\n${parsed.refContent.trim()}\n`
   const alignedMd = out.trim() + '\n'
   if (enItems.length === 0) {
     throw new Error('组装阶段发现 0 条翻译（enItems=0），拒绝写入空白 ' + `${slug}.md` + '。请重跑本任务。')
