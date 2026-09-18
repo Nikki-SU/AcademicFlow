@@ -30,16 +30,20 @@ const MAX_BLOB_SIZE = 100 * 1024 * 1024
 const MAX_CONTENTS_SIZE = 1 * 1024 * 1024
 
 // ============================================================
-// AI 并发度
+// AI 并发度 / 分块大小
 // ------------------------------------------------------------
-// 当前 AI-1 / AI-2 都指向 DeepSeek 官方（官方不设硬性并发限制），
-// 偶发 429/503 由 aiCall 的 10 次指数退避重试兜底。
-// 各阶段的并发不超过该阶段的分块/段落数，块数少的阶段（如 clean 5 块）
-// 提高并发没有收益，所以按"够用即可"设置。
+// 当前 AI-1 / AI-2 都指向 DeepSeek 官方，官方不设硬性并发限制，
+// 原先"并发=1、块=12k"是为七牛云 kimi-k2.6（RPM 3 + reasoning 烧输出预算）
+// 做的降级，这里一并恢复。偶发 429/503 由 aiCall 的 10 次指数退避重试兜底。
+// 想临时调：改这几个数即可，其他代码不用动。
 // ============================================================
-const CLEAN_CONCURRENCY = 5   // 清理：分块 20k
-const TAG_CONCURRENCY = 4     // 打标：分块 12k（原先因七牛云 kimi 限流降为 1）
-const TRANS_CONCURRENCY = 8   // 逐段翻译 + 表格翻译：段落数最多，收益最大
+const CLEAN_CONCURRENCY = 8   // 清理并发
+const TAG_CONCURRENCY = 8     // 打标并发
+const TRANS_CONCURRENCY = 12  // 逐段翻译 + 表格翻译并发（段落数最多，收益最大）
+
+// 单块字符数：两块都按"输入 + 输出不撞 16k 输出上限"定（20k 字符 ≈ 5-6k tokens 输出）
+const CLEAN_CHUNK = 20000
+const TAG_CHUNK = 20000
 
 const { MINERU_API_TOKEN,
         AI1_BASE_URL, AI1_API_KEY, AI1_MODEL,
@@ -1071,10 +1075,9 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   if (!cleanMd) {
     await writeProgress(slug, { stage: 'ai1_clean', message: 'AI-1 清理...', pct: 10, node: 1 })
     onProgress?.({ stage: 'ai1_clean', pct: 10 })
-    const CLEAN_CHUNK = 20000
     const chunks = []
     for (let i = 0; i < markdown.length; i += CLEAN_CHUNK) chunks.push(markdown.slice(i, i + CLEAN_CHUNK))
-    console.log(`  [clean] markdown=${markdown.length} chars → ${chunks.length} chunks`)
+    console.log(`  [clean] markdown=${markdown.length} chars → ${chunks.length} chunks (chunk=${CLEAN_CHUNK}, concurrency=${CLEAN_CONCURRENCY})`)
     // 并发清理（AI 慢时串行要 20+ 分钟；429/超时由 aiCall 内部退避重试兜底）
     let cleanDone = 0
     const cleanedParts = await mapLimit(chunks, CLEAN_CONCURRENCY, async (chunk, i) => {
@@ -1107,9 +1110,8 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
 4. 直接输出插好标记的 Markdown 原文。`
 
   const tagCleanMd = async () => {
-    // 块=12k：单块输出不会撞 16k 输出上限；并发 TAG_CONCURRENCY（见文件顶部常量）。
+    // 块=20k：单块输出不会撞 16k 输出上限；并发 TAG_CONCURRENCY（见文件顶部常量）。
     // 单块漏标记时必须让模型重试，绝不本地正则冒充。
-    const TAG_CHUNK = 12000
     const tChunks = []
     for (let i = 0; i < cleanMd.length; i += TAG_CHUNK) tChunks.push(cleanMd.slice(i, i + TAG_CHUNK))
     console.log(`  [tag] clean=${cleanMd.length} chars → ${tChunks.length} chunks (chunk=${TAG_CHUNK}, concurrency=${TAG_CONCURRENCY})`)
