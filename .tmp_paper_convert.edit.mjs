@@ -41,9 +41,16 @@ const CLEAN_CONCURRENCY = 8   // 清理并发
 const TAG_CONCURRENCY = 8     // 打标并发
 const TRANS_CONCURRENCY = 12  // 逐段翻译 + 表格翻译并发（段落数最多，收益最大）
 
-// 单块字符数：两块都按"输入 + 输出不撞 16k 输出上限"定（20k 字符 ≈ 5-6k tokens 输出）
+// 单块字符数：两块都按"输入 + 输出不撞输出上限"定
 const CLEAN_CHUNK = 20000
 const TAG_CHUNK = 20000
+
+// 单次调用的输出上限（max_tokens）。
+// 带 reasoning 的模型会把预算花在 reasoning_content 上：实测 max_tokens=16000 时
+// reasoning 占 41k-67k 字符，正文被截断到个位数 → 残篇被当成功产物。
+// 先提到 32768 验证；若 provider 不支持更大值会返回 400（aiCall 会重试后明确失败），
+// 那就把它调回来并改用缩小分块。
+const AI_MAX_TOKENS = 32768
 
 const { MINERU_API_TOKEN,
         AI1_BASE_URL, AI1_API_KEY, AI1_MODEL,
@@ -741,7 +748,7 @@ async function aiCall(baseUrl, apiKey, model, system, user, signal) {
           model,
           messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
           temperature: 0.1,
-          max_tokens: 16000,
+          max_tokens: AI_MAX_TOKENS,
         }),
         signal: signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal,
       })
