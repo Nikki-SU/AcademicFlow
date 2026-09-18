@@ -1067,6 +1067,7 @@ function parseAlignedMd(md) {
     if (/<!--\s*REF\s+ALL\s*-->/.test(line)) { flushPara(); inRef = true; continue }
     if (inTable) {
       if (/^\s*\|/.test(line)) { tableBuf.push(line); continue }
+      else if (tableBuf.length === 0) { tableBuf.push(line); continue }
       else { if (tableBuf.length) { nodes.push({ type: 'table', beforeIdx: tableStart, afterIdx: tableStart + 1, content: tableBuf.join('\n').trim() }) }; inTable = false; tableBuf = [] }
     }
     if (inRef) { refContent += (refContent ? '\n' : '') + line; continue }
