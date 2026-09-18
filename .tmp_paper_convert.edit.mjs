@@ -24,6 +24,11 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import {
+  OPEN, CLOSE, END,
+  parseBlocks, serializeBlocks, renumber,
+  readDocument, isTranslatable, blockId, labelOf, stripMarkers,
+} from './blocks.mjs'
 
 const MINERU_API = 'https://mineru.net/api/v4'
 const MAX_BLOB_SIZE = 100 * 1024 * 1024
@@ -486,7 +491,7 @@ async function commitLocalFiles(fileRelPaths, message) {
 //   .tmp_cleaned.md       AI-1 清理产物
 //   .tmp_tagged.md        AI-1 打标产物
 //   .tmp_enumerated.md    编号骨架
-//   .tmp_translated.json  已翻译段落（{enItems, tables}）
+//   .tmp_translated.json  已翻译的块（{translations: {目标下标 → 译文}}）
 //   .tmp_words.json       AI-1 提取的候选词汇
 // 全部成功结束后这些文件会被清理掉，不留垃圾。
 // ============================================================
@@ -766,8 +771,8 @@ function findFirstMd(dir) {
 /**
  * 剥离 AI 输出里的 Markdown 代码围栏。
  * 模型（尤其被分块/长上下文时）经常把整篇内容包在 ```markdown ... ``` 里，
- * 或在块边界吐出零散 ``` 行。围栏会让 autoInsertParaTags 把全文当成 code block，
- * 结果一个 PARA_EN 都插不进去 → nodes=0 → 零翻译 → 1 字节假成功 md。
+ * 或在块边界吐出零散 ``` 行。围栏会让打标阶段把全文当成 code block，
+ * 结果一个块都切不出来 → 0 块 → 零翻译 → 假成功 md。
  * 学术正文里不保留代码块（公式一律用 $），所以直接删除所有围栏行是安全的。
  */
 function stripCodeFences(s) {
@@ -872,18 +877,61 @@ const CLEAN_PROMPT = `你是文献整理专家。清理 PDF 提取文本：
 5. 保留 LaTeX 公式原样不动
 6. 参考文献章节完整保留
 7. 纯 Markdown 输出，不要代码块
+8. 绝对不要输出 ⟨⟨⟨ 和 ⟩⟩⟩ 这两个符号
 直接输出清理后的内容。`
 
-const TAG_PROMPT = `你是文献标注专家。在 Markdown 上插 HTML 注释标记：
-<!-- PARA_EN --> 插在每个英文正文段落**前**
-<!-- IMG --> 插在每个 ![...] **前**
-<!-- TABLE --> 插在每个 Markdown 表格**前**
-<!-- REF_ALL --> 插在参考文献章节**前**（References/Bibliography）
-只插标记，不改动原有文字。直接输出。`
+/**
+ * 打标：把清理好的文本切成"块"。
+ * 块 = ⟨⟨⟨元信息⟩⟩⟩内容原文⟨⟨⟨/⟩⟩⟩
+ * 编号不要求模型数对（代码会统一重排），但块必须切对、内容一个字都不能改。
+ */
+const TAG_PROMPT = `你是文献结构标注助手。把给定的 Markdown 文本按语义切成"块"，每块用一对定界符包起来。
+
+块的样子：${OPEN}元信息${CLOSE}内容原文${END}
+
+元信息只有下面这九种（· 是分隔符）：
+
+1. 标题：文字·标题·L·N            L = 标题级别（1-6）
+2. 正文段落：文字·正文·0·N
+3. 列表：列表·L·N                  L = 列表层级（从 1 开始）
+4. 图片：图·A·S                    （![...](...) 图片语法）
+5. 表格：表·A·S                    （Markdown 管道表格）
+6. 图注：图注·A·S                  （图片的说明文字，如 "Figure 1. ..."）
+7. 公式：公式·A·S                  （独占一段的块级 $$...$$；行内 $...$ 不算，留在正文里）
+8. 引文：引文                      （整段引用的文字，通常以 > 开头）
+9. 参考文献：文献                  （References / Bibliography 章节，整章一个块）
+
+编号规则（数不准没关系，代码会重排）：
+- N 是流块序号：标题、正文、列表**共用同一个序列**，按出现顺序 1、2、3……
+- A 是锚点：取该浮动块前面最近的那个流块编号
+- S 是浮动块序号：图/表/图注/公式在**同一个锚点内共用一个序列**，从 1 开始
+
+硬性要求：
+1. 内容原文必须**逐字保留**：禁止摘要、改写、翻译、合并段落、增删标点，禁止改动图片路径与表格内容。
+2. 每个块开标记之后必须紧跟 ${END} 闭合，不允许漏。
+3. 块与块之间保留原有的空行（空行放在块外面）。
+4. 行内公式 $...$、行内代码、脚注标记都留在正文块里，不要单独成块。
+5. 禁止用三反引号代码块包裹整体输出。
+
+示例（节选）：
+${OPEN}文字·标题·1·1${CLOSE}From Powder to Technical Body${END}
+
+${OPEN}文字·正文·0·2${CLOSE}We report a general route to...${END}
+
+${OPEN}图·2·1${CLOSE}![Figure 1](images/abc.jpg)${END}
+${OPEN}图注·2·2${CLOSE}Figure 1. Schematic of the process.${END}
+
+${OPEN}表·2·3${CLOSE}| Entry | TON |
+|-------|-----|
+| 1 | 120 |${END}
+
+${OPEN}文献${CLOSE}[1] A. Author, J. Name 12, 345 (2020).${END}
+
+直接输出切好块的文本，不要任何解释。`
 
 const TRANSLATE_PROMPT = (type) => type === 'table'
-  ? `翻译 Markdown 表格：格式不变，英文翻中文。输出 Markdown 表格。`
-  : `翻译英文段落到中文，保持学术语气。只输出译文。`
+  ? `翻译 Markdown 表格：格式不变，英文翻中文。输出 Markdown 表格。不要添加任何标记或解释。`
+  : `翻译英文段落到中文，保持学术语气。只输出译文。不要添加任何标记或解释。`
 
 // ============================================================
 // 单词提取（AI-1 提取 + AI-2 核验 → vocabulary/vocabulary.csv）
@@ -1063,86 +1111,85 @@ async function runWordsExtraction(enItems, doi, slug) {
   return { extracted: candidateWords.length, verified: verified.length, added: newRows.length }
 }
 
-function autoInsertParaTags(md) {
-  const lines = md.split('\n'); const out = []; let inCB = false; let buf = []; let bufTable = false
-  const flush = () => {
-    if (!buf.length) return
-    const block = buf.join('\n')
-    const nonEmpty = buf.filter(l => l.trim()).length
-    const hasLetter = /[A-Za-z\u4e00-\u9fa5\d]/.test(block)
-    const isImgOnly = buf.every(l => !l.trim() || l.trim().startsWith('!['))
-    const isTableOnly = bufTable
-    const isFormulaOnly = buf.every(l => !l.trim() || /^\s*\$\$?[\s\S]*\$\$?\s*$/.test(l.trim()))
-    out.push(...buf); buf = []; bufTable = false
-    if (nonEmpty > 0 && hasLetter && !isImgOnly && !isTableOnly && !isFormulaOnly) out.push('<!-- PARA_EN -->')
+// ============================================================
+// 块语法（解析/序列化/重排的实现见 blocks.mjs —— 与前端共用同一份源码）
+// 这里只放 runner 侧的编排：切块统计、内容守恒校验、取翻译目标、插译文
+// ============================================================
+
+/**
+ * Tag 产出 → 带正确编号的骨架文档。
+ * renumber 只改元信息里的编号，内容逐字不动，因此结构上不可能丢东西。
+ * 另加一道内容守恒硬校验：剥掉标记后的正文必须和清理稿基本一致，
+ * 防止 AI 打标时悄悄吞段落（历史上真发生过，产物残缺却判了 success）。
+ */
+function enumerateBlocks(taggedMd, cleanedMd) {
+  const { items, warnings } = parseBlocks(taggedMd)
+  for (const w of warnings.slice(0, 5)) console.warn(`  [enumerate] ${w}`)
+  if (warnings.length > 5) console.warn(`  [enumerate] 另有 ${warnings.length - 5} 条同类告警`)
+
+  const blocks = items.filter(it => it.t === 'block')
+  const stats = {}
+  for (const it of blocks) {
+    const k = it.node.kind === 'note' ? it.node.type : it.node.kind === 'flow' ? `文字·${it.node.type}` : it.node.type
+    stats[k] = (stats[k] || 0) + 1
   }
-  for (const line of lines) {
-    if (/^\s*```/.test(line)) { flush(); inCB = !inCB; out.push(line); continue }
-    if (inCB) { out.push(line); continue }
-    if (/^\s*<!--.*-->\s*$/.test(line)) { flush(); out.push(line); continue }
-    if (!line.trim()) { flush(); out.push(line); continue }
-    if (/^\s*!\[/.test(line)) { flush(); out.push(line); continue }
-    if (/^\s*\|/.test(line)) { if (!buf.length) { buf = [line]; bufTable = true } else { flush(); buf = [line]; bufTable = true }; continue }
-    if (bufTable) { buf.push(line); if (!/^\s*\|/.test(line)) flush(); continue }
-    buf.push(line)
+  console.log(`  [enumerate] 切出 ${blocks.length} 块：${Object.entries(stats).map(([k, v]) => `${k}=${v}`).join(' ')}`)
+  if (blocks.length === 0) {
+    throw new Error('打标产出里一个块都没有（AI 未按块语法输出），已中止以避免生成空白译文。请重跑本任务。')
   }
-  flush(); return out.join('\n')
+
+  const skeletonMd = serializeBlocks(renumber(items))
+
+  const norm = (s) => String(s ?? '').replace(/\s+/g, '')
+  const before = norm(stripMarkers(cleanedMd))
+  const after = norm(stripMarkers(skeletonMd))
+  const loss = before.length ? 1 - after.length / before.length : 0
+  console.log(`  [enumerate] 内容守恒：清理稿 ${before.length} 字 → 打标稿 ${after.length} 字（差 ${(loss * 100).toFixed(1)}%）`)
+  if (before.length && loss > 0.03) {
+    throw new Error(`打标阶段丢了 ${(loss * 100).toFixed(1)}% 正文（${before.length} → ${after.length} 字），已中止以避免写出残缺产物。请重跑本任务。`)
+  }
+  if (before.length && after > before * 1.03) {
+    console.warn(`  [enumerate] ⚠️ 打标稿比清理稿多 ${((after / before - 1) * 100).toFixed(1)}% 字符，模型可能改写了原文，请留意`)
+  }
+  return skeletonMd
 }
 
-function enumerateTaggedMd(md) {
-  if (!/<!--\s*PARA_EN\s*-->/.test(md)) { console.log('  [enumerate] auto insert PARA_EN'); md = autoInsertParaTags(md) }
-  const lines = md.split('\n'); const out = []; let idx = 0
-  const total = lines.filter(l => /<!--\s*PARA_EN\s*-->/.test(l)).length
-  // 标记可能和正文挤在同一行（模型常写成 `<!-- PARA_EN -->段落文字`）。
-  // 旧实现遇到这种行就整行替换成标记 —— 把该段正文**静默删掉**了。
-  // 实测：tag 产出 97438 字符（104 段 + 34 图 + 1 表，模型打标完全正确），
-  // 经 enumerate 后只剩 23313 字符，约 74k 字符正文丢失，却仍判定 success。
-  // 现在改为"标记各自单独成行 + 去掉标记后的剩余原文原样保留"，绝不丢字。
-  const MARK_RE = /<!--\s*(PARA_EN|IMG|TABLE|REF_ALL)\s*-->/g
-  for (const line of lines) {
-    const marks = [...line.matchAll(MARK_RE)]
-    if (marks.length === 0) { out.push(line); continue }
-    for (const m of marks) {
-      const kind = m[1]
-      if (kind === 'PARA_EN') { idx++; out.push(`<!-- PARA en ${idx}/${total} -->`) }
-      else if (kind === 'IMG') out.push(`<!-- IMG between ${idx} and ${idx + 1} -->`)
-      else if (kind === 'TABLE') out.push(`<!-- TABLE between ${idx} and ${idx + 1} -->`)
-      else out.push('<!-- REF ALL -->')
-    }
-    const leftover = line.replace(MARK_RE, '').trim()
-    if (leftover) out.push(leftover)
+/**
+ * 骨架文档里需要翻译的块，顺序即文档顺序。
+ * key 用目标数组下标作续跑标识：骨架文档本身是存档产物，顺序稳定。
+ */
+function translationTargets(skeletonMd) {
+  const { items } = readDocument(skeletonMd)
+  const out = []
+  for (const it of items) {
+    if (it.t !== 'block' || !isTranslatable(it.node)) continue
+    out.push({
+      key: String(out.length),
+      id: blockId(it.node),
+      label: labelOf(it.node),
+      type: it.node.type,
+      content: it.content.trim(),
+    })
   }
-  return out.join('\n')
+  return out
 }
 
-function parseAlignedMd(md) {
-  const lines = md.split('\n'); const nodes = []; let curPara = { idx: 0, total: 0, content: '' }
-  let inTable = false; let tableBuf = []; let tableStart = -1
-  let refContent = ''; let inRef = false; let lastParaIdx = 0
-  const flushPara = () => {
-    if (curPara.idx > 0 && curPara.content.trim()) {
-      nodes.push({ type: 'para', idx: curPara.idx, total: curPara.total, content: curPara.content.trim() })
-    }
-    curPara = { idx: 0, total: 0, content: '' }
+/** 把译文块插到各自源块之后，序列化成最终产物 */
+function assembleBlocks(skeletonMd, translations) {
+  const { items } = parseBlocks(skeletonMd)
+  const out = []
+  let ti = 0
+  let inserted = 0
+  for (const it of items) {
+    out.push(it)
+    if (it.t !== 'block' || !isTranslatable(it.node)) continue
+    const cn = translations[String(ti)]
+    ti++
+    if (!cn || !cn.trim()) continue
+    out.push({ t: 'block', node: { kind: 'translation', ref: blockId(it.node) }, content: `\n${cn.trim()}\n` })
+    inserted++
   }
-  for (const line of lines) {
-    const paraMatch = line.match(/<!--\s*PARA\s+en\s+(\d+)\/(\d+)\s*-->/)
-    if (paraMatch) { flushPara(); curPara = { idx: Number(paraMatch[1]), total: Number(paraMatch[2]), content: '' }; if (inRef) { refContent += '\n'; inRef = false }; continue }
-    const imgMatch = line.match(/<!--\s*IMG\s+between\s+(\d+)\s+and\s+(\d+)\s*-->/)
-    if (imgMatch) { continue } // imgs handled via tree
-    const tableMatch = line.match(/<!--\s*TABLE\s+between\s+(\d+)\s+and\s+(\d+)\s*-->/)
-    if (tableMatch) { flushPara(); inTable = true; tableBuf = []; tableStart = Number(tableMatch[1]); continue }
-    if (/<!--\s*REF\s+ALL\s*-->/.test(line)) { flushPara(); inRef = true; continue }
-    if (inTable) {
-      if (/^\s*\|/.test(line)) { tableBuf.push(line); continue }
-      else if (tableBuf.length === 0) { tableBuf.push(line); continue }
-      else { if (tableBuf.length) { nodes.push({ type: 'table', beforeIdx: tableStart, afterIdx: tableStart + 1, content: tableBuf.join('\n').trim() }) }; inTable = false; tableBuf = [] }
-    }
-    if (inRef) { refContent += (refContent ? '\n' : '') + line; continue }
-    if (curPara.idx > 0) { curPara.content += (curPara.content ? '\n' : '') + line; if (line.trim()) lastParaIdx = curPara.idx }
-  }
-  flushPara()
-  return { nodes, refContent: refContent.trim() }
+  return { md: serializeBlocks(out), inserted, total: ti }
 }
 
 // ============================================================
@@ -1189,40 +1236,32 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     await writeProgress(slug, { stage: 'ai1_clean', message: '续跑：跳过 Clean', pct: 10, node: 1 })
   }
   // 2. Tag（分块：整篇 5w+ 字符一次性重发，16k 输出 token 装不下，
-  //    推理模型还可能把预算全烧在 reasoning_content 上 → content 空 → 0 标记假成功。
-  //    与 clean 同策略分块；单块漏标时必须让模型重试，绝不本地正则冒充。）
-  const RETRY_TAG_PROMPT = `你是文献标注专家。在 Markdown 上插 HTML 注释标记：
-<!-- PARA_EN --> 插在每个英文正文段落**前**
-<!-- IMG --> 插在每个 ![...] **前**
-<!-- TABLE --> 插在每个 Markdown 表格**前**
-<!-- REF_ALL --> 插在参考文献章节**前**（References/Bibliography）
-要求：
-1. 保留原文每一个字、每一张图片、每一个表格。禁止摘要/改写。
-2. 每个英文正文段落前必须单独一行插入 <!-- PARA_EN -->，不允许漏掉任何段落。
-3. 禁止用三反引号代码块包裹整篇内容。
-4. 直接输出插好标记的 Markdown 原文。`
+  //    推理模型还可能把预算全烧在 reasoning_content 上 → content 空 → 0 块假成功。
+  //    与 clean 同策略分块；单块没切出块时必须让模型重试，绝不本地正则冒充。）
+  const RETRY_TAG_PROMPT = TAG_PROMPT + `
+
+特别注意：
+1. 必须直接输出切好块的原文，禁止用三反引号代码块包裹整篇内容。
+2. 每一个块都必须以 ${END} 收尾，不允许漏。
+3. 不允许有任何内容落在 ${OPEN}……${CLOSE} 之外（块之间的空行除外）。`
 
   const tagCleanMd = async () => {
-    // 块=20k：单块输出不会撞 16k 输出上限；并发 TAG_CONCURRENCY（见文件顶部常量）。
-    // 单块漏标记时必须让模型重试，绝不本地正则冒充。
+    // 块=20k：单块输出不会撞输出上限；并发 TAG_CONCURRENCY（见文件顶部常量）。
     const tChunks = []
     for (let i = 0; i < cleanMd.length; i += TAG_CHUNK) tChunks.push(cleanMd.slice(i, i + TAG_CHUNK))
     console.log(`  [tag] clean=${cleanMd.length} chars → ${tChunks.length} chunks (chunk=${TAG_CHUNK}, concurrency=${TAG_CONCURRENCY})`)
     let tagDone = 0
-    // 判定"模型是否真的插了标记"：出现**任意一种**标记就算合规。
-    // 不能只认 PARA_EN —— 纯参考文献的 chunk 本来就不该有 PARA_EN，只该有
-    // <!-- REF_ALL -->。实测最后一篇 chunk 是 161 条参考文献（15068 字符），
-    // 输出恰好多 17 字节 = 该标记长度，是模型的**正确**行为，
-    // 却被旧断言误判为"不遵循指令"而中止整条流水线。
-    const hasAnyMark = (s) => /<!--\s*(PARA_EN|REF_ALL|IMG|TABLE)\s*-->/.test(s)
+    // 判定"模型是否真的切出了块"：能解析出至少一个块就算合规。
+    // 用共享解析器判定，和前端的口径完全一致。
+    const hasBlock = (s) => parseBlocks(s).items.some(it => it.t === 'block')
     const parts = await mapLimit(tChunks, TAG_CONCURRENCY, async (chunk, i) => {
       let out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, TAG_PROMPT, chunk, 'tag'))
-      if (!hasAnyMark(out) && /[A-Za-z]/.test(chunk)) {
-        console.warn(`  [tag] chunk ${i + 1} 首遍无任何标记，重试一次...`)
+      if (!hasBlock(out) && /[A-Za-z]/.test(chunk)) {
+        console.warn(`  [tag] chunk ${i + 1} 首遍没切出任何块，重试一次...`)
         out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, chunk, 'tag'))
       }
-      if (!hasAnyMark(out) && /[A-Za-z]/.test(chunk)) {
-        throw new Error(`Tag 阶段 chunk ${i + 1}/${tChunks.length} 连续两次未插入任何标记（PARA_EN / REF_ALL / IMG / TABLE）。可能是当前 AI-1 模型不遵循指令，请检查模型选择或重试。`)
+      if (!hasBlock(out) && /[A-Za-z]/.test(chunk)) {
+        throw new Error(`Tag 阶段 chunk ${i + 1}/${tChunks.length} 连续两次没切出任何块（${OPEN}元信息${CLOSE}…${END}）。可能是当前 AI-1 模型不遵循指令，请检查模型选择或重试。`)
       }
       tagDone++
       console.log(`  [tag] chunk ${i + 1} done (${tagDone}/${tChunks.length})`)
@@ -1242,49 +1281,33 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     console.log('  [resume] skip tag')
     await writeProgress(slug, { stage: 'ai1_tag', message: '续跑：跳过 Tag', pct: 25, node: 1 })
   }
-  // 3. Enumerate
+  // 3. Enumerate（纯代码：重排编号 + 内容守恒校验）
   let skeletonMd = read(tmpLocal.enumerated)
-  let parsed
   if (!skeletonMd) {
     await writeProgress(slug, { stage: 'enumerate', message: '纯代码编号...', pct: 40, node: 1 })
     onProgress?.({ stage: 'enumerate', pct: 40 })
-    skeletonMd = enumerateTaggedMd(taggedMd)
-    parsed = parseAlignedMd(skeletonMd)
-    // 硬保护：一个正文段落都没解析出来时，绝不能继续往下跑（否则 0 次翻译 + 1 字节假成功 md）。
-    // 先带着更强约束让 AI-1 重新打标一次；仍为 0 就明确失败，让用户看到红叉而不是空白阅读页。
-    if (parsed.nodes.filter(n => n.type === 'para').length === 0) {
-      console.warn('  [enumerate] 首轮流标 nodes=0，剥离围栏后重试 Tag 一次...')
-      const RETRY_TAG_PROMPT = TAG_PROMPT +
-        '\n\n特别注意：必须直接输出插好标记的 Markdown 原文，禁止用三反引号代码块整篇包裹；' +
-        '每个正文段落前必须单独一行插入 <!-- PARA_EN -->，不允许漏掉任何段落。'
-      taggedMd = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, cleanMd, 'tag'))
-      write(tmpLocal.tagged, taggedMd)
-      skeletonMd = enumerateTaggedMd(taggedMd)
-      parsed = parseAlignedMd(skeletonMd)
-    }
-    const paraCount = parsed.nodes.filter(n => n.type === 'para').length
-    if (paraCount === 0) {
-      throw new Error('Tag/Enumerate 后解析出 0 个正文段落（AI 未按要求插入 PARA_EN 标记），已中止以避免生成空白译文。请重跑本任务。')
-    }
+    skeletonMd = enumerateBlocks(taggedMd, cleanMd)
     write(tmpLocal.enumerated, skeletonMd)
-    console.log('  ✓ enumerate ok, nodes=', parsed.nodes.length, 'paras=', paraCount)
     await saveCheckpoint(slug, t.enumerated, 'enumerate')
   } else {
     console.log('  [resume] skip enumerate')
-    parsed = parseAlignedMd(skeletonMd)
     await writeProgress(slug, { stage: 'enumerate', message: '续跑：跳过 Enumerate', pct: 40, node: 1 })
   }
-  // 4. Translate
-  const enNodes = parsed.nodes.filter(n => n.content && /[A-Za-z]/.test(n.content))
-  const tableNodes = parsed.nodes.filter(n => n.type === 'table')
+  const targets = translationTargets(skeletonMd)
+  if (targets.length === 0) {
+    throw new Error('骨架文档里没有任何需要翻译的块，已中止以避免生成空白 ' + `${slug}.md` + '。请重跑本任务。')
+  }
+  console.log(`  ✓ enumerate ok, 待翻译 ${targets.length} 块`)
+
+  // 4. Translate（逐块并发；结果以目标下标为 key 存 .tmp_translated.json，续跑只补缺的）
+  const wordsSource = targets.filter(t => t.type !== '表' && /[A-Za-z]/.test(t.content)).map(t => t.content).join('\n\n')
 
   // ── 提前启动 AI-1 词汇提取（与 AI-2 翻译并行；结果写 .tmp_words.json，由 runWordsExtraction 续跑接管） ──
   const wordsTmpFile = path.join(REPO_ROOT, `literatures/${slug}/.tmp_words.json`)
-  if (!fs.existsSync(wordsTmpFile) && enNodes.length) {
-    const wordsEn = enNodes.map(n => n.content).join('\n\n')
-    console.log(`  [words] 提前启动 AI-1 词汇提取（与翻译并行, ${wordsEn.length} chars）...`)
+  if (!fs.existsSync(wordsTmpFile) && wordsSource) {
+    console.log(`  [words] 提前启动 AI-1 词汇提取（与翻译并行, ${wordsSource.length} chars）...`)
     pendingWordsExtract = (async () => {
-      const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, wordsEn, 'words')
+      const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, wordsSource, 'words')
       const cands = parseJsonArray(raw)
       if (cands?.length) {
         fs.writeFileSync(wordsTmpFile, JSON.stringify(cands), 'utf-8')
@@ -1293,97 +1316,48 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       console.log(`  [words] AI-1 预提取完成: ${cands?.length || 0} 词`)
     })().catch(e => { console.warn(`  [words] 预提取失败（主流程稍后重试）: ${e.message?.slice(0, 120) || e}`); return null })
   }
-  let enItems = [], tables = [], startEn = 0, startTable = 0
-  let resumeData = null
+
+  let translations = {}
   if (exists(tmpLocal.translated)) {
-    try { resumeData = JSON.parse(read(tmpLocal.translated)); enItems = resumeData.enItems || []; tables = resumeData.tables || []; startEn = enItems.length; startTable = tables.length } catch {}
-    console.log(`  [resume] translate: ${enItems.length} segments done`)
+    try { translations = JSON.parse(read(tmpLocal.translated)).translations || {} } catch {}
+    console.log(`  [resume] translate: ${Object.keys(translations).length}/${targets.length} 块已完成`)
   }
-  // 并发翻译（TRANS_CONCURRENCY，见文件顶部常量）：结果按原文顺序有序收集（保证续跑语义与最终段落顺序）
-  let transDone = startEn
-  const transOut = {}
-  let nextToAppend = startEn
-  const collectOrdered = () => {
-    while (transOut[nextToAppend] !== undefined) {
-      const seg = enNodes[nextToAppend]
-      enItems.push({ idx: seg.idx ?? nextToAppend + 1, total: enNodes.length, en: seg.content, cn: transOut[nextToAppend] })
-      delete transOut[nextToAppend]
-      nextToAppend++
-    }
-    if (enItems.length % 5 === 0) {
-      fs.writeFileSync(tmpLocal.translated, JSON.stringify({ enItems, tables }), 'utf-8')
-    }
-  }
-  await mapLimit(enNodes.slice(startEn), TRANS_CONCURRENCY, async (seg, j) => {
-    const i = startEn + j
-    const cn = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('para'), seg.content, 'translate')
-    transOut[i] = cn
+  const todo = targets.filter(t => !translations[t.key]?.trim())
+  let transDone = targets.length - todo.length
+  const flushTranslations = () => fs.writeFileSync(tmpLocal.translated, JSON.stringify({ translations }), 'utf-8')
+  await mapLimit(todo, TRANS_CONCURRENCY, async (t) => {
+    const cn = await aiCall(
+      AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
+      TRANSLATE_PROMPT(t.type === '表' ? 'table' : 'para'),
+      t.content, 'translate',
+    )
+    translations[t.key] = cn
     transDone++
-    collectOrdered()
-    const pct = 50 + Math.round(40 * transDone / Math.max(1, enNodes.length))
-    writeProgressThrottled(slug, { stage: 'translating', message: `AI-2 翻译 ${transDone}/${enNodes.length}`, pct, node: 2 })
+    const pct = 50 + Math.round(40 * transDone / Math.max(1, targets.length))
+    writeProgressThrottled(slug, { stage: 'translating', message: `AI-2 翻译 ${transDone}/${targets.length}`, pct, node: 2 })
     onProgress?.({ stage: 'translating', pct })
-    // 每 20 段存档一次：中途挂掉时重试只补剩下的段落，不重翻已完成的
-    if (transDone % 20 === 0) await saveCheckpoint(slug, t.translated, `translating ${transDone}/${enNodes.length}`)
+    // 每 10 块落盘一次：中途挂掉时重试只补剩下的块，不重翻已完成的
+    if (transDone % 10 === 0) { flushTranslations(); await saveCheckpoint(slug, t.translated, `translating ${transDone}/${targets.length}`) }
   })
-  collectOrdered()
-  fs.writeFileSync(tmpLocal.translated, JSON.stringify({ enItems, tables }), 'utf-8')
-  // 表格并发翻译（有序 push）
-  let tableDone = startTable
-  const tableOut = new Array(tableNodes.length).fill(undefined)
-  await mapLimit(tableNodes.slice(startTable), TRANS_CONCURRENCY, async (seg, j) => {
-    tableOut[startTable + j] = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('table'), seg.content, 'translate')
-    tableDone++
-    writeProgressThrottled(slug, { stage: 'translating', message: `AI-2 表格 ${tableDone}/${tableNodes.length}`, pct: 90, node: 2 })
-  })
-  for (let i = startTable; i < tableNodes.length; i++) {
-    if (tableOut[i] === undefined) continue
-    const seg = tableNodes[i]
-    tables.push({ beforeIdx: seg.beforeIdx ?? 0, afterIdx: seg.afterIdx ?? 0, en: seg.content, cn: tableOut[i] })
-  }
-  // 表格译文也一起存档（否则重试会重翻表格）
-  fs.writeFileSync(tmpLocal.translated, JSON.stringify({ enItems, tables }), 'utf-8')
+  flushTranslations()
   await saveCheckpoint(slug, t.translated, 'translating done')
-  // 5. 组装
+
+  // 5. 组装（纯代码：把译文块插到各自源块之后）
   await writeProgress(slug, { stage: 'assemble', message: '组装最终文件...', pct: 95, node: 3 })
   onProgress?.({ stage: 'assemble', pct: 95 })
-  let out = ''
-  // 输出格式必须与前端 parseAlignedMd 的语法严格一致：
-  //   <!-- PARA en i/N --> / <!-- PARA cn i/N --> / <!-- TABLE between a and b --> / <!-- TABLE cn a-b --> / <!-- REF ALL -->
-  // 旧代码写的是无编号 <!-- PARA_EN -->（且 cn 没有标记），前端解析出 0 个节点
-  // → 阅读页"中英对照 / 全中文"只剩一句"翻译尚未生成"的警告，正文全部空白。
-  const totalPara = enItems.length
-  const tablesUsed = new Set()
-  for (let i = 0; i < enItems.length; i++) {
-    const p = enItems[i]
-    const n = (typeof p.idx === 'number' && p.idx > 0) ? p.idx : i + 1
-    out += `<!-- PARA en ${n}/${totalPara} -->\n${(p.en || '').trim()}\n\n`
-    if (p.cn && p.cn.trim()) out += `<!-- PARA cn ${n}/${totalPara} -->\n${p.cn.trim()}\n\n`
-    for (let ti = 0; ti < tables.length; ti++) {
-      const t = tables[ti]
-      if (t.beforeIdx !== n) continue
-      tablesUsed.add(ti)
-      out += `<!-- TABLE between ${t.beforeIdx} and ${t.afterIdx} -->\n${(t.en || '').trim()}\n\n`
-      if (t.cn && t.cn.trim()) out += `<!-- TABLE cn ${t.beforeIdx}-${t.afterIdx} -->\n${t.cn.trim()}\n\n`
-    }
+  const { md: alignedMd, inserted, total } = assembleBlocks(skeletonMd, translations)
+  if (inserted === 0) {
+    throw new Error('组装阶段发现 0 条译文，拒绝写入空白 ' + `${slug}.md` + '。请重跑本任务。')
   }
-  // 兜底：beforeIdx 没对上任何段落的表格也要落盘，不能丢内容
-  for (let ti = 0; ti < tables.length; ti++) {
-    if (tablesUsed.has(ti)) continue
-    const t = tables[ti]
-    out += `<!-- TABLE between ${t.beforeIdx} and ${t.afterIdx} -->\n${(t.en || '').trim()}\n\n`
-    if (t.cn && t.cn.trim()) out += `<!-- TABLE cn ${t.beforeIdx}-${t.afterIdx} -->\n${t.cn.trim()}\n\n`
+  if (inserted < total) {
+    console.warn(`  ⚠️ ${total - inserted}/${total} 块没有译文，已按原文落盘（阅读页会标注"译文排队中"）`)
   }
-  if (parsed.refContent) out += `<!-- REF ALL -->\n${parsed.refContent.trim()}\n`
-  const alignedMd = out.trim() + '\n'
-  if (enItems.length === 0) {
-    throw new Error('组装阶段发现 0 条翻译（enItems=0），拒绝写入空白 ' + `${slug}.md` + '。请重跑本任务。')
-  }
+  console.log(`  ✓ assemble ok，${total} 块中 ${inserted} 块带译文`)
   const alignedRel = `literatures/${slug}/${slug}.md`
   fs.writeFileSync(path.join(REPO_ROOT, alignedRel), alignedMd, 'utf-8')
   // 6. 清理 tmp
   for (const f of Object.values(tmpLocal)) { try { if (fs.existsSync(f)) fs.unlinkSync(f) } catch {} }
-  return { alignedMd, enItems }
+  return { alignedMd, enItems: targets.map(t => ({ en: t.content })) }
 }
 
 // ============================================================

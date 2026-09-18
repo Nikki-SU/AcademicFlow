@@ -15,6 +15,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "tsc -b",
+    "test:blocks": "node scripts/test-blocks.mjs",
     "prepare": "husky"
   },
   "dependencies": {
