@@ -12,6 +12,7 @@
 import {
   ArrowLeft,
   BookOpen,
+  Brain,
   Loader2,
   RefreshCw,
   Settings as SettingsIcon,
@@ -38,8 +39,28 @@ import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
-import type { AIProviderMode } from '../types'
+import type { AIProviderMode, AIThinkingMode } from '../types'
 import { AI_PROVIDERS } from '../types'
+
+/** 思考模式下拉选项 —— off 关闭，其余为开启并控制强度 */
+const THINKING_OPTIONS: { value: AIThinkingMode; label: string }[] = [
+  { value: 'off', label: '关闭思考（推荐）' },
+  { value: 'low', label: '开启 · 低强度' },
+  { value: 'high', label: '开启 · 高强度' },
+  { value: 'max', label: '开启 · 最高强度' },
+]
+
+/** 按阶段的思考模式设置行 */
+const THINKING_ROWS: {
+  field: 'thinkingClean' | 'thinkingTag' | 'thinkingTranslate' | 'thinkingWords'
+  label: string
+  desc: string
+}[] = [
+  { field: 'thinkingClean', label: '清理正文', desc: '去页眉页脚、拼回断段，纯搬运 → 建议关闭' },
+  { field: 'thinkingTag', label: '打标', desc: '判断标题/图注/列表类型，规则明确 → 建议关闭' },
+  { field: 'thinkingTranslate', label: '翻译', desc: '逐段与表格翻译，不需要推理 → 建议关闭' },
+  { field: 'thinkingWords', label: '提词核验', desc: '筛选学术词汇，需要一点判断 → 可保留低强度' },
+]
 
 function formatFetchedAt(ts: number | null): string {
   if (!ts) return '未拉取'
@@ -385,6 +406,43 @@ function Settings() {
           }
           onFetch={() => handleFetchModels(2)}
         />
+
+        {/* 思考模式（reasoning）—— 按阶段控制 */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Brain className="w-4 h-4 text-violet-600" />
+            思考模式（reasoning）
+          </h2>
+          <p className="text-xs text-slate-500">
+            推理模型<b>默认开启思考</b>，而思考内容与正文<b>共用同一个输出预算</b>，且按输出价计费（约为输入价的 4 倍）。
+            实测思考可吃掉约 8 成预算，导致正文被截断成空。清理 / 打标 / 翻译都是机械任务，
+            建议关闭——预算全部留给正文，同时显著省钱。
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {THINKING_ROWS.map(({ field, label, desc }) => (
+              <div key={field} className="space-y-1">
+                <label className="block text-sm font-medium text-slate-700">{label}</label>
+                <select
+                  value={store[field]}
+                  onChange={(e) =>
+                    store.updateSettings({ [field]: e.target.value as AIThinkingMode })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                >
+                  {THINKING_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400">{desc}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400">
+            保存后写入私库 <code className="font-mono">settings/global.md</code>，Runner 读取后按阶段拼进请求体，无需重新同步 Secrets。
+          </p>
+        </section>
 
         {/* 双引擎试运行 */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">

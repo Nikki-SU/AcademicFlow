@@ -92,6 +92,23 @@ export interface WorkspaceState {
  */
 export type AIProviderMode = 'deepseek' | 'kimi' | 'qiniu' | 'custom'
 
+/**
+ * 思考模式（reasoning）档位
+ * -------------------------------------------------
+ * off   —— 关闭思考：不产出 reasoning_content，输出预算全部留给正文。
+ *          清理 / 打标 / 翻译都是机械任务，不需要推理。
+ * low   —— 开启思考，低强度
+ * high  —— 开启思考，高强度
+ * max   —— 开启思考，最高强度
+ *
+ * 背景：DeepSeek 的 reasoning 模型默认开启思考，而 reasoning_content
+ * 与正文**共用** max_tokens 预算，且按 output 计价（约为 input 的 4 倍）。
+ * 实测 reasoning 可占掉 79% 的输出预算，导致正文被截断成空。
+ */
+export type AIThinkingMode = 'off' | 'low' | 'high' | 'max'
+
+export const AI_THINKING_MODES: AIThinkingMode[] = ['off', 'low', 'high', 'max']
+
 export type AIProviderConfig = {
   label: string
   baseUrl: string
@@ -233,6 +250,15 @@ export interface SettingsData {
   mineruDebugMode: boolean
   /** 单词生成数量（后置任务 AI-1 每篇文献提取的核心单词数，范围 10-50） */
   wordGenCount: number
+  /**
+   * 各阶段思考模式（runner 从 settings/global.md 读取后拼进请求体）
+   * 按阶段分开设置：清理/打标/翻译是机械任务，关掉思考可让输出预算全部留给正文；
+   * 提词核验需要一点筛选判断，可保留低强度。
+   */
+  thinkingClean: AIThinkingMode
+  thinkingTag: AIThinkingMode
+  thinkingTranslate: AIThinkingMode
+  thinkingWords: AIThinkingMode
 }
 
 /** 设置 store 状态 */

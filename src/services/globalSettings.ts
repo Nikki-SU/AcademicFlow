@@ -25,6 +25,11 @@ export interface GlobalSettingsData {
   autoExtractWords: boolean
   mineruDebugMode: boolean
   wordGenCount: number
+  /** 各阶段思考模式（runner 直接读这个文件，拼进请求体）—— off | low | high | max */
+  thinkingClean: string
+  thinkingTag: string
+  thinkingTranslate: string
+  thinkingWords: string
 }
 
 /** 从 GitHub 私库读取非敏感全局设置 */
@@ -99,6 +104,18 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
         if (!isNaN(n)) result.wordGenCount = Math.min(50, Math.max(10, n))
         break
       }
+      case 'ai_thinking_clean':
+        result.thinkingClean = value
+        break
+      case 'ai_thinking_tag':
+        result.thinkingTag = value
+        break
+      case 'ai_thinking_translate':
+        result.thinkingTranslate = value
+        break
+      case 'ai_thinking_words':
+        result.thinkingWords = value
+        break
     }
   }
   return result
@@ -120,6 +137,13 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - custom_ai_1_model: ${s.customAi1Model}
 - custom_ai_2_base_url: ${s.customAi2BaseUrl}
 - custom_ai_2_model: ${s.customAi2Model}
+
+## 思考模式（runner 直接读取，按阶段拼进请求体）
+# off = 关闭思考，输出预算全给正文；low/high/max = 开启并控制强度
+- ai_thinking_clean: ${s.thinkingClean}
+- ai_thinking_tag: ${s.thinkingTag}
+- ai_thinking_translate: ${s.thinkingTranslate}
+- ai_thinking_words: ${s.thinkingWords}
 
 ## PDF 处理
 - pdf_retention_days: 30

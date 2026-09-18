@@ -14,7 +14,8 @@
  * - refreshModels() 拉 /v1/models + 缓存（TTL 24h，与 SPEC §9.3 对齐）
  */
 import { create } from 'zustand'
-import type { AIProviderMode } from "../types"
+import type { AIProviderMode, AIThinkingMode } from "../types"
+import { AI_THINKING_MODES } from '../types'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { MODELS_CACHE_TTL_MS } from '../services/ai/models'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
@@ -67,6 +68,11 @@ const DEFAULT_SETTINGS: SettingsData = {
   autoExtractWords: false,
   mineruDebugMode: true,
   wordGenCount: 15,
+  // 思考模式默认：机械任务关掉（输出预算全给正文，且省钱），提词保留低强度
+  thinkingClean: 'off',
+  thinkingTag: 'off',
+  thinkingTranslate: 'off',
+  thinkingWords: 'low',
 }
 
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
@@ -91,7 +97,19 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
   { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
   { field: 'ai2ProviderMode', key: SETTING_KEYS.AI_2_PROVIDER_MODE },
+  { field: 'thinkingClean', key: SETTING_KEYS.THINKING_CLEAN },
+  { field: 'thinkingTag', key: SETTING_KEYS.THINKING_TAG },
+  { field: 'thinkingTranslate', key: SETTING_KEYS.THINKING_TRANSLATE },
+  { field: 'thinkingWords', key: SETTING_KEYS.THINKING_WORDS },
 ]
+
+/** 思考模式字段 —— 校验时复用同一套合法值 */
+const THINKING_FIELDS = [
+  'thinkingClean',
+  'thinkingTag',
+  'thinkingTranslate',
+  'thinkingWords',
+] as const
 
 /** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
 const SENSITIVE_KEY_MAP: Record<string, string> = {
@@ -131,7 +149,18 @@ function deserialize(
     const ok2 = (valid2 as readonly string[]).includes(raw ?? '')
     return (ok2 ? raw : 'deepseek') as SettingsData[typeof key]
   }
+  if ((THINKING_FIELDS as readonly string[]).includes(key)) {
+    const ok = (AI_THINKING_MODES as readonly string[]).includes(raw ?? '')
+    return (ok ? raw : DEFAULT_SETTINGS[key]) as SettingsData[typeof key]
+  }
   return raw as SettingsData[typeof key]
+}
+
+/** 思考模式值校验：非法值回退到 fallback（global.md 可能被手改坏） */
+function normalizeThinking(raw: string, fallback: AIThinkingMode): AIThinkingMode {
+  return (AI_THINKING_MODES as readonly string[]).includes(raw)
+    ? (raw as AIThinkingMode)
+    : fallback
 }
 
 /**
@@ -231,6 +260,10 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         autoExtractWords: s.autoExtractWords,
         mineruDebugMode: s.mineruDebugMode,
         wordGenCount: s.wordGenCount,
+        thinkingClean: s.thinkingClean,
+        thinkingTag: s.thinkingTag,
+        thinkingTranslate: s.thinkingTranslate,
+        thinkingWords: s.thinkingWords,
       })
     } catch (err) {
       console.error('[settings] 保存非敏感设置到 GitHub 失败:', err)
@@ -348,6 +381,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
             const n = Number(loaded.wordGenCount)
             if (!isNaN(n)) patch.wordGenCount = Math.min(50, Math.max(10, Math.floor(n)))
           }
+          // 思考模式：非法值回退默认，避免手改坏 global.md 后 runner 收到脏参数
+          if (loaded.thinkingClean !== undefined) patch.thinkingClean = normalizeThinking(loaded.thinkingClean, DEFAULT_SETTINGS.thinkingClean)
+          if (loaded.thinkingTag !== undefined) patch.thinkingTag = normalizeThinking(loaded.thinkingTag, DEFAULT_SETTINGS.thinkingTag)
+          if (loaded.thinkingTranslate !== undefined) patch.thinkingTranslate = normalizeThinking(loaded.thinkingTranslate, DEFAULT_SETTINGS.thinkingTranslate)
+          if (loaded.thinkingWords !== undefined) patch.thinkingWords = normalizeThinking(loaded.thinkingWords, DEFAULT_SETTINGS.thinkingWords)
           set(patch)
         }
       } catch (err) {
@@ -676,6 +714,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           autoExtractWords: merged.autoExtractWords,
           mineruDebugMode: merged.mineruDebugMode,
           wordGenCount: merged.wordGenCount,
+          thinkingClean: merged.thinkingClean,
+          thinkingTag: merged.thinkingTag,
+          thinkingTranslate: merged.thinkingTranslate,
+          thinkingWords: merged.thinkingWords,
         })
       } catch (err) {
         console.error('[settings] 重置后保存到 GitHub 失败:', err)

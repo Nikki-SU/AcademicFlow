@@ -66,6 +66,11 @@ export const SETTING_KEYS = {
   AUTO_EXTRACT_WORDS: 'auto_extract_words',
   MINERU_DEBUG_MODE: 'mineru_debug_mode',
   WORD_GEN_COUNT: 'word_gen_count',
+  // 思考模式（按阶段）—— off | low | high | max
+  THINKING_CLEAN: 'ai_thinking_clean',
+  THINKING_TAG: 'ai_thinking_tag',
+  THINKING_TRANSLATE: 'ai_thinking_translate',
+  THINKING_WORDS: 'ai_thinking_words',
 } as const
 
 class AcademicFlowDB extends Dexie {
