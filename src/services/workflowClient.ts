@@ -18,6 +18,10 @@ export interface PipelineProgress {
   updated_at?: string
   error?: string | null
   done?: boolean
+  /** 失败时后端告知：重试会从哪一阶段继续（已存档的中间产物会被复用） */
+  resume_from?: string
+  /** 失败时后端告知：已经存档、重试不会重跑的阶段列表 */
+  checkpointed?: string[]
 }
 
 export interface RunStatus {

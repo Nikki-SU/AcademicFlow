@@ -523,7 +523,9 @@ export default function ManagementPage() {
               patch.status = 'failed'
               patch.stage = 'failed'
               patch.node_index = STAGE_META.failed.node
-              patch.message = prog.error ? `失败：${prog.error}` : '转换失败'
+              // 后端会存档每个阶段的中间产物：重试只跑后面的部分，这里明确告诉用户从哪继续
+              const resumeHint = prog.resume_from ? `，重试将从「${prog.resume_from}」继续（前面的产物已存档）` : ''
+              patch.message = prog.error ? `失败：${prog.error}${resumeHint}` : `转换失败${resumeHint}`
               patch.error = prog.error || '后端返回 failed'
             } else {
               if (task.status === 'pending') patch.status = 'running'

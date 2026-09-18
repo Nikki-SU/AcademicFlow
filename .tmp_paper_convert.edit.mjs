@@ -402,6 +402,104 @@ async function commitLocalFiles(fileRelPaths, message) {
     }
   }
 }
+// ============================================================
+// 阶段存档（checkpoint）+ 断点续跑
+// ------------------------------------------------------------
+// 每个昂贵阶段（一次 AI 调用）结束后，把该阶段产物提交进仓库。
+// runner 被销毁或任务失败后重试时，从已存档的产物继续往下跑，
+// 不再把已经花过 token 的 clean / tag / enumerate / translate / words 重跑一遍。
+//
+// 存档文件（都放在 literatures/{slug}/ 下，前端/阅读页不读它们）：
+//   .tmp_meta.json        源 PDF 指纹（pdf_path + size）—— 源变了就作废全部存档
+//   fulltext.md + images/ MinerU 产物（跳过 MinerU 解析，省 MinerU 额度与时间）
+//   .tmp_cleaned.md       AI-1 清理产物
+//   .tmp_tagged.md        AI-1 打标产物
+//   .tmp_enumerated.md    编号骨架
+//   .tmp_translated.json  已翻译段落（{enItems, tables}）
+//   .tmp_words.json       AI-1 提取的候选词汇
+// 全部成功结束后这些文件会被清理掉，不留垃圾。
+// ============================================================
+
+function artifactPaths(slug) {
+  return {
+    meta:       `literatures/${slug}/.tmp_meta.json`,
+    cleaned:    `literatures/${slug}/.tmp_cleaned.md`,
+    tagged:     `literatures/${slug}/.tmp_tagged.md`,
+    enumerated: `literatures/${slug}/.tmp_enumerated.md`,
+    translated: `literatures/${slug}/.tmp_translated.json`,
+    words:      `literatures/${slug}/.tmp_words.json`,
+  }
+}
+
+const localFull = (rel) => path.join(REPO_ROOT, rel)
+
+function artifactExists(rel) {
+  try { return fs.statSync(localFull(rel)).size > 0 } catch { return false }
+}
+
+/** 当前仓库里已存档到哪一步（给日志和失败态 resume_from 用） */
+function resumePlan(slug) {
+  const a = artifactPaths(slug)
+  return {
+    mineru: artifactExists(`literatures/${slug}/fulltext.md`),
+    clean: artifactExists(a.cleaned),
+    tag: artifactExists(a.tagged),
+    enumerate: artifactExists(a.enumerated),
+    translate: artifactExists(a.translated),
+    words: artifactExists(a.words),
+  }
+}
+
+/** 依次列出已存档阶段，用于日志；返回第一个"尚未完成"的阶段名与中文名 */
+function describeResume(slug) {
+  const p = resumePlan(slug)
+  const order = [['mineru', 'MinerU 解析'], ['clean', 'AI-1 清理'], ['tag', 'AI-1 打标'],
+    ['enumerate', '编号对齐'], ['translate', 'AI-2 翻译'], ['words', 'AI-1 提词']]
+  const doneLabels = order.filter(([k]) => p[k]).map(([, label]) => label)
+  const next = order.find(([k]) => !p[k])
+  return { done: doneLabels, next: next ? next[0] : 'assemble', nextLabel: next ? next[1] : '组装最终文件' }
+}
+
+async function readSourceMeta(slug) {
+  try { return JSON.parse(fs.readFileSync(localFull(artifactPaths(slug).meta), 'utf-8')) } catch { return null }
+}
+
+function writeSourceMeta(slug, pdfPath, size) {
+  const target = localFull(artifactPaths(slug).meta)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(target,
+    JSON.stringify({ pdf_path: pdfPath, pdf_size: size, saved_at: new Date().toISOString() }, null, 2), 'utf-8')
+}
+
+/**
+ * 源 PDF 变了（换文件/重新上传）→ 之前的存档全部作废，必须从头跑。
+ * 同一次转换的重试（同一 pdf_path + 同 size）才允许续跑。
+ */
+async function purgeArtifacts(slug, reason) {
+  const a = artifactPaths(slug)
+  const rels = Object.values(a)
+  console.log(`  [ckpt] 作废已有存档（${reason}）`)
+  for (const rel of rels) { try { fs.unlinkSync(localFull(rel)) } catch {} }
+  try {
+    // git add 不存在的路径 == 记录删除；这样一次提交就把所有存档从仓库摘掉
+    await commitLocalFiles(rels, `[pipeline] ${slug} 作废存档: ${reason}`)
+  } catch (e) {
+    console.warn(`  [ckpt] 清理旧存档失败（不阻塞）: ${e.message?.slice(0, 120) || e}`)
+  }
+}
+
+/** 把某阶段产物提交进仓库；失败只告警，绝不阻断主流程 */
+async function saveCheckpoint(slug, relPaths, label) {
+  const list = Array.isArray(relPaths) ? relPaths : [relPaths]
+  if (!list.some(artifactExists)) return
+  try {
+    await commitLocalFiles(list, `[pipeline] ${slug} checkpoint: ${label}`)
+    console.log(`  [ckpt] ✓ 已存档 ${label}`)
+  } catch (e) {
+    console.warn(`  [ckpt] ⚠ 存档 ${label} 失败（不阻塞主流程）: ${e.message?.slice(0, 120) || e}`)
+  }
+}
+
 // ── 文献存活检查：防止用户删除后 Runner 仍在跑把文件写回来 ──
 // Runner 本地 checkout 的是 dispatch 时的快照，需要 git fetch 拉最新 main
 async function checkLiteratureAlive(doi) {
@@ -786,6 +884,7 @@ async function runWordsExtraction(enItems, doi, slug) {
     }
     fs.writeFileSync(tmpFile, JSON.stringify(candidateWords), 'utf-8')
     console.log(`  [words] AI-1 extracted ${candidateWords.length}`)
+    await saveCheckpoint(slug, `literatures/${slug}/.tmp_words.json`, 'words_extract')
   }
 
   // 2. AI-2 核验
@@ -976,6 +1075,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     cleanMd = cleanMd.replace(/<span[^>]*>.*?<\/span>/g, '').replace(/^\s*\n/gm, '').trim()
     write(tmpLocal.cleaned, cleanMd)
     console.log(`  ✓ clean ok, ${cleanMd.length} chars`)
+    await saveCheckpoint(slug, t.cleaned, 'ai1_clean')
   } else {
     console.log('  [resume] skip clean')
     await writeProgress(slug, { stage: 'ai1_clean', message: '续跑：跳过 Clean', pct: 10, node: 1 })
@@ -1024,6 +1124,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     taggedMd = await tagCleanMd()
     write(tmpLocal.tagged, taggedMd)
     console.log('  ✓ tag ok')
+    await saveCheckpoint(slug, t.tagged, 'ai1_tag')
   } else {
     console.log('  [resume] skip tag')
     await writeProgress(slug, { stage: 'ai1_tag', message: '续跑：跳过 Tag', pct: 25, node: 1 })
@@ -1054,6 +1155,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     }
     write(tmpLocal.enumerated, skeletonMd)
     console.log('  ✓ enumerate ok, nodes=', parsed.nodes.length, 'paras=', paraCount)
+    await saveCheckpoint(slug, t.enumerated, 'enumerate')
   } else {
     console.log('  [resume] skip enumerate')
     parsed = parseAlignedMd(skeletonMd)
@@ -1071,7 +1173,10 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     pendingWordsExtract = (async () => {
       const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, wordsEn)
       const cands = parseJsonArray(raw)
-      if (cands?.length) fs.writeFileSync(wordsTmpFile, JSON.stringify(cands), 'utf-8')
+      if (cands?.length) {
+        fs.writeFileSync(wordsTmpFile, JSON.stringify(cands), 'utf-8')
+        await saveCheckpoint(slug, `literatures/${slug}/.tmp_words.json`, 'words_extract')
+      }
       console.log(`  [words] AI-1 预提取完成: ${cands?.length || 0} 词`)
     })().catch(e => { console.warn(`  [words] 预提取失败（主流程稍后重试）: ${e.message?.slice(0, 120) || e}`); return null })
   }
@@ -1106,6 +1211,8 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     const pct = 50 + Math.round(40 * transDone / Math.max(1, enNodes.length))
     writeProgressThrottled(slug, { stage: 'translating', message: `AI-2 翻译 ${transDone}/${enNodes.length}`, pct, node: 2 })
     onProgress?.({ stage: 'translating', pct })
+    // 每 20 段存档一次：中途挂掉时重试只补剩下的段落，不重翻已完成的
+    if (transDone % 20 === 0) await saveCheckpoint(slug, t.translated, `translating ${transDone}/${enNodes.length}`)
   })
   collectOrdered()
   fs.writeFileSync(tmpLocal.translated, JSON.stringify({ enItems, tables }), 'utf-8')
@@ -1122,6 +1229,9 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     const seg = tableNodes[i]
     tables.push({ beforeIdx: seg.beforeIdx ?? 0, afterIdx: seg.afterIdx ?? 0, en: seg.content, cn: tableOut[i] })
   }
+  // 表格译文也一起存档（否则重试会重翻表格）
+  fs.writeFileSync(tmpLocal.translated, JSON.stringify({ enItems, tables }), 'utf-8')
+  await saveCheckpoint(slug, t.translated, 'translating done')
   // 5. 组装
   await writeProgress(slug, { stage: 'assemble', message: '组装最终文件...', pct: 95, node: 3 })
   onProgress?.({ stage: 'assemble', pct: 95 })
@@ -1282,10 +1392,41 @@ async function main() {
     }
     console.log(`  ✓ PDF ${pdfBuf.length} bytes`)
 
-    // 2. MinerU
-    await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 10, node: 0 })
-    const mineru = await mineruConvert(pdfBuf, `${slug}.pdf`, (p) => writeProgress(slug, { ...p, node: 0 }))
-    console.log(`  ✓ MinerU done, md length=${mineru.markdown.length}`)
+    // ── 断点续跑：先看仓库里存档到哪一步 ──
+    const savedMeta = await readSourceMeta(slug)
+    const artifactsOnDisk = Object.values(artifactPaths(slug)).some(artifactExists)
+    // 存档可信的前提：存了源 PDF 指纹，且和本次 dispatch 的 PDF 完全一致。
+    // 没有指纹说明存档来路不明（例如上次已经成功跑完、.tmp 已清），一律不复用。
+    const sourceChanged = !!savedMeta && (savedMeta.pdf_path !== resolvedPdfPath || savedMeta.pdf_size !== pdfBuf.length)
+    const trusted = !!savedMeta && !sourceChanged
+    if (artifactsOnDisk && !trusted) {
+      await purgeArtifacts(slug, sourceChanged
+        ? `源 PDF 已变化: ${savedMeta.pdf_path} → ${resolvedPdfPath}`
+        : '缺少源 PDF 指纹，无法确认存档属于本篇')
+    }
+    const plan = describeResume(slug)
+    console.log(`  [resume] 已存档: ${plan.done.length ? plan.done.join(' → ') : '（无）'}；本次从「${plan.next}」开始`)
+
+    const fulltextRel = `literatures/${slug}/fulltext.md`
+    const imagesRel = `literatures/${slug}/images`
+    const fulltextLocalMain = path.join(REPO_ROOT, fulltextRel)
+    const imagesDirMain = path.join(REPO_ROOT, imagesRel)
+    const hasImages = fs.existsSync(imagesDirMain) && fs.readdirSync(imagesDirMain).length > 0
+
+    // 2. MinerU（存档可信 + fulltext.md + images/ 都在 → 直接复用，不重复消耗 MinerU 额度与时间）
+    const canReuseMineru = trusted && plan.mineru && hasImages
+      && fs.existsSync(fulltextLocalMain) && fs.statSync(fulltextLocalMain).size > 1000
+    let markdown = null
+    if (canReuseMineru) {
+      markdown = fs.readFileSync(fulltextLocalMain, 'utf-8')
+      console.log(`  [resume] 复用已存档 MinerU 产物（fulltext.md ${markdown.length} chars + images），跳过 MinerU`)
+      await writeProgress(slug, { stage: 'mineru_download', message: '续跑：复用已存档 MinerU 产物', pct: 48, node: 0 })
+    } else {
+      await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 10, node: 0 })
+      const mineru = await mineruConvert(pdfBuf, `${slug}.pdf`, (p) => writeProgress(slug, { ...p, node: 0 }))
+      markdown = mineru.markdown
+      console.log(`  ✓ MinerU done, md length=${markdown.length}`)
+    }
 
     // ── 检查 B: MinerU 跑完后（可能花了好几分钟），用户可能删了文献 ──
     if (!(await checkLiteratureAlive(doi))) {
@@ -1294,11 +1435,16 @@ async function main() {
     }
 
     // 存 fulltext.md（本地写，commit 时 push）
-    const fulltextLocal = path.join(REPO_ROOT, `literatures/${slug}/fulltext.md`)
-    fs.writeFileSync(fulltextLocal, mineru.markdown, 'utf-8')
+    const fulltextLocal = path.join(REPO_ROOT, fulltextRel)
+    fs.writeFileSync(fulltextLocal, markdown, 'utf-8')
+    // 刚跑完 MinerU → 立刻存档 fulltext + images + 源指纹：下次重试可整段跳过 MinerU
+    if (!canReuseMineru) {
+      writeSourceMeta(slug, resolvedPdfPath, pdfBuf.length)
+      await saveCheckpoint(slug, [fulltextRel, imagesRel, artifactPaths(slug).meta], 'mineru')
+    }
 
     // 3. Post-Mineru（本地跑 AI，结果存本地 —— 内部会写 ai1_clean → ai1_tag → enumerate → translating → assemble）
-    const postResult = await runPostMineru(doi, mineru.markdown, slug, (p) => console.log(`  [post] ${p.stage} ${p.pct ?? ''}`))
+    const postResult = await runPostMineru(doi, markdown, slug, (p) => console.log(`  [post] ${p.stage} ${p.pct ?? ''}`))
 
     // 3.5 单词提取（AI-1 提取 + AI-2 核验 → vocabulary/vocabulary.csv，节点 3 的 words_extract / words_verify）
     try {
@@ -1311,6 +1457,9 @@ async function main() {
 
     // 4. 提交所有变更到 GitHub（一次 git commit + push）
     await writeProgress(slug, { stage: 'commit', message: '提交到 GitHub...', pct: 98, node: 3 })
+    // 全流程成功 → 阶段存档作废：本地删掉，并把删除动作一起提交（否则 .tmp 会永远留在仓库里）
+    const ckptRels = Object.values(artifactPaths(slug))
+    for (const rel of ckptRels) { try { fs.unlinkSync(localFull(rel)) } catch {} }
     await commitLocalFiles([
       'literatures/literatures.csv',
       `literatures/${slug}/fulltext.md`,
@@ -1318,6 +1467,7 @@ async function main() {
       `literatures/${slug}/images`,
       `vocabulary/vocabulary.csv`,
       `literatures/${slug}/.progress.json`,
+      ...ckptRels,
     ], `[pipeline] convert ${slug}: ${title}`)
 
     // 4.5 写终态 stage=done（给前端 UI 最后一次进度反馈）
@@ -1335,10 +1485,15 @@ async function main() {
     console.error(`❌ Pipeline failed:`, err.message || err)
     try {
       updateLocalCsvField(doi, 'md_status', 'failed')
+      // 记录"下次重试会从哪一步开始"，前端/日志都能看到，避免以为要重跑全部
+      const rp = describeResume(slug)
       await writeProgress(slug, {
         stage: 'failed', message: `失败: ${err.message}`,
         pct: 0, node: 3, error: err.message || String(err),
+        resume_from: rp.nextLabel,
+        checkpointed: rp.done,
       })
+      console.log(`  [resume] 已存档阶段: ${rp.done.join(' → ') || '（无）'}；重试将从「${rp.nextLabel}」继续`)
       // 诊断快照：把失败现场的中间文件（cleaned/tag 产物）提交到 .diag/，不污染 .tmp 续跑逻辑
       const diagDir = `literatures/${slug}/.diag`
       fs.mkdirSync(path.join(REPO_ROOT, diagDir), { recursive: true })
