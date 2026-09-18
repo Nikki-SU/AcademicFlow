@@ -199,22 +199,6 @@ function speakEnglish(text: string) {
   speechSynthesis.speak(u)
 }
 
-function formatTime(timestamp?: number): string {
-  if (!timestamp) return '从未学习'
-  const date = new Date(timestamp)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return '刚刚'
-  if (diffMins < 60) return `${diffMins}分钟前`
-  if (diffHours < 24) return `${diffHours}小时前`
-  if (diffDays < 7) return `${diffDays}天前`
-  return date.toLocaleDateString('zh-CN')
-}
-
 /** 解析 AI-1 输出的学习内容 JSON（容错：去掉代码块包裹 / 提取首尾花括号） */
 interface ParsedLearningJSON {
   words: Array<{ word?: string; phonetic?: string; meaning?: string; exampleEn?: string; exampleZh?: string }>
@@ -746,13 +730,16 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     let cancelled = false
     loadProgress().then((p) => {
       if (cancelled) return
+      const savedTypes = Array.isArray(p.wordQuestionTypes)
+        ? p.wordQuestionTypes.filter((t): t is WordQuestionType =>
+            WORD_QUESTION_TYPES.some((wt) => wt.key === t))
+        : []
+      const ql = p.wordQueueLength
+      const mc = p.wordMasterCount
       setSettings((prev) => ({
-        queueLength: [5, 7, 9].includes(p.wordQueueLength) ? p.wordQueueLength : prev.queueLength,
-        masterCount: [6, 12, 18].includes(p.wordMasterCount) ? p.wordMasterCount : prev.masterCount,
-        questionTypes:
-          Array.isArray(p.wordQuestionTypes) && p.wordQuestionTypes.length > 0
-            ? p.wordQuestionTypes
-            : prev.questionTypes,
+        queueLength: ql !== undefined && [5, 7, 9].includes(ql) ? ql : prev.queueLength,
+        masterCount: mc !== undefined && [6, 12, 18].includes(mc) ? mc : prev.masterCount,
+        questionTypes: savedTypes.length > 0 ? savedTypes : prev.questionTypes,
         allowZhan: typeof p.wordAllowZhan === 'boolean' ? p.wordAllowZhan : prev.allowZhan,
         voiceEnabled: typeof p.wordVoiceEnabled === 'boolean' ? p.wordVoiceEnabled : prev.voiceEnabled,
       }))
