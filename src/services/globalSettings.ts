@@ -16,7 +16,6 @@ export interface GlobalSettingsData {
   aiProviderMode: string
   ai1Model: string
   ai2Model: string
-  ai2Independent: boolean
   ai2ProviderMode: string
   customAi1BaseUrl: string
   customAi1Model: string
@@ -71,9 +70,6 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
       case 'ai2_model':
         result.ai2Model = value
         break
-      case 'ai_2_independent':
-        result.ai2Independent = value === 'true'
-        break
       case 'ai_2_provider_mode':
         result.ai2ProviderMode = value || 'deepseek'
         break
@@ -118,7 +114,6 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - ai_provider_mode: ${s.aiProviderMode}
 - ai1_model: ${s.ai1Model}
 - ai2_model: ${s.ai2Model}
-- ai_2_independent: ${s.ai2Independent}
 - ai_2_provider_mode: ${s.ai2ProviderMode}
 - advanced_mode: ${s.advancedMode}
 - custom_ai_1_base_url: ${s.customAi1BaseUrl}

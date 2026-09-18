@@ -224,8 +224,7 @@ export interface SyncAllSecretsInput {
   customAi2BaseUrl: string
   customAi2ApiKey: string
   customAi2Model: string
-  /** AI-2 位置独立配置（双 key：不同公司或同公司不同 key） */
-  ai2Independent: boolean
+  /** AI-2（审阅位）的 provider —— 与 AI-1 的 aiProviderMode 完全对称独立 */
   ai2ProviderMode: 'deepseek' | 'kimi' | 'qiniu' | 'custom'
   /** AI-2 位的各家公司 key（与 AI-1 位字段平等独立） */
   deepseekApiKey2: string
@@ -258,62 +257,51 @@ export async function syncAllSecrets(
     )
   }
 
-  // 根据 provider 模式拼装 —— 7 个 secrets 全部塞进去
+  // 根据 provider 模式拼装 —— 7 个 secrets 全部塞进去。
+  // AI-1 / AI-2 两端完全对称：各自 provider + 各自槽位 key + 各自模型。
   const mode = s.aiProviderMode
   let baseUrl1: string, apiKey1: string, model1: string
-  let baseUrl2: string, apiKey2: string, model2: string
 
+  // ── AI-1（生成位）──
   if (mode === 'custom') {
     baseUrl1 = s.customAi1BaseUrl
     apiKey1 = s.customAi1ApiKey
     model1 = s.customAi1Model
+  } else {
+    const cfg = AI_PROVIDERS[mode]
+    baseUrl1 = cfg.baseUrl
+    apiKey1 =
+      mode === 'deepseek' ? s.deepseekApiKey
+      : mode === 'kimi' ? s.kimiApiKey
+      : s.qiniuApiKey
+    // 模型必须是本 provider 的（UI 切 provider 时已重置；此处兜底防历史残留
+    // 的别家模型名写到新 provider，如七牛云需要 deepseek/xxx 带前缀）
+    model1 = cfg.recommendedModels.some((m) => m.id === s.ai1Model)
+      ? s.ai1Model
+      : cfg.defaultModel1
+  }
+
+  // ── AI-2（审阅位）：与 AI-1 完全对称 ──
+  const mode2 = s.ai2ProviderMode
+  let baseUrl2: string, apiKey2: string, model2: string
+  if (mode2 === 'custom') {
     baseUrl2 = s.customAi2BaseUrl
     apiKey2 = s.customAi2ApiKey
     model2 = s.customAi2Model
   } else {
-    // 预置 provider：deepseek / kimi / qiniu —— 查 AI_PROVIDERS 拿 baseUrl
-    const cfg = AI_PROVIDERS[mode]
-    baseUrl1 = cfg.baseUrl
-    switch (mode) {
-      case 'deepseek': apiKey1 = s.deepseekApiKey; break
-      case 'kimi':     apiKey1 = s.kimiApiKey;     break
-      case 'qiniu':    apiKey1 = s.qiniuApiKey;    break
-      default:         apiKey1 = '';
-    }
-    // 保险：预置 provider 也用 cfg.defaultModel 强制覆盖，
-    // 避免 store 里残留的旧 provider 的 model 值（如 deepseek-chat）
-    // 写到新 provider（七牛云需要 deepseek/deepseek-v4-flash 带前缀）
-    model1 = cfg.defaultModel1
-
-    // ── AI-2 位置：支持双 key（不同公司或同公司不同 key） ──
-    if (s.ai2Independent) {
-      if (s.ai2ProviderMode === 'custom') {
-        // 独立自定义端点：直接复用 customAi2* 三元组
-        baseUrl2 = s.customAi2BaseUrl
-        apiKey2 = s.customAi2ApiKey
-        model2 = s.customAi2Model
-      } else {
-        // 独立预置 provider：baseUrl 取对应家，key 用 AI-2 位的该家 key
-        //（deepseekApiKey2 等——与 AI-1 位平等独立，切 provider 不丢），
-        // model 强制取该家的审阅位默认模型（防跨家模型名残留）
-        const cfg2 = AI_PROVIDERS[s.ai2ProviderMode]
-        baseUrl2 = cfg2.baseUrl
-        apiKey2 = s.ai2ProviderMode === 'deepseek' ? s.deepseekApiKey2
-          : s.ai2ProviderMode === 'kimi' ? s.kimiApiKey2
-          : s.qiniuApiKey2
-        model2 = cfg2.defaultModel2
-      }
-    } else {
-      // 跟随 AI-1：同 provider 同 key（历史行为）
-      baseUrl2 = cfg.baseUrl
-      switch (mode) {
-        case 'deepseek': apiKey2 = s.deepseekApiKey; break
-        case 'kimi':     apiKey2 = s.kimiApiKey;     break
-        case 'qiniu':    apiKey2 = s.qiniuApiKey;    break
-        default:         apiKey2 = '';
-      }
-      model2 = cfg.defaultModel2
-    }
+    const cfg2 = AI_PROVIDERS[mode2]
+    baseUrl2 = cfg2.baseUrl
+    // AI-2 位 key 按公司独立槽位（deepseekApiKey2 等），与 AI-1 位平等；
+    // 同公司且 AI-2 位留空 → 沿用 AI-1 位 key（同 key 双模型的平滑默认）
+    const key2 =
+      mode2 === 'deepseek' ? s.deepseekApiKey2
+      : mode2 === 'kimi' ? s.kimiApiKey2
+      : s.qiniuApiKey2
+    // mode2 === mode 已保证两家同家（mode 为 custom 时该等式必为 false，本分支不会误用自定义 key）
+    apiKey2 = key2 || (mode2 === mode ? apiKey1 : '')
+    model2 = cfg2.recommendedModels.some((m) => m.id === s.ai2Model)
+      ? s.ai2Model
+      : cfg2.defaultModel2
   }
 
   const secretsMap: Record<AiSecretName, string> = {

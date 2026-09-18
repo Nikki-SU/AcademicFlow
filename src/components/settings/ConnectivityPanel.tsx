@@ -270,7 +270,6 @@ export default function ConnectivityPanel() {
         qiniuApiKey: store.qiniuApiKey,
         ai1Model: store.ai1Model,
         ai2Model: store.ai2Model,
-        ai2Independent: store.ai2Independent,
         ai2ProviderMode: store.ai2ProviderMode,
         deepseekApiKey2: store.deepseekApiKey2,
         kimiApiKey2: store.kimiApiKey2,

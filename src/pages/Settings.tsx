@@ -1,12 +1,12 @@
 /**
  * 设置页
  * -------------------------------------------------
- * 对应 SPEC v0.3 §5.2 / §7.3 / §8。M3 阶段核心页面。
+ * 对应 SPEC v0.3 §5.2 / §7.3 / §8。
  *
  * 功能：
- * - 硅基流动 API Key 填写
- * - AI-1 / AI-2 模型选择（从 /v1/models 拉取真实清单，24h 缓存）
- * - 高级模式 toggle → 展开自定义端点（AI-1 / AI-2 各自 base_url + key + model）
+ * - AI-1（生成位）/ AI-2（审阅位）两块完全对称的配置界面：
+ *   各自选 Provider、各自填 API Key（按公司独立槽位）、各自选模型
+ * - 高级模式 → 每端可切自定义 OpenAI 兼容端点
  * - AI 双引擎试运行（fact_check）
  */
 import {
@@ -20,7 +20,7 @@ import {
   ToggleRight,
   Wifi,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
@@ -30,7 +30,6 @@ import ConnectivityPanel from '../components/settings/ConnectivityPanel'
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
 import BackendCapabilitiesPanel from '../components/settings/BackendCapabilitiesPanel'
-import { isChatModel, getModelVendor } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -38,17 +37,6 @@ import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import type { AIProviderMode } from '../types'
 import { AI_PROVIDERS } from '../types'
-
-function formatFetchedAt(ts: number | null): string {
-  if (!ts) return '未拉取'
-  const diffMs = Date.now() - ts
-  const min = Math.floor(diffMs / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr} 小时前`
-  return new Date(ts).toLocaleString()
-}
 
 function Settings() {
   const store = useSettingsStore()
@@ -65,7 +53,6 @@ function Settings() {
     qiniuApiKey,
     ai1Model,
     ai2Model,
-    ai2Independent,
     ai2ProviderMode,
     deepseekApiKey2,
     kimiApiKey2,
@@ -76,12 +63,8 @@ function Settings() {
     customAi2BaseUrl,
     customAi2ApiKey,
     customAi2Model,
-    siliconflowModels,
-    siliconflowModelsFetchedAt,
-    isLoadingModels,
     mineruToken,
     updateSettings,
-    refreshModels,
     init,
   } = store
 
@@ -149,7 +132,6 @@ function Settings() {
         qiniuApiKey,
         ai1Model,
         ai2Model,
-        ai2Independent,
         ai2ProviderMode,
         deepseekApiKey2,
         kimiApiKey2,
@@ -186,7 +168,7 @@ function Settings() {
     isInitialized, owner, auth.token,
     aiProviderMode, advancedMode,
     deepseekApiKey, kimiApiKey, qiniuApiKey, ai1Model, ai2Model,
-    ai2Independent, ai2ProviderMode,
+    ai2ProviderMode,
     deepseekApiKey2, kimiApiKey2, qiniuApiKey2,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
@@ -201,29 +183,6 @@ function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitialized, owner, auth.token])
 
-  /** 过滤后的 chat 类模型清单（用于 UI 下拉） */
-  const chatModels = useMemo(() => {
-    const filtered = siliconflowModels
-      .map((m) => m.id)
-      .filter(isChatModel)
-      .sort()
-    // 若下拉里没当前选中的模型，补进去让 UI 不出现空选中
-    const augmented = new Set(filtered)
-    if (ai1Model && !augmented.has(ai1Model)) augmented.add(ai1Model)
-    if (ai2Model && !augmented.has(ai2Model)) augmented.add(ai2Model)
-    return Array.from(augmented).sort()
-  }, [siliconflowModels, ai1Model, ai2Model])
-
-  const handleRefresh = async () => {
-    try {
-      const models = await refreshModels(true)
-      toast.success(`已拉取 ${models.length} 个模型`)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`拉取失败：${msg}`)
-    }
-  }
-
   if (!isInitialized) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50 flex items-center justify-center">
@@ -235,7 +194,31 @@ function Settings() {
     )
   }
 
-  const showCustom = aiProviderMode === 'custom'
+  // ── AI-1 位：当前 provider 对应的 key 槽位 ──
+  const slot1Key =
+    aiProviderMode === 'deepseek' ? deepseekApiKey
+    : aiProviderMode === 'kimi' ? kimiApiKey
+    : qiniuApiKey
+  const setSlot1Key = (v: string) => {
+    const patch: Record<string, string> = {}
+    if (aiProviderMode === 'deepseek') patch.deepseekApiKey = v
+    else if (aiProviderMode === 'kimi') patch.kimiApiKey = v
+    else patch.qiniuApiKey = v
+    updateSettings(patch as Partial<typeof store>)
+  }
+
+  // ── AI-2 位：当前 provider 对应的 key2 槽位（与 AI-1 完全对称） ──
+  const slot2Key =
+    ai2ProviderMode === 'deepseek' ? deepseekApiKey2
+    : ai2ProviderMode === 'kimi' ? kimiApiKey2
+    : qiniuApiKey2
+  const setSlot2Key = (v: string) => {
+    const patch: Record<string, string> = {}
+    if (ai2ProviderMode === 'deepseek') patch.deepseekApiKey2 = v
+    else if (ai2ProviderMode === 'kimi') patch.kimiApiKey2 = v
+    else patch.qiniuApiKey2 = v
+    updateSettings(patch as Partial<typeof store>)
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
@@ -289,336 +272,60 @@ function Settings() {
           </button>
         </section>
 
-        {/* AI 服务提供方选择 — 所有用户可见；custom 端点需高级模式 */}
-        {(
-          <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
-            <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-indigo-600" />
-              AI 服务提供方
-            </h2>
-            <div className="grid grid-cols-2 gap-2">
-              {(Object.keys(AI_PROVIDERS) as AIProviderMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  disabled={mode === 'custom' && !advancedMode}
-                  onClick={() => {
-                    // 切换 provider 时自动填默认模型
-                    const cfg = AI_PROVIDERS[mode]
-                    updateSettings({
-                      aiProviderMode: mode,
-                      ai1Model: cfg.defaultModel1 || ai1Model,
-                      ai2Model: cfg.defaultModel2 || ai2Model,
-                    })
-                  }}
-                  className={`px-3 py-2 text-sm rounded-md border transition ${
-                    aiProviderMode === mode
-                      ? 'bg-indigo-50 border-indigo-400 text-indigo-800 font-medium'
-                      : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'
-                  } ${mode === 'custom' && !advancedMode ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  {AI_PROVIDERS[mode].label}
-                </button>
-              ))}
-            </div>
-            {aiProviderMode !== 'custom' && (
-              <p className="text-xs text-slate-500">
-                {AI_PROVIDERS[aiProviderMode].note}
-              </p>
-            )}
-          </section>
-        )}
+        {/* ── AI-1（生成位）—— 与 AI-2 完全对称 ── */}
+        <AISlotSection
+          slot={1}
+          title="AI-1（生成位）"
+          desc="生成类任务：清理、打标、单词提取"
+          advancedMode={advancedMode}
+          providerMode={aiProviderMode}
+          onProviderChange={(mode) => {
+            // 切 provider 时自动填该家的生成位默认模型（防跨家模型名残留）
+            const cfg = AI_PROVIDERS[mode]
+            updateSettings({ aiProviderMode: mode, ai1Model: cfg.defaultModel1 || ai1Model })
+          }}
+          apiKey={slot1Key}
+          onApiKeyChange={setSlot1Key}
+          model={ai1Model}
+          onModelChange={(v) => updateSettings({ ai1Model: v })}
+          customBaseUrl={customAi1BaseUrl}
+          onCustomBaseUrlChange={(v) => updateSettings({ customAi1BaseUrl: v })}
+          customApiKey={customAi1ApiKey}
+          onCustomApiKeyChange={(v) => updateSettings({ customAi1ApiKey: v })}
+          customModel={customAi1Model}
+          onCustomModelChange={(v) => updateSettings({ customAi1Model: v })}
+        />
 
-        {/* 预置 Provider 配置（deepseek / kimi / qiniu） */}
-        {aiProviderMode !== 'custom' && (() => {
-          const cfg = AI_PROVIDERS[aiProviderMode]
-          // 三个 provider 共用同一字段名不同 key 名
-          const apiKeyField = (aiProviderMode === 'deepseek' ? deepseekApiKey : aiProviderMode === 'kimi' ? kimiApiKey : qiniuApiKey)
-          const apiKeySetter = (v: string) => {
-            const patch: Record<string, string> = {}
-            if (aiProviderMode === 'deepseek') patch.deepseekApiKey = v
-            else if (aiProviderMode === 'kimi') patch.kimiApiKey = v
-            else patch.qiniuApiKey = v
-            updateSettings(patch as Partial<typeof store>)
+        {/* ── AI-2（审阅位）—— 与 AI-1 完全对称 ── */}
+        <AISlotSection
+          slot={2}
+          title="AI-2（审阅位）"
+          desc="审阅类任务：翻译、核验"
+          advancedMode={advancedMode}
+          providerMode={ai2ProviderMode}
+          onProviderChange={(mode) => {
+            // 切 provider 时自动填该家的审阅位默认模型
+            const cfg = AI_PROVIDERS[mode]
+            updateSettings({ ai2ProviderMode: mode, ai2Model: cfg.defaultModel2 || ai2Model })
+          }}
+          apiKey={slot2Key}
+          onApiKeyChange={setSlot2Key}
+          model={ai2Model}
+          onModelChange={(v) => updateSettings({ ai2Model: v })}
+          customBaseUrl={customAi2BaseUrl}
+          onCustomBaseUrlChange={(v) => updateSettings({ customAi2BaseUrl: v })}
+          customApiKey={customAi2ApiKey}
+          onCustomApiKeyChange={(v) => updateSettings({ customAi2ApiKey: v })}
+          customModel={customAi2Model}
+          onCustomModelChange={(v) => updateSettings({ customAi2Model: v })}
+          fallbackKeyNote={
+            slot2Key.trim() === '' &&
+            ai2ProviderMode !== 'custom' &&
+            ai2ProviderMode === aiProviderMode
+              ? `未填写：将沿用 AI-1 位的 ${AI_PROVIDERS[ai2ProviderMode].label} Key（同 key 双模型）`
+              : undefined
           }
-          return (
-          <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-indigo-600" />
-                {cfg.label}（AI-1 + AI-2 共用）
-              </h2>
-              {cfg.apiKeyUrl && (
-                <a
-                  href={cfg.apiKeyUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-indigo-600 hover:text-indigo-800"
-                >
-                  去获取 API Key →
-                </a>
-              )}
-            </div>
-
-            <APIKeyInput
-              label={`${cfg.label} API Key`}
-              fieldId={`provider-${aiProviderMode}`}
-              value={apiKeyField}
-              onChange={apiKeySetter}
-              hint="仅存在你浏览器的 IndexedDB，不上传任何服务器"
-            />
-
-            <div className="flex items-center justify-between pt-1">
-              <div className="text-xs text-slate-500">
-                模型清单：{chatModels.length} 个 chat 类 · 上次更新{' '}
-                <span className="font-mono">{formatFetchedAt(siliconflowModelsFetchedAt)}</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={isLoadingModels || !apiKeyField.trim()}
-                className="flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-300 rounded-md
-                           hover:bg-slate-50 disabled:text-slate-300 disabled:cursor-not-allowed"
-              >
-                {isLoadingModels ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-3.5 h-3.5" />
-                )}
-                拉取
-              </button>
-            </div>
-
-            {/* AI-1 / AI-2 模型下拉 */}
-            <div className="grid md:grid-cols-2 gap-3">
-              <ModelSelect
-                label="AI-1（生成位）"
-                value={ai1Model}
-                options={chatModels}
-                onChange={(v) => updateSettings({ ai1Model: v })}
-              />
-              {ai2Independent ? (
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-slate-700">
-                    AI-2（审阅位）
-                    <span className="ml-2 text-xs font-normal text-indigo-600">独立模式</span>
-                  </label>
-                  <div className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-md bg-slate-50 text-slate-600 truncate">
-                    {ai2ProviderMode === 'custom'
-                      ? (customAi2Model || '（在下方填写自定义 Model ID）')
-                      : AI_PROVIDERS[ai2ProviderMode].defaultModel2}
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    独立模式下模型由 AI-2 的 provider 决定，防止跨公司模型名残留
-                  </p>
-                </div>
-              ) : (
-                <ModelSelect
-                  label="AI-2（审阅位）"
-                  value={ai2Model}
-                  options={chatModels}
-                  onChange={(v) => updateSettings({ ai2Model: v })}
-                />
-              )}
-            </div>
-            <p className="text-xs text-slate-500">
-              {ai2Independent
-                ? `AI-1 用 ${cfg.label}；AI-2 用独立配置（见下方）。`
-                : `AI-1 和 AI-2 共用同一个 ${cfg.label} API Key 和 base URL。`}
-              推荐生成位用较强模型、审阅位用更快模型（可切换）。
-            </p>
-
-            {/* ── AI-2 独立 Key：不同公司或同公司不同 key ── */}
-            <div className="border-t border-slate-200 pt-3 space-y-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const turningOn = !ai2Independent
-                  updateSettings({
-                    ai2Independent: turningOn,
-                    // 开启时默认跟随当前主 provider（同公司不同 key 场景最常见）
-                    // 此分支内 aiProviderMode 必为预置 provider
-                    ...(turningOn ? { ai2ProviderMode: aiProviderMode } : {}),
-                  })
-                }}
-                className="w-full flex items-center justify-between text-left"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    {ai2Independent ? (
-                      <ToggleRight className="w-5 h-5 text-indigo-600" />
-                    ) : (
-                      <ToggleLeft className="w-5 h-5 text-slate-400" />
-                    )}
-                    <span className="text-sm font-semibold text-slate-800">
-                      AI-2 使用独立 Key
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 pl-7">
-                    {ai2Independent
-                      ? `AI-2 走 ${ai2ProviderMode === 'custom' ? '自定义端点' : AI_PROVIDERS[ai2ProviderMode].label}，与 AI-1 互不影响`
-                      : '开启后 AI-2 可选不同公司或同公司另一个 key（并发翻倍、互不抢限额）'}
-                  </p>
-                </div>
-              </button>
-
-              {ai2Independent && (
-                <div className="space-y-3 p-3 bg-indigo-50/40 border border-indigo-200 rounded-md">
-                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
-                    AI-2 服务提供方
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(Object.keys(AI_PROVIDERS) as AIProviderMode[]).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        disabled={mode === 'custom' && !advancedMode}
-                        onClick={() => updateSettings({ ai2ProviderMode: mode })}
-                        className={`px-3 py-2 text-sm rounded-md border transition ${
-                          ai2ProviderMode === mode
-                            ? 'bg-indigo-50 border-indigo-400 text-indigo-800 font-medium'
-                            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'
-                        } ${mode === 'custom' && !advancedMode ? 'opacity-40 cursor-not-allowed' : ''}`}
-                      >
-                        {AI_PROVIDERS[mode].label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {ai2ProviderMode === 'custom' ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={customAi2BaseUrl}
-                        onChange={(e) => updateSettings({ customAi2BaseUrl: e.target.value })}
-                        placeholder="Base URL，如 https://api.openai.com/v1"
-                        className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
-                                   focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <APIKeyInput
-                        label="API Key"
-                        fieldId="custom-ai2-independent"
-                        value={customAi2ApiKey}
-                        onChange={(v) => updateSettings({ customAi2ApiKey: v })}
-                      />
-                      <input
-                        type="text"
-                        value={customAi2Model}
-                        onChange={(e) => updateSettings({ customAi2Model: e.target.value })}
-                        placeholder="Model ID，如 gpt-4o-mini"
-                        className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
-                                   focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      {(() => {
-                        // AI-2 位 key 按公司独立槽位存储，与 AI-1 位平等：
-                        // 切换 provider 时各家 key 各自保留，不互相覆盖
-                        const key2Field =
-                          ai2ProviderMode === 'deepseek' ? deepseekApiKey2
-                          : ai2ProviderMode === 'kimi' ? kimiApiKey2
-                          : qiniuApiKey2
-                        const key2Setter = (v: string) => {
-                          const patch: Record<string, string> = {}
-                          if (ai2ProviderMode === 'deepseek') patch.deepseekApiKey2 = v
-                          else if (ai2ProviderMode === 'kimi') patch.kimiApiKey2 = v
-                          else patch.qiniuApiKey2 = v
-                          updateSettings(patch as Partial<typeof store>)
-                        }
-                        return (
-                          <APIKeyInput
-                            label={`${AI_PROVIDERS[ai2ProviderMode].label} API Key（AI-2 位）`}
-                            fieldId={`ai2-${ai2ProviderMode}-key2`}
-                            value={key2Field}
-                            onChange={key2Setter}
-                            hint="仅存本机 IndexedDB；可填同一家公司的另一个 key；各家独立保存、切换不丢"
-                          />
-                        )
-                      })()}
-                      <p className="text-xs text-slate-500">
-                        模型固定用 {AI_PROVIDERS[ai2ProviderMode].label} 审阅位默认
-                        <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">
-                          {AI_PROVIDERS[ai2ProviderMode].defaultModel2}
-                        </code>
-                        ，与 AI-1 并发时互不占用对方的调用限额。
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
-          )
-        })()}
-
-        {/* 自定义端点 */}
-        {showCustom && (
-          <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-            <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-600" />
-              自定义 OpenAI 兼容端点
-            </h2>
-
-            {/* AI-1 */}
-            <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-md">
-              <div className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
-                AI-1（生成位）
-              </div>
-              <input
-                type="text"
-                value={customAi1BaseUrl}
-                onChange={(e) => updateSettings({ customAi1BaseUrl: e.target.value })}
-                placeholder="Base URL，如 https://api.openai.com/v1"
-                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
-                           focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <APIKeyInput
-                label="API Key"
-                fieldId="custom-ai1"
-                value={customAi1ApiKey}
-                onChange={(v) => updateSettings({ customAi1ApiKey: v })}
-              />
-              <input
-                type="text"
-                value={customAi1Model}
-                onChange={(e) => updateSettings({ customAi1Model: e.target.value })}
-                placeholder="Model ID，如 gpt-4o-mini"
-                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
-                           focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            {/* AI-2 */}
-            <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-md">
-              <div className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
-                AI-2（审阅位）
-              </div>
-              <input
-                type="text"
-                value={customAi2BaseUrl}
-                onChange={(e) => updateSettings({ customAi2BaseUrl: e.target.value })}
-                placeholder="Base URL"
-                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
-                           focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <APIKeyInput
-                label="API Key"
-                fieldId="custom-ai2"
-                value={customAi2ApiKey}
-                onChange={(v) => updateSettings({ customAi2ApiKey: v })}
-              />
-              <input
-                type="text"
-                value={customAi2Model}
-                onChange={(e) => updateSettings({ customAi2Model: e.target.value })}
-                placeholder="Model ID"
-                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
-                           focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </section>
-        )}
+        />
 
         {/* 双引擎试运行 */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
@@ -785,40 +492,143 @@ function Settings() {
   )
 }
 
-/** 模型下拉子组件 */
-function ModelSelect(props: {
-  label: string
-  value: string
-  options: string[]
-  onChange: (v: string) => void
+/** AI 槽位配置卡片 —— AI-1（生成位）/ AI-2（审阅位）共用同一组件，保证界面完全对称。
+ *  每个槽位：Provider 选择 + 该家该位的 API Key + 该家的模型下拉；
+ *  Provider 为 custom 时展开 Base URL / Key / Model 三件套。 */
+function AISlotSection(props: {
+  slot: 1 | 2
+  title: string
+  desc: string
+  advancedMode: boolean
+  providerMode: AIProviderMode
+  onProviderChange: (mode: AIProviderMode) => void
+  /** 当前 provider 对应本槽位的 key 值（custom 模式下不用） */
+  apiKey: string
+  onApiKeyChange: (v: string) => void
+  model: string
+  onModelChange: (v: string) => void
+  customBaseUrl: string
+  onCustomBaseUrlChange: (v: string) => void
+  customApiKey: string
+  onCustomApiKeyChange: (v: string) => void
+  customModel: string
+  onCustomModelChange: (v: string) => void
+  /** 本槽位 key 留空时的共用提示（仅 AI-2 位会出现） */
+  fallbackKeyNote?: string
 }) {
+  const {
+    slot, title, desc, advancedMode, providerMode, onProviderChange,
+    apiKey, onApiKeyChange, model, onModelChange,
+    customBaseUrl, onCustomBaseUrlChange, customApiKey, onCustomApiKeyChange,
+    customModel, onCustomModelChange, fallbackKeyNote,
+  } = props
+
+  const isCustom = providerMode === 'custom'
+  const cfg = AI_PROVIDERS[providerMode]
+  const defaultModel = slot === 1 ? cfg.defaultModel1 : cfg.defaultModel2
+  const recs = cfg.recommendedModels
+  // 历史残留的别家模型名不在本家清单里 → 下拉显示该家默认（与 secrets 同步的兜底逻辑一致）
+  const shownModel = recs.some((m) => m.id === model) ? model : defaultModel
+
   return (
-    <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-slate-700">
-        {props.label}
-        {props.value && (
-          <span className="ml-2 text-xs font-normal text-slate-500">
-            （{getModelVendor(props.value)}）
-          </span>
+    <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-indigo-600" />
+            {title}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+        </div>
+        {!isCustom && cfg.apiKeyUrl && (
+          <a
+            href={cfg.apiKeyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-indigo-600 hover:text-indigo-800 whitespace-nowrap"
+          >
+            去获取 API Key →
+          </a>
         )}
-      </label>
-      <select
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
-                   focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
-      >
-        {props.options.length === 0 ? (
-          <option value={props.value}>{props.value || '（点击右上"拉取"载入模型清单）'}</option>
-        ) : (
-          props.options.map((id) => (
-            <option key={id} value={id}>
-              [{getModelVendor(id)}] {id}
-            </option>
-          ))
-        )}
-      </select>
-    </div>
+      </div>
+
+      {/* Provider 选择 —— 两个槽位完全一致 */}
+      <div className="grid grid-cols-2 gap-2">
+        {(Object.keys(AI_PROVIDERS) as AIProviderMode[]).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            disabled={mode === 'custom' && !advancedMode}
+            onClick={() => onProviderChange(mode)}
+            className={`px-3 py-2 text-sm rounded-md border transition ${
+              providerMode === mode
+                ? 'bg-indigo-50 border-indigo-400 text-indigo-800 font-medium'
+                : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'
+            } ${mode === 'custom' && !advancedMode ? 'opacity-40 cursor-not-allowed' : ''}`}
+          >
+            {AI_PROVIDERS[mode].label}
+          </button>
+        ))}
+      </div>
+      {!isCustom && (
+        <p className="text-xs text-slate-500">{cfg.note}</p>
+      )}
+
+      {isCustom ? (
+        <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-md">
+          <input
+            type="text"
+            value={customBaseUrl}
+            onChange={(e) => onCustomBaseUrlChange(e.target.value)}
+            placeholder="Base URL，如 https://api.openai.com/v1"
+            className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
+                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <APIKeyInput
+            label="API Key"
+            fieldId={`custom-ai${slot}`}
+            value={customApiKey}
+            onChange={onCustomApiKeyChange}
+          />
+          <input
+            type="text"
+            value={customModel}
+            onChange={(e) => onCustomModelChange(e.target.value)}
+            placeholder="Model ID，如 gpt-4o-mini"
+            className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
+                       focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+      ) : (
+        <>
+          <APIKeyInput
+            label={`${cfg.label} API Key（AI-${slot} 位）`}
+            fieldId={`ai${slot}-${providerMode}`}
+            value={apiKey}
+            onChange={onApiKeyChange}
+            hint="仅存本机 IndexedDB，不上传任何服务器；各家 key 独立保存、切换不丢"
+          />
+          {fallbackKeyNote && (
+            <p className="text-xs text-amber-600 -mt-2">{fallbackKeyNote}</p>
+          )}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-slate-700">模型</label>
+            <select
+              value={shownModel}
+              onChange={(e) => onModelChange(e.target.value)}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-md
+                         focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+            >
+              {recs.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id} · {m.desc}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+    </section>
   )
 }
 

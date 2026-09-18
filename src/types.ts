@@ -190,9 +190,7 @@ export interface SettingsData {
   ai1Model: string
   /** AI-2（审阅位）默认模型 id */
   ai2Model: string
-  /** AI-2 位置是否独立配置 provider/key（不同公司或同公司不同 key）；false = 跟随 AI-1 */
-  ai2Independent: boolean
-  /** AI-2 独立配置时的 provider（预置 deepseek/kimi/qiniu 或 custom） */
+  /** AI-2（审阅位）的 provider —— 与 AI-1 位的 aiProviderMode 完全对称独立 */
   ai2ProviderMode: AIProviderMode
   /** AI-2 位的 DeepSeek API Key（与 AI-1 位的 deepseekApiKey 平等独立，切 provider 不丢） */
   deepseekApiKey2: string

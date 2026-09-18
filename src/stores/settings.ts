@@ -56,7 +56,6 @@ const DEFAULT_SETTINGS: SettingsData = {
   qiniuApiKey: '',
   ai1Model: 'deepseek-chat',
   ai2Model: 'deepseek-chat',
-  ai2Independent: false,
   ai2ProviderMode: 'deepseek',
   deepseekApiKey2: '',
   kimiApiKey2: '',
@@ -95,7 +94,6 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'autoExtractWords', key: SETTING_KEYS.AUTO_EXTRACT_WORDS },
   { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
   { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
-  { field: 'ai2Independent', key: SETTING_KEYS.AI_2_INDEPENDENT },
   { field: 'ai2ProviderMode', key: SETTING_KEYS.AI_2_PROVIDER_MODE },
 ]
 
@@ -222,7 +220,6 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         aiProviderMode: s.aiProviderMode,
         ai1Model: s.ai1Model,
         ai2Model: s.ai2Model,
-        ai2Independent: s.ai2Independent,
         ai2ProviderMode: s.ai2ProviderMode,
         customAi1BaseUrl: s.customAi1BaseUrl,
         customAi1Model: s.customAi1Model,
@@ -322,7 +319,6 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           }
           if (loaded.ai1Model !== undefined) patch.ai1Model = loaded.ai1Model
           if (loaded.ai2Model !== undefined) patch.ai2Model = loaded.ai2Model
-          if (loaded.ai2Independent !== undefined) patch.ai2Independent = loaded.ai2Independent
           if (loaded.ai2ProviderMode !== undefined) {
             const valid2 = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
             const raw2 = loaded.ai2ProviderMode
@@ -483,67 +479,69 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       return models
     },
 
+    /** AI-1 / AI-2 两端完全对称解析：各自 provider + 各自槽位 key + 各自模型。
+     *  与 repoSecrets → runner secrets 逻辑保持一致。 */
     getDualEngineConfig: () => {
       const state = get()
-      const mode = state.aiProviderMode
-      if (mode === 'custom') {
-        const ai1BaseUrl = state.customAi1BaseUrl.trim()
-        const ai1ApiKey = state.customAi1ApiKey.trim()
-        const ai1Model = state.customAi1Model.trim()
-        const ai2BaseUrl = state.customAi2BaseUrl.trim()
-        const ai2ApiKey = state.customAi2ApiKey.trim()
-        const ai2Model = state.customAi2Model.trim()
-        if (!ai1BaseUrl || !ai1ApiKey || !ai1Model) {
-          throw new Error('自定义端点模式下 AI-1 端点/Key/模型均需填写')
-        }
-        if (!ai2BaseUrl || !ai2ApiKey || !ai2Model) {
-          throw new Error('自定义端点模式下 AI-2 端点/Key/模型均需填写')
-        }
-        return {
-          ai1: { baseUrl: ai1BaseUrl, apiKey: ai1ApiKey, model: ai1Model },
-          ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
-        }
-      }
-      // 预置 provider：deepseek / kimi / qiniu —— 两端共用 baseUrl + apiKey
-      const apiKey = getProviderApiKey(mode, state)
-      if (!apiKey) {
-        throw new Error(`请先填写 ${AI_PROVIDERS[mode].label} API Key`)
-      }
-      const baseUrl = getProviderBaseUrl(mode)
 
-      // ── AI-2 独立配置：与 repoSecrets → runner secrets 逻辑完全一致 ──
-      if (state.ai2Independent) {
-        if (state.ai2ProviderMode === 'custom') {
-          const ai2BaseUrl = state.customAi2BaseUrl.trim()
-          const ai2ApiKey = state.customAi2ApiKey.trim()
-          const ai2Model = state.customAi2Model.trim()
-          if (!ai2BaseUrl || !ai2ApiKey || !ai2Model) {
-            throw new Error('AI-2 独立自定义端点：Base URL / Key / 模型均需填写')
-          }
-          return {
-            ai1: { baseUrl, apiKey, model: state.ai1Model },
-            ai2: { baseUrl: ai2BaseUrl, apiKey: ai2ApiKey, model: ai2Model },
-          }
+      // ── AI-1（生成位）──
+      let ai1: { baseUrl: string; apiKey: string; model: string }
+      if (state.aiProviderMode === 'custom') {
+        const baseUrl = state.customAi1BaseUrl.trim()
+        const apiKey = state.customAi1ApiKey.trim()
+        const model = state.customAi1Model.trim()
+        if (!baseUrl || !apiKey || !model) {
+          throw new Error('AI-1 自定义端点：Base URL / Key / 模型均需填写')
         }
+        ai1 = { baseUrl, apiKey, model }
+      } else {
+        const cfg = AI_PROVIDERS[state.aiProviderMode]
+        const apiKey = getProviderApiKey(state.aiProviderMode, state)
+        if (!apiKey) {
+          throw new Error(`请先填写 AI-1 位的 ${cfg.label} API Key`)
+        }
+        ai1 = {
+          baseUrl: cfg.baseUrl,
+          apiKey,
+          // 模型必须是本 provider 的（历史残留的别家模型名 → 回退默认）
+          model: cfg.recommendedModels.some((m) => m.id === state.ai1Model)
+            ? state.ai1Model
+            : cfg.defaultModel1,
+        }
+      }
+
+      // ── AI-2（审阅位）：与 AI-1 完全对称 ──
+      let ai2: { baseUrl: string; apiKey: string; model: string }
+      if (state.ai2ProviderMode === 'custom') {
+        const baseUrl = state.customAi2BaseUrl.trim()
+        const apiKey = state.customAi2ApiKey.trim()
+        const model = state.customAi2Model.trim()
+        if (!baseUrl || !apiKey || !model) {
+          throw new Error('AI-2 自定义端点：Base URL / Key / 模型均需填写')
+        }
+        ai2 = { baseUrl, apiKey, model }
+      } else {
         const cfg2 = AI_PROVIDERS[state.ai2ProviderMode]
-        // AI-2 位 key 按公司独立存储（deepseekApiKey2 等），与 AI-1 位平等
-        const apiKey2 =
+        // AI-2 位 key 按公司独立槽位（deepseekApiKey2 等），与 AI-1 位平等；
+        // 同公司且 AI-2 位留空 → 沿用 AI-1 位 key（同 key 双模型的平滑默认）
+        const key2Raw =
           state.ai2ProviderMode === 'deepseek' ? state.deepseekApiKey2.trim()
           : state.ai2ProviderMode === 'kimi' ? state.kimiApiKey2.trim()
           : state.qiniuApiKey2.trim()
+        const apiKey2 = key2Raw || (state.ai2ProviderMode === state.aiProviderMode ? ai1.apiKey : '')
         if (!apiKey2) {
           throw new Error(`请先填写 AI-2 位的 ${cfg2.label} API Key`)
         }
-        return {
-          ai1: { baseUrl, apiKey, model: state.ai1Model },
-          ai2: { baseUrl: cfg2.baseUrl, apiKey: apiKey2, model: cfg2.defaultModel2 },
+        ai2 = {
+          baseUrl: cfg2.baseUrl,
+          apiKey: apiKey2,
+          model: cfg2.recommendedModels.some((m) => m.id === state.ai2Model)
+            ? state.ai2Model
+            : cfg2.defaultModel2,
         }
       }
 
-      return {
-        ai1: { baseUrl, apiKey, model: state.ai1Model },
-        ai2: { baseUrl, apiKey, model: state.ai2Model },
-      }
+      return { ai1, ai2 }
     },
 
     runFactCheckTest: async (
@@ -612,7 +610,6 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           aiProviderMode: merged.aiProviderMode,
           ai1Model: merged.ai1Model,
           ai2Model: merged.ai2Model,
-          ai2Independent: merged.ai2Independent,
           ai2ProviderMode: merged.ai2ProviderMode,
           customAi1BaseUrl: merged.customAi1BaseUrl,
           customAi1Model: merged.customAi1Model,

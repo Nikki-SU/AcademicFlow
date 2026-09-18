@@ -56,7 +56,6 @@ export const SETTING_KEYS = {
   CUSTOM_AI_2_BASE_URL: 'custom_ai_2_base_url',
   CUSTOM_AI_2_API_KEY: 'custom_ai_2_api_key',
   CUSTOM_AI_2_MODEL: 'custom_ai_2_model',
-  AI_2_INDEPENDENT: 'ai_2_independent',
   AI_2_PROVIDER_MODE: 'ai_2_provider_mode',
   // AI 模型清单缓存（M3，TTL 24h）
   AI_MODELS_CACHE_SILICONFLOW: 'ai_models_cache_siliconflow',
