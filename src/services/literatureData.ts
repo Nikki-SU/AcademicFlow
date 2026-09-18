@@ -48,6 +48,44 @@ export function doiToSlug(doi: string): string {
 }
 
 /**
+ * 根据标题/期刊名自动推断文献等级（tier）：
+ *   1 = 一级文献（原创研究论文）
+ *   2 = 二级文献（综述 / meta 分析 / 进展评述等二手文献）
+ *
+ * 判定依据是综述类标题的高频特征词（大小写不敏感、按词边界匹配），
+ * 如 review / survey / overview / meta-analysis / advances / progress 等。
+ * 拿不准时默认一级（原创研究的数量远多于综述）。
+ */
+const SECONDARY_TIER_PATTERNS: RegExp[] = [
+  /\breview\b/i,
+  /\breviews\b/i,
+  /\bsurvey\b/i,
+  /\bsurveys\b/i,
+  /\boverview\b/i,
+  /\bmeta[- ]analysis\b/i,
+  /\bsystematic\b.{0,40}\b(study|review|analysis)\b/i,
+  /\badvances?\b/i,
+  /\bprogress\b/i,
+  /\bperspective[s]?\b/i,
+  /\bcurrent\s+(challenges?|status|developments?|opinions?)\b/i,
+  /\brecent\s+(developments?|progress|advances?)\b/i,
+  /\bstate[- ]of[- ]the[- ]art\b/i,
+  /\bminireview\b/i,
+  /\btutorial\b/i,
+  /\bcommentary\b/i,
+  /\bcritical\s+assessment\b/i,
+]
+
+export function inferPaperTier(title: string, journal?: string): 1 | 2 {
+  const t = title || ''
+  const j = journal || ''
+  if (!t && !j) return 1
+  // 期刊名本身就是综述刊（Chemical Reviews / Chemical Society Reviews 等）的强特征
+  if (/reviews?\b|annual\s+review|current\s+opinion|trends\s+in/i.test(j)) return 2
+  return SECONDARY_TIER_PATTERNS.some((re) => re.test(t)) ? 2 : 1
+}
+
+/**
  * 从 GitHub git trees 一次性拿全仓库文件列表，用来校验 mdStatus
  * 返回 Map<path, size>，包含所有 literatures/ 下的文件及其字节数
  */

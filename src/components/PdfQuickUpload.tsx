@@ -10,7 +10,7 @@ import { useState, useRef } from 'react'
 import { Upload, X, CheckCircle2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
-import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
+import { loadLiteratures, saveLiteratures, inferPaperTier, type Literature } from '../services/literatureData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 
 interface UploadLogicProps {
@@ -62,7 +62,9 @@ async function doUpload(props: UploadLogicProps) {
         doi: normalized.doi,
         title: finalTitle,
         journal: '', year: 0, authors: '', keywords: '',
-        abstractEn: '', abstractCn: '', tier: 0,
+        abstractEn: '', abstractCn: '',
+        // 按标题自动推断一级（原创研究）/ 二级（综述）；之后可在编辑弹窗手改
+        tier: inferPaperTier(finalTitle),
         hasGraphicalAbstract: false, addedAt: now, pdfAddedAt: now,
         source: 'PDF', trackingGroup: '', mdStatus: 'none',
       }

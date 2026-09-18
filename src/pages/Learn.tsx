@@ -701,6 +701,12 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const [showCard, setShowCard] = useState(false)
   const [finished, setFinished] = useState<StudySession | null>(null)
   const [nowTick, setNowTick] = useState(Date.now())
+  /** 答对后自动跳下一题的定时器（退出会话/卸载时清理） */
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (autoTimer.current) clearTimeout(autoTimer.current)
+  }, [])
 
   // 每分钟刷新一次"待复习"判断
   useEffect(() => {
@@ -781,11 +787,18 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       setQuestion(null)
       return
     }
+    // CAT 式预展卡：learn 模式下每个词在本会话第一次出题，先展示单词卡
+    // （先学再测）；错题重做/复习模式不预展。
+    const isFirstEncounter =
+      s.mode === 'learn' &&
+      !s.shownCards.includes(wid) &&
+      !(s.wrongIds[0] === wid)
+    if (isFirstEncounter) s = { ...s, shownCards: [...s.shownCards, wid] }
     setSession(s)
     setQuestion(q)
     setSelected(null)
     setAnswered(false)
-    setShowCard(false)
+    setShowCard(isFirstEncounter)
   }, [byId, settings.questionTypes])
 
   /** 推进到下一题；错题未清先重做题，否则同题型下一词，再否则切下一题型 */
@@ -861,11 +874,13 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     })
   }, [words, settings, presentQuestion])
 
-  const submitAnswer = useCallback(() => {
-    if (!session || !question || !selected || answered) return
-    const isCorrect = selected === question.answer
+  /** 选中即判定（无确认按钮）：对 → 短暂高亮后自动下一题；错 → 弹单词卡 */
+  const submitAnswer = useCallback((option: string) => {
+    if (!session || !question || answered) return
+    const isCorrect = option === question.answer
     const wid = question.wordId
     const now = Date.now()
+    setSelected(option)
     setAnswered(true)
 
     if (isCorrect) {
@@ -917,20 +932,22 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         setWords((prev) => prev.map((w) => (w.id === wid ? planned : w)))
       }
       onStudied(wid)
-      setSession({
+      const nextSession: StudySession = {
         ...session,
         wrongIds,
         correctTypes,
         correctCount: session.correctCount + 1,
         masteredCount: session.masteredCount + (masteredNow ? 1 : 0),
-      })
+      }
+      setSession(nextSession)
+      // 答对：绿色反馈 800ms 后自动下一题（无需点击）
+      if (autoTimer.current) clearTimeout(autoTimer.current)
+      autoTimer.current = setTimeout(() => {
+        autoTimer.current = null
+        advance(nextSession)
+      }, 800)
     } else {
-      // 答错：streak 清零、wrong_count+1、进错题队列；首轮第一次答错弹单词卡
-      const canShowCard =
-        session.mode === 'learn' &&
-        session.typeIdx === 0 &&
-        !session.shownCards.includes(wid)
-      const shownCards = canShowCard ? [...session.shownCards, wid] : session.shownCards
+      // 答错：streak 清零、wrong_count+1、进错题队列；弹单词卡（每次答错都展）
       const wrongIds = session.wrongIds.includes(wid) ? session.wrongIds : [...session.wrongIds, wid]
 
       setWords((prev) => prev.map((w) =>
@@ -938,15 +955,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           ? { ...w, streak: 0, wrongCount: w.wrongCount + 1, status: 'learning' }
           : w,
       ))
-      setShowCard(canShowCard)
+      setShowCard(true)
       setSession({
         ...session,
         wrongIds,
-        shownCards,
         wrongCount: session.wrongCount + 1,
       })
     }
-  }, [session, question, selected, answered, settings.masterCount, settings.questionTypes, setWords, onStudied, byId])
+  }, [session, question, answered, settings.masterCount, settings.questionTypes, setWords, onStudied, byId, advance])
 
   /** 看完卡片或点"下一题"后继续（错题优先重做） */
   const handleNext = useCallback(() => {
@@ -972,6 +988,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   }, [question, session, setWords, settings.masterCount, advance])
 
   const exitSession = useCallback(() => {
+    if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null }
     setSession(null)
     setQuestion(null)
     setFinished(null)
@@ -1094,7 +1111,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             )}
           </div>
 
-          {/* 选项 */}
+          {/* 选项（选中即判定，无确认按钮） */}
           <div className="space-y-3">
             {question.options.map((option, idx) => {
               const isSelected = selected === option
@@ -1106,21 +1123,19 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 else if (isWrongPick) cls += 'bg-red-50 border-red-500 text-red-800'
                 else cls += 'bg-slate-50 border-slate-200 text-slate-400'
               } else {
-                cls += isSelected
-                  ? 'bg-indigo-50 border-indigo-500 text-indigo-900'
-                  : 'bg-white border-slate-300 text-slate-700 hover:border-indigo-300'
+                cls += 'bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50/40 cursor-pointer'
               }
               return (
                 <button
                   key={`${option}-${idx}`}
-                  onClick={() => { if (!answered) setSelected(option) }}
-                  disabled={answered}
+                  onClick={() => submitAnswer(option)}
+                  disabled={answered || showCard}
                   className={cls}
                 >
                   <span className={`shrink-0 w-7 h-7 rounded-full text-center leading-7 text-sm font-bold ${
                     answered && isCorrectOpt ? 'bg-green-500 text-white'
                       : answered && isWrongPick ? 'bg-red-500 text-white'
-                      : isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                      : 'bg-slate-100 text-slate-500'
                   }`}>
                     {String.fromCharCode(65 + idx)}
                   </span>
@@ -1130,29 +1145,18 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             })}
           </div>
 
-          {/* 操作区 */}
+          {/* 操作区：只剩斩词 / 退出（答对自动跳、答错展卡） */}
           <div className="mt-6 flex gap-3">
-            {!answered ? (
-              <button
-                onClick={submitAnswer}
-                disabled={!selected}
-                className="flex-1 py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-              >
-                确认答案
-              </button>
-            ) : (
-              <button
-                onClick={handleNext}
-                className="flex-1 py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1"
-              >
-                {showCard ? '查看单词卡' : '下一题'}
-                {!showCard && <ChevronRight className="w-4 h-4" />}
-              </button>
+            {answered && !showCard && selected === question.answer && (
+              <div className="flex-1 py-3 text-center text-sm font-medium text-green-600">
+                回答正确，即将进入下一题…
+              </div>
             )}
             {settings.allowZhan && currentWord && currentWord.status !== 'mastered' && (
               <button
                 onClick={handleZhan}
-                className="px-4 py-3 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition"
+                disabled={showCard}
+                className="px-4 py-3 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition disabled:opacity-40"
                 title="斩词：直接标记为已掌握"
               >
                 斩词
@@ -1160,17 +1164,25 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             )}
             <button
               onClick={exitSession}
-              className="px-4 py-3 bg-slate-100 text-slate-500 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+              disabled={showCard}
+              className="px-4 py-3 bg-slate-100 text-slate-500 rounded-lg text-sm font-medium hover:bg-slate-200 transition disabled:opacity-40"
             >
               退出
             </button>
           </div>
         </div>
 
-        {/* 单词卡弹层（首轮首次答错） */}
+        {/* 单词卡弹层：learn 首次出题预展（先学再测） / 答错展卡 */}
         {showCard && currentWord && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto">
+              {answered && (
+                <div className="mb-3 text-center">
+                  <span className="inline-block px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs font-medium">
+                    答错了 · 正确答案：{question.answer}
+                  </span>
+                </div>
+              )}
               <div className="text-center mb-4">
                 <h2 className="text-3xl font-bold text-slate-800">{currentWord.word}</h2>
                 <div className="flex items-center justify-center gap-3 mt-1">
@@ -1208,10 +1220,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 </div>
               )}
               <button
-                onClick={() => { setShowCard(false); handleNext() }}
+                onClick={() => {
+                  setShowCard(false)
+                  // 答错卡：点继续 → 进入下一题（错题优先重做）；预览卡：直接开始本题
+                  if (answered) handleNext()
+                }}
                 className="mt-5 w-full py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
               >
-                继续答题（重做本题）
+                {answered ? '继续下一题' : '开始答题'}
               </button>
             </div>
           </div>

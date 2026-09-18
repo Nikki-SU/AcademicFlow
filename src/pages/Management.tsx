@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { loadLiteratures, saveLiteratures, doiToSlug, type Literature } from '../services/literatureData'
+import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
 import { useSettingsStore } from '../stores/settings'
@@ -183,7 +183,8 @@ function literatureToPaper(lit: Literature): Paper {
     journal: lit.journal,
     keywords: lit.keywords ? lit.keywords.split(',').map((k) => k.trim()).filter(Boolean) : [],
     doi: lit.doi,
-    tier: (lit.tier === 1 || lit.tier === 2 ? lit.tier : 1) as 1 | 2,
+    // 历史脏数据（tier=0，早期 PDF 上传未设置）：按标题/期刊重新推断
+    tier: (lit.tier === 1 || lit.tier === 2 ? lit.tier : inferPaperTier(lit.title, lit.journal)) as 1 | 2,
     hasNotes: false,
     mdStatus: lit.mdStatus || 'none',
     mdProgress: 0,
@@ -334,7 +335,7 @@ export default function ManagementPage() {
   const [showImageLightbox, setShowImageLightbox] = useState<string | null>(null)
   const [editingPaper, setEditingPaper] = useState<Paper | null>(null)
   const [papers, setPapers] = useState<Paper[]>([])
-  const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1' as '1' | '2', categoryIds: [] as string[] })
+  const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto' as 'auto' | '1' | '2', categoryIds: [] as string[] })
   const [doiFetching, setDoiFetching] = useState(false)
   const [doiFetchError, setDoiFetchError] = useState<string | null>(null)
   const [doiQuickInput, setDoiQuickInput] = useState('')
@@ -795,7 +796,8 @@ export default function ManagementPage() {
         journal: meta.journal || '',
         doi,
         keywords: [],
-        tier: 1,
+        // 按标题/期刊自动推断一级（原创）/ 二级（综述）
+        tier: inferPaperTier(meta.title, meta.journal),
         hasNotes: false,
         mdStatus: 'none',
         mdProgress: 0,
@@ -846,7 +848,10 @@ export default function ManagementPage() {
       journal: newPaper.journal.trim(),
       doi,
       keywords: newPaper.keywords.split(',').map((k) => k.trim()).filter(Boolean),
-      tier: Number(newPaper.tier) as 1 | 2,
+      // 'auto' → 按标题/期刊关键词推断一级（原创）/ 二级（综述）
+      tier: (newPaper.tier === 'auto'
+        ? inferPaperTier(newPaper.title, newPaper.journal)
+        : Number(newPaper.tier)) as 1 | 2,
       hasNotes: false,
       mdStatus: 'none',
       mdProgress: 0,
@@ -856,7 +861,7 @@ export default function ManagementPage() {
     setPapers(updated)
     try {
       await savePapers(updated)
-      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: [] })
+      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: [] })
       setShowAddPaperModal(false)
       toast.success('文献已保存', { description: '刷新后仍会保留' })
     } catch (err) {
@@ -1952,7 +1957,7 @@ export default function ManagementPage() {
                 </button>
                 <button
                   onClick={() => {
-                    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
                     setShowAddPaperModal(true)
                   }}
                   className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition shadow-md shadow-indigo-200"
@@ -2202,7 +2207,7 @@ export default function ManagementPage() {
                             </div>
                             <button
                               onClick={() => {
-                                setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                                setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
                                 setShowAddPaperModal(true)
                               }}
                               className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
@@ -2372,7 +2377,7 @@ export default function ManagementPage() {
                       </div>
                       <button
                         onClick={() => {
-                          setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: '1', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                          setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
                           setShowAddPaperModal(true)
                         }}
                         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
@@ -2971,12 +2976,26 @@ export default function ManagementPage() {
                   <input
                     type="radio"
                     name="tier"
-                    value="1"
-                    checked={newPaper.tier === '1'}
-                    onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as '1' | '2' })}
+                    value="auto"
+                    checked={newPaper.tier === 'auto'}
+                    onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as 'auto' | '1' | '2' })}
                     className="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
                   />
-                  <span className="text-sm text-slate-700">📄 一级文献</span>
+                  <span className="text-sm text-slate-700">
+                    ✨ 自动
+                    <span className="text-xs text-slate-400 ml-1">（按标题/期刊推断，综述类为二级）</span>
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="tier"
+                    value="1"
+                    checked={newPaper.tier === '1'}
+                    onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as 'auto' | '1' | '2' })}
+                    className="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-slate-700">📄 一级</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -2984,10 +3003,10 @@ export default function ManagementPage() {
                     name="tier"
                     value="2"
                     checked={newPaper.tier === '2'}
-                    onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as '1' | '2' })}
+                    onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as 'auto' | '1' | '2' })}
                     className="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
                   />
-                  <span className="text-sm text-slate-700">📖 二级文献</span>
+                  <span className="text-sm text-slate-700">📖 二级</span>
                 </label>
               </div>
             </div>
@@ -3151,6 +3170,45 @@ export default function ManagementPage() {
                   showIcon
                   className="flex items-center gap-1 px-3 py-2 text-sm bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
                 />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">文献等级</label>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-tier"
+                    value="1"
+                    checked={editingPaper.tier === 1}
+                    onChange={() => setEditingPaper({ ...editingPaper, tier: 1 })}
+                    className="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-slate-700">📄 一级文献（原创研究）</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-tier"
+                    value="2"
+                    checked={editingPaper.tier === 2}
+                    onChange={() => setEditingPaper({ ...editingPaper, tier: 2 })}
+                    className="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-slate-700">📖 二级文献（综述/评述）</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setEditingPaper({
+                    ...editingPaper,
+                    // 按当前标题/期刊重新自动推断
+                    tier: inferPaperTier(editingPaper.title, editingPaper.journal),
+                  })}
+                  className="text-xs px-2 py-1 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition"
+                >
+                  ✨ 按标题重新推断
+                </button>
               </div>
             </div>
 
