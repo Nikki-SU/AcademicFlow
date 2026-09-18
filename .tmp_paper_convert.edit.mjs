@@ -52,6 +52,49 @@ const TAG_CHUNK = 20000
 // 那就把它调回来并改用缩小分块。
 const AI_MAX_TOKENS = 32768
 
+// ============================================================
+// 思考模式（reasoning）—— 按阶段关/开
+// ------------------------------------------------------------
+// 背景：推理模型**默认开启思考**，而 reasoning_content 与正文**共用** max_tokens
+// 预算，且按 output 计价（约为 input 的 4 倍）。实测 reasoning 可占掉 79% 的输出
+// 预算，导致正文被截断成空（finish_reason=length、content=''）。
+// 清理/打标/翻译都是机械任务，关掉思考后预算全部留给正文，同时显著省钱。
+//
+// 配置来源：私库 settings/global.md 的 ai_thinking_* 字段（前端 Settings 页写入）。
+// runner 已 checkout 整个仓库，所以直接读本地文件，不需要额外的 Secret。
+// ============================================================
+const AI_THINKING_LEVELS = ['off', 'low', 'high', 'max']
+
+/** 按阶段的思考模式；main() 启动时由 loadThinkingConfig() 覆盖 */
+const THINKING = { clean: 'off', tag: 'off', translate: 'off', words: 'low' }
+
+function loadThinkingConfig() {
+  try {
+    const md = fs.readFileSync(path.join(REPO_ROOT, 'settings/global.md'), 'utf-8')
+    for (const line of md.split('\n')) {
+      const m = line.match(/^\s*-\s*ai_thinking_(clean|tag|translate|words)\s*:\s*(\S+)/)
+      if (!m) continue
+      const level = m[2].trim()
+      if (AI_THINKING_LEVELS.includes(level)) THINKING[m[1]] = level
+      else console.warn(`  [thinking] 忽略非法值 ai_thinking_${m[1]}=${level}（合法值: ${AI_THINKING_LEVELS.join('/')}）`)
+    }
+  } catch (e) {
+    console.warn(`  [thinking] 读取 settings/global.md 失败，全部使用默认值: ${e.message?.slice(0, 120) || e}`)
+  }
+  console.log(`  [thinking] 思考模式: 清理=${THINKING.clean} 打标=${THINKING.tag} 翻译=${THINKING.translate} 提词=${THINKING.words}`)
+}
+
+/**
+ * 把阶段思考模式翻译成请求体参数。
+ *   off      → thinking:{type:'disabled'}（不产出 reasoning，预算全给正文）
+ *   low/high/max → thinking:{type:'enabled'} + reasoning_effort（控制思考强度）
+ */
+function thinkingParams(stage) {
+  const level = THINKING[stage] || 'off'
+  if (level === 'off') return { thinking: { type: 'disabled' } }
+  return { thinking: { type: 'enabled' }, reasoning_effort: level }
+}
+
 const { MINERU_API_TOKEN,
         AI1_BASE_URL, AI1_API_KEY, AI1_MODEL,
         AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
@@ -101,6 +144,10 @@ async function quickAiHealthCheck() {
             model: p.model,
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 1,
+            // 思考关掉：health check 只是 ping，不该为 reasoning 付钱与等时间。
+            // 同时这一步也顺带验证 provider 接受该参数——若被拒绝会返回 400，
+            // 在 MinerU 之前快速失败，不会跑到一半才发现。
+            thinking: { type: 'disabled' },
           }),
           signal: ctrl.signal,
         })
@@ -110,7 +157,8 @@ async function quickAiHealthCheck() {
         if (resp.ok) {
           const data = await resp.json().catch(() => ({}))
           const tokens = data.usage?.completion_tokens ?? '?'
-          console.log(`  [ai-health] ${p.label} ✓ HTTP ${resp.status} ${elapsed}ms tokens=${tokens}`)
+          const rTok = data.usage?.completion_tokens_details?.reasoning_tokens ?? 0
+          console.log(`  [ai-health] ${p.label} ✓ HTTP ${resp.status} ${elapsed}ms tokens=${tokens} reasoning=${rTok}`)
           break
         } else {
           const txt = await resp.text().catch(() => '')
@@ -730,9 +778,10 @@ function stripCodeFences(s) {
   return out.join('\n').replace(/^\s*\n+/, '').replace(/\s+$/, '')
 }
 
-async function aiCall(baseUrl, apiKey, model, system, user, signal) {
+async function aiCall(baseUrl, apiKey, model, system, user, stage, signal) {
   const MAX_RETRY = 10
   const TIMEOUT_MS = 900_000
+  const thinkParams = thinkingParams(stage)
   let lastErr = null
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     const ctrl = new AbortController()
@@ -749,6 +798,7 @@ async function aiCall(baseUrl, apiKey, model, system, user, signal) {
           messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
           temperature: 0.1,
           max_tokens: AI_MAX_TOKENS,
+          ...thinkParams,
         }),
         signal: signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal,
       })
@@ -763,12 +813,14 @@ async function aiCall(baseUrl, apiKey, model, system, user, signal) {
       const content = msg?.content
       const finishReason = choice0?.finish_reason
       const reasoningChars = (msg?.reasoning_content || '').length
-      // 推理模型（如 kimi-k2 系）在长文重发任务上可能耗尽输出预算：
-      // 16k tokens 全花在 reasoning_content 上，content 返回空字符串，
-      // finish_reason=length。旧代码直接返回 '' → Tag "成功"但 0 标记 → 假成功。
+      const usage = j.usage || {}
+      const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0
+      // 推理模型在长文重发任务上可能耗尽输出预算：reasoning_content 把 max_tokens
+      // 吃光，content 返回空字符串，finish_reason=length。
+      // 旧代码直接返回 '' → Tag "成功"但 0 标记 → 假成功。
       // 空响应视为可重试错误，让退避重试接管。
       if (!content || !content.trim()) {
-        throw new Error(`AI ${model}: 空 content (finish_reason=${finishReason || '?'}, reasoning_chars=${reasoningChars})，可能输出预算耗尽或被截断`)
+        throw new Error(`AI ${model}: 空 content (finish_reason=${finishReason || '?'}, reasoning=${reasoningTokens} tok/${reasoningChars} chars, 思考模式=${THINKING[stage] || 'off'})，可能输出预算耗尽或被截断`)
       }
       // 截断的输出绝不能当成功返回。
       // clean/tag 的输出是"原文的完整副本 + 标记"，一旦被截断就是静默丢正文
@@ -776,8 +828,11 @@ async function aiCall(baseUrl, apiKey, model, system, user, signal) {
       //  但 run 仍然 success）。当作可重试错误抛出去，让退避重试接管；
       // 若重试后仍截断，就明确失败，绝不写残缺产物。
       if (finishReason === 'length') {
-        throw new Error(`AI ${model}: 输出被截断 finish_reason=length (content=${content.length} chars, reasoning=${reasoningChars} chars —— 输出预算被 reasoning 占用)`)
+        throw new Error(`AI ${model}: 输出被截断 finish_reason=length (content=${content.length} chars, reasoning=${reasoningTokens} tok —— 输出预算被 reasoning 占用，思考模式=${THINKING[stage] || 'off'})`)
       }
+      // 记录 reasoning 用量：这是验证"思考是否真的关掉了"的直接证据
+      // （关掉思考后 reasoning 应恒为 0；若仍 >0 说明 provider 忽略了该参数）
+      console.log(`  [aiCall] ${stage || '-'} ok: content=${content.length} chars, reasoning=${reasoningTokens} tok, completion=${usage.completion_tokens ?? '?'} tok`)
       return content
     } catch (e) {
       clearTimeout(timer)
@@ -916,7 +971,7 @@ async function runWordsExtraction(enItems, doi, slug) {
   if (!skipAI1) {
     await writeProgress(slug, { stage: 'words_extract', message: 'AI-1 提取学术单词...', pct: 0, node: 3 })
     const allEn = enItems.map(p => p.en).join('\n\n')
-    const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, allEn)
+    const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, allEn, 'words')
     candidateWords = parseJsonArray(raw)
     if (!candidateWords?.length) {
       console.warn(`  [words] AI-1 返回空词汇列表, raw 前200: ${raw?.slice(0, 200)}`)
@@ -937,6 +992,7 @@ async function runWordsExtraction(enItems, doi, slug) {
     AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
     '你是严谨的学术词汇审核助手。严格按用户要求的 JSON 数组格式输出，不要任何解释文字。',
     verifyUser,
+    'words',
   )
   const verified = parseJsonArray(rawV) || []
   console.log(`  [words] AI-2 verified ${verified.length}/${candidateWords.length}`)
@@ -1037,12 +1093,24 @@ function enumerateTaggedMd(md) {
   if (!/<!--\s*PARA_EN\s*-->/.test(md)) { console.log('  [enumerate] auto insert PARA_EN'); md = autoInsertParaTags(md) }
   const lines = md.split('\n'); const out = []; let idx = 0
   const total = lines.filter(l => /<!--\s*PARA_EN\s*-->/.test(l)).length
+  // 标记可能和正文挤在同一行（模型常写成 `<!-- PARA_EN -->段落文字`）。
+  // 旧实现遇到这种行就整行替换成标记 —— 把该段正文**静默删掉**了。
+  // 实测：tag 产出 97438 字符（104 段 + 34 图 + 1 表，模型打标完全正确），
+  // 经 enumerate 后只剩 23313 字符，约 74k 字符正文丢失，却仍判定 success。
+  // 现在改为"标记各自单独成行 + 去掉标记后的剩余原文原样保留"，绝不丢字。
+  const MARK_RE = /<!--\s*(PARA_EN|IMG|TABLE|REF_ALL)\s*-->/g
   for (const line of lines) {
-    if (/<!--\s*PARA_EN\s*-->/.test(line)) { idx++; out.push(`<!-- PARA en ${idx}/${total} -->`); continue }
-    if (/<!--\s*IMG\s*-->/.test(line)) { out.push(`<!-- IMG between ${idx} and ${idx + 1} -->`); continue }
-    if (/<!--\s*TABLE\s*-->/.test(line)) { out.push(`<!-- TABLE between ${idx} and ${idx + 1} -->`); continue }
-    if (/<!--\s*REF_ALL\s*-->/.test(line)) { out.push('<!-- REF ALL -->'); continue }
-    out.push(line)
+    const marks = [...line.matchAll(MARK_RE)]
+    if (marks.length === 0) { out.push(line); continue }
+    for (const m of marks) {
+      const kind = m[1]
+      if (kind === 'PARA_EN') { idx++; out.push(`<!-- PARA en ${idx}/${total} -->`) }
+      else if (kind === 'IMG') out.push(`<!-- IMG between ${idx} and ${idx + 1} -->`)
+      else if (kind === 'TABLE') out.push(`<!-- TABLE between ${idx} and ${idx + 1} -->`)
+      else out.push('<!-- REF ALL -->')
+    }
+    const leftover = line.replace(MARK_RE, '').trim()
+    if (leftover) out.push(leftover)
   }
   return out.join('\n')
 }
@@ -1106,7 +1174,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     // 并发清理（AI 慢时串行要 20+ 分钟；429/超时由 aiCall 内部退避重试兜底）
     let cleanDone = 0
     const cleanedParts = await mapLimit(chunks, CLEAN_CONCURRENCY, async (chunk, i) => {
-      const part = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, CLEAN_PROMPT, chunk))
+      const part = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, CLEAN_PROMPT, chunk, 'clean'))
       cleanDone++
       console.log(`  [clean] chunk ${i + 1} done (${cleanDone}/${chunks.length})`)
       return part
@@ -1141,14 +1209,20 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     for (let i = 0; i < cleanMd.length; i += TAG_CHUNK) tChunks.push(cleanMd.slice(i, i + TAG_CHUNK))
     console.log(`  [tag] clean=${cleanMd.length} chars → ${tChunks.length} chunks (chunk=${TAG_CHUNK}, concurrency=${TAG_CONCURRENCY})`)
     let tagDone = 0
+    // 判定"模型是否真的插了标记"：出现**任意一种**标记就算合规。
+    // 不能只认 PARA_EN —— 纯参考文献的 chunk 本来就不该有 PARA_EN，只该有
+    // <!-- REF_ALL -->。实测最后一篇 chunk 是 161 条参考文献（15068 字符），
+    // 输出恰好多 17 字节 = 该标记长度，是模型的**正确**行为，
+    // 却被旧断言误判为"不遵循指令"而中止整条流水线。
+    const hasAnyMark = (s) => /<!--\s*(PARA_EN|REF_ALL|IMG|TABLE)\s*-->/.test(s)
     const parts = await mapLimit(tChunks, TAG_CONCURRENCY, async (chunk, i) => {
-      let out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, TAG_PROMPT, chunk))
-      if (!/<!--\s*PARA_EN\s*-->/.test(out) && /[A-Za-z]/.test(chunk)) {
-        console.warn(`  [tag] chunk ${i + 1} 首遍无 PARA_EN，重试一次...`)
-        out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, chunk))
+      let out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, TAG_PROMPT, chunk, 'tag'))
+      if (!hasAnyMark(out) && /[A-Za-z]/.test(chunk)) {
+        console.warn(`  [tag] chunk ${i + 1} 首遍无任何标记，重试一次...`)
+        out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, chunk, 'tag'))
       }
-      if (!/<!--\s*PARA_EN\s*-->/.test(out) && /[A-Za-z]/.test(chunk)) {
-        throw new Error(`Tag 阶段 chunk ${i + 1}/${tChunks.length} 连续两次未插入 PARA_EN 标记。可能是当前 AI-1 模型不遵循指令，请检查模型选择或重试。`)
+      if (!hasAnyMark(out) && /[A-Za-z]/.test(chunk)) {
+        throw new Error(`Tag 阶段 chunk ${i + 1}/${tChunks.length} 连续两次未插入任何标记（PARA_EN / REF_ALL / IMG / TABLE）。可能是当前 AI-1 模型不遵循指令，请检查模型选择或重试。`)
       }
       tagDone++
       console.log(`  [tag] chunk ${i + 1} done (${tagDone}/${tChunks.length})`)
@@ -1183,7 +1257,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       const RETRY_TAG_PROMPT = TAG_PROMPT +
         '\n\n特别注意：必须直接输出插好标记的 Markdown 原文，禁止用三反引号代码块整篇包裹；' +
         '每个正文段落前必须单独一行插入 <!-- PARA_EN -->，不允许漏掉任何段落。'
-      taggedMd = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, cleanMd))
+      taggedMd = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, cleanMd, 'tag'))
       write(tmpLocal.tagged, taggedMd)
       skeletonMd = enumerateTaggedMd(taggedMd)
       parsed = parseAlignedMd(skeletonMd)
@@ -1210,7 +1284,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     const wordsEn = enNodes.map(n => n.content).join('\n\n')
     console.log(`  [words] 提前启动 AI-1 词汇提取（与翻译并行, ${wordsEn.length} chars）...`)
     pendingWordsExtract = (async () => {
-      const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, wordsEn)
+      const raw = await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, WORDS_EXTRACT_PROMPT, wordsEn, 'words')
       const cands = parseJsonArray(raw)
       if (cands?.length) {
         fs.writeFileSync(wordsTmpFile, JSON.stringify(cands), 'utf-8')
@@ -1242,7 +1316,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   }
   await mapLimit(enNodes.slice(startEn), TRANS_CONCURRENCY, async (seg, j) => {
     const i = startEn + j
-    const cn = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('para'), seg.content)
+    const cn = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('para'), seg.content, 'translate')
     transOut[i] = cn
     transDone++
     collectOrdered()
@@ -1258,7 +1332,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   let tableDone = startTable
   const tableOut = new Array(tableNodes.length).fill(undefined)
   await mapLimit(tableNodes.slice(startTable), TRANS_CONCURRENCY, async (seg, j) => {
-    tableOut[startTable + j] = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('table'), seg.content)
+    tableOut[startTable + j] = await aiCall(AI2_BASE_URL, AI2_API_KEY, AI2_MODEL, TRANSLATE_PROMPT('table'), seg.content, 'translate')
     tableDone++
     writeProgressThrottled(slug, { stage: 'translating', message: `AI-2 表格 ${tableDone}/${tableNodes.length}`, pct: 90, node: 2 })
   })
@@ -1368,6 +1442,9 @@ async function main() {
   const slug = doi.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\./g, '-')
   console.log(`=== Pipeline start ===`)
   console.log(`  DOI: ${doi}, Slug: ${slug}, PDF: ${pdf_path}`)
+
+  // 思考模式：从私库 settings/global.md 读取按阶段的配置（runner 已 checkout 仓库）
+  loadThinkingConfig()
 
   // 本地目录
   const slugLocalDir = path.join(REPO_ROOT, `literatures/${slug}`)
@@ -1500,6 +1577,9 @@ async function main() {
     // 全流程成功 → 阶段存档作废：本地删掉，并把删除动作一起提交（否则 .tmp 会永远留在仓库里）
     const ckptRels = Object.values(artifactPaths(slug))
     for (const rel of ckptRels) { try { fs.unlinkSync(localFull(rel)) } catch {} }
+    // 上次失败留下的 .diag 诊断产物：这次成功了就不该再留在私库里占空间
+    const diagDirRel = `literatures/${slug}/.diag`
+    try { fs.rmSync(localFull(diagDirRel), { recursive: true, force: true }) } catch {}
     await commitLocalFiles([
       'literatures/literatures.csv',
       `literatures/${slug}/full.md`,
@@ -1507,6 +1587,7 @@ async function main() {
       `literatures/${slug}/images`,
       `vocabulary/vocabulary.csv`,
       `literatures/${slug}/.progress.json`,
+      diagDirRel,
       ...ckptRels,
     ], `[pipeline] convert ${slug}: ${title}`)
 
