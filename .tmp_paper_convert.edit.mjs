@@ -65,41 +65,48 @@ async function quickAiHealthCheck() {
     }
     seen.add(key)
 
-    const t0 = Date.now()
-    try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 15_000)
-      const resp = await fetch(`${p.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
-        body: JSON.stringify({
-          model: p.model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-        }),
-        signal: ctrl.signal,
-      })
-      clearTimeout(timer)
+    // AI-1 七牛云 kimi-k2.6 跨太平洋首包可能 >15s；改为 30s 超时 + 一次重试
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const t0 = Date.now()
+      try {
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 30_000)
+        const resp = await fetch(`${p.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
+          body: JSON.stringify({
+            model: p.model,
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 1,
+          }),
+          signal: ctrl.signal,
+        })
+        clearTimeout(timer)
 
-      const elapsed = Date.now() - t0
-      if (resp.ok) {
-        const data = await resp.json().catch(() => ({}))
-        const tokens = data.usage?.completion_tokens ?? '?'
-        console.log(`  [ai-health] ${p.label} ✓ HTTP ${resp.status} ${elapsed}ms tokens=${tokens}`)
-      } else {
-        const txt = await resp.text().catch(() => '')
-        let hint = ''
-        if (resp.status === 401) hint = 'API Key 无效或已过期'
-        else if (resp.status === 403) hint = '没有权限 —— 可能需要充值 / 开通'
-        else if (resp.status === 404) hint = 'baseUrl 或 model 不存在'
-        else if (resp.status === 429) hint = '限流了'
-        throw new Error(`${p.label} HTTP ${resp.status} ${hint}: ${txt.slice(0, 200)}`)
+        const elapsed = Date.now() - t0
+        if (resp.ok) {
+          const data = await resp.json().catch(() => ({}))
+          const tokens = data.usage?.completion_tokens ?? '?'
+          console.log(`  [ai-health] ${p.label} ✓ HTTP ${resp.status} ${elapsed}ms tokens=${tokens}`)
+          break
+        } else {
+          const txt = await resp.text().catch(() => '')
+          let hint = ''
+          if (resp.status === 401) hint = 'API Key 无效或已过期'
+          else if (resp.status === 403) hint = '没有权限 —— 可能需要充值 / 开通'
+          else if (resp.status === 404) hint = 'baseUrl 或 model 不存在'
+          else if (resp.status === 429) hint = '限流了'
+          throw new Error(`${p.label} HTTP ${resp.status} ${hint}: ${txt.slice(0, 200)}`)
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          if (attempt === 2) throw new Error(`${p.label} 连接两次均超时（30s）—— 检查 baseUrl/网络/七牛云是否可用`)
+          console.warn(`  [ai-health] ${p.label} 首包超时，再试一次...`)
+          await new Promise(r => setTimeout(r, 2000))
+          continue
+        }
+        throw new Error(`${p.label} 预检失败: ${e.message}`)
       }
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        throw new Error(`${p.label} 连接超时（15s）—— 检查 baseUrl 是否正确`)
-      }
-      throw new Error(`${p.label} 预检失败: ${e.message}`)
     }
   }
 }
@@ -968,20 +975,34 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   }
   // 2. Tag（分块：整篇 5w+ 字符一次性重发，16k 输出 token 装不下，
   //    推理模型还可能把预算全烧在 reasoning_content 上 → content 空 → 0 标记假成功。
-  //    与 clean 同策略，按 20k 字符切块、5 路并发；单块漏标时本地正则兜底补 PARA_EN）
-  const tagCleanMd = async (prompt) => {
-    const TAG_CHUNK = 20000
+  //    与 clean 同策略分块；单块漏标时必须让模型重试，绝不本地正则冒充。）
+  const RETRY_TAG_PROMPT = `你是文献标注专家。在 Markdown 上插 HTML 注释标记：
+<!-- PARA_EN --> 插在每个英文正文段落**前**
+<!-- IMG --> 插在每个 ![...] **前**
+<!-- TABLE --> 插在每个 Markdown 表格**前**
+<!-- REF_ALL --> 插在参考文献章节**前**（References/Bibliography）
+要求：
+1. 保留原文每一个字、每一张图片、每一个表格。禁止摘要/改写。
+2. 每个英文正文段落前必须单独一行插入 <!-- PARA_EN -->，不允许漏掉任何段落。
+3. 禁止用三反引号代码块包裹整篇内容。
+4. 直接输出插好标记的 Markdown 原文。`
+
+  const tagCleanMd = async () => {
+    // 并发=1、块=12k：七牛云 kimi-k2.6 输出上限/token 预算偏紧，减少并发避免
+    // 多个长输出同时排队/截断；单块顺序执行进度更稳定。
+    const TAG_CHUNK = 12000
     const tChunks = []
     for (let i = 0; i < cleanMd.length; i += TAG_CHUNK) tChunks.push(cleanMd.slice(i, i + TAG_CHUNK))
-    console.log(`  [tag] clean=${cleanMd.length} chars → ${tChunks.length} chunks`)
+    console.log(`  [tag] clean=${cleanMd.length} chars → ${tChunks.length} chunks (chunk=${TAG_CHUNK}, concurrency=1)`)
     let tagDone = 0
-    const parts = await mapLimit(tChunks, 5, async (chunk, i) => {
-      let out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, prompt, chunk))
+    const parts = await mapLimit(tChunks, 1, async (chunk, i) => {
+      let out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, TAG_PROMPT, chunk))
       if (!/<!--\s*PARA_EN\s*-->/.test(out) && /[A-Za-z]/.test(chunk)) {
-        // 模型整块漏标，或把原文改写到严重缩水：输出明显短于输入时用原文兜底补标
-        const base = (out.trim().length >= chunk.trim().length * 0.5) ? out : stripCodeFences(chunk)
-        console.warn(`  [tag] chunk ${i + 1} 无 PARA_EN，本地正则兜底补标 (ai=${out.length}, chunk=${chunk.length})`)
-        out = autoInsertParaTags(base)
+        console.warn(`  [tag] chunk ${i + 1} 首遍无 PARA_EN，重试一次...`)
+        out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, chunk))
+      }
+      if (!/<!--\s*PARA_EN\s*-->/.test(out) && /[A-Za-z]/.test(chunk)) {
+        throw new Error(`Tag 阶段 chunk ${i + 1}/${tChunks.length} 连续两次未插入 PARA_EN 标记。可能是当前 AI-1 模型不遵循指令，请检查模型选择或重试。`)
       }
       tagDone++
       console.log(`  [tag] chunk ${i + 1} done (${tagDone}/${tChunks.length})`)
@@ -993,7 +1014,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
   if (!taggedMd) {
     await writeProgress(slug, { stage: 'ai1_tag', message: 'AI-1 打标...', pct: 25, node: 1 })
     onProgress?.({ stage: 'ai1_tag', pct: 25 })
-    taggedMd = await tagCleanMd(TAG_PROMPT)
+    taggedMd = await tagCleanMd()
     write(tmpLocal.tagged, taggedMd)
     console.log('  ✓ tag ok')
   } else {
@@ -1287,9 +1308,18 @@ async function main() {
         stage: 'failed', message: `失败: ${err.message}`,
         pct: 0, node: 3, error: err.message || String(err),
       })
+      // 诊断快照：把失败现场的中间文件（cleaned/tag 产物）提交到 .diag/，不污染 .tmp 续跑逻辑
+      const diagDir = `literatures/${slug}/.diag`
+      fs.mkdirSync(path.join(REPO_ROOT, diagDir), { recursive: true })
+      const copyIfExists = (src, dst) => { try { if (fs.existsSync(src) && fs.statSync(src).size) fs.copyFileSync(src, dst) } catch {} }
+      copyIfExists(path.join(REPO_ROOT, `literatures/${slug}/.tmp_cleaned.md`), path.join(REPO_ROOT, `${diagDir}/cleaned.md`))
+      copyIfExists(path.join(REPO_ROOT, `literatures/${slug}/.tmp_tagged.md`), path.join(REPO_ROOT, `${diagDir}/tagged.md`))
+      copyIfExists(path.join(REPO_ROOT, `literatures/${slug}/.tmp_enumerated.md`), path.join(REPO_ROOT, `${diagDir}/enumerated.md`))
+      fs.writeFileSync(path.join(REPO_ROOT, `${diagDir}/error.txt`), `${err.message || String(err)}\n\nmodel: ${AI1_MODEL}\n`, 'utf-8')
       await commitLocalFiles([
         'literatures/literatures.csv',
         `literatures/${slug}/.progress.json`,
+        `${diagDir}/`,
       ], `[pipeline] ${slug} failed: ${err.message}`)
     } catch { console.warn('  [fail-safe] 写失败状态也失败了') }
     process.exit(1)
