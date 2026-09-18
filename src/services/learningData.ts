@@ -187,13 +187,13 @@ export async function loadWords(force = false): Promise<WordData[]> {
     VOCAB_PATH,
     (rows) => {
       if (rows.length <= 1) return []
+      // 表头感知：新格式 15 列（含 wrong_count/streak）；
+      // 旧格式 13 列表头，但历史行可能带 14 个值（尾部多一个重复 ease）
+      const header = rows[0].map((h) => (h || '').trim())
+      const hasNewCols = header.includes('wrong_count')
       return rows.slice(1)
         .filter((r) => (r[0] || '').trim())
         .map((r, i) => {
-          // 历史脏数据自愈：旧版 saveWords 按 14 个值回写 13 列表头，
-          // 导致整行右移一位（status 跑到 added_at 列、source_doi 被词根覆盖等）。
-          // 识别特征：第 8 列(index 8)是合法 status 而第 7 列不是。
-          const shifted = !VALID_WORD_STATUS.has((r[7] || '').trim()) && VALID_WORD_STATUS.has((r[8] || '').trim())
           const num = (s: string | undefined, d = 0) => {
             const n = parseInt(s || '', 10)
             return Number.isFinite(n) ? n : d
@@ -204,18 +204,20 @@ export async function loadWords(force = false): Promise<WordData[]> {
             phonetic: r[2] || '',
             exampleZh: undefined as string | undefined,
           }
-          if (shifted) {
-            // 右移行：0 word, 1 中文(原 exampleZh 位), 2 音标, 3 definition_cn,
-            // 4 definition_en, 5 example, 6 source_doi, 8 status,
-            // 9 added_at, 10 last_review, 11 review_count, 12 interval, 13 ease
+          const s7 = (r[7] || '').trim()
+          const s8 = (r[8] || '').trim()
+
+          // 历史脏数据 A：双 status 行 —— r7、r8 都是合法 status（如 new,learning）。
+          // 某旧版写入时多塞了一个 status，r8 是较新状态，其后各列整体左移一位。
+          if (!hasNewCols && VALID_WORD_STATUS.has(s7) && VALID_WORD_STATUS.has(s8)) {
             return {
               ...base,
-              meaning: r[1] || r[3] || '',
+              meaning: r[1] || '',
               definitionCn: r[3] || '',
               definitionEn: r[4] || '',
               exampleEn: r[5] || '',
               sourceDoi: r[6] || '',
-              status: ((r[8] || 'new').trim() as WordStatus),
+              status: s8 as WordStatus,
               addedAt: num(r[9]) || num(r[10]),
               lastReview: num(r[10]),
               reviewCount: num(r[11]),
@@ -225,7 +227,30 @@ export async function loadWords(force = false): Promise<WordData[]> {
               wrongCount: 0,
             }
           }
-          // 正常 13/15 列
+
+          // 历史脏数据 B：b6c2768 版 saveWords 多写了 exampleZh/root 两列，
+          // 导致 source_doi 落在 r7、status 落在 r8（整行右移）。
+          if (!hasNewCols && !VALID_WORD_STATUS.has(s7) && VALID_WORD_STATUS.has(s8)) {
+            return {
+              ...base,
+              meaning: r[1] || r[3] || '',
+              definitionCn: r[3] || '',
+              definitionEn: r[4] || '',
+              exampleEn: r[5] || '',
+              sourceDoi: r[7] || r[6] || '',
+              status: (s8 || 'new') as WordStatus,
+              addedAt: num(r[9]) || num(r[10]),
+              lastReview: num(r[10]),
+              reviewCount: num(r[11]),
+              sm2Interval: parseFloat(r[12] || '1') || 1,
+              sm2Ease: parseFloat(r[13] || '2.5') || 2.5,
+              streak: 0,
+              wrongCount: 0,
+            }
+          }
+
+          // 正常行：新 15 列；或旧 13 列表头 + 13/14 值行
+          // （旧 14 值行 r13 是重复的 sm2_ease，不是 wrong_count，必须忽略）
           return {
             ...base,
             meaning: r[1] || '',
@@ -233,14 +258,14 @@ export async function loadWords(force = false): Promise<WordData[]> {
             definitionEn: r[4] || '',
             exampleEn: r[5] || '',
             sourceDoi: r[6] || '',
-            status: ((r[7] || 'new').trim() as WordStatus),
+            status: (s7 || 'new') as WordStatus,
             addedAt: num(r[8]),
             lastReview: num(r[9]),
             reviewCount: num(r[10]),
             sm2Interval: parseFloat(r[11] || '1') || 1,
             sm2Ease: parseFloat(r[12] || '2.5') || 2.5,
-            wrongCount: num(r[13]),
-            streak: num(r[14]),
+            wrongCount: hasNewCols ? num(r[13]) : 0,
+            streak: hasNewCols ? num(r[14]) : 0,
           }
         })
     },
