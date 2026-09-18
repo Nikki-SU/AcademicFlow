@@ -3,7 +3,7 @@
  * -------------------------------------------------
  * SPEC §3：所有文献数据存储在 GitHub 私库。
  * - literatures/literatures.csv — 文献元数据表
- * - literatures/{doi-slug}/fulltext.md — 正文 Markdown
+ * - literatures/{doi-slug}/full.md — MinerU 原始正文 Markdown（用 MinerU 产物的原名，不再改名）
  * - literatures/{doi-slug}/abstract_en.md — 英文摘要
  * - literatures/{doi-slug}/abstract_cn.md — 中文摘要
  * - literatures/{doi-slug}/annotations/ — 批注目录
@@ -112,19 +112,28 @@ async function fetchLiteratureFileSet(): Promise<Map<string, number> | null> {
   }
 }
 
+/**
+ * 导出给「清理 PDF」面板用：一次性拿全仓库 literatures/ 下文件清单（Map<path,size>）
+ */
+export async function fetchLiteratureFiles(): Promise<Map<string, number> | null> {
+  return fetchLiteratureFileSet()
+}
+
 /** 小于该字节数的 {slug}.md 视为空壳（runner 历史 bug 会留下 1 字节假成功文件） */
 const MIN_VALID_ALIGNED_BYTES = 50
 
 /**
  * 根据 GitHub 上实际文件推断 mdStatus
  *   - 有 {slug}.md（且非空壳）→ done（全流程完成）
- *   - 有 fulltext.md 或只有空壳 {slug}.md → converting（MinerU 成功，post-mineru 未完成/失败）
+ *   - 有 full.md 或只有空壳 {slug}.md → converting（MinerU 成功，post-mineru 未完成/失败）
  *   - 什么都没有 → none
+ * 注：full.md 是 MinerU 原始产物名；fulltext.md 是 2026-09 之前的旧名，一并兼容读取。
  */
 function inferMdStatusFromFiles(doi: string, fileSet: Map<string, number>): MdStatus {
   const slug = doiToSlug(doi)
   const alignedSize = fileSet.get(`literatures/${slug}/${slug}.md`)
   if (alignedSize !== undefined && alignedSize >= MIN_VALID_ALIGNED_BYTES) return 'done'
+  if (fileSet.has(`literatures/${slug}/full.md`)) return 'converting'
   if (fileSet.has(`literatures/${slug}/fulltext.md`)) return 'converting'
   // 空壳 {slug}.md 也按未完成处理，提示用户重跑转换
   if (alignedSize !== undefined) return 'converting'
@@ -300,13 +309,15 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
 
 export async function loadFulltext(doi: string): Promise<string> {
   const slug = doiToSlug(doi)
-  // 新版写 fulltext.md；旧版（2026-09-11 之前）写 index.md —— 都要兼容
-  let result = await readMdFile(`literatures/${slug}/fulltext.md`)
+  // 标准路径 full.md（MinerU 原始产物名，不改名）；
+  // 兼容 fulltext.md（2026-09 之前的旧名）与 index.md（更旧）。
+  let result = await readMdFile(`literatures/${slug}/full.md`)
+  if (!result) result = await readMdFile(`literatures/${slug}/fulltext.md`)
   if (!result) {
     result = await readMdFile(`literatures/${slug}/index.md`)
     if (result) {
       console.warn(
-        `[loadFulltext] ${doi} 只有旧路径 index.md，新版应使用 fulltext.md。下次转换会自动写入 fulltext.md。`,
+        `[loadFulltext] ${doi} 只有旧路径 index.md，新版应使用 full.md。下次转换会自动写入 full.md。`,
       )
     }
   }
@@ -334,7 +345,9 @@ export async function loadAlignedMd(doi: string): Promise<string> {
   // 兼容：旧版 aligned.md
   result = await readMdFile(`literatures/${slug}/aligned.md`)
   if (result?.content?.trim()) return result.content
-  // 兼容：更旧的 fulltext.md（纯原文，无译文）
+  // 兼容：MinerU 原始产物（纯原文，无译文）
+  result = await readMdFile(`literatures/${slug}/full.md`)
+  if (result?.content?.trim()) return result.content
   result = await readMdFile(`literatures/${slug}/fulltext.md`)
   if (result?.content?.trim()) return result.content
   // 兼容：最旧的 index.md
@@ -352,13 +365,15 @@ export async function saveAlignedMd(doi: string, content: string): Promise<void>
 
 /**
  * 清理旧版遗留的 md 文件。aligned.md 写入后，这些中间产物不再需要。
- * 保留：{slug}.md（主文件）、images/ 文件夹、vocabulary.csv、annotations.csv
+ * 保留：{slug}.md（主文件）、full.md / fulltext.md / index.md（MinerU 原始产物，永不删）、
+ *       images/ 文件夹、vocabulary.csv、annotations.csv
  */
 export async function cleanupLegacyMd(doi: string): Promise<void> {
   const slug = doiToSlug(doi)
+  // ⚠️ 不要在这里加 full.md / fulltext.md / index.md：
+  // 它们是 MinerU 的原始产物（阅读页图片与英文原文的来源），删除会导致重跑 MinerU。
+  // 也不要加 images/（阅读页图片一直需要正常显示）。
   const paths = [
-    `literatures/${slug}/fulltext.md`,
-    `literatures/${slug}/index.md`,
     `literatures/${slug}/translation.md`,
     `literatures/${slug}/aligned.md`,
   ]
@@ -382,7 +397,7 @@ export async function cleanupLegacyMd(doi: string): Promise<void> {
 
 export async function saveFulltext(doi: string, content: string): Promise<void> {
   const slug = doiToSlug(doi)
-  await writeMdFile(`literatures/${slug}/fulltext.md`, content, 'Update fulltext')
+  await writeMdFile(`literatures/${slug}/full.md`, content, 'Update full.md')
 }
 
 export async function loadNotes(doi: string): Promise<string> {

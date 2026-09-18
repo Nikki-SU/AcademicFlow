@@ -29,6 +29,18 @@ const MINERU_API = 'https://mineru.net/api/v4'
 const MAX_BLOB_SIZE = 100 * 1024 * 1024
 const MAX_CONTENTS_SIZE = 1 * 1024 * 1024
 
+// ============================================================
+// AI 并发度
+// ------------------------------------------------------------
+// 当前 AI-1 / AI-2 都指向 DeepSeek 官方（官方不设硬性并发限制），
+// 偶发 429/503 由 aiCall 的 10 次指数退避重试兜底。
+// 各阶段的并发不超过该阶段的分块/段落数，块数少的阶段（如 clean 5 块）
+// 提高并发没有收益，所以按"够用即可"设置。
+// ============================================================
+const CLEAN_CONCURRENCY = 5   // 清理：分块 20k
+const TAG_CONCURRENCY = 4     // 打标：分块 12k（原先因七牛云 kimi 限流降为 1）
+const TRANS_CONCURRENCY = 8   // 逐段翻译 + 表格翻译：段落数最多，收益最大
+
 const { MINERU_API_TOKEN,
         AI1_BASE_URL, AI1_API_KEY, AI1_MODEL,
         AI2_BASE_URL, AI2_API_KEY, AI2_MODEL,
@@ -411,7 +423,7 @@ async function commitLocalFiles(fileRelPaths, message) {
 //
 // 存档文件（都放在 literatures/{slug}/ 下，前端/阅读页不读它们）：
 //   .tmp_meta.json        源 PDF 指纹（pdf_path + size）—— 源变了就作废全部存档
-//   fulltext.md + images/ MinerU 产物（跳过 MinerU 解析，省 MinerU 额度与时间）
+//   full.md + images/ MinerU 原始产物（跳过 MinerU 解析，省 MinerU 额度与时间）
 //   .tmp_cleaned.md       AI-1 清理产物
 //   .tmp_tagged.md        AI-1 打标产物
 //   .tmp_enumerated.md    编号骨架
@@ -441,7 +453,7 @@ function artifactExists(rel) {
 function resumePlan(slug) {
   const a = artifactPaths(slug)
   return {
-    mineru: artifactExists(`literatures/${slug}/fulltext.md`),
+    mineru: artifactExists(`literatures/${slug}/full.md`),
     clean: artifactExists(a.cleaned),
     tag: artifactExists(a.tagged),
     enumerate: artifactExists(a.enumerated),
@@ -1063,9 +1075,9 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     const chunks = []
     for (let i = 0; i < markdown.length; i += CLEAN_CHUNK) chunks.push(markdown.slice(i, i + CLEAN_CHUNK))
     console.log(`  [clean] markdown=${markdown.length} chars → ${chunks.length} chunks`)
-    // 3 路并发清理（串行 5 块在 AI 慢时要 20+ 分钟；429/超时由 aiCall 内部重试兜底）
+    // 并发清理（AI 慢时串行要 20+ 分钟；429/超时由 aiCall 内部退避重试兜底）
     let cleanDone = 0
-    const cleanedParts = await mapLimit(chunks, 5, async (chunk, i) => {
+    const cleanedParts = await mapLimit(chunks, CLEAN_CONCURRENCY, async (chunk, i) => {
       const part = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, CLEAN_PROMPT, chunk))
       cleanDone++
       console.log(`  [clean] chunk ${i + 1} done (${cleanDone}/${chunks.length})`)
@@ -1095,14 +1107,14 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
 4. 直接输出插好标记的 Markdown 原文。`
 
   const tagCleanMd = async () => {
-    // 并发=1、块=12k：七牛云 kimi-k2.6 输出上限/token 预算偏紧，减少并发避免
-    // 多个长输出同时排队/截断；单块顺序执行进度更稳定。
+    // 块=12k：单块输出不会撞 16k 输出上限；并发 TAG_CONCURRENCY（见文件顶部常量）。
+    // 单块漏标记时必须让模型重试，绝不本地正则冒充。
     const TAG_CHUNK = 12000
     const tChunks = []
     for (let i = 0; i < cleanMd.length; i += TAG_CHUNK) tChunks.push(cleanMd.slice(i, i + TAG_CHUNK))
-    console.log(`  [tag] clean=${cleanMd.length} chars → ${tChunks.length} chunks (chunk=${TAG_CHUNK}, concurrency=1)`)
+    console.log(`  [tag] clean=${cleanMd.length} chars → ${tChunks.length} chunks (chunk=${TAG_CHUNK}, concurrency=${TAG_CONCURRENCY})`)
     let tagDone = 0
-    const parts = await mapLimit(tChunks, 1, async (chunk, i) => {
+    const parts = await mapLimit(tChunks, TAG_CONCURRENCY, async (chunk, i) => {
       let out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, TAG_PROMPT, chunk))
       if (!/<!--\s*PARA_EN\s*-->/.test(out) && /[A-Za-z]/.test(chunk)) {
         console.warn(`  [tag] chunk ${i + 1} 首遍无 PARA_EN，重试一次...`)
@@ -1186,8 +1198,7 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     try { resumeData = JSON.parse(read(tmpLocal.translated)); enItems = resumeData.enItems || []; tables = resumeData.tables || []; startEn = enItems.length; startTable = tables.length } catch {}
     console.log(`  [resume] translate: ${enItems.length} segments done`)
   }
-  // 3 路并发翻译：结果按原文顺序有序收集（保证续跑语义与最终段落顺序）
-  const TRANS_CONCURRENCY = 5
+  // 并发翻译（TRANS_CONCURRENCY，见文件顶部常量）：结果按原文顺序有序收集（保证续跑语义与最终段落顺序）
   let transDone = startEn
   const transOut = {}
   let nextToAppend = startEn
@@ -1407,19 +1418,19 @@ async function main() {
     const plan = describeResume(slug)
     console.log(`  [resume] 已存档: ${plan.done.length ? plan.done.join(' → ') : '（无）'}；本次从「${plan.next}」开始`)
 
-    const fulltextRel = `literatures/${slug}/fulltext.md`
+    const mineruMdRel = `literatures/${slug}/full.md`
     const imagesRel = `literatures/${slug}/images`
-    const fulltextLocalMain = path.join(REPO_ROOT, fulltextRel)
+    const mineruMdLocalMain = path.join(REPO_ROOT, mineruMdRel)
     const imagesDirMain = path.join(REPO_ROOT, imagesRel)
     const hasImages = fs.existsSync(imagesDirMain) && fs.readdirSync(imagesDirMain).length > 0
 
-    // 2. MinerU（存档可信 + fulltext.md + images/ 都在 → 直接复用，不重复消耗 MinerU 额度与时间）
+    // 2. MinerU（存档可信 + full.md + images/ 都在 → 直接复用，不重复消耗 MinerU 额度与时间）
     const canReuseMineru = trusted && plan.mineru && hasImages
-      && fs.existsSync(fulltextLocalMain) && fs.statSync(fulltextLocalMain).size > 1000
+      && fs.existsSync(mineruMdLocalMain) && fs.statSync(mineruMdLocalMain).size > 1000
     let markdown = null
     if (canReuseMineru) {
-      markdown = fs.readFileSync(fulltextLocalMain, 'utf-8')
-      console.log(`  [resume] 复用已存档 MinerU 产物（fulltext.md ${markdown.length} chars + images），跳过 MinerU`)
+      markdown = fs.readFileSync(mineruMdLocalMain, 'utf-8')
+      console.log(`  [resume] 复用已存档 MinerU 产物（full.md ${markdown.length} chars + images），跳过 MinerU`)
       await writeProgress(slug, { stage: 'mineru_download', message: '续跑：复用已存档 MinerU 产物', pct: 48, node: 0 })
     } else {
       await writeProgress(slug, { stage: 'mineru_apply', message: 'MinerU 申请...', pct: 10, node: 0 })
@@ -1434,13 +1445,13 @@ async function main() {
       return
     }
 
-    // 存 fulltext.md（本地写，commit 时 push）
-    const fulltextLocal = path.join(REPO_ROOT, fulltextRel)
-    fs.writeFileSync(fulltextLocal, markdown, 'utf-8')
-    // 刚跑完 MinerU → 立刻存档 fulltext + images + 源指纹：下次重试可整段跳过 MinerU
+    // 存 MinerU 原始 md：就用它本来的文件名 full.md，不改名（少一层映射）
+    const mineruMdLocal = path.join(REPO_ROOT, mineruMdRel)
+    fs.writeFileSync(mineruMdLocal, markdown, 'utf-8')
+    // 刚跑完 MinerU → 立刻存档 full.md + images + 源指纹：下次重试可整段跳过 MinerU
     if (!canReuseMineru) {
       writeSourceMeta(slug, resolvedPdfPath, pdfBuf.length)
-      await saveCheckpoint(slug, [fulltextRel, imagesRel, artifactPaths(slug).meta], 'mineru')
+      await saveCheckpoint(slug, [mineruMdRel, imagesRel, artifactPaths(slug).meta], 'mineru')
     }
 
     // 3. Post-Mineru（本地跑 AI，结果存本地 —— 内部会写 ai1_clean → ai1_tag → enumerate → translating → assemble）
@@ -1462,7 +1473,7 @@ async function main() {
     for (const rel of ckptRels) { try { fs.unlinkSync(localFull(rel)) } catch {} }
     await commitLocalFiles([
       'literatures/literatures.csv',
-      `literatures/${slug}/fulltext.md`,
+      `literatures/${slug}/full.md`,
       `literatures/${slug}/${slug}.md`,
       `literatures/${slug}/images`,
       `vocabulary/vocabulary.csv`,

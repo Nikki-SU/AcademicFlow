@@ -18,6 +18,7 @@ import {
   Sparkles,
   ToggleLeft,
   ToggleRight,
+  Trash2,
   Wifi,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -30,6 +31,7 @@ import ConnectivityPanel from '../components/settings/ConnectivityPanel'
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
 import BackendCapabilitiesPanel from '../components/settings/BackendCapabilitiesPanel'
+import PdfCleanupPanel from '../components/settings/PdfCleanupPanel'
 import { isChatModel } from '../services/ai/models'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
@@ -526,6 +528,19 @@ function Settings() {
             </span>
           </div>
           <p className="text-xs text-slate-400 pl-14">范围 10-50，默认 15。例句必须逐字来自原文献。</p>
+        </section>
+
+        {/* PDF 清理（转换成功后的 PDF 体积大且无法检索，可批量清掉） */}
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
+          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Trash2 className="w-4 h-4 text-red-600" />
+            清理已转换文献的 PDF
+          </h2>
+          <p className="text-xs text-slate-500">
+            PDF 体积大且无法检索，转换成功后就没用了（正文已落成 MinerU 的 full.md，图片在 images/）。
+            只列出<b>转换成功</b>的文献，可全选或部分选择。md、图片、词汇表不受影响。
+          </p>
+          <PdfCleanupPanel />
         </section>
 
         {/* 调试看板 */}

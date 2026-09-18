@@ -2,7 +2,7 @@
  * 段落对齐翻译渲染
  * 现在有两条渲染路径：
  *   新路径：renderAlignedMdHtml() —— 输入 aligned.md（带 HTML 注释标记），确定性 idx 对齐
- *   旧路径：renderAlignedHtml()  —— 输入原始 fulltext.md + translation.md，启发式比例匹配
+ *   旧路径：renderAlignedHtml()  —— 输入原始 full.md + translation.md，启发式比例匹配
  */
 import type { RenderMarkdownOptions } from './markdown-renderer'
 import { renderMarkdownToHtml, extractMath, restoreMathInMarkdown } from './markdown-renderer'
