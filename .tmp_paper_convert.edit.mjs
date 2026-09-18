@@ -870,15 +870,25 @@ async function mapLimit(arr, limit, fn) {
 // Post-Mineru 纯函数（同前端逻辑但 Runner 本地跑）
 // ============================================================
 const CLEAN_PROMPT = `你是文献整理专家。清理 PDF 提取文本：
-1. 移除页眉页脚、页码、版权声明、期刊模板文字
+1. 移除页眉页脚、页码、版权声明、期刊模板文字（**只删这些文字，其中的图片链接要保留**）
 2. 拼接被打断的段落（处理断词断句）
-3. 保留图片占位 ![image] 但不描述
+3. 【图片一张都不能少、一个字都不能改】![说明](images/xxxx.jpg) 必须连路径一起逐字照抄。
+   严禁改写成 ![image] 这种没有路径的形式，严禁改写/省略/替换任何图片路径。
+   即使图片出现在页眉页脚、期刊封面或广告位，也只删它周围的文字，图片本身必须留下。
+   宁可多留几张无关的图，也绝不允许丢图。
 4. 保留 Markdown 表格
 5. 保留 LaTeX 公式原样不动
 6. 参考文献章节完整保留
 7. 纯 Markdown 输出，不要代码块
 8. 绝对不要输出 ⟨⟨⟨ 和 ⟩⟩⟩ 这两个符号
 直接输出清理后的内容。`
+
+/** clean 阶段发现丢图时的纠正提示（只重跑丢图的那几个分块） */
+const CLEAN_RETRY_PROMPT = CLEAN_PROMPT + `
+
+特别注意（上一遍就是这里出错的）：图片语法必须连路径一起原样输出。
+例如原文里的 ![image](images/3b3aef4ab75d.jpg) 必须原样写成 ![image](images/3b3aef4ab75d.jpg)，
+绝对不允许写成 ![image]（那样路径就丢了，图就没了）。`
 
 /**
  * 打标：把清理好的文本切成"块"。
@@ -908,10 +918,12 @@ const TAG_PROMPT = `你是文献结构标注助手。把给定的 Markdown 文�
 
 硬性要求：
 1. 内容原文必须**逐字保留**：禁止摘要、改写、翻译、合并段落、增删标点，禁止改动图片路径与表格内容。
-2. 每个块开标记之后必须紧跟 ${END} 闭合，不允许漏。
-3. 块与块之间保留原有的空行（空行放在块外面）。
-4. 行内公式 $...$、行内代码、脚注标记都留在正文块里，不要单独成块。
-5. 禁止用三反引号代码块包裹整体输出。
+2. 图片块的内容必须是**完整的图片语法（含路径）**，例如 ![image](images/abc.jpg)。
+   绝对不允许写成 ![image] 这种没有路径的形式 —— 那样图就没了。
+3. 每个块开标记之后必须紧跟 ${END} 闭合，不允许漏。
+4. 块与块之间保留原有的空行（空行放在块外面）。
+5. 行内公式 $...$、行内代码、脚注标记都留在正文块里，不要单独成块。
+6. 禁止用三反引号代码块包裹整体输出。
 
 示例（节选）：
 ${OPEN}文字·标题·1·1${CLOSE}From Powder to Technical Body${END}
@@ -1116,6 +1128,37 @@ async function runWordsExtraction(enItems, doi, slug) {
 // 这里只放 runner 侧的编排：切块统计、内容守恒校验、取翻译目标、插译文
 // ============================================================
 
+/** 抽出一段文本里所有图片路径（![...](路径) 里的路径部分） */
+function imagePaths(s) {
+  const out = new Set()
+  for (const m of String(s ?? '').matchAll(/!\[[^\]]*\]\(\s*([^)\s]+)/g)) out.add(m[1])
+  return out
+}
+
+/** 返回 before 里有、after 里没有的图片路径 */
+function missingImages(before, after) {
+  const b = imagePaths(before)
+  const a = imagePaths(after)
+  return [...b].filter((p) => !a.has(p))
+}
+
+/**
+ * 图是不可以丢的。
+ * 实测 clean 阶段会把 ![](images/x.jpg) 改写成没有路径的 ![image]，
+ * 7 张图静默消失 —— 而字符数守恒检查只看比例（0.2%），完全看不出来。
+ * 所以每个阶段结束都单独核对一遍图片路径，缺任何一张就报出来。
+ */
+function logImages(before, after, stage) {
+  const b = imagePaths(before).size
+  const a = imagePaths(after).size
+  console.log(`  [images] ${stage}: ${b} → ${a} 张`)
+  return a
+}
+
+function describeMissing(lost) {
+  return `${lost.slice(0, 5).map((p) => p.split('/').pop()).join(', ')}${lost.length > 5 ? ` 等 ${lost.length} 张` : ''}`
+}
+
 /**
  * Tag 产出 → 带正确编号的骨架文档。
  * renumber 只改元信息里的编号，内容逐字不动，因此结构上不可能丢东西。
@@ -1150,6 +1193,13 @@ function enumerateBlocks(taggedMd, cleanedMd) {
   }
   if (before.length && after > before * 1.03) {
     console.warn(`  [enumerate] ⚠️ 打标稿比清理稿多 ${((after / before - 1) * 100).toFixed(1)}% 字符，模型可能改写了原文，请留意`)
+  }
+
+  // 图单独核一遍：字符数守恒看比例，丢几张图（0.2%）根本触发不了阈值
+  const lostImgs = missingImages(cleanedMd, skeletonMd)
+  logImages(cleanedMd, skeletonMd, 'tag')
+  if (lostImgs.length) {
+    throw new Error(`打标阶段丢了 ${lostImgs.length} 张图，已中止（图不可以丢）。缺失：${describeMissing(lostImgs)}。请重跑本任务。`)
   }
   return skeletonMd
 }
@@ -1226,8 +1276,33 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
       console.log(`  [clean] chunk ${i + 1} done (${cleanDone}/${chunks.length})`)
       return part
     })
+
+    // 图片核对：clean 最容易在这里把 ![](images/x.jpg) 改写成 ![image]（路径就没了）。
+    // 丢图时只重跑"含这些图的那几个分块"，不整篇重来 —— 省时省钱，也避免把已清理好的块又过一遍 AI。
+    let lostImgs = missingImages(markdown, cleanedParts.join('\n'))
+    if (lostImgs.length) {
+      const badIdx = chunks
+        .map((c, i) => (lostImgs.some((p) => c.includes(p)) ? i : -1))
+        .filter((i) => i >= 0)
+      console.warn(`  [clean] ⚠️ ${lostImgs.length} 张图丢了路径，重跑 ${badIdx.length} 个分块: ${describeMissing(lostImgs)}`)
+      for (const i of badIdx) {
+        cleanedParts[i] = stripCodeFences(
+          await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, CLEAN_RETRY_PROMPT, chunks[i], 'clean'),
+        )
+      }
+      lostImgs = missingImages(markdown, cleanedParts.join('\n'))
+      console.log(`  [clean] 重跑后仍缺 ${lostImgs.length} 张`)
+    }
+    logImages(markdown, cleanedParts.join('\n'), 'clean')
+
     cleanMd = cleanedParts.join('\n')
     cleanMd = cleanMd.replace(/<span[^>]*>.*?<\/span>/g, '').replace(/^\s*\n/gm, '').trim()
+
+    // 核对放在最后（span 剥离之后），否则上面那步万一吃掉图就查不出来了
+    lostImgs = missingImages(markdown, cleanMd)
+    if (lostImgs.length) {
+      throw new Error(`Clean 阶段丢了 ${lostImgs.length} 张图，已中止（图不可以丢）。缺失：${describeMissing(lostImgs)}。请重跑本任务。`)
+    }
     write(tmpLocal.cleaned, cleanMd)
     console.log(`  ✓ clean ok, ${cleanMd.length} chars`)
     await saveCheckpoint(slug, t.cleaned, 'ai1_clean')
@@ -1254,11 +1329,18 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     // 判定"模型是否真的切出了块"：能解析出至少一个块就算合规。
     // 用共享解析器判定，和前端的口径完全一致。
     const hasBlock = (s) => parseBlocks(s).items.some(it => it.t === 'block')
+    // 块切出来了、且这一块的图一张没少，才算合规
+    const okChunk = (out, chunk) => hasBlock(out) && missingImages(chunk, out).length === 0
     const parts = await mapLimit(tChunks, TAG_CONCURRENCY, async (chunk, i) => {
       let out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, TAG_PROMPT, chunk, 'tag'))
-      if (!hasBlock(out) && /[A-Za-z]/.test(chunk)) {
-        console.warn(`  [tag] chunk ${i + 1} 首遍没切出任何块，重试一次...`)
+      if (!okChunk(out, chunk) && /[A-Za-z]/.test(chunk)) {
+        console.warn(`  [tag] chunk ${i + 1} 首遍不合规（没切出块或丢了图），重试一次...`)
         out = stripCodeFences(await aiCall(AI1_BASE_URL, AI1_API_KEY, AI1_MODEL, RETRY_TAG_PROMPT, chunk, 'tag'))
+      }
+      // 图不可以丢：单块就对一遍，别等到最后才发现
+      const lost = missingImages(chunk, out)
+      if (lost.length) {
+        throw new Error(`Tag 阶段 chunk ${i + 1}/${tChunks.length} 丢了 ${lost.length} 张图（图不可以丢）。缺失：${describeMissing(lost)}`)
       }
       if (!hasBlock(out) && /[A-Za-z]/.test(chunk)) {
         throw new Error(`Tag 阶段 chunk ${i + 1}/${tChunks.length} 连续两次没切出任何块（${OPEN}元信息${CLOSE}…${END}）。可能是当前 AI-1 模型不遵循指令，请检查模型选择或重试。`)
@@ -1353,6 +1435,12 @@ async function runPostMineru(doi, markdown, slug, onProgress) {
     console.warn(`  ⚠️ ${total - inserted}/${total} 块没有译文，已按原文落盘（阅读页会标注"译文排队中"）`)
   }
   console.log(`  ✓ assemble ok，${total} 块中 ${inserted} 块带译文`)
+  // 图最后再核一遍：组装只是插译文块，任何一张图没了都说明前面有环节出问题
+  const finalLost = missingImages(skeletonMd, alignedMd)
+  logImages(skeletonMd, alignedMd, 'assemble')
+  if (finalLost.length) {
+    throw new Error(`组装阶段丢了 ${finalLost.length} 张图，已中止（图不可以丢）。缺失：${describeMissing(finalLost)}。请重跑本任务。`)
+  }
   const alignedRel = `literatures/${slug}/${slug}.md`
   fs.writeFileSync(path.join(REPO_ROOT, alignedRel), alignedMd, 'utf-8')
   // 6. 清理 tmp

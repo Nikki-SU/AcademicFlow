@@ -41,17 +41,33 @@ export function renderMarkdownToHtml(
   return html
 }
 
+/**
+ * 公式占位符。
+ *
+ * 必须用 marked **不会解释**的字符：旧实现用 `__MATH_INLINE_0__`，
+ * 而 `__xxx__` 在 Markdown 里是加粗语法 —— 占位符会被吃成
+ * `<strong>MATH_INLINE_0</strong>`，还原时匹配不到，页面上就直接显示
+ * 光秃秃的 "MATH_INLINE_0"。`@@` 无任何 Markdown 语义，安全。
+ */
+const BLOCK_TOKEN = (i: number) => `@@MATH_BLOCK_${i}@@`
+const INLINE_TOKEN = (i: number) => `@@MATH_INLINE_${i}@@`
+
+/** 判定一整段是否只由块级公式占位符组成（段落类型识别用） */
+export function isBlockMathOnly(text: string): boolean {
+  return /^(?:@@MATH_BLOCK_\d+@@\s*)+$/.test(text.trim())
+}
+
 /** 提取 LaTeX 公式，避免 marked 破坏它们 */
 export function extractMath(text: string): ExtractedMath {
   const inlineMath: string[] = []
   const blockMath: string[] = []
   let processed = text.replace(/\$\$([\s\S]*?)\$\$/g, (_m, math: string) => {
     blockMath.push(math.trim())
-    return `__MATH_BLOCK_${blockMath.length - 1}__`
+    return BLOCK_TOKEN(blockMath.length - 1)
   })
   processed = processed.replace(/\$([^\$\n]+?)\$/g, (_m, math: string) => {
     inlineMath.push(math.trim())
-    return `__MATH_INLINE_${inlineMath.length - 1}__`
+    return INLINE_TOKEN(inlineMath.length - 1)
   })
   return { inlineMath, blockMath, text: processed }
 }
@@ -61,12 +77,12 @@ function restoreMath(html: string, inlineMath: string[], blockMath: string[]): s
   let result = html
   blockMath.forEach((math, i) => {
     result = result.replace(
-      `__MATH_BLOCK_${i}__`,
+      BLOCK_TOKEN(i),
       `<div class="my-4 overflow-x-auto text-center">${renderMath(math, true)}</div>`,
     )
   })
   inlineMath.forEach((math, i) => {
-    result = result.replace(`__MATH_INLINE_${i}__`, renderMath(math, false))
+    result = result.replace(INLINE_TOKEN(i), renderMath(math, false))
   })
   return result
 }
@@ -79,10 +95,10 @@ export function restoreMathInMarkdown(
 ): string {
   let result = text
   blockMath.forEach((math, i) => {
-    result = result.replace(`__MATH_BLOCK_${i}__`, `$$${math}$$`)
+    result = result.replace(BLOCK_TOKEN(i), `$$${math}$$`)
   })
   inlineMath.forEach((math, i) => {
-    result = result.replace(`__MATH_INLINE_${i}__`, `$${math}$`)
+    result = result.replace(INLINE_TOKEN(i), `$${math}$`)
   })
   return result
 }

@@ -39,6 +39,7 @@ import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml, escapeHtml } from '../services/markdown-renderer'
 import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
+import { readAnyDocument } from '../services/blocks.mjs'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 type SideTab = 'notes' | 'annotations'
@@ -540,6 +541,49 @@ const [aligned_content, set_aligned_content] = useState('')
   const selectedPaper = papers.find((p) => p.id === selectedPaperId)
   const paperAnnotations = annotations
 
+  /**
+   * 批注排序用的"正文扁平纯文本"：按块顺序把原文与译文拼起来，去掉 markdown 标记、压平空白。
+   *
+   * 用它而不是渲染后的 HTML —— 不受显示模式影响，选中英文原文或中文译文都能定到同一个位置，
+   * 而且不用为了排序多渲染一遍全文。
+   */
+  const articleFlatText = useMemo(() => {
+    const flat = (s: string) =>
+      s
+        .replace(/<[^>]*>/g, '')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+        .replace(/[#*_`>|]/g, '')
+        .replace(/\s+/g, ' ')
+    if (aligned_content.trim()) {
+      const { items } = readAnyDocument(aligned_content)
+      return flat(items.map((it) => (it.t === 'block' ? `${it.content} ${it.cn ?? ''}` : it.content)).join(' '))
+    }
+    return flat(selectedPaper?.markdownContent ?? '')
+  }, [aligned_content, selectedPaper])
+
+  /**
+   * 批注按**在正文中出现的先后**排序，而不是按录入先后 ——
+   * 这样侧栏从上往下读的顺序，和正文从上往下读的顺序是同一套位置。
+   * 定位不到的（正文里已找不到原句，比如重新转换过）排在最后，内部按时间排。
+   */
+  const orderedAnnotations = useMemo(() => {
+    const flat = (s: string) => s.replace(/[#*_`>|]/g, '').replace(/\s+/g, ' ').trim()
+    const pos = new Map<string, number>()
+    for (const a of paperAnnotations) {
+      const needle = flat(a.text || '')
+      pos.set(a.id, needle ? articleFlatText.indexOf(needle) : -1)
+    }
+    return paperAnnotations.slice().sort((a, b) => {
+      const pa = pos.get(a.id) ?? -1
+      const pb = pos.get(b.id) ?? -1
+      if (pa === -1 || pb === -1) {
+        if (pa !== pb) return pa === -1 ? 1 : -1
+        return a.createdAt - b.createdAt
+      }
+      return pa - pb || a.createdAt - b.createdAt
+    })
+  }, [paperAnnotations, articleFlatText])
+
   const rendered_html = useMemo(() => {
     const opts = { imageBaseUrl: getImageBaseUrl(selectedPaperId ?? '') }
 
@@ -671,11 +715,8 @@ const [aligned_content, set_aligned_content] = useState('')
     content += `导出时间：${formatDate(Date.now())}\n\n`
     content += `批注总数：${paperAnnotations.length}\n\n---\n\n`
 
-    paperAnnotations
-      .slice()
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .forEach((anno, idx) => {
-        content += `## 批注 ${idx + 1}\n\n`
+    orderedAnnotations.forEach((anno, idx) => {
+      content += `## 批注 ${idx + 1}\n\n`
         content += `> ${anno.text}\n\n`
         content += `**颜色**：${getColorInfo(anno.color).label}\n\n`
         content += `**时间**：${formatDate(anno.createdAt)}\n\n`
@@ -1258,9 +1299,7 @@ const [aligned_content, set_aligned_content] = useState('')
                   </div>
                 ) : (
                   <div className="p-2 space-y-2">
-                    {paperAnnotations
-                      .slice()
-                      .sort((a, b) => b.createdAt - a.createdAt)
+                    {orderedAnnotations
                       .map((anno) => {
                         const colorInfo = getColorInfo(anno.color)
                         const isSelected = selectedAnnotationId === anno.id

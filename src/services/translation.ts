@@ -5,7 +5,7 @@
  *   旧路径：renderAlignedHtml()  —— 输入原始 full.md + translation.md，启发式比例匹配
  */
 import type { RenderMarkdownOptions } from './markdown-renderer'
-import { renderMarkdownToHtml, extractMath, restoreMathInMarkdown } from './markdown-renderer'
+import { renderMarkdownToHtml, extractMath, restoreMathInMarkdown, isBlockMathOnly } from './markdown-renderer'
 import { readAnyDocument, isTranslatable, type ReadBlockItem } from './blocks.mjs'
 
 export type TranslationMode = 'original' | 'bilingual' | 'chinese' | 'english'
@@ -29,7 +29,7 @@ export function splitMarkdownIntoParagraphs(markdown: string): Paragraph[] {
   return parts.map((part) => {
     const trimmed = part.trim()
     let type: ParagraphType = 'text'
-    if (/^__MATH_BLOCK_\d+__(?:\s*__MATH_BLOCK_\d+__)*$/s.test(trimmed)) type = 'formula'
+    if (isBlockMathOnly(trimmed)) type = 'formula'
     else if (/^!\[.*?\]\(.*?\)/ms.test(trimmed)) type = 'image'
     else if (/^```/m.test(trimmed)) type = 'code'
     else if (/^#{1,6}\s+/m.test(trimmed)) type = 'heading'
