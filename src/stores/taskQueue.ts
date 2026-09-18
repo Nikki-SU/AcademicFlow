@@ -37,7 +37,8 @@ export type PipelineStage =
   | 'mineru_poll'      // 轮询解析状态
   | 'mineru_download'  // 下载 zip 产物
   // --- UI 节点 1：标注（AI-1 Clean + AI-1 Tag + 纯代码 Enumerate）---
-  | 'ai1_clean'        // AI-1 语义分段 + 清理 + 打标（一步完成，输出带标记的 Markdown）
+  | 'ai1_clean'        // AI-1 清理正文（去页眉页脚/页码，拼回被分页截断的段落）
+  | 'ai1_tag'          // AI-1 打标（给每段/图/表/参考文献插 <!-- PARA_EN --> 等标记）
   | 'enumerate'        // 纯代码编号（瞬间完成）
   // --- UI 节点 2：翻译（AI-2 逐段）---
   | 'translating'
@@ -63,7 +64,8 @@ export const STAGE_META: Record<PipelineStage, { node: 0 | 1 | 2 | 3; pctBase: n
   mineru_poll:     { node: 0, pctBase: 20, label: 'MinerU 解析中' },
   mineru_download: { node: 0, pctBase: 48, label: 'MinerU 下载产物' },
   // 节点 1：标注
-  ai1_clean:       { node: 1, pctBase: 51, label: 'AI-1 语义分段 + 清理 + 打标' },
+  ai1_clean:       { node: 1, pctBase: 51, label: 'AI-1 清理正文' },
+  ai1_tag:         { node: 1, pctBase: 59, label: 'AI-1 打标（插段标记）' },
   enumerate:       { node: 1, pctBase: 67, label: '纯代码编号对齐' },
   // 节点 2：翻译
   translating:     { node: 2, pctBase: 70, label: 'AI-2 逐段翻译' },
