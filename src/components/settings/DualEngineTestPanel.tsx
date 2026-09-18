@@ -193,8 +193,6 @@ function DualEngineTestPanel() {
     ai2Model,
     aiProviderMode,
     deepseekApiKey,
-    kimiApiKey,
-    qiniuApiKey,
     customAi1Model,
     customAi2Model,
   } = useSettingsStore()
@@ -203,8 +201,6 @@ function DualEngineTestPanel() {
   const currentProviderApiKey = (() => {
     switch (aiProviderMode) {
       case 'deepseek': return deepseekApiKey.trim()
-      case 'kimi': return kimiApiKey.trim()
-      case 'qiniu': return qiniuApiKey.trim()
       default: return ''
     }
   })()

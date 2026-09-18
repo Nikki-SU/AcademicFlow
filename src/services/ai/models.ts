@@ -20,10 +20,10 @@ export const MODELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
  * 用于 AI 双引擎场景的模型 id 前缀白名单
  * 从 /v1/models 过滤出适合 chat/reasoning 用途的（排除 embedding/rerank/tts/image/video）
  *
- * 覆盖三家主流 provider 的命名风格：
- *   - 硅基流动：Qwen/Qwen3-32B, deepseek-ai/DeepSeek-V3, moonshotai/Kimi-K2
- *   - 官方直连：deepseek-chat, deepseek-v4-pro, kimi-k2.6
- *   - 七牛云聚合：deepseek/deepseek-v4-flash, minimax/minimax-m2.5, moonshotai/kimi-k2.6
+ * 覆盖主流 provider 的命名风格：
+ *   - 硅基流动：Qwen/Qwen3-32B, deepseek-ai/DeepSeek-V3
+ *   - 官方直连：deepseek-chat, deepseek-v4-pro
+ *   - 聚合平台：deepseek/deepseek-v4-flash, minimax/minimax-m2.5
  */
 const CHAT_MODEL_ALLOW_PREFIXES = [
   // 硅基流动风格
@@ -31,18 +31,16 @@ const CHAT_MODEL_ALLOW_PREFIXES = [
   'deepseek-ai/DeepSeek', 'Pro/deepseek-ai/DeepSeek',
   'meta-llama/Llama',
   'zai-org/GLM', 'Pro/zai-org/GLM',
-  'moonshotai/Kimi', 'Pro/moonshotai/Kimi',
   'MiniMaxAI/MiniMax', 'Pro/MiniMaxAI/MiniMax',
   'ByteDance-Seed/Seed',
   'Tongyi-Zhiwen/QwenLong',
   'internlm/internlm',
   'THUDM/GLM',
-  // 七牛云聚合风格（小写 vendor/ 前缀）
-  'deepseek/', 'moonshotai/', 'minimax/', 'qwen/', 'bytedance/',
-  'qwen-', 'doubao-', 'glm-', 'kimi-k', 'deepseek-v3', 'deepseek-r1',
+  // 聚合平台风格（小写 vendor/ 前缀）
+  'deepseek/', 'minimax/', 'qwen/', 'bytedance/', 'moonshotai/',
+  'qwen-', 'doubao-', 'glm-', 'deepseek-v3', 'deepseek-r1',
   // 官方直连风格（无前缀）
   'deepseek-flash', 'deepseek-chat', 'deepseek-v4', 'deepseek-v3', 'deepseek-r1',
-  'kimi-k2', 'kimi-k3',
   'minimax-m',
   // 其他
   'MiniMax-M1', 'MiniMax-M3',
@@ -78,18 +76,17 @@ export function isChatModel(modelId: string): boolean {
 /**
  * 根据 model id 推断厂商/提供方
  *
- * 三家主流 provider 命名风格：
- *   - 硅基流动：Pro/deepseek-ai/DeepSeek-V3、moonshotai/Kimi-K2.5、MiniMaxAI/MiniMax-M2
- *   - 七牛云：deepseek/deepseek-v4-flash、moonshotai/kimi-k2.6、minimax/minimax-m2.5
- *   - 官方直连：deepseek-chat、kimi-k2.6（无前缀可从模型名推断）
+ * 主流 provider 命名风格：
+ *   - 硅基流动：Pro/deepseek-ai/DeepSeek-V3、MiniMaxAI/MiniMax-M2
+ *   - 聚合平台：deepseek/deepseek-v4-flash、minimax/minimax-m2.5
+ *   - 官方直连：deepseek-chat（无前缀可从模型名推断）
  */
 export function getModelVendor(modelId: string): string {
   const id = modelId.trim()
   if (!id) return '未知'
   const lower = id.toLowerCase()
-  // 七牛云小写前缀优先匹配
+  // 聚合平台小写前缀优先匹配
   if (lower.startsWith('deepseek/')) return 'DeepSeek / 深度求索'
-  if (lower.startsWith('moonshotai/')) return 'Kimi / 月之暗面'
   if (lower.startsWith('minimax/')) return 'MiniMax / 稀宇'
   if (lower.startsWith('qwen/')) return '通义千问 / 阿里'
   if (lower.startsWith('bytedance/')) return '豆包 / 字节跳动'
@@ -106,9 +103,6 @@ export function getModelVendor(modelId: string): string {
   if (id.startsWith('zai-org/') || id.startsWith('Pro/zai-org/')) {
     return 'GLM / 智谱'
   }
-  if (id.startsWith('moonshotai/') || id.startsWith('Pro/moonshotai/')) {
-    return 'Kimi / 月之暗面'
-  }
   if (id.startsWith('MiniMaxAI/') || id.startsWith('Pro/MiniMaxAI/')) {
     return 'MiniMax / 稀宇'
   }
@@ -120,7 +114,6 @@ export function getModelVendor(modelId: string): string {
   }
   // 无前缀官方模型
   if (lower.startsWith('deepseek')) return 'DeepSeek / 深度求索'
-  if (lower.startsWith('kimi')) return 'Kimi / 月之暗面'
   if (lower.startsWith('minimax') || id.startsWith('MiniMax')) return 'MiniMax / 稀宇'
   if (lower.startsWith('qwen')) return '通义千问 / 阿里'
   if (lower.startsWith('doubao')) return '豆包 / 字节跳动'

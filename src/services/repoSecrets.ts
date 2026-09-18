@@ -214,8 +214,6 @@ export interface SecretItemStatus {
 export interface SyncAllSecretsInput {
   aiProviderMode: AIProviderMode
   deepseekApiKey: string
-  kimiApiKey: string
-  qiniuApiKey: string
   ai1Model: string
   ai2Model: string
   customAi1BaseUrl: string
@@ -225,11 +223,9 @@ export interface SyncAllSecretsInput {
   customAi2ApiKey: string
   customAi2Model: string
   /** AI-2（审阅位）的 provider —— 与 AI-1 的 aiProviderMode 完全对称独立 */
-  ai2ProviderMode: 'deepseek' | 'kimi' | 'qiniu' | 'custom'
-  /** AI-2 位的各家公司 key（与 AI-1 位字段平等独立） */
+  ai2ProviderMode: AIProviderMode
+  /** AI-2 位的 DeepSeek key（与 AI-1 位字段平等独立） */
   deepseekApiKey2: string
-  kimiApiKey2: string
-  qiniuApiKey2: string
   mineruToken: string
 }
 
@@ -270,10 +266,7 @@ export async function syncAllSecrets(
   } else {
     const cfg = AI_PROVIDERS[mode]
     baseUrl1 = cfg.baseUrl
-    apiKey1 =
-      mode === 'deepseek' ? s.deepseekApiKey
-      : mode === 'kimi' ? s.kimiApiKey
-      : s.qiniuApiKey
+    apiKey1 = s.deepseekApiKey
     // 模型信任 store 值（UI 切 provider 时已重置、syncFromGitHub 已做
     // 一致性校验），此处只兜空值——不再用 recommendedModels 白名单过滤，
     // 因为用户可能从「拉取」的真实清单里选非推荐模型
@@ -290,12 +283,9 @@ export async function syncAllSecrets(
   } else {
     const cfg2 = AI_PROVIDERS[mode2]
     baseUrl2 = cfg2.baseUrl
-    // AI-2 位 key 按公司独立槽位（deepseekApiKey2 等），与 AI-1 位平等；
+    // AI-2 位 key 按公司独立槽位，与 AI-1 位平等；
     // 同公司且 AI-2 位留空 → 沿用 AI-1 位 key（同 key 双模型的平滑默认）
-    const key2 =
-      mode2 === 'deepseek' ? s.deepseekApiKey2
-      : mode2 === 'kimi' ? s.kimiApiKey2
-      : s.qiniuApiKey2
+    const key2 = s.deepseekApiKey2
     // mode2 === mode 已保证两家同家（mode 为 custom 时该等式必为 false，本分支不会误用自定义 key）
     apiKey2 = key2 || (mode2 === mode ? apiKey1 : '')
     model2 = s.ai2Model || cfg2.defaultModel2

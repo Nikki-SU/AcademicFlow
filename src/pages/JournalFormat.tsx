@@ -51,7 +51,7 @@ const CITATION_SORT_OPTIONS = [
 
 function JournalFormatPage() {
   const store = useSettingsStore()
-  const { aiProviderMode, deepseekApiKey, kimiApiKey, qiniuApiKey } = store
+  const { aiProviderMode, deepseekApiKey } = store
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -304,15 +304,8 @@ function JournalFormatPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                // 根据当前 provider 拿对应 key
-                const currentKey = (() => {
-                  switch (aiProviderMode) {
-                    case 'deepseek': return deepseekApiKey
-                    case 'kimi': return kimiApiKey
-                    case 'qiniu': return qiniuApiKey
-                    default: return ''
-                  }
-                })()
+                // 根据当前 provider 拿对应 key（custom 模式无独立槽位）
+                const currentKey = aiProviderMode === 'deepseek' ? deepseekApiKey : ''
                 setTempApiKey(currentKey)
                 setShowQuickSettings(true)
               }}
@@ -323,9 +316,7 @@ function JournalFormatPage() {
               {(() => {
                 // 只在预置 provider 模式下显示状态灯
                 if (aiProviderMode === 'custom') return null
-                const hasKey = (aiProviderMode === 'deepseek' && deepseekApiKey) ||
-                               (aiProviderMode === 'kimi' && kimiApiKey) ||
-                               (aiProviderMode === 'qiniu' && qiniuApiKey)
+                const hasKey = aiProviderMode === 'deepseek' && deepseekApiKey
                 return hasKey
                   ? <span className="w-2 h-2 bg-green-500 rounded-full" title="已配置" />
                   : <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" title="未配置" />
@@ -384,8 +375,6 @@ function JournalFormatPage() {
                     // 根据当前 provider 存对应 key
                     const patch: Record<string, string> = {}
                     if (aiProviderMode === 'deepseek') patch.deepseekApiKey = tempApiKey.trim()
-                    else if (aiProviderMode === 'kimi') patch.kimiApiKey = tempApiKey.trim()
-                    else if (aiProviderMode === 'qiniu') patch.qiniuApiKey = tempApiKey.trim()
                     await useSettingsStore.getState().updateSettings(
                       patch as Partial<ReturnType<typeof useSettingsStore.getState>>,
                     )

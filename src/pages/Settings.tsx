@@ -84,14 +84,10 @@ function Settings() {
     advancedMode,
     aiProviderMode,
     deepseekApiKey,
-    kimiApiKey,
-    qiniuApiKey,
     ai1Model,
     ai2Model,
     ai2ProviderMode,
     deepseekApiKey2,
-    kimiApiKey2,
-    qiniuApiKey2,
     customAi1BaseUrl,
     customAi1ApiKey,
     customAi1Model,
@@ -122,13 +118,9 @@ function Settings() {
       const detail = (e as CustomEvent<{ fields: string[] }>).detail
       const fieldLabelMap: Record<string, string> = {
         deepseekApiKey: 'DeepSeek API Key',
-        kimiApiKey: '月之暗面 Kimi API Key',
-        qiniuApiKey: '七牛云 AI API Key',
         customAi1ApiKey: '自定义 AI-1 API Key',
         customAi2ApiKey: '自定义 AI-2 API Key',
         deepseekApiKey2: 'DeepSeek API Key（AI-2 位）',
-        kimiApiKey2: '月之暗面 Kimi API Key（AI-2 位）',
-        qiniuApiKey2: '七牛云 AI API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
       }
       const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
@@ -172,14 +164,10 @@ function Settings() {
       const items = await syncAllSecrets(owner, targetRepo, auth.token!, {
         aiProviderMode,
         deepseekApiKey,
-        kimiApiKey,
-        qiniuApiKey,
         ai1Model,
         ai2Model,
         ai2ProviderMode,
         deepseekApiKey2,
-        kimiApiKey2,
-        qiniuApiKey2,
         customAi1BaseUrl,
         customAi1ApiKey,
         customAi1Model,
@@ -211,9 +199,9 @@ function Settings() {
   }, [
     isInitialized, owner, auth.token,
     aiProviderMode, advancedMode,
-    deepseekApiKey, kimiApiKey, qiniuApiKey, ai1Model, ai2Model,
+    deepseekApiKey, ai1Model, ai2Model,
     ai2ProviderMode,
-    deepseekApiKey2, kimiApiKey2, qiniuApiKey2,
+    deepseekApiKey2,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
@@ -238,30 +226,16 @@ function Settings() {
     )
   }
 
-  // ── AI-1 位：当前 provider 对应的 key 槽位 ──
-  const slot1Key =
-    aiProviderMode === 'deepseek' ? deepseekApiKey
-    : aiProviderMode === 'kimi' ? kimiApiKey
-    : qiniuApiKey
+  // ── AI-1 位：当前 provider 对应的 key 槽位（custom 模式走自定义 Key，不用此槽位） ──
+  const slot1Key = aiProviderMode === 'deepseek' ? deepseekApiKey : ''
   const setSlot1Key = (v: string) => {
-    const patch: Record<string, string> = {}
-    if (aiProviderMode === 'deepseek') patch.deepseekApiKey = v
-    else if (aiProviderMode === 'kimi') patch.kimiApiKey = v
-    else patch.qiniuApiKey = v
-    updateSettings(patch as Partial<typeof store>)
+    if (aiProviderMode === 'deepseek') updateSettings({ deepseekApiKey: v })
   }
 
   // ── AI-2 位：当前 provider 对应的 key2 槽位（与 AI-1 完全对称） ──
-  const slot2Key =
-    ai2ProviderMode === 'deepseek' ? deepseekApiKey2
-    : ai2ProviderMode === 'kimi' ? kimiApiKey2
-    : qiniuApiKey2
+  const slot2Key = ai2ProviderMode === 'deepseek' ? deepseekApiKey2 : ''
   const setSlot2Key = (v: string) => {
-    const patch: Record<string, string> = {}
-    if (ai2ProviderMode === 'deepseek') patch.deepseekApiKey2 = v
-    else if (ai2ProviderMode === 'kimi') patch.kimiApiKey2 = v
-    else patch.qiniuApiKey2 = v
-    updateSettings(patch as Partial<typeof store>)
+    if (ai2ProviderMode === 'deepseek') updateSettings({ deepseekApiKey2: v })
   }
 
   /** 拉取某槽位的真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */

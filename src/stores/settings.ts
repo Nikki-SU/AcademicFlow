@@ -33,12 +33,31 @@ import type {
 } from '../types'
 import { AI_PROVIDERS } from '../types'
 
+/** 合法 provider 值（由 AI_PROVIDERS 的 key 派生，避免两处不同步） */
+const VALID_PROVIDER_MODES = Object.keys(AI_PROVIDERS) as AIProviderMode[]
+
+/** provider 值归一化：只认合法值，历史/非法值（如 siliconflow）一律回退 fallback。
+ *  与 normalizeThinking 同风格 —— 反序列化 / global.md 手改坏后都靠它兜底。 */
+function normalizeProviderMode(
+  raw: string | null | undefined,
+  fallback: AIProviderMode,
+): AIProviderMode {
+  return raw && (VALID_PROVIDER_MODES as readonly string[]).includes(raw)
+    ? (raw as AIProviderMode)
+    : fallback
+}
+
+/** 模型清单归属 provider 归一化：历史 provider → ''（清单不属于任何 provider） */
+function normalizeModelsProvider(raw: string | null | undefined): AIProviderMode | '' {
+  return raw && (VALID_PROVIDER_MODES as readonly string[]).includes(raw)
+    ? (raw as AIProviderMode)
+    : ''
+}
+
 /** 根据 provider mode + store 状态拿到对应的 apiKey 字段值 */
 function getProviderApiKey(mode: keyof typeof AI_PROVIDERS, s: SettingsData): string {
   switch (mode) {
     case 'deepseek': return s.deepseekApiKey.trim()
-    case 'kimi': return s.kimiApiKey.trim()
-    case 'qiniu': return s.qiniuApiKey.trim()
     default: return ''
   }
 }
@@ -48,15 +67,11 @@ const DEFAULT_SETTINGS: SettingsData = {
   advancedMode: false,
   aiProviderMode: 'deepseek',
   deepseekApiKey: '',
-  kimiApiKey: '',
-  qiniuApiKey: '',
   // 2026-09 实测：deepseek-chat 已从 DeepSeek 官方 API 下线，默认改为现役的 deepseek-flash
   ai1Model: 'deepseek-flash',
   ai2Model: 'deepseek-flash',
   ai2ProviderMode: 'deepseek',
   deepseekApiKey2: '',
-  kimiApiKey2: '',
-  qiniuApiKey2: '',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
@@ -78,13 +93,9 @@ const DEFAULT_SETTINGS: SettingsData = {
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
 const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'deepseekApiKey',
-  'kimiApiKey',
-  'qiniuApiKey',
   'customAi1ApiKey',
   'customAi2ApiKey',
   'deepseekApiKey2',
-  'kimiApiKey2',
-  'qiniuApiKey2',
   'mineruToken',
 ]
 
@@ -114,13 +125,9 @@ const THINKING_FIELDS = [
 /** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
 const SENSITIVE_KEY_MAP: Record<string, string> = {
   deepseekApiKey: SETTING_KEYS.DEEPSEEK_API_KEY,
-  kimiApiKey: SETTING_KEYS.KIMI_API_KEY,
-  qiniuApiKey: SETTING_KEYS.QINIU_API_KEY,
   customAi1ApiKey: SETTING_KEYS.CUSTOM_AI_1_API_KEY,
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
   deepseekApiKey2: SETTING_KEYS.DEEPSEEK_API_KEY_2,
-  kimiApiKey2: SETTING_KEYS.KIMI_API_KEY_2,
-  qiniuApiKey2: SETTING_KEYS.QINIU_API_KEY_2,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
 }
 
@@ -138,16 +145,9 @@ function deserialize(
   if (typeof def === 'boolean') {
     return (raw === '1') as SettingsData[typeof key]
   }
-  if (key === 'aiProviderMode') {
-    // 只接受合法 provider 名，否则 fallback 到 deepseek
-    const valid = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
-    const ok = (valid as readonly string[]).includes(raw ?? '')
-    return (ok ? raw : 'deepseek') as SettingsData[typeof key]
-  }
-  if (key === 'ai2ProviderMode') {
-    const valid2 = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
-    const ok2 = (valid2 as readonly string[]).includes(raw ?? '')
-    return (ok2 ? raw : 'deepseek') as SettingsData[typeof key]
+  if (key === 'aiProviderMode' || key === 'ai2ProviderMode') {
+    // 只接受合法 provider 名，历史值（已下线 provider 等）回退到 deepseek
+    return normalizeProviderMode(raw, 'deepseek') as SettingsData[typeof key]
   }
   if ((THINKING_FIELDS as readonly string[]).includes(key)) {
     const ok = (AI_THINKING_MODES as readonly string[]).includes(raw ?? '')
@@ -175,13 +175,9 @@ function detectPatContamination(
 ): (keyof SettingsData)[] {
   const secretFields: (keyof SettingsData)[] = [
     'deepseekApiKey',
-    'kimiApiKey',
-    'qiniuApiKey',
     'customAi1ApiKey',
     'customAi2ApiKey',
     'deepseekApiKey2',
-    'kimiApiKey2',
-    'qiniuApiKey2',
     'mineruToken',
   ]
   const patPrefixes = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
@@ -341,11 +337,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           const patch: Partial<SettingsData> = {}
           if (loaded.advancedMode !== undefined) patch.advancedMode = loaded.advancedMode
           if (loaded.aiProviderMode !== undefined) {
-            const valid = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
-            const raw = loaded.aiProviderMode
-            // 兼容历史值 siliconflow → deepseek
-            const migrated = raw === 'siliconflow' ? 'deepseek' : raw
-            patch.aiProviderMode = (valid.includes(migrated as any) ? migrated : 'deepseek') as SettingsData['aiProviderMode']
+            // 合法值原样，历史/非法值（如 siliconflow）回退 deepseek
+            patch.aiProviderMode = normalizeProviderMode(loaded.aiProviderMode, 'deepseek')
           }
           // model 一致性校验：残留的别家模型名回退该家默认，
           // 但从拉取清单选的非推荐模型不误杀（推荐清单 ∪ 该槽位拉取清单）
@@ -366,9 +359,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
             patch.ai2Model = ok2 ? loaded.ai2Model : (cfg2.defaultModel2 || loaded.ai2Model)
           }
           if (loaded.ai2ProviderMode !== undefined) {
-            const valid2 = ['deepseek', 'kimi', 'qiniu', 'custom'] as const
-            const raw2 = loaded.ai2ProviderMode
-            patch.ai2ProviderMode = (valid2.includes(raw2 as any) ? raw2 : 'deepseek') as SettingsData['ai2ProviderMode']
+            patch.ai2ProviderMode = normalizeProviderMode(loaded.ai2ProviderMode, 'deepseek')
           }
           if (loaded.customAi1BaseUrl !== undefined) patch.customAi1BaseUrl = loaded.customAi1BaseUrl
           if (loaded.customAi1Model !== undefined) patch.customAi1Model = loaded.customAi1Model
@@ -448,10 +439,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         } else {
           baseUrl = AI_PROVIDERS[mode].baseUrl
           // AI-2 位 key：独立槽位优先；同家留空沿用 AI-1 位 key
-          const key2 =
-            mode === 'deepseek' ? state.deepseekApiKey2.trim()
-            : mode === 'kimi' ? state.kimiApiKey2.trim()
-            : state.qiniuApiKey2.trim()
+          const key2 = state.deepseekApiKey2.trim()
           apiKey = key2 || (mode === state.aiProviderMode ? getProviderApiKey(mode, state) : '')
         }
       }
@@ -565,8 +553,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
 
       set(
         slot === 1
-          ? { slot1Models: models, slot1ModelsProvider: mode, slot1ModelsFetchedAt: Date.now(), error: null }
-          : { slot2Models: models, slot2ModelsProvider: mode, slot2ModelsFetchedAt: Date.now(), error: null },
+          ? { slot1Models: models, slot1ModelsProvider: normalizeModelsProvider(mode), slot1ModelsFetchedAt: Date.now(), error: null }
+          : { slot2Models: models, slot2ModelsProvider: normalizeModelsProvider(mode), slot2ModelsFetchedAt: Date.now(), error: null },
       )
       return models
     },
@@ -616,12 +604,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         ai2 = { baseUrl, apiKey, model }
       } else {
         const cfg2 = AI_PROVIDERS[state.ai2ProviderMode]
-        // AI-2 位 key 按公司独立槽位（deepseekApiKey2 等），与 AI-1 位平等；
+        // AI-2 位 key 按公司独立槽位，与 AI-1 位平等；
         // 同公司且 AI-2 位留空 → 沿用 AI-1 位 key（同 key 双模型的平滑默认）
-        const key2Raw =
-          state.ai2ProviderMode === 'deepseek' ? state.deepseekApiKey2.trim()
-          : state.ai2ProviderMode === 'kimi' ? state.kimiApiKey2.trim()
-          : state.qiniuApiKey2.trim()
+        const key2Raw = state.deepseekApiKey2.trim()
         const apiKey2 = key2Raw || (state.ai2ProviderMode === state.aiProviderMode ? ai1.apiKey : '')
         if (!apiKey2) {
           throw new Error(`请先填写 AI-2 位的 ${cfg2.label} API Key`)
@@ -675,13 +660,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
     resetToDefaults: async () => {
       const keep: Partial<SettingsData> = {
         deepseekApiKey: get().deepseekApiKey,
-        kimiApiKey: get().kimiApiKey,
-        qiniuApiKey: get().qiniuApiKey,
         customAi1ApiKey: get().customAi1ApiKey,
         customAi2ApiKey: get().customAi2ApiKey,
         deepseekApiKey2: get().deepseekApiKey2,
-        kimiApiKey2: get().kimiApiKey2,
-        qiniuApiKey2: get().qiniuApiKey2,
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }
       set(merged)

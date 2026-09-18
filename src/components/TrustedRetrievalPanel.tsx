@@ -75,12 +75,6 @@ const AI_MODELS: AIModelOption[] = [
     category: 'generation',
   },
   {
-    value: 'kimi-k2',
-    label: 'Kimi-K2',
-    desc: '月之暗面 · 长上下文审阅',
-    category: 'review',
-  },
-  {
     value: 'minimax-01',
     label: 'MiniMax-01',
     desc: '稀宇科技 · 创意写作生成',

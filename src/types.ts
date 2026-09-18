@@ -88,9 +88,9 @@ export interface WorkspaceState {
 
 /**
  * AI Provider 类型 + 配置
- * 硬编码 4 家，不用配置文件
+ * 硬编码 2 家，不用配置文件
  */
-export type AIProviderMode = 'deepseek' | 'kimi' | 'qiniu' | 'custom'
+export type AIProviderMode = 'deepseek' | 'custom'
 
 /**
  * 思考模式（reasoning）档位
@@ -142,38 +142,6 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
       { id: 'deepseek-v4-pro', desc: '更强推理（贵 5x）' },
     ],
   },
-  kimi: {
-    label: '月之暗面 Kimi',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    defaultModel1: 'kimi-k2.6',
-    defaultModel2: 'kimi-k2.7-code',
-    apiKeyUrl: 'https://platform.moonshot.cn/',
-    note: 'kimi-k2.6 支持 reasoning_content，新模型需要充值；清单待你拉取后自动验证',
-    // moonshot-v1-8k/32k 已从各家聚合平台下架，不再推荐；
-    // kimi-k3 系与七牛云聚合的 moonshotai 现役阵容一致
-    recommendedModels: [
-      { id: 'kimi-k2.6', desc: '默认，带 reasoning_content（需充值）' },
-      { id: 'kimi-k2.7-code', desc: '代码专用更强模型' },
-      { id: 'kimi-k3', desc: '最新旗舰' },
-    ],
-  },
-  qiniu: {
-    label: '七牛云 AI',
-    baseUrl: 'https://api.qnaigc.com/v1',
-    defaultModel1: 'deepseek/deepseek-v4-flash',
-    defaultModel2: 'minimax/minimax-m2.5',
-    apiKeyUrl: 'https://ai.qiniu.com/',
-    note: '一家店聚合多家模型（81个可选），模型ID带厂商前缀如 deepseek/xxx',
-    // 2026-09 实测：qwen/qwen-plus 不存在（无版本号的旧命名已下架），
-    // 现役为 qwen/qwen3.x 系列带版本号命名
-    recommendedModels: [
-      { id: 'deepseek/deepseek-v4-flash', desc: '默认，速度快' },
-      { id: 'deepseek/deepseek-v4-pro', desc: '强推理' },
-      { id: 'minimax/minimax-m2.5', desc: '多模态强（AI-2 审阅推荐）' },
-      { id: 'moonshotai/kimi-k2.6', desc: '走七牛云的 Kimi' },
-      { id: 'qwen/qwen3.7-plus', desc: '通义千问 3.7 Plus' },
-    ],
-  },
   custom: {
     label: '自定义端点',
     baseUrl: '',
@@ -202,10 +170,6 @@ export interface SettingsData {
   aiProviderMode: AIProviderMode
   /** DeepSeek API Key（AI-1 位） */
   deepseekApiKey: string
-  /** 月之暗面 Kimi API Key（AI-1 位） */
-  kimiApiKey: string
-  /** 七牛云 AI API Key（AI-1 位） */
-  qiniuApiKey: string
   /** AI-1（生成位）默认模型 id */
   ai1Model: string
   /** AI-2（审阅位）默认模型 id */
@@ -214,10 +178,6 @@ export interface SettingsData {
   ai2ProviderMode: AIProviderMode
   /** AI-2 位的 DeepSeek API Key（与 AI-1 位的 deepseekApiKey 平等独立，切 provider 不丢） */
   deepseekApiKey2: string
-  /** AI-2 位的 Kimi API Key */
-  kimiApiKey2: string
-  /** AI-2 位的七牛云 API Key */
-  qiniuApiKey2: string
   /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string
