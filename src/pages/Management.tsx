@@ -1,13 +1,13 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, type Literature } from '../services/literatureData'
+import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, inferMdStatusByDoi, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch, deleteRepoFiles } from '../services/github'
-import { pollProgressJson, getRun, dispatchPaperConvert } from '../services/workflowClient'
+import { pollProgressJson, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
@@ -533,7 +533,24 @@ export default function ManagementPage() {
           } else {
             // 没有 progress.json（还没被写出来）→ 用 GitHub Actions run 状态兜底
             const runId = typeof meta?.id === 'number' ? meta.id : null
-            if (!runId) continue // 连 run_id 都没，真的没法兜底
+            if (!runId) {
+              // 连 run_id 都没有：改用 GitHub 实际产物文件推断终态。
+              // 否则后端已完成、progress.json 被清理、run_id 又丢失时，
+              // 任务会永远卡在 words_verify/running 打转。
+              if (!task.doi) continue
+              const inferred = await inferMdStatusByDoi(task.doi)
+              if (inferred === 'done') {
+                await tq.update_task(task.id, {
+                  status: 'done',
+                  stage: 'done',
+                  node_index: STAGE_META.done.node,
+                  progress: 100,
+                  message: '转换完成（根据产物文件推断）',
+                  updated_at: Date.now(),
+                })
+              }
+              continue
+            }
 
             const run = await getRun(runId, owner, repo.name, token)
             if (!run) continue
@@ -1205,9 +1222,28 @@ export default function ManagementPage() {
 
     // 3. dispatch pipeline
     try {
+      const beforeRun = await getLatestRun('paper_convert', owner as string, repo.name, token)
+      const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+
       await dispatchPaperConvert(paper.doi, paper.title || slug, pdfPath, owner as string, repo.name, token)
       console.log('[handleReconvertPaper] dispatch success')
       toast.success('已重新提交后端处理', { description: '右侧后台监控面板可查看实时进度' })
+
+      // 异步捕获新 run id 存入 metadata（非阻塞），供轮询时 run 状态兜底
+      void (async () => {
+        try {
+          let newRunId: number | null = null
+          for (let i = 0; i < 15; i++) {
+            await new Promise((r) => setTimeout(r, 1000))
+            const rs = await getLatestRun('paper_convert', owner as string, repo.name, token, beforeCreatedAt)
+            if (rs) { newRunId = rs.id; break }
+          }
+          if (newRunId) {
+            await taskQueue.update_task(taskId, { metadata: { id: newRunId } })
+            console.log('[handleReconvertPaper] run id 已记录:', newRunId)
+          }
+        } catch { /* 不阻塞 */ }
+      })()
     } catch (err: any) {
       // dispatch 失败 → 标记 taskQueue 任务为 failed
       try {

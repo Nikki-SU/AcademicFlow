@@ -131,6 +131,17 @@ function inferMdStatusFromFiles(doi: string, fileSet: Map<string, number>): MdSt
   return 'none'
 }
 
+/**
+ * 仅凭 GitHub 实际文件推断某篇文献的 mdStatus（不读 CSV）。
+ * 供后端 progress.json 缺失、且任务未记录 run_id 时的兜底判定，
+ * 避免前端任务队列永远卡在 running。
+ */
+export async function inferMdStatusByDoi(doi: string): Promise<MdStatus | null> {
+  const fileSet = await fetchLiteratureFileSet()
+  if (!fileSet) return null
+  return inferMdStatusFromFiles(doi, fileSet)
+}
+
 export async function loadLiteratures(force = false): Promise<Literature[]> {
   // 并行：读 CSV + 拉 git trees（用来校验 mdStatus）
   const [rows, fileSet] = await Promise.all([

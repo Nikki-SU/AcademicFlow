@@ -421,7 +421,16 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
     const prev = get().tasks.find((t) => t.id === id)
     const tasks = get().tasks.map((t) => {
       if (t.id !== id) return t
-      const merged: BackgroundTask = { ...t, ...patch, updated_at: Date.now() }
+      const merged: BackgroundTask = {
+        ...t,
+        ...patch,
+        updated_at: Date.now(),
+        // metadata 深合并：避免 patch.metadata 整体覆盖已有字段（例如丢 run id）
+        metadata:
+          patch.metadata !== undefined
+            ? { ...(t.metadata ?? {}), ...patch.metadata }
+            : t.metadata,
+      }
       return merged
     })
     set({ tasks })
