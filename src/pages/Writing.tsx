@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { Fragment, useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import {
   PenTool,
   Sparkles,
@@ -38,7 +38,6 @@ import {
   GripVertical,
   Eye,
   File,
-  Brain,
   BookPlus,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -70,13 +69,13 @@ import { callAI } from '../services/ai/client'
 import { searchCrossref, type OnlineSearchResult } from '../services/citation'
 import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
 
-const LEFT_PANEL_MODES = [
+/**
+ * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边。
+ * 大纲不在其中：按需求它固定挂在左侧「项目导航」下方，可收起/展开（仿 Obsidian）。
+ */
+const PANEL_MODES: { value: PanelMode; label: string; icon: typeof PenTool }[] = [
   { value: 'editor', label: '编辑区', icon: PenTool },
-  { value: 'outline', label: '大纲视图', icon: ListTree },
   { value: 'references', label: '文献列表', icon: BookCopy },
-]
-
-const RIGHT_PANEL_MODES = [
   { value: 'ai', label: 'AI 助手', icon: Sparkles },
   { value: 'library', label: '文献库', icon: Library },
   { value: 'knowledge', label: '知识库', icon: GraduationCap },
@@ -91,11 +90,21 @@ const CITATION_SCOPES = [
   { value: 'chapters', label: '指定章节' },
 ]
 
+/** 快捷指令里的一个「填空」：用户只填这个，完整提示词由模板拼出来 */
+interface QuickActionParam {
+  key: string
+  label: string
+  placeholder: string
+  multiline?: boolean
+}
+
 /**
  * 内置快捷指令（写死，不可删）
  * -------------------------------------------------
+ * 交互：点一下 → 该模式亮起 → 下面只出现它需要的输入框 →
+ *       发送时把模板 + 你填的内容拼成一条完整提示词。
  * 只保留学术场景真正需要的三条：
- * - 找文献：按主题检索文献
+ * - 找文献：给出主题 → 检索文献
  * - 找引用：给出观点 → 定位原文（DOI + 原句），并检查文中是否有相反观点
  * - 引用检验：给出你写的文字 + 引文 DOI → 原文是否有相同 / 相反意思
  */
@@ -104,23 +113,31 @@ const BUILTIN_ACTIONS: QuickActionDef[] = [
     key: 'find-papers',
     label: '找文献',
     icon: Search,
-    prompt: '请检索与以下研究主题相关的文献，逐条给出标题、作者、年份、期刊和 DOI：\n\n',
+    template: '请检索与以下研究主题相关的文献，逐条给出标题、作者、年份、期刊和 DOI。\n\n研究主题：{topic}',
+    params: [{ key: 'topic', label: '研究主题', placeholder: '例如：钙钛矿太阳能电池的稳定性' }],
   },
   {
     key: 'find-quote',
     label: '找引用',
     icon: BookText,
-    prompt:
+    template:
       '请为下面这个观点找到原文佐证：先检索定位到具体文章，再给出原文中的原句和 DOI；' +
-      '同时说明该文章里是否存在相反的观点。\n\n观点：',
+      '同时说明该文章里是否存在相反的观点。\n\n观点：{claim}',
+    params: [
+      { key: 'claim', label: '我的观点', placeholder: '一句话写清要佐证的观点', multiline: true },
+    ],
   },
   {
     key: 'verify-citation',
     label: '引用检验',
     icon: CheckCircle2,
-    prompt:
-      '请检验我写的这段文字与所引文献是否匹配：原文里是否有相同意思的表述？' +
-      '原文里是否有相反意思的表述？\n\n我的文字：\n\n引文 DOI：',
+    template:
+      '请检验我写的这段文字与所引文献是否匹配：原文里是否有相同意思的表述？原文里是否有相反意思的表述？' +
+      '\n\n我的文字：\n{text}\n\n引文 DOI：{doi}',
+    params: [
+      { key: 'text', label: '我的文字', placeholder: '粘贴你写的那段话', multiline: true },
+      { key: 'doi', label: '引文 DOI', placeholder: '例如：10.1021/jacs.0c00001' },
+    ],
   },
 ]
 
@@ -168,15 +185,23 @@ interface QuickActionDef {
   key: string
   label: string
   icon: typeof Search
-  prompt: string
+  /** 提示词模板：`{paramKey}` 会被用户填的内容替换，最后拼成一条完整 prompt */
+  template: string
+  params: QuickActionParam[]
 }
 
-/** 「插入引用」工具栏图标（Vditor 的 icon 需要 SVG 字符串） */
+/**
+ * 「插入引用」工具栏图标（Vditor 的 icon 必须是 SVG 字符串）。
+ * 注意：Vditor 的 CSS 会给工具栏里的 svg 强制 `fill: currentColor; stroke-width: 0`，
+ * 所以必须用「纯填充」图形 —— 描边图标会被压成黑块或直接看不见。
+ * 这里用「Vditor 自带的引号 path（缩小） + 右下角一个加号」拼成插入引用图标：
+ * 全是填充图形、32 网格，既能正常渲染，又和工具栏里的「引用块」图标区分开。
+ */
 const CITATION_ICON =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>'
+  '<svg viewBox="0 0 32 32"><g transform="scale(0.7)"><path d="M27.769 26.667h-9.316l3.556-7.111h-4.231v-14.222h14.222v12.871l-4.231 8.462zM24.213 23.111h1.351l2.88-5.76v-8.462h-7.111v7.111h6.436l-3.556 7.111zM9.991 26.667h-9.316l3.556-7.111h-4.231v-14.222h14.222v12.871l-4.231 8.462zM6.436 23.111h1.351l2.88-5.76v-8.462h-7.111v7.111h6.436l-3.556 7.111z"/></g><path d="M22.5 20.5h3V24h3.5v3h-3.5v3.5h-3V27H19v-3h3.5z"/></svg>'
 
-type LeftPanelMode = 'editor' | 'outline' | 'references'
-type RightPanelMode = 'ai' | 'library' | 'knowledge' | 'typesetting'
+/** 面板可显示的功能（左右两侧通用）；大纲固定在左侧导航里，不在此列 */
+type PanelMode = 'editor' | 'references' | 'ai' | 'library' | 'knowledge' | 'typesetting'
 
 const DEFAULT_MD = `# 引言
 
@@ -534,8 +559,10 @@ export default function WritingPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   const [navCollapsed, setNavCollapsed] = useState(false)
-  const [leftPanelMode, setLeftPanelMode] = useState<LeftPanelMode>('editor')
-  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
+  /** 左侧导航里的大纲区是否展开（收起=只看项目，展开=看大纲） */
+  const [outlineExpanded, setOutlineExpanded] = useState(false)
+  const [leftPanelMode, setLeftPanelMode] = useState<PanelMode>('editor')
+  const [rightPanelMode, setRightPanelMode] = useState<PanelMode>('ai')
   const [showLeftDropdown, setShowLeftDropdown] = useState(false)
   const [showRightDropdown, setShowRightDropdown] = useState(false)
   const [panelRatio, setPanelRatio] = useState(70)
@@ -580,14 +607,20 @@ export default function WritingPage() {
   const [showChapterSelector, setShowChapterSelector] = useState(false)
 
   // ── 项目即对话：AI 记忆（memory.md）与自定义快捷指令 ──
+  // memory 只给 AI 用（自动落盘 + 自动作为上下文注入），不需要给人看的界面
   const [memory, setMemory] = useState('')
-  const [showMemoryModal, setShowMemoryModal] = useState(false)
   const [customActions, setCustomActions] = useState<QuickAction[]>([])
   const [showActionModal, setShowActionModal] = useState(false)
   const [newActionLabel, setNewActionLabel] = useState('')
   const [newActionPrompt, setNewActionPrompt] = useState('')
   const [actionRequirement, setActionRequirement] = useState('')
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false)
+  /** 当前选中的快捷指令（内置 key，或 `custom:指令名`） */
+  const [activeActionKey, setActiveActionKey] = useState<string | null>(null)
+  /** 该指令需要的各「填空」的值 */
+  const [actionValues, setActionValues] = useState<Record<string, string>>({})
+  /** 自定义指令被选中后可现场微调的 prompt */
+  const [customPromptDraft, setCustomPromptDraft] = useState('')
 
   // ── 项目文献（项目内临时知识库）──
   const [availablePapers, setAvailablePapers] = useState<Literature[]>([])
@@ -605,7 +638,9 @@ export default function WritingPage() {
 
   void saveBookReferences
 
-  const editorVdRef = useRef<VditorEditorHandle>(null)
+  /** 编辑区可能落在左边或右边，两个 ref 都留着；插入引用/跳转时取已挂载的那个 */
+  const leftEditorRef = useRef<VditorEditorHandle>(null)
+  const rightEditorRef = useRef<VditorEditorHandle>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const aiInputRef = useRef<HTMLTextAreaElement>(null)
   const leftDropdownRef = useRef<HTMLDivElement>(null)
@@ -887,9 +922,23 @@ export default function WritingPage() {
     setSaveStatus('unsaved')
   }
 
+  /** 当前挂载的编辑区（左边优先，其次右边）—— 编辑区可以被放在任意一侧 */
+  const primaryEditor = () => leftEditorRef.current || rightEditorRef.current
+
+  /**
+   * 跳到第 index 个标题。
+   * 大纲挂在左侧导航里，编辑区可能在另一侧甚至当前没显示，所以先确保编辑区可见再滚动。
+   */
+  const jumpToHeading = (index: number) => {
+    const editorVisible = leftPanelMode === 'editor' || rightPanelMode === 'editor'
+    if (!editorVisible) setLeftPanelMode('editor')
+    // 等编辑区挂载完（Vditor 实例是在 effect 里建的）再滚动
+    setTimeout(() => primaryEditor()?.scrollToHeading(index), 120)
+  }
+
   /** 在光标处插入引用标记 */
   const insertCitation = (doi: string) => {
-    editorVdRef.current?.insertValue(`<sup style="color:#4f46e5;font-weight:500;">[${doi}]</sup>`)
+    primaryEditor()?.insertValue(`<sup style="color:#4f46e5;font-weight:500;">[${doi}]</sup>`)
     setSaveStatus('unsaved')
     setShowCitationModal(false)
   }
@@ -899,7 +948,7 @@ export default function WritingPage() {
     const cites = selectedCitations
       .map((d) => `<sup style="color:#4f46e5;font-weight:500;">[${d}]</sup>`)
       .join('')
-    editorVdRef.current?.insertValue(cites)
+    primaryEditor()?.insertValue(cites)
     setSaveStatus('unsaved')
     setSelectedCitations([])
     setShowCitationModal(false)
@@ -1060,12 +1109,56 @@ export default function WritingPage() {
   }
 
   /**
-   * 快捷指令：把指令正文填进输入框（不直接发送）——
-   * 找引用 / 引用检验都需要用户补上观点、段落或 DOI，填好再自己发。
+   * 快捷指令：选中 → 只填它需要的空 → 发送时把模板和填写内容拼成一条完整提示词。
+   * 内置指令按 key 匹配，自定义指令按 `custom:名称` 匹配。
    */
-  const applyQuickAction = (prompt: string) => {
-    setInputValue(prompt)
-    setTimeout(() => aiInputRef.current?.focus(), 0)
+  const activeAction = useMemo(() => {
+    if (!activeActionKey) return null
+    if (activeActionKey.startsWith('custom:')) {
+      const label = activeActionKey.slice('custom:'.length)
+      const found = customActions.find((a) => a.label === label)
+      return found ? { kind: 'custom' as const, label: found.label } : null
+    }
+    const def = BUILTIN_ACTIONS.find((a) => a.key === activeActionKey)
+    return def ? { kind: 'builtin' as const, def } : null
+  }, [activeActionKey, customActions])
+
+  /** 点一下选中（再点一下取消）；选中自定义指令时把它保存的 prompt 取出来供微调 */
+  const toggleQuickAction = (key: string) => {
+    if (activeActionKey === key) {
+      setActiveActionKey(null)
+      return
+    }
+    setActiveActionKey(key)
+    setActionValues({})
+    setCustomPromptDraft(
+      key.startsWith('custom:')
+        ? customActions.find((a) => a.label === key.slice('custom:'.length))?.prompt || ''
+        : '',
+    )
+  }
+
+  /** 把「模板 + 用户填的空」拼成最终提示词 */
+  const composeActionPrompt = (): string => {
+    if (!activeAction) return ''
+    if (activeAction.kind === 'custom') return customPromptDraft.trim()
+    let out = activeAction.def.template
+    for (const p of activeAction.def.params) {
+      out = out.split(`{${p.key}}`).join(actionValues[p.key]?.trim() || '')
+    }
+    return out.trim()
+  }
+
+  /** 还有必填的空没填 → 不让发 */
+  const actionIncomplete =
+    activeAction?.kind === 'builtin' &&
+    activeAction.def.params.some((p) => !actionValues[p.key]?.trim())
+
+  const sendQuickAction = () => {
+    const prompt = composeActionPrompt()
+    if (!prompt || actionIncomplete) return
+    setActiveActionKey(null)
+    handleSendMessage(prompt)
   }
 
   const handleSaveAction = async () => {
@@ -1382,8 +1475,8 @@ export default function WritingPage() {
     }
   }
 
-  const LeftPanelIcon = LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || PenTool
-  const RightPanelIcon = RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
+  const LeftPanelIcon = PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || PenTool
+  const RightPanelIcon = PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
 
   return (
     <div ref={containerRef} className="h-[calc(100vh-3rem)] flex bg-slate-50 relative overflow-hidden">
@@ -1443,7 +1536,7 @@ export default function WritingPage() {
               </button>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto">
             {projects.length === 0 && !isLoading && (
               <div className="p-4 text-center">
                 <div className="text-sm text-slate-500 mb-2">暂无项目</div>
@@ -1473,6 +1566,48 @@ export default function WritingPage() {
               </button>
             ))}
           </div>
+
+          {/* 文档大纲（仿 Obsidian）：收起 = 面板里只有项目；展开 = 把大纲铺出来 */}
+          <div className="border-t border-slate-200 flex-shrink-0">
+            <button
+              onClick={() => setOutlineExpanded(!outlineExpanded)}
+              className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              title={outlineExpanded ? '收起大纲' : '展开大纲'}
+            >
+              {outlineExpanded ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <ListTree className="w-3.5 h-3.5 text-indigo-600" />
+              大纲
+              <span className="ml-auto text-slate-400 font-normal">{outline.length}</span>
+            </button>
+            {outlineExpanded && (
+              <div className="max-h-[45%] overflow-y-auto px-2 pb-2 space-y-0.5">
+                {outline.length === 0 && (
+                  <div className="text-xs text-slate-400 text-center py-3">暂无大纲</div>
+                )}
+                {outline.map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => jumpToHeading(idx)}
+                    className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
+                      item.level === 1
+                        ? 'font-semibold text-slate-700'
+                        : item.level === 2
+                          ? 'font-medium text-slate-600'
+                          : 'text-slate-500'
+                    }`}
+                    style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
+                    title={item.text}
+                  >
+                    {item.text}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -1486,75 +1621,114 @@ export default function WritingPage() {
       </button>
 
       <div className="flex-1 flex min-w-0">
-        <div
-          className="flex flex-col min-w-0 bg-white"
-          style={{ width: `${panelRatio}%` }}
-        >
-          <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="relative" ref={leftDropdownRef}>
-                <button
-                  onClick={() => setShowLeftDropdown(!showLeftDropdown)}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center gap-2"
-                >
-                  <LeftPanelIcon className="w-4 h-4 text-indigo-600" />
-                  <span className="text-sm font-medium text-slate-700">
-                    {LEFT_PANEL_MODES.find((m) => m.value === leftPanelMode)?.label}
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showLeftDropdown ? 'rotate-180' : ''}`} />
-                </button>
-                {showLeftDropdown && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden min-w-36">
-                    {LEFT_PANEL_MODES.map((mode) => {
-                      const Icon = mode.icon
-                      return (
-                        <button
-                          key={mode.value}
-                          onClick={() => {
-                            setLeftPanelMode(mode.value as LeftPanelMode)
-                            setShowLeftDropdown(false)
-                          }}
-                          className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                            leftPanelMode === mode.value ? 'bg-indigo-50/50' : ''
-                          }`}
-                        >
-                          <Icon className={`w-4 h-4 ${leftPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
-                          <span className={`text-sm ${leftPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
-                            {mode.label}
-                          </span>
-                          {leftPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
-                        </button>
-                      )
-                    })}
-                  </div>
+        {/* 左右两块用同一份实现：任何功能都能放到任意一侧 */}
+        {([
+          {
+            side: 'left' as const,
+            mode: leftPanelMode,
+            setMode: setLeftPanelMode,
+            icon: LeftPanelIcon,
+            dropdownRef: leftDropdownRef,
+            showDropdown: showLeftDropdown,
+            setShowDropdown: setShowLeftDropdown,
+            editorRef: leftEditorRef,
+          },
+          {
+            side: 'right' as const,
+            mode: rightPanelMode,
+            setMode: setRightPanelMode,
+            icon: RightPanelIcon,
+            dropdownRef: rightDropdownRef,
+            showDropdown: showRightDropdown,
+            setShowDropdown: setShowRightDropdown,
+            editorRef: rightEditorRef,
+          },
+        ]).map((p) => (
+          <Fragment key={p.side}>
+            {p.side === 'right' && (
+              <div
+                className={`flex-shrink-0 flex items-center justify-center cursor-col-resize bg-slate-100 hover:bg-indigo-100 transition-colors z-10 ${
+                  isDragging ? 'bg-indigo-200' : ''
+                }`}
+                style={{ width: '0.375rem' }}
+                onMouseDown={handleDragStart}
+              >
+                <GripVertical className="w-3 h-3 text-slate-400" />
+              </div>
+            )}
+
+            <div
+              className={`flex flex-col min-w-0 bg-white ${
+                p.side === 'right' ? 'border-l border-slate-200' : ''
+              }`}
+              style={{
+                width: p.side === 'left' ? `${panelRatio}%` : `calc(${100 - panelRatio}% - 0.375rem)`,
+              }}
+            >
+              <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center gap-2 flex-shrink-0">
+                <div className="relative" ref={p.dropdownRef}>
+                  <button
+                    onClick={() => p.setShowDropdown(!p.showDropdown)}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center gap-2"
+                  >
+                    <p.icon className="w-4 h-4 text-indigo-600" />
+                    <span className="text-sm font-medium text-slate-700">
+                      {PANEL_MODES.find((m) => m.value === p.mode)?.label}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${p.showDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  {p.showDropdown && (
+                    <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden min-w-36">
+                      {PANEL_MODES.map((mode) => {
+                        const Icon = mode.icon
+                        const active = p.mode === mode.value
+                        return (
+                          <button
+                            key={mode.value}
+                            onClick={() => {
+                              p.setMode(mode.value)
+                              p.setShowDropdown(false)
+                            }}
+                            className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
+                              active ? 'bg-indigo-50/50' : ''
+                            }`}
+                          >
+                            <Icon className={`w-4 h-4 ${active ? 'text-indigo-600' : 'text-slate-500'}`} />
+                            <span className={`text-sm ${active ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                              {mode.label}
+                            </span>
+                            {active && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                {p.side === 'left' && activeProject && (
+                  <>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                    <span className="text-sm font-semibold text-slate-700 truncate max-w-40">
+                      {activeProject.title}
+                    </span>
+                  </>
                 )}
               </div>
-              {activeProject && (
-                <>
-                  <ChevronRight className="w-4 h-4 text-slate-300" />
-                  <span className="text-sm font-semibold text-slate-700 truncate max-w-40">
-                    {activeProject.title}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
 
-          {leftPanelMode === 'editor' && (
+          {p.mode === 'editor' && (
             <>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-white border-b border-slate-200 flex-shrink-0">
                 <button
                   onClick={() => setShowCitationModal(true)}
-                  className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition flex items-center gap-1"
+                  className="flex-shrink-0 whitespace-nowrap p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition flex items-center gap-1"
                   title="插入引用 (Ctrl+Shift+K)"
                 >
                   <BookMarked className="w-4 h-4" />
                   <span className="text-xs font-medium">引用</span>
                 </button>
 
-                <div className="flex-1" />
+                <div className="flex-1 min-w-0" />
 
-                <div className="flex items-center gap-1.5 text-xs">
+                <div className="flex-shrink-0 whitespace-nowrap flex items-center gap-1.5 text-xs">
                   {saveStatus === 'saved' && (
                     <span className="text-green-600 flex items-center gap-1 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1577,7 +1751,7 @@ export default function WritingPage() {
                 </div>
                 <button
                   onClick={exportMarkdown}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition shadow-sm"
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition shadow-sm"
                 >
                   <Download className="w-3.5 h-3.5" />
                   导出
@@ -1586,7 +1760,7 @@ export default function WritingPage() {
 
               <div className="flex-1 min-h-0 bg-white">
                 <VditorEditor
-                  ref={editorVdRef}
+                  ref={p.editorRef}
                   value={mdContent}
                   onChange={handleEditorChange}
                   height="100%"
@@ -1603,41 +1777,7 @@ export default function WritingPage() {
             </>
           )}
 
-          {leftPanelMode === 'outline' && (
-            <div className="flex-1 overflow-y-auto p-4">
-              <div className="text-xs font-semibold text-slate-500 mb-3 px-1 flex items-center gap-1.5">
-                <ListTree className="w-3.5 h-3.5" />
-                文档大纲
-              </div>
-              <div className="space-y-0.5">
-                {outline.length === 0 && (
-                  <div className="text-sm text-slate-400 text-center py-8">暂无大纲</div>
-                )}
-                {outline.map((item, idx) => (
-                  <button
-                    key={idx}
-                    className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-slate-50 transition truncate ${
-                      item.level === 1
-                        ? 'font-semibold text-slate-700'
-                        : item.level === 2
-                        ? 'font-medium text-slate-600 pl-6'
-                        : item.level === 3
-                        ? 'text-slate-500 pl-9'
-                        : item.level === 4
-                        ? 'text-slate-500 pl-12'
-                        : item.level === 5
-                        ? 'text-slate-400 pl-14'
-                        : 'text-slate-400 pl-16'
-                    }`}
-                  >
-                    {item.text}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {leftPanelMode === 'references' && (
+          {p.mode === 'references' && (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-3 border-b border-slate-100">
                 <div className="relative">
@@ -1691,63 +1831,8 @@ export default function WritingPage() {
               </div>
             </div>
           )}
-        </div>
 
-        <div
-          className={`flex-shrink-0 flex items-center justify-center cursor-col-resize bg-slate-100 hover:bg-indigo-100 transition-colors z-10 ${
-            isDragging ? 'bg-indigo-200' : ''
-          }`}
-          style={{ width: '0.375rem' }}
-          onMouseDown={handleDragStart}
-        >
-          <GripVertical className="w-3 h-3 text-slate-400" />
-        </div>
-
-        <div
-          className="flex flex-col min-w-0 bg-white border-l border-slate-200"
-          style={{ width: `calc(${100 - panelRatio}% - 0.375rem)` }}
-        >
-          <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between flex-shrink-0">
-            <div className="relative" ref={rightDropdownRef}>
-              <button
-                onClick={() => setShowRightDropdown(!showRightDropdown)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center gap-2"
-              >
-                <RightPanelIcon className="w-4 h-4 text-indigo-600" />
-                <span className="text-sm font-medium text-slate-700">
-                  {RIGHT_PANEL_MODES.find((m) => m.value === rightPanelMode)?.label}
-                </span>
-                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showRightDropdown ? 'rotate-180' : ''}`} />
-              </button>
-              {showRightDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden min-w-36">
-                  {RIGHT_PANEL_MODES.map((mode) => {
-                    const Icon = mode.icon
-                    return (
-                      <button
-                        key={mode.value}
-                        onClick={() => {
-                          setRightPanelMode(mode.value as RightPanelMode)
-                          setShowRightDropdown(false)
-                        }}
-                        className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                          rightPanelMode === mode.value ? 'bg-indigo-50/50' : ''
-                        }`}
-                      >
-                        <Icon className={`w-4 h-4 ${rightPanelMode === mode.value ? 'text-indigo-600' : 'text-slate-500'}`} />
-                        <span className={`text-sm ${rightPanelMode === mode.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
-                          {mode.label}
-                        </span>
-                        {rightPanelMode === mode.value && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {rightPanelMode === 'ai' && (
+          {p.mode === 'ai' && (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-slate-100 bg-white">
                 <div className="flex items-center gap-1 mb-2">
@@ -1768,14 +1853,6 @@ export default function WritingPage() {
                     可信检索
                   </span>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setShowMemoryModal(true)}
-                      className="flex items-center gap-1 px-1.5 py-0.5 text-[0.625rem] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-                      title="查看/回查本项目的 AI 记忆（projects/项目id/memory.md）"
-                    >
-                      <Brain className="w-3.5 h-3.5" />
-                      记忆
-                    </button>
                     <button
                       onClick={() => setTrustedSearch(!trustedSearch)}
                       className="text-indigo-600"
@@ -1927,43 +2004,131 @@ export default function WritingPage() {
                     <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
+                {/* 指令 = 模式开关：点亮它，下面只出现这条指令需要的输入框 */}
                 <div className="flex flex-wrap gap-1.5">
                   {BUILTIN_ACTIONS.map((action) => {
                     const Icon = action.icon
+                    const active = activeActionKey === action.key
                     return (
                       <button
                         key={action.key}
-                        onClick={() => applyQuickAction(action.prompt)}
-                        className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
-                        title={action.prompt}
+                        onClick={() => toggleQuickAction(action.key)}
+                        className={`px-2.5 py-1.5 text-xs rounded-full border transition flex items-center gap-1 ${
+                          active
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
+                        }`}
+                        title={action.template}
                       >
                         <Icon className="w-3 h-3" />
                         {action.label}
                       </button>
                     )
                   })}
-                  {customActions.map((action) => (
-                    <span
-                      key={action.label}
-                      className="inline-flex items-center text-xs bg-slate-50 border border-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition"
-                    >
-                      <button
-                        onClick={() => applyQuickAction(action.prompt)}
-                        className="pl-2.5 pr-1 py-1.5"
-                        title={action.prompt}
+                  {customActions.map((action) => {
+                    const key = `custom:${action.label}`
+                    const active = activeActionKey === key
+                    return (
+                      <span
+                        key={action.label}
+                        className={`inline-flex items-center text-xs rounded-full border transition ${
+                          active
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
+                        }`}
                       >
-                        {action.label}
-                      </button>
-                      <button
-                        onClick={() => handleDeleteAction(action.label)}
-                        className="pr-1.5 pl-0.5 py-1.5 text-slate-300 hover:text-red-500 transition"
-                        title="删除该指令"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
+                        <button
+                          onClick={() => toggleQuickAction(key)}
+                          className="pl-2.5 pr-1 py-1.5"
+                          title={action.prompt}
+                        >
+                          {action.label}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAction(action.label)}
+                          className={`pr-1.5 pl-0.5 py-1.5 transition ${
+                            active ? 'text-indigo-200 hover:text-white' : 'text-slate-300 hover:text-red-500'
+                          }`}
+                          title="删除该指令"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    )
+                  })}
                 </div>
+
+                {activeAction && (
+                  <div className="mt-2.5 p-2.5 rounded-lg border border-indigo-200 bg-indigo-50/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[0.6875rem] font-semibold text-indigo-700">
+                        {activeAction.kind === 'custom' ? activeAction.label : activeAction.def.label}
+                      </span>
+                      <button
+                        onClick={() => setActiveActionKey(null)}
+                        className="text-slate-400 hover:text-slate-600"
+                        title="取消选择"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {activeAction.kind === 'builtin'
+                      ? activeAction.def.params.map((param, i) =>
+                          param.multiline ? (
+                            <textarea
+                              key={param.key}
+                              value={actionValues[param.key] || ''}
+                              onChange={(e) =>
+                                setActionValues((prev) => ({ ...prev, [param.key]: e.target.value }))
+                              }
+                              rows={3}
+                              autoFocus={i === 0}
+                              placeholder={param.placeholder}
+                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 resize-y bg-white"
+                            />
+                          ) : (
+                            <input
+                              key={param.key}
+                              type="text"
+                              value={actionValues[param.key] || ''}
+                              onChange={(e) =>
+                                setActionValues((prev) => ({ ...prev, [param.key]: e.target.value }))
+                              }
+                              autoFocus={i === 0}
+                              placeholder={param.placeholder}
+                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 bg-white"
+                            />
+                          ),
+                        )
+                      : (
+                          <textarea
+                            value={customPromptDraft}
+                            onChange={(e) => setCustomPromptDraft(e.target.value)}
+                            rows={4}
+                            autoFocus
+                            placeholder="这条指令的提示词…"
+                            className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 resize-y bg-white"
+                          />
+                        )}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={sendQuickAction}
+                        disabled={
+                          isAiGenerating || isAiReviewing || !!actionIncomplete || !composeActionPrompt()
+                        }
+                        className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                      >
+                        <Send className="w-3 h-3" />
+                        拼好并发送
+                      </button>
+                      <span className="text-[0.625rem] text-slate-400 leading-tight">
+                        {actionIncomplete ? '填完上面的空才能发' : '发送时自动拼成完整提示词'}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50/30">
@@ -2147,7 +2312,7 @@ export default function WritingPage() {
             </div>
           )}
 
-          {rightPanelMode === 'library' && (
+          {p.mode === 'library' && (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-3 border-b border-slate-100">
                 <div className="relative">
@@ -2326,7 +2491,7 @@ export default function WritingPage() {
             </div>
           )}
 
-          {rightPanelMode === 'knowledge' && (
+          {p.mode === 'knowledge' && (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-3 border-b border-slate-100">
                 <div className="relative">
@@ -2387,7 +2552,7 @@ export default function WritingPage() {
             </div>
           )}
 
-          {rightPanelMode === 'typesetting' && (
+          {p.mode === 'typesetting' && (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="p-3 border-b border-slate-100">
                 <div className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">
@@ -2521,7 +2686,9 @@ export default function WritingPage() {
               </div>
             </div>
           )}
-        </div>
+            </div>
+          </Fragment>
+        ))}
       </div>
 
       {showCitationModal && (
@@ -2934,47 +3101,6 @@ export default function WritingPage() {
                 保存
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showMemoryModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Brain className="w-5 h-5 text-indigo-600" />
-                <div>
-                  <h3 className="text-base font-semibold text-slate-800">AI 记忆</h3>
-                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">
-                    projects/{activeProjectId || '—'}/memory.md —— AI 忘了就回来查这里
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(memory).then(
-                      () => toast.success('已复制'),
-                      () => toast.error('复制失败'),
-                    )
-                  }}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  复制
-                </button>
-                <button
-                  onClick={() => setShowMemoryModal(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <pre className="flex-1 overflow-auto p-4 text-xs text-slate-600 whitespace-pre-wrap font-mono bg-slate-50/50">
-              {memory.trim() || '（这个项目还没有对话记录）'}
-            </pre>
           </div>
         </div>
       )}

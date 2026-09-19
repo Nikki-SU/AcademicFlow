@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, inferMdStatusByDoi, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
-import { loadKeywordGroups, saveKeywordGroups, type KeywordGroup } from '../services/keywordGroupData'
+import { loadCategories, saveCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
@@ -99,7 +99,10 @@ interface Paper {
   postStage?: 'none' | 'translating' | 'words' | 'done' | 'error'
   /** 是否已导入 PDF（来自 CSV 的 pdf_added_at > 0，筛选用） */
   hasPdf: boolean
+  /** 所属分类 id 列表（可以同时属于多个分类） */
   categoryIds: string[]
+  /** 追踪页给它打的分组；只读保留，绝不用分类去覆盖它 */
+  trackingGroup: string
 }
 
 /** UI 层期刊模板项 —— 包装后端 JournalTemplate，加派生字段方便显示 */
@@ -191,7 +194,9 @@ function literatureToPaper(lit: Literature): Paper {
     mdStatus: lit.mdStatus || 'none',
     mdProgress: 0,
     hasPdf: (lit.pdfAddedAt || 0) > 0,
-    categoryIds: lit.trackingGroup ? [lit.trackingGroup] : [],
+    // 分类关系存在 literatures/categories.csv 里，加载时再填进来（见 loadData）
+    categoryIds: [],
+    trackingGroup: lit.trackingGroup,
   }
 }
 
@@ -210,27 +215,36 @@ function paperToLiterature(paper: Paper): Literature {
     addedAt: Date.now(),
     pdfAddedAt: 0,
     source: 'manual',
-    trackingGroup: paper.categoryIds[0] || '',
+    // 追踪分组与文献分类是两回事，原样带回，不要被分类覆盖
+    trackingGroup: paper.trackingGroup || '',
     mdStatus: paper.mdStatus || 'none',
   }
 }
 
-function keywordGroupToPaperCategory(kg: KeywordGroup): PaperCategory {
-  return {
-    id: kg.groupId,
-    name: kg.groupName,
+/** 把分类树拍平成一层（'全部文献' 是伪分类，不落盘） */
+function flattenCategories(cats: PaperCategory[]): PaperCategory[] {
+  const out: PaperCategory[] = []
+  const walk = (list: PaperCategory[]) => {
+    for (const c of list) {
+      if (c.id === 'all') continue
+      out.push(c)
+      if (c.children?.length) walk(c.children)
+    }
   }
+  walk(cats)
+  return out
 }
 
-function paperCategoryToKeywordGroup(cat: PaperCategory): KeywordGroup {
-  return {
-    groupId: cat.id,
-    groupName: cat.name,
-    expression: '',
-    enabled: true,
-    translateAbstract: false,
-    createdAt: Date.now(),
-  }
+/**
+ * 分类落盘内容：分类本身 + 它的成员文献。
+ * 成员关系（dois）从 papers 反推 —— 唯一事实来源是每篇文献的 categoryIds。
+ */
+function buildCategoryPayload(cats: PaperCategory[], papers: Paper[]): LiteratureCategory[] {
+  return flattenCategories(cats).map((c) => ({
+    id: c.id,
+    name: c.name,
+    dois: papers.filter((p) => p.categoryIds.includes(c.id)).map((p) => p.doi),
+  }))
 }
 
 function textbookToBookItem(tb: Textbook): BookItem {
@@ -380,30 +394,31 @@ export default function ManagementPage() {
   const taskQueueRef = useRef(taskQueue)
   taskQueueRef.current = taskQueue
 
-  // 加载数据
+  // 加载数据：文献 + 文献分类（分类的成员关系存在 literatures/categories.csv）
   useEffect(() => {
     if (!repo) return
     const loadData = async () => {
       try {
-        const lits = await loadLiteratures(true)
+        const [lits, cats] = await Promise.all([loadLiteratures(true), loadCategories()])
+        // 分类文件是「分类 → 成员 doi」，这里反过来建成 doi → 分类 id[]
+        const doiToCatIds = new Map<string, string[]>()
+        for (const c of cats) {
+          for (const d of c.dois) {
+            const arr = doiToCatIds.get(d) || []
+            arr.push(c.id)
+            doiToCatIds.set(d, arr)
+          }
+        }
+        setPaperCategories([{ id: 'all', name: '全部文献' }, ...cats.map((c) => ({ id: c.id, name: c.name }))])
         // 防缓存：跳过正在删除的 ID —— 即使 CSV 还没 propagate 也不让它冒出来
-        setPapers(lits.map(literatureToPaper).filter((p) => !deletingIds.has(p.id)))
+        setPapers(
+          lits
+            .map(literatureToPaper)
+            .map((p) => ({ ...p, categoryIds: doiToCatIds.get(p.doi) || [] }))
+            .filter((p) => !deletingIds.has(p.id)),
+        )
       } catch (err) {
         console.error('加载文献失败:', err)
-      }
-    }
-    loadData()
-  }, [repo])
-
-  useEffect(() => {
-    if (!repo) return
-    const loadData = async () => {
-      try {
-        const groups = await loadKeywordGroups()
-        const cats = groups.map(keywordGroupToPaperCategory)
-        setPaperCategories([{ id: 'all', name: '全部文献' }, ...cats])
-      } catch (err) {
-        console.error('加载关键词组失败:', err)
       }
     }
     loadData()
@@ -611,34 +626,24 @@ export default function ManagementPage() {
     return () => { cancelled = true; clearInterval(pollInterval) }
   }, [repo])
 
-  // 保存文献（防抖）
+  /** 分类落盘：分类名 + 成员文献（成员关系从 papers 反推） */
+  const persistCategoryStore = async (cats: PaperCategory[], updatedPapers: Paper[]) => {
+    try {
+      await saveCategories(buildCategoryPayload(cats, updatedPapers))
+    } catch (err) {
+      console.error('保存文献分类失败:', err)
+      toast.error('保存分类失败，请检查仓库权限')
+    }
+  }
+
+  // 保存文献：元数据写 literatures.csv；分类的成员关系顺带同步落盘
   const savePapers = async (updatedPapers: Paper[]) => {
     try {
       const lits = updatedPapers.map(paperToLiterature)
       await saveLiteratures(lits)
+      await persistCategoryStore(paperCategories, updatedPapers)
     } catch (err) {
       console.error('保存文献失败:', err)
-    }
-  }
-
-  // 保存关键词组（文献分类）
-  const savePaperCategories = async (updatedCats: PaperCategory[]) => {
-    try {
-      const leafCats: PaperCategory[] = []
-      const traverse = (cats: PaperCategory[]) => {
-        for (const cat of cats) {
-          if (cat.children && cat.children.length > 0) {
-            traverse(cat.children)
-          } else if (cat.id !== 'all') {
-            leafCats.push(cat)
-          }
-        }
-      }
-      traverse(updatedCats)
-      const groups = leafCats.map(paperCategoryToKeywordGroup)
-      await saveKeywordGroups(groups)
-    } catch (err) {
-      console.error('保存关键词组失败:', err)
     }
   }
 
@@ -832,7 +837,9 @@ export default function ManagementPage() {
         mdStatus: 'none',
         mdProgress: 0,
         hasPdf: false,
+        // 在当前选中的分类里新增 → 直接归到该分类下
         categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [],
+        trackingGroup: '',
       }
       const updated = [paper, ...papers]
       setPapers(updated)
@@ -888,6 +895,7 @@ export default function ManagementPage() {
       mdProgress: 0,
       hasPdf: false,
       categoryIds: newPaper.categoryIds,
+      trackingGroup: '',
     }
     const updated = [paper, ...papers]
     setPapers(updated)
@@ -1432,8 +1440,8 @@ export default function ManagementPage() {
     const updatedPapers = papers.map((p) => ({ ...p, categoryIds: p.categoryIds.filter((cid) => cid !== id) }))
     setPaperCategories(updatedCats)
     setPapers(updatedPapers)
-    savePaperCategories(updatedCats)
-    savePapers(updatedPapers)
+    // 分类与成员都在分类文件里，一次写清即可（不碰 literatures.csv）
+    persistCategoryStore(updatedCats, updatedPapers)
     if (activePaperCategory === id) setActivePaperCategory('all')
   }
 
@@ -1481,7 +1489,7 @@ export default function ManagementPage() {
         setPaperCategories(updatedCats)
       }
     }
-    savePaperCategories(updatedCats)
+    persistCategoryStore(updatedCats, papers)
     setEditingCategory(null)
     setShowCategoryModal(false)
   }
@@ -1902,10 +1910,26 @@ export default function ManagementPage() {
                   <Library className="w-4 h-4 text-indigo-600" />
                   文献分类
                 </h3>
+                <button
+                  onClick={() => handleAddCategory()}
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition"
+                  title="新建分类"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  新建
+                </button>
               </div>
               <div className="space-y-0.5">
                 {renderCategoryTree(paperCategories)}
               </div>
+              <button
+                onClick={() => handleAddCategory()}
+                className="mt-2 w-full flex items-center justify-center gap-1 py-1.5 text-xs text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                title="新建分类"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新建分类
+              </button>
             </div>
           </div>
 
@@ -2189,12 +2213,16 @@ export default function ManagementPage() {
                             <DoiLink doi={paper.doi} className="text-xs max-w-[8.75rem] truncate block" />
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1 max-w-[7.5rem]">
+                            <button
+                              onClick={() => handleEditPaper(paper)}
+                              className="flex flex-wrap gap-1 max-w-[11rem] text-left hover:opacity-80 transition"
+                              title="点击修改所属分类（可多选）"
+                            >
                               {paper.categoryIds.length > 0 ? (
-                                paper.categoryIds.slice(0, 1).map((cid) => {
+                                paper.categoryIds.map((cid) => {
                                   const cat = getAllLeafCategories.find((c) => c.id === cid)
                                   return cat ? (
-                                    <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-xs rounded">
+                                    <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-xs rounded whitespace-nowrap">
                                       <Tag className="w-3 h-3 inline mr-0.5" />
                                       {cat.name}
                                     </span>
@@ -2203,10 +2231,7 @@ export default function ManagementPage() {
                               ) : (
                                 <span className="text-xs text-slate-400">未分类</span>
                               )}
-                              {paper.categoryIds.length > 1 && (
-                                <span className="text-xs text-slate-400">+{paper.categoryIds.length - 1}</span>
-                              )}
-                            </div>
+                            </button>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1">

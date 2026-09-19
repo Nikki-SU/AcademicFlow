@@ -50,7 +50,7 @@ interface VditorEditorProps {
   onBlur?: (md: string) => void
   /** 准备就绪（实例创建完） */
   onReady?: () => void
-  /** 高度：数字=px，字符串原样传给 Vditor */
+  /** 高度：数字=px；传 '100%' 或省略 = 跟随容器（内部会测出像素值再给 Vditor） */
   height?: number | string
   placeholder?: string
   /** ir（默认，即时渲染）/ wysiwyg（隐藏语法，最接近飞书）/ sv（分屏） */
@@ -164,6 +164,16 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     const el = containerRef.current
     if (!el) return
 
+    /**
+     * 高度必须是数字。
+     * 传 '100%' 时 Vditor 只会把 .vditor 设成 height:100%，它的内容区没有高度约束，
+     * 于是整篇文档把容器撑破 —— 编辑区失去内部滚动、内容溢出被外层裁掉。
+     * 这里先量一次容器高度当初始值，之后由下面的 ResizeObserver 跟随容器变化。
+     */
+    const containerHeight = () =>
+      Math.max(120, Math.round(el.getBoundingClientRect().height) || el.clientHeight || 320)
+    const initialHeight = typeof height === 'number' ? height : containerHeight()
+
     const formulaItem: VditorToolbarItem = {
       name: 'insert-formula',
       tip: '插入公式（行内 / 行间）',
@@ -198,7 +208,8 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       // ── 离线资源：不写这一项就会去 unpkg 拉 lute/katex，墙内必挂 ──
       cdn: VDITOR_CDN,
       mode,
-      height,
+      height: initialHeight,
+      minHeight: 120,
       placeholder,
       value: lastValueRef.current,
       cache: { enable: false },
@@ -255,6 +266,29 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     // 只创建一次：value / 回调都走 ref 与下面的同步 effect —— 重渲染绝不重建实例
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 容器尺寸变化（拖分界线 / 改窗口）→ 同步 Vditor 高度，内容区始终内部滚动
+  useEffect(() => {
+    if (typeof height === 'number') return
+    const el = containerRef.current
+    if (!el) return
+
+    const apply = () => {
+      const h = Math.round(el.getBoundingClientRect().height)
+      if (h < 60) return
+      // Vditor 没暴露 setHeight；改它根节点的行内高度即可（内部是 flex 链，会自己重排）
+      const root = el.querySelector<HTMLElement>('.vditor')
+      if (!root) return
+      // 和当前值比较，避免反复设置触发回路
+      if (Math.abs(parseFloat(root.style.height || '0') - h) < 2) return
+      root.style.height = `${h}px`
+    }
+
+    apply() // 挂载时先纠正一次（首帧容器高度可能还没算出来）
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [height])
 
   // 外部 value 变化（切换文献 / 重新加载）→ 灌进编辑器；同值不动，避免打断输入
   useEffect(() => {
