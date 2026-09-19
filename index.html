@@ -30,15 +30,6 @@
     -->
     <script type="text/javascript" src="spa-recovery.js"></script>
     <script type="text/javascript" src="register-sw.js"></script>
-    <!--
-      Vditor 图标 sprite 必须在这里用「外部脚本」预加载。
-      原因：Vditor 默认用内联 <script> 注入图标 sprite（把 ant.js 源码塞进 script.text），
-      而本站 CSP 是 script-src 'self' 'unsafe-eval'（没有 'unsafe-inline'），内联脚本会被拦掉
-      → sprite 进不来 → 工具栏所有内置图标（加粗/斜体/列表…）全部空白。
-      这里提前用外部脚本加载，CSP 放行；id 与 Vditor 内部用的一致，避免它再走一次被拦的内联路径。
-      defer 保证执行时 document.body 已存在（ant.js 会往 body 里插 svg）。
-    -->
-    <script id="vditorIconScript" defer src="%BASE_URL%vditor/dist/js/icons/ant.js"></script>
   </head>
   <body>
     <div id="root"></div>

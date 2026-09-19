@@ -66,6 +66,31 @@ interface VditorEditorProps {
 const VDITOR_CDN = `${import.meta.env.BASE_URL}vditor`
 
 /**
+ * 图标 sprite 必须由我们自己用「外部脚本」加载，不能让 Vditor 自己加载。
+ * ------------------------------------------------------------
+ * 为什么：Vditor 的工具栏图标全是 <svg><use xlink:href="#vditor-icon-bold"></use></svg>，
+ * 依赖一份注入到 <body> 的 SVG symbol 表。而 Vditor 注入它的方式是 addScriptSync ——
+ * 把 ant.js（43 KB）读出来塞进一个「内联」<script>.text 再执行。
+ * 本站 CSP 是 script-src 'self' 'unsafe-eval'（没有 'unsafe-inline'），内联脚本一律被拦，
+ * 结果就是 symbol 表从来没进过 DOM → 工具栏所有内置图标（加粗/斜体/列表/撤销…）全部空白，
+ * 只有自带内联 <path> 的自定义图标（插入引用/公式）还能显示。
+ *
+ * 做法：自己插入一个「外部」<script>（CSP 放行），URL 用 import.meta.env.BASE_URL 拼，
+ * dev 与构建后都指向同一份 public/vditor 资源；同时给 Vditor 传 icon: '' 关掉它那条被拦的路径。
+ * id 沿用 Vditor 内部的 'vditorIconScript'：它靠这个 id 判重，看到就直接跳过。
+ */
+function ensureVditorIconSprite() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('vditorIconScript')) return
+  const el = document.createElement('script')
+  el.id = 'vditorIconScript'
+  el.src = `${VDITOR_CDN}/dist/js/icons/ant.js`
+  document.head.appendChild(el)
+}
+
+ensureVditorIconSprite()
+
+/**
  * 「插入公式」的图标（Vditor 内置图标集里没有合适的，自带一个 SVG 字符串）。
  * 空壳阶段：点一下弹「行内 / 行间」两个选项，插入公式模板。
  * TODO(下一阶段)：接真正的公式编辑面板（所见即所得编辑 + 预览 + 常用符号面板），
@@ -207,6 +232,10 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     const instance = new Vditor(el, {
       // ── 离线资源：不写这一项就会去 unpkg 拉 lute/katex，墙内必挂 ──
       cdn: VDITOR_CDN,
+      // 图标 sprite 由模块顶部 ensureVditorIconSprite() 用外部脚本注入（见那里的说明）；
+      // 传空字符串关掉 Vditor 自己那条「内联脚本」加载路径 —— 它会被本站 CSP 拦掉。
+      // （Vditor 的 icon 类型只声明了 'ant' | 'material'，运行时用空串表示「我自己加载」）
+      icon: '' as 'ant',
       mode,
       height: initialHeight,
       minHeight: 120,
