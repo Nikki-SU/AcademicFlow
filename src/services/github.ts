@@ -815,7 +815,13 @@ export async function readRepoTextFile(
   return { content, sha: data.sha }
 }
 
-/** 下载二进制文件（PDF / 图片等），返回 Blob */
+/**
+ * 下载二进制文件（PDF / 图片等），返回 Blob
+ *
+ * 注意 Contents API 对 **>1MB** 的文件不返回内联内容（`encoding: "none"`、`content: ""`），
+ * 只给一个 download_url。早先这里直接解 base64 就会拿到一个空 Blob —— 静的、不报错，
+ * 编译出来的 PDF 一动就超过 1MB，所以必须走 Git Blob API 兜底（那个能到 100MB）。
+ */
 export async function downloadRepoBinaryFile(
   owner: string,
   repo: string,
@@ -832,12 +838,36 @@ export async function downloadRepoBinaryFile(
     const err = await res.text().catch(() => '')
     throw new GitHubAPIError(res.status, err, `下载二进制文件失败：${err}`)
   }
-  const data = (await res.json()) as { content: string; sha: string; encoding: string; size?: number }
-  const bytes = base64ToBytes(data.content.replace(/\n/g, ''))
+  const data = (await res.json()) as {
+    content?: string
+    sha: string
+    encoding?: string
+    size?: number
+  }
+  const size = data.size ?? 0
+
+  const inlineB64 = (data.content ?? '').replace(/\n/g, '')
+  if (inlineB64) {
+    const bytes = base64ToBytes(inlineB64)
+    return {
+      blob: new Blob([bytes as BlobPart], { type: mime }),
+      sha: data.sha,
+      size: size || bytes.length,
+    }
+  }
+
+  // 内联内容为空 —— 文件超过 1MB。用 blob sha 走 Git Blob API 取回。
+  const blobRes = await githubFetch(`/repos/${owner}/${repo}/git/blobs/${data.sha}`, token)
+  if (!blobRes.ok) {
+    const err = await blobRes.text().catch(() => '')
+    throw new GitHubAPIError(blobRes.status, err, `下载二进制文件失败（blob）：${err}`)
+  }
+  const blobData = (await blobRes.json()) as { content: string; encoding: string }
+  const bytes = base64ToBytes((blobData.content ?? '').replace(/\n/g, ''))
   return {
     blob: new Blob([bytes as BlobPart], { type: mime }),
     sha: data.sha,
-    size: data.size ?? bytes.length,
+    size: size || bytes.length,
   }
 }
 

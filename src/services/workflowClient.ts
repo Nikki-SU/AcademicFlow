@@ -38,6 +38,7 @@ export type WorkflowEvent =
   | 'ai_call'
   | 'mineru_connectivity_test'
   | 'ai_connectivity_test'
+  | 'latex_compile'
 
 // ===================== dispatch =====================
 

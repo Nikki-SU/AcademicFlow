@@ -74,8 +74,11 @@ const CJK_SHIM = [
  * 这种运行时里根本没有的文件，一旦文档类在 \documentclass 阶段就 \small（IEEEtran 如此）
  * 就是致命错误。那个失败发生得太早，往 preamble 塞垫片来不及 —— 只能把被引用的
  * 字体文件真的补进运行时。
+ *
+ * 云端编译（latex-cloud.ts）也调这个函数：两条通道必须用同一份垫片，
+ * 否则同一份稿子在本地和云端排出来的 PDF 会长得不一样。
  */
-function withRuntimeCompat(source: string): string {
+export function withRuntimeCompat(source: string): string {
   if (source.includes('AcademicFlow: 中文字体')) return source
   const needsCjk = CJK_PATTERN.test(source) && !/xeCJK|ctex/.test(source)
   const shims = needsCjk ? CJK_SHIM : ''

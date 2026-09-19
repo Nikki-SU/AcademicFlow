@@ -119,9 +119,14 @@ export async function writePipelineFiles(
   const skipped: string[] = []
 
   for (const f of PIPELINE_FILES) {
-    const b64 = b64Map[f.b64Key]
-    if (!b64) { details.push({ path: f.path, ok: false, error: `missing b64 constant: ${f.b64Key}` }); continue }
-    const content = atob(b64)
+    let content: string
+    if ('raw' in f) {
+      content = f.raw
+    } else {
+      const b64 = b64Map[f.b64Key]
+      if (!b64) { details.push({ path: f.path, ok: false, error: `missing b64 constant: ${f.b64Key}` }); continue }
+      content = atob(b64)
+    }
     if (content.length > MAX_PIPELINE_FILE) {
       details.push({ path: f.path, ok: false, error: `file too large: ${content.length} bytes` })
       continue

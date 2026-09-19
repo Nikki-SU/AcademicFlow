@@ -85,7 +85,8 @@ export default function BackendCapabilitiesPanel() {
       <p className="text-xs text-slate-500">
         后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上。你需要在私库安装
         <b> paper_convert.yml / ai_call.yml </b>
-        两个主 workflow（外加两个连通性自测 workflow），并配置 7 个 Secrets。<b>老用户</b>：点"检测"看看私库是否已经升级。
+        两个主 workflow（外加两个连通性自测 workflow，以及「云端编译」用的
+        <b> latex_compile.yml</b>），并配置 7 个 Secrets。<b>老用户</b>：点"检测"看看私库是否已经升级。
       </p>
 
       {/* 状态条 */}

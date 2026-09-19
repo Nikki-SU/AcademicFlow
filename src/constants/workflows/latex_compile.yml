@@ -1,0 +1,162 @@
+name: latex_compile
+
+# 由 AcademicFlow 前端 dispatch 触发，把 projects/<id>/latex-cloud/main.tex 编成 PDF。
+#
+# 这是与浏览器内 WASM 编译器**并列**的第二条通道：
+#   - 浏览器 WASM：即时预览，不联网传源码，但 TeX Live 版本被上游钉死在同一份快照
+#   - 这里：官方 TeX Live 镜像，版本新、宏包全，什么宏包都能装
+# 代价是要排队（几十秒到几分钟，取决于镜像是否已在 runner 上缓存）。
+#
+# 约定（前端 latex-cloud.ts 按这套约定读写）：
+#   输入  projects/<id>/latex-cloud/main.tex, references.bib
+#   输出  projects/<id>/latex-cloud/build.json  ← 状态 + 日志尾部，前端轮询它
+#         projects/<id>/latex-cloud/main.pdf    ← 成功产出
+#         projects/<id>/latex-cloud/main.log    ← 完整 TeX 日志
+#   另：projects/<id>/latex-packages/ 里用户导入的宏包会被一并加进搜索路径
+
+on:
+  repository_dispatch:
+    types: [latex_compile]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write   # 要把 PDF / 日志 / 状态提交回仓库
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: 解析 dispatch 参数
+        id: params
+        run: |
+          set -euo pipefail
+          PROJECT=$(jq -r '.client_payload.project_id // empty' "$GITHUB_EVENT_PATH")
+          RUN_ID=$(jq -r '.client_payload.run_id // empty' "$GITHUB_EVENT_PATH")
+          if [ -z "$PROJECT" ] || [ -z "$RUN_ID" ]; then
+            echo "client_payload 缺少 project_id 或 run_id" >&2
+            exit 1
+          fi
+          # project_id 会被拼进文件路径，挡掉路径穿越
+          case "$PROJECT" in
+            *[!A-Za-z0-9_-]*)
+              echo "project_id 含非法字符：$PROJECT" >&2
+              exit 1
+              ;;
+          esac
+          {
+            echo "project=$PROJECT"
+            echo "run_id=$RUN_ID"
+            echo "dir=projects/$PROJECT/latex-cloud"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 标记为编译中
+        env:
+          RUN_ID: ${{ steps.params.outputs.run_id }}
+          DIR: ${{ steps.params.outputs.dir }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DIR"
+          jq -n --arg run_id "$RUN_ID" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{run_id:$run_id, status:"running", started_at:$at}' > "$DIR/build.json"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DIR/build.json"
+          git commit -m "chore(latex): 云端编译开始 $RUN_ID [skip ci]"
+          # 这一步只是给前端一个「已经开跑」的信号，推不上去不影响编译，所以不致命
+          git push || echo "推送编译中状态失败（不影响编译，继续）"
+
+      - name: 拉取中文字体（与浏览器编译用同一份，保证两条通道排版一致）
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fonts"
+          curl -fsSL -o "$RUNNER_TEMP/fonts/NotoSerifSC-Regular.otf" \
+            "https://nikki-su.github.io/AcademicFlow/xelatex/fonts/NotoSerifSC-Regular.otf"
+
+      - name: 编译
+        id: tex
+        continue-on-error: true
+        env:
+          PROJECT: ${{ steps.params.outputs.project }}
+          DIR: ${{ steps.params.outputs.dir }}
+        run: |
+          set -euo pipefail
+          PKG="projects/$PROJECT/latex-packages"
+          # TEXINPUTS 末尾的冒号表示「再追加引擎默认搜索路径」，所以只加不减。
+          # // 表示递归子目录 —— 用户导入的宏包常常是「一个包好几个 .sty/.def」。
+          TEX_INPUTS=".:/work/$DIR//:"
+          if [ -d "$PKG" ]; then
+            TEX_INPUTS="/work/$PKG//:$TEX_INPUTS"
+          fi
+          docker run --rm \
+            -v "$PWD:/work" \
+            -v "$RUNNER_TEMP/fonts:/fonts:ro" \
+            -e "TEXINPUTS=$TEX_INPUTS" \
+            -w "/work/$DIR" \
+            texlive/texlive:latest \
+            latexmk -xelatex -interaction=nonstopmode -file-line-error main.tex
+
+      - name: 回写结果
+        if: always()
+        env:
+          RUN_ID: ${{ steps.params.outputs.run_id }}
+          DIR: ${{ steps.params.outputs.dir }}
+          OUTCOME: ${{ steps.tex.outcome }}
+        run: |
+          set -euo pipefail
+
+          if [ "$OUTCOME" = "success" ]; then STATUS=ok; else STATUS=error; fi
+
+          # latexmk 的输出可能是 main.log（xelatex 写的），也可能是它自己的 latexmk 日志
+          LOG=""
+          for f in "$DIR/main.log" "$DIR/main.latexmk.log"; do
+            if [ -f "$f" ]; then LOG="$f"; break; fi
+          done
+
+          TAIL=""
+          if [ -n "$LOG" ]; then
+            TAIL=$(tail -c 4000 "$LOG")
+          else
+            TAIL="没有找到 TeX 日志文件 —— 编译在很早期就失败了（例如镜像拉取失败）。"
+          fi
+
+          jq -n \
+            --arg run_id "$RUN_ID" \
+            --arg status "$STATUS" \
+            --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg tail "$TAIL" \
+            '{run_id:$run_id, status:$status, finished_at:$at, log_tail:$tail}' \
+            > "$DIR/build.json"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DIR/build.json"
+          if [ -f "$DIR/main.pdf" ]; then git add "$DIR/main.pdf"; fi
+          if [ -n "$LOG" ] && [ -f "$LOG" ]; then git add "$LOG"; fi
+
+          if git diff --cached --quiet; then
+            echo "没有可提交的内容"
+          else
+            git commit -m "chore(latex): 云端编译完成 $RUN_ID ($STATUS) [skip ci]"
+            # 编译期间前端可能正在自动保存稿件（也是一次 push），直接 push 会被拒。
+            # 重试几次、每次先 rebase，避免因为这种并发把 PDF 丢掉。
+            pushed=0
+            for i in 1 2 3 4; do
+              if git push; then pushed=1; break; fi
+              echo "push 被拒（main 上有新提交），rebase 后重试（第 $i 次）"
+              git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
+              sleep 3
+            done
+            if [ "$pushed" != "1" ]; then
+              echo "多次重试后仍无法推送结果" >&2
+              exit 1
+            fi
+          fi
+
+      - name: 编译失败时让 job 也失败
+        if: steps.tex.outcome != 'success'
+        run: exit 1

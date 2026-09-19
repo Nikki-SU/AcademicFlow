@@ -40,6 +40,7 @@ import {
   Package,
   Upload,
   Trash2,
+  CloudUpload,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getAllTemplates, createTemplate, updateTemplate } from '../services/journal-templates'
@@ -60,6 +61,7 @@ import {
   loadLatexPackages,
   type LatexPackageInfo,
 } from '../services/latex-packages'
+import { compileOnGitHub } from '../services/latex-cloud'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { JournalTemplate } from '../types'
@@ -592,6 +594,9 @@ export default function WritingPage() {
   const [isLoadingPackages, setIsLoadingPackages] = useState(false)
   const [isImportingPackages, setIsImportingPackages] = useState(false)
   const [packageStatus, setPackageStatus] = useState('')
+  // ── 云端编译（GitHub Actions）：与浏览器内 WASM 并列的第二条通道 ──
+  const [isCloudCompiling, setIsCloudCompiling] = useState(false)
+  const [cloudRunUrl, setCloudRunUrl] = useState('')
   // ── 期刊模板面板：让 AI 直接改 LaTeX 代码 ──
   const [templateInstruction, setTemplateInstruction] = useState('')
   const [isRefiningLatex, setIsRefiningLatex] = useState(false)
@@ -1723,6 +1728,45 @@ export default function WritingPage() {
       toast.error('编译失败，见下方日志')
     } finally {
       setIsCompiling(false)
+    }
+  }
+
+  /**
+   * 云端编译：把源文件提交进私库，叫起 GitHub Actions 跑官方 TeX Live 镜像。
+   * 与浏览器内 WASM 编译并列 —— 那边快但宏包/版本被运行时钉死，这边慢但什么包都能用。
+   */
+  const compileInCloud = async () => {
+    if (!latexCode.trim()) {
+      toast.error('代码板为空，先生成或粘贴 LaTeX 源码')
+      return
+    }
+    if (!activeProjectId) {
+      toast.error('先选一个项目 —— 云端编译的产物要落到项目目录里')
+      return
+    }
+    setIsCloudCompiling(true)
+    setCompileError('')
+    setCloudRunUrl('')
+    setCompileStatus('正在准备云端编译...')
+    try {
+      const result = await compileOnGitHub(
+        activeProjectId,
+        latexCode,
+        latexBib.trim() || undefined,
+        {
+          onStage: (s) => setCompileStatus(s),
+          onRunUrl: (url) => setCloudRunUrl(url),
+        },
+      )
+      setPdfObjectUrl(createPdfObjectUrl(result.pdf))
+      setCompileStatus('云端编译完成（官方 TeX Live）')
+      toast.success('云端编译完成')
+    } catch (err) {
+      setCompileError(err instanceof Error ? err.message : String(err))
+      setCompileStatus('')
+      toast.error('云端编译失败，见下方日志')
+    } finally {
+      setIsCloudCompiling(false)
     }
   }
 
@@ -3070,6 +3114,10 @@ export default function WritingPage() {
                   中文走 xeCJK + Noto Serif SC（正文里有汉字就自动接管，拉丁文仍用文档类自己的字体）。
                   其它宏包可以自己导入：在右边编译器顶部点「宏包」，把 .sty / .cls 选进来，
                   导入一次之后每次编译自动带上。
+                  <br />
+                  还是编不过的（要最新 TeX Live、要 biber、要冷门宏包），就点「云端编译」——
+                  那是在你自己的私库里跑 GitHub Actions + 官方 TeX Live 镜像，什么宏包都能装，
+                  代价是要排队等一会儿。
                 </p>
 
                 <div>
@@ -3281,8 +3329,21 @@ export default function WritingPage() {
                     </button>
                   )}
                   <button
+                    onClick={compileInCloud}
+                    disabled={isCloudCompiling || isCompiling}
+                    className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="用 GitHub Actions 跑官方 TeX Live 编译：宏包和版本都不受浏览器运行时的限制，代价是要排队等一会儿"
+                  >
+                    {isCloudCompiling ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <CloudUpload className="w-3 h-3" />
+                    )}
+                    {isCloudCompiling ? '云端编译中' : '云端编译'}
+                  </button>
+                  <button
                     onClick={compileCurrentLatex}
-                    disabled={isCompiling}
+                    disabled={isCompiling || isCloudCompiling}
                     className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-white bg-emerald-600 rounded hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isCompiling ? (
@@ -3293,6 +3354,21 @@ export default function WritingPage() {
                     {isCompiling ? '编译中' : '编译'}
                   </button>
                 </div>
+
+                {/* 云端编译的 Actions 运行页 —— 第一次跑大概率要看着它调，给个直达链接 */}
+                {cloudRunUrl && (
+                  <div className="flex-shrink-0 px-3 py-1 text-[0.625rem] text-slate-400 border-b border-slate-100 truncate">
+                    运行页：{' '}
+                    <a
+                      href={cloudRunUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-600 hover:underline"
+                    >
+                      {cloudRunUrl}
+                    </a>
+                  </div>
+                )}
 
                 {/* 导入宏包：运行时只内置了常用宏包，用户自己的 .sty/.cls 从这里进来 */}
                 {showPackagesPanel && (

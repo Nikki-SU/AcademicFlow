@@ -42,13 +42,12 @@ const ALLOWED_EXTS = [
 ]
 
 /**
- * 单文件上限 1MB。
- * 上传走 Git Blob API（单 blob 100MB 都没问题），但**读回来**走的是 Contents API，
- * 它对 >1MB 的文件不返回内联内容（`encoding: "none"` + download_url），
- * 那份宏包在编译时就挂不进去 —— 与其留个哑坑，不如现在就挡掉。
- * 真实的 .sty/.cls 极少超过 1MB。
+ * 单文件上限 4MB，纯粹是个防呆阈值（正常的 .sty/.cls 只有几十 KB）。
+ * 之所以敢放到 4MB：读取路径已经能吃 >1MB 的文件 —— 走 Git Blob API 兜底，
+ * 不像 Contents API 那样一过 1MB 就返回空内容。
+ * 4MB 也够得着 unicode-math-table.tex 这类大块头的实现文件。
  */
-const MAX_FILE_BYTES = 1024 * 1024
+const MAX_FILE_BYTES = 4 * 1024 * 1024
 
 export interface LatexPackageInfo {
   name: string
@@ -121,7 +120,7 @@ export async function importLatexPackages(
     if (file.size > MAX_FILE_BYTES) {
       skipped.push({
         name,
-        reason: `超过 1MB（${(file.size / 1024 / 1024).toFixed(1)}MB），编译器读不回来`,
+        reason: `超过 4MB（${(file.size / 1024 / 1024).toFixed(1)}MB）`,
       })
       continue
     }
