@@ -109,14 +109,17 @@ const LATEX_PAIRED_MODES: PanelMode[] = ['editor', 'template']
 
 /**
  * 缺包时给日志加一段人话。
- * 运行时是精简版 TeX 发行版，TeX 只会干巴巴地说一句 `File 'xxx.sty' not found`，
+ * 运行时是随站点分发的 XeLaTeX（不联网），只内置了一部分宏包，
+ * TeX 只会干巴巴地说一句 `File 'xxx.sty' not found`，
  * 用户看到这句通常以为是自己的写法错了 —— 其实是编译器没带那个包。
  */
 const RUNTIME_MISSING_FILE_HINT =
-  '【提示】编译器用的是随站点分发的精简版 XeLaTeX 运行时（不联网），只带基础宏包：\n' +
-  '  amsmath / graphicx / hyperref / geometry / xcolor / longtable / etoolbox / fontspec / babel\n' +
-  '期刊文档类（elsarticle、IEEEtran、acmart、revtex）与 natbib、booktabs、caption、multirow、\n' +
-  'tabularx、amssymb 等都不在其中 —— 上面这条 not found 多半就是缺包，需要换等价的写法。\n' +
+  '【提示】编译器用的是随站点分发的 XeLaTeX 运行时（不联网），只内置了一部分宏包：\n' +
+  '  基础：amsmath / graphicx / hyperref / geometry / xcolor / longtable / etoolbox / fontspec\n' +
+  '  常用：booktabs / natbib / amssymb / tabularx / multirow / caption / subcaption\n' +
+  '  文档类：IEEEtran / elsarticle（另有 article 等 LaTeX 自带类）\n' +
+  'acmart、revtex 这类重依赖文档类以及其它未内置的宏包都会报上面这条 not found，\n' +
+  '需要换等价的写法。\n' +
   '\n'
 
 function withRuntimeHint(log: string): string {
@@ -2964,15 +2967,15 @@ export default function WritingPage() {
                   )}
                 </div>
 
-                {/* 编译器的能力边界：投稿须知里要求的包很多都不在运行时里，先说清楚 */}
+                {/* 编译器的能力边界：写清楚内置了什么，省得用户猜 */}
                 <p className="text-[0.625rem] text-slate-400 leading-relaxed bg-slate-50 rounded-lg p-2">
-                  编译器是随站点分发的<b className="font-medium text-slate-500">精简版 XeLaTeX 运行时</b>
-                  （不联网），只带基础宏包（amsmath / graphicx / hyperref / geometry / xcolor /
-                  longtable / etoolbox / fontspec）与中文字体 Noto Serif SC。
-                  elsarticle、IEEEtran、acmart、natbib、booktabs、caption、multirow、amssymb
-                  这些都<b className="font-medium text-slate-500">不在里面</b>，
-                  写进代码板会报 <code className="text-slate-500">File not found</code>，
-                  需要换成等价的写法。
+                  编译器是随站点分发的 XeLaTeX 运行时（不联网，约 63MB，首次编译加载一次）。
+                  已内置基础宏包 amsmath / graphicx / hyperref / geometry / xcolor / longtable /
+                  etoolbox / fontspec，常用宏包 booktabs、natbib、amssymb、tabularx、multirow、
+                  caption / subcaption，文档类 <b className="font-medium text-slate-500">IEEEtran</b> 与{' '}
+                  <b className="font-medium text-slate-500">elsarticle</b>（Elsevier），以及中文字体 Noto Serif SC。
+                  没内置的是 acmart、revtex 这类重依赖文档类和其它宏包，写进去会报{' '}
+                  <code className="text-slate-500">File not found</code>，需要换等价的写法。
                 </p>
 
                 <div>

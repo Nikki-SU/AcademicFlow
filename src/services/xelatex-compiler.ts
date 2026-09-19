@@ -29,48 +29,6 @@ import type {
 const ASSET_BASE_URL = `${import.meta.env.BASE_URL}xelatex/`
 
 /**
- * 字体兼容垫片（只加在送进编译器的源码里，代码板原文不动）
- * -------------------------------------------------
- * 运行时只带了 4 个 Latin Modern OTTO 字体：
- *   lmroman10-regular / -italic / -bold / -bolditalic
- *   lmroman12-regular / -italic / -bold
- * 但 LaTeX 自带的 `tulmr.fd` 会按字号 / 字重把槽位指向别的文件：
- *   「>=15pt」→ lmroman17-regular（\maketitle 的 \LARGE = 17.28pt 正好落在这）
- *   「bx / n / 9pt」→ lmroman9-bold（\begin{abstract} 里的 \small 走这条）
- *   还有 \small → lmroman9-regular …
- * 这些文件都不在包里，于是整篇直接报
- *   Font TU/lmr/... at Npt not loadable: Metric (TFM) file or installed font not found
- * 一行都编不出来。
- *
- * 这里把 TU/lmr 的 12 个 (series, shape) 槽位**全量**重映射到已有的 4 个 OTF：
- * 字号不再区分（<-> 表示任意尺寸都换算缩放），粗体/斜体仍按语义映射到对应字重的文件，
- * 所以 \textbf / \textit 的效果保留；只有「超大字号的独立字形」被换成缩放的小字号字形，
- * 视觉上略小一点，但文档能编、能出页面 —— 这才是可用与不可用的区别。
- */
-const LMR_SHAPES: [string, string, string][] = [
-  ['m', 'n', 'lmroman10-regular'],
-  ['m', 'it', 'lmroman10-italic'],
-  ['m', 'sl', 'lmroman10-italic'],
-  ['m', 'sc', 'lmroman10-regular'],
-  ['m', 'ui', 'lmroman10-regular'],
-  ['m', 'scsl', 'lmroman10-italic'],
-  ['bx', 'n', 'lmroman10-bold'],
-  ['bx', 'it', 'lmroman10-bolditalic'],
-  ['bx', 'sl', 'lmroman10-bolditalic'],
-  ['b', 'n', 'lmroman10-bold'],
-  ['b', 'it', 'lmroman10-bolditalic'],
-  ['b', 'sl', 'lmroman10-bolditalic'],
-]
-
-const FONT_COMPAT_SHIM = [
-  '% ---- AcademicFlow: XeLaTeX WASM 运行时字体兼容垫片 ----',
-  ...LMR_SHAPES.map(
-    ([series, shape, file]) =>
-      `\\DeclareFontShape{TU}{lmr}{${series}}{${shape}}{<-> \\UnicodeFontFile{${file}}{\\UnicodeFontTeXLigatures}}{}`,
-  ),
-].join('\n')
-
-/**
  * 中文字体垫片
  * -------------------------------------------------
  * 运行时里一个 CJK 字体都没有，中文能「编译通过」（XeTeX 缺字形只警告不报错），
@@ -99,10 +57,16 @@ const CJK_SHIM = [
   '  AutoFakeBold=1.5, AutoFakeSlant=0.2]',
 ].join('\n')
 
-/** 把垫片插到 \begin{document} 之前（也就是 preamble 末尾） */
+/**
+ * 把 CJK 垫片插到 \begin{document} 之前（也就是 preamble 末尾）。
+ * Latin Modern 那堆缺字体的坑不在这里修 —— 已经直接在
+ * `public/xelatex/texmf/tex/latex/base/tulmr.fd` 里改掉了 shape 表，
+ * 因为那个失败发生在 \documentclass 阶段（IEEEtran 载入时就用 \small），
+ * 往 preamble 塞垫片根本来不及。
+ */
 function withRuntimeCompat(source: string): string {
-  if (source.includes('AcademicFlow: XeLaTeX WASM 运行时字体兼容垫片')) return source
-  const shims = CJK_PATTERN.test(source) ? `${FONT_COMPAT_SHIM}\n${CJK_SHIM}` : FONT_COMPAT_SHIM
+  if (source.includes('AcademicFlow: 中文字体')) return source
+  const shims = CJK_PATTERN.test(source) ? CJK_SHIM : ''
   const marker = '\\begin{document}'
   const idx = source.indexOf(marker)
   if (idx === -1) return `${source}\n${shims}\n`
