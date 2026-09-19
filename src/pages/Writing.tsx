@@ -107,6 +107,22 @@ const PANEL_MODES: {
 /** 需要和「LaTeX 工作区」配对的模式：选中它们时另一侧自动切过去（左右联动） */
 const LATEX_PAIRED_MODES: PanelMode[] = ['editor', 'template']
 
+/**
+ * 缺包时给日志加一段人话。
+ * 运行时是精简版 TeX 发行版，TeX 只会干巴巴地说一句 `File 'xxx.sty' not found`，
+ * 用户看到这句通常以为是自己的写法错了 —— 其实是编译器没带那个包。
+ */
+const RUNTIME_MISSING_FILE_HINT =
+  '【提示】编译器用的是随站点分发的精简版 XeLaTeX 运行时（不联网），只带基础宏包：\n' +
+  '  amsmath / graphicx / hyperref / geometry / xcolor / longtable / etoolbox / fontspec / babel\n' +
+  '期刊文档类（elsarticle、IEEEtran、acmart、revtex）与 natbib、booktabs、caption、multirow、\n' +
+  'tabularx、amssymb 等都不在其中 —— 上面这条 not found 多半就是缺包，需要换等价的写法。\n' +
+  '\n'
+
+function withRuntimeHint(log: string): string {
+  return /\.(sty|cls|def)['`]?\s*not found/i.test(log) ? RUNTIME_MISSING_FILE_HINT + log : log
+}
+
 const CITATION_SCOPES = [
   { value: 'all', label: '全部文献' },
   { value: 'project', label: '当前项目文献' },
@@ -1609,7 +1625,7 @@ export default function WritingPage() {
       toast.success('编译完成')
     } catch (err) {
       const log = getCompileErrorLog(err)
-      setCompileError(log || (err instanceof Error ? err.message : String(err)))
+      setCompileError(withRuntimeHint(log || (err instanceof Error ? err.message : String(err))))
       setCompileStatus('')
       toast.error('编译失败，见下方日志')
     } finally {
@@ -2947,6 +2963,17 @@ export default function WritingPage() {
                     </div>
                   )}
                 </div>
+
+                {/* 编译器的能力边界：投稿须知里要求的包很多都不在运行时里，先说清楚 */}
+                <p className="text-[0.625rem] text-slate-400 leading-relaxed bg-slate-50 rounded-lg p-2">
+                  编译器是随站点分发的<b className="font-medium text-slate-500">精简版 XeLaTeX 运行时</b>
+                  （不联网），只带基础宏包（amsmath / graphicx / hyperref / geometry / xcolor /
+                  longtable / etoolbox / fontspec）与中文字体 Noto Serif SC。
+                  elsarticle、IEEEtran、acmart、natbib、booktabs、caption、multirow、amssymb
+                  这些都<b className="font-medium text-slate-500">不在里面</b>，
+                  写进代码板会报 <code className="text-slate-500">File not found</code>，
+                  需要换成等价的写法。
+                </p>
 
                 <div>
                   <div className="text-xs font-medium text-slate-600 mb-1.5">目标期刊模板</div>

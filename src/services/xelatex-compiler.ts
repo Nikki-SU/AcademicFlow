@@ -70,13 +70,43 @@ const FONT_COMPAT_SHIM = [
   ),
 ].join('\n')
 
+/**
+ * 中文字体垫片
+ * -------------------------------------------------
+ * 运行时里一个 CJK 字体都没有，中文能「编译通过」（XeTeX 缺字形只警告不报错），
+ * 但 PDF 里汉字是空白，日志只有 `Missing character: There is no 者 (U+8005) in font …`。
+ * 这里带了一份 Noto Serif SC（OFL，8.4MB，覆盖 CJK 基本区 20992 字 + 常用标点/拉丁），
+ * 随 runtime-manifest.json 一起挂到 /fonts/。
+ *
+ * 只能用 fontspec + \setmainfont：运行时里没有 xeCJK / ctex，也就没有
+ * \setCJKmainfont 可用；而我们要的正是「中英文都出得来」，所以直接把主字体
+ * 换成这套自带拉丁字形的 CJK 衬线体（Noto Serif SC 的拉丁部分本就是 Source Serif，
+ * 配中文论文不违和）。只有正文里真的出现 CJK 字符时才注入，纯英文文档
+ * 仍用运行时自带的 Latin Modern。
+ */
+const CJK_FONT_FILE = 'NotoSerifSC-Regular.otf'
+const CJK_FONT_DIR = '/fonts/'
+
+/** CJK 字符探测：汉字（含扩展 A）、中日文标点、假名、全角符号 */
+const CJK_PATTERN =
+  /[\u3000-\u303F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF]/
+
+const CJK_SHIM = [
+  '% ---- AcademicFlow: 中文字体（运行时不含 CJK 字体，指到自带的 Noto Serif SC）----',
+  '\\usepackage{fontspec}',
+  `\\setmainfont{${CJK_FONT_FILE}}[Path=${CJK_FONT_DIR},`,
+  `  BoldFont={${CJK_FONT_FILE}}, ItalicFont={${CJK_FONT_FILE}}, BoldItalicFont={${CJK_FONT_FILE}},`,
+  '  AutoFakeBold=1.5, AutoFakeSlant=0.2]',
+].join('\n')
+
 /** 把垫片插到 \begin{document} 之前（也就是 preamble 末尾） */
 function withRuntimeCompat(source: string): string {
   if (source.includes('AcademicFlow: XeLaTeX WASM 运行时字体兼容垫片')) return source
+  const shims = CJK_PATTERN.test(source) ? `${FONT_COMPAT_SHIM}\n${CJK_SHIM}` : FONT_COMPAT_SHIM
   const marker = '\\begin{document}'
   const idx = source.indexOf(marker)
-  if (idx === -1) return `${source}\n${FONT_COMPAT_SHIM}\n`
-  return `${source.slice(0, idx)}${FONT_COMPAT_SHIM}\n${source.slice(idx)}`
+  if (idx === -1) return `${source}\n${shims}\n`
+  return `${source.slice(0, idx)}${shims}\n${source.slice(idx)}`
 }
 
 /** BibTeX 数据库在虚拟文件系统里的文件名，需与正文 \bibliography{...} 一致 */
