@@ -33,3 +33,14 @@ body {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/*
+ * Vditor 工具栏：窄面板下按钮会换行，而 Vditor 的工具栏只靠 float 排列、
+ * 自身没有撑高逻辑，换行后的按钮会被下一个兄弟元素盖住 → 看起来"按钮消失了"。
+ * flow-root 让工具栏包住浮动的按钮，高度永远等于实际行数，按钮一个都不会被裁掉。
+ */
+.vditor-toolbar {
+  display: flow-root;
+  min-height: var(--toolbar-height);
+}
+

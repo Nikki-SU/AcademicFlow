@@ -35,6 +35,8 @@ export interface VditorEditorHandle {
   setValue: (md: string) => void
   /** 在光标处插入 md 片段（图片 base64、公式模板等） */
   insertValue: (md: string) => void
+  /** 滚动到第 index 个标题（序号与 extractOutline 解析出的顺序一致） */
+  scrollToHeading: (index: number) => void
   /** 聚焦编辑器 */
   focus: () => void
 }
@@ -147,6 +149,11 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       },
       insertValue: (md: string) => {
         vditorRef.current?.insertValue(md)
+      },
+      scrollToHeading: (index: number) => {
+        // 直接查渲染后的标题 DOM：与 extractOutline(md) 的标题顺序一致（都按文档从上到下）
+        const headings = containerRef.current?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')
+        headings?.[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       },
       focus: () => vditorRef.current?.focus(),
     }),
