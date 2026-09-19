@@ -446,10 +446,10 @@ function JournalTemplatesPage() {
 
                   <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100">
                     <a
-                      href={`/journal-format?template=${t.id}`}
+                      href="/writing"
                       className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
                     >
-                      用此模板排版 →
+                      去写作页排版 →
                     </a>
                   </div>
                 </div>

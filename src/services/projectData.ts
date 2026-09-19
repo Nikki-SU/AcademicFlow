@@ -137,6 +137,42 @@ export async function saveManuscript(projectId: string, content: string): Promis
   )
 }
 
+/**
+ * 项目的 LaTeX 产物
+ * -------------------------------------------------
+ * 与 manuscript.md 平级落盘，方便人直接翻仓库看 / 手改：
+ * - projects/{project-id}/manuscript.tex — LaTeX 代码板里的完整源码
+ * - projects/{project-id}/references.bib  — BibTeX 数据库（编译时挂进虚拟文件系统）
+ */
+export async function loadManuscriptLatex(projectId: string): Promise<string> {
+  const result = await readMdFile(`projects/${projectId}/manuscript.tex`)
+  return result?.content || ''
+}
+
+export async function saveManuscriptLatex(
+  projectId: string,
+  content: string,
+): Promise<void> {
+  await writeMdFile(
+    `projects/${projectId}/manuscript.tex`,
+    content,
+    'Update manuscript LaTeX',
+  )
+}
+
+export async function loadBibtex(projectId: string): Promise<string> {
+  const result = await readMdFile(`projects/${projectId}/references.bib`)
+  return result?.content || ''
+}
+
+export async function saveBibtex(projectId: string, content: string): Promise<void> {
+  await writeMdFile(
+    `projects/${projectId}/references.bib`,
+    content,
+    'Update references BibTeX',
+  )
+}
+
 export async function loadReferences(projectId: string): Promise<CitationRef[]> {
   const [papers, books] = await Promise.all([
     readCsvFile(

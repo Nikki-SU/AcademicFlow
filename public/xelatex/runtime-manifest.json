@@ -1,0 +1,1689 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "texmf/bibtex/bst/base/abbrv.bst",
+      "size": 20329
+    },
+    {
+      "path": "texmf/bibtex/bst/base/acm.bst",
+      "size": 21064
+    },
+    {
+      "path": "texmf/bibtex/bst/base/alpha.bst",
+      "size": 23907
+    },
+    {
+      "path": "texmf/bibtex/bst/base/apalike.bst",
+      "size": 24635
+    },
+    {
+      "path": "texmf/bibtex/bst/base/ieeetr.bst",
+      "size": 18361
+    },
+    {
+      "path": "texmf/bibtex/bst/base/plain.bst",
+      "size": 20613
+    },
+    {
+      "path": "texmf/bibtex/bst/base/siam.bst",
+      "size": 19403
+    },
+    {
+      "path": "texmf/bibtex/bst/base/unsrt.bst",
+      "size": 18030
+    },
+    {
+      "path": "texmf/dvipdfmx/dvipdfmx.cfg",
+      "size": 9366
+    },
+    {
+      "path": "texmf/fonts/enc/dvips/lm/lm-rm.enc",
+      "size": 2327
+    },
+    {
+      "path": "texmf/fonts/map/dvipdfmx/ckx.map",
+      "size": 1289
+    },
+    {
+      "path": "texmf/fonts/map/dvipdfmx/kanjix.map",
+      "size": 331
+    },
+    {
+      "path": "texmf/fonts/map/glyphlist/glyphlist.txt",
+      "size": 77146
+    },
+    {
+      "path": "texmf/fonts/map/glyphlist/pdfglyphlist.txt",
+      "size": 5117
+    },
+    {
+      "path": "texmf/fonts/map/glyphlist/texglyphlist.txt",
+      "size": 10227
+    },
+    {
+      "path": "texmf/fonts/map/updmap/pdftex.map",
+      "size": 92935
+    },
+    {
+      "path": "texmf/fonts/tfm/adobe/zapfding/pzdr.tfm",
+      "size": 1528
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmbsy5.tfm",
+      "size": 1120
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmbsy6.tfm",
+      "size": 1124
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmbsy7.tfm",
+      "size": 1120
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmbsy8.tfm",
+      "size": 1120
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmbsy9.tfm",
+      "size": 1112
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmcsc8.tfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmcsc9.tfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmex7.tfm",
+      "size": 1004
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmex8.tfm",
+      "size": 988
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmex9.tfm",
+      "size": 996
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmmib5.tfm",
+      "size": 1496
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmmib6.tfm",
+      "size": 1516
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmmib7.tfm",
+      "size": 1508
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmmib8.tfm",
+      "size": 1528
+    },
+    {
+      "path": "texmf/fonts/tfm/public/amsfonts/cmextra/cmmib9.tfm",
+      "size": 1528
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmb10.tfm",
+      "size": 1336
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbsy10.tfm",
+      "size": 1116
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbx10.tfm",
+      "size": 1328
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbx12.tfm",
+      "size": 1324
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbx5.tfm",
+      "size": 1332
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbx6.tfm",
+      "size": 1344
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbx7.tfm",
+      "size": 1336
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbx8.tfm",
+      "size": 1332
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbx9.tfm",
+      "size": 1328
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbxsl10.tfm",
+      "size": 1532
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmbxti10.tfm",
+      "size": 1532
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmcsc10.tfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmdunh10.tfm",
+      "size": 1296
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmex10.tfm",
+      "size": 992
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmff10.tfm",
+      "size": 1324
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmfi10.tfm",
+      "size": 1424
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmfib8.tfm",
+      "size": 1280
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cminch.tfm",
+      "size": 492
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmitt10.tfm",
+      "size": 768
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmi10.tfm",
+      "size": 1528
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmi12.tfm",
+      "size": 1524
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmi5.tfm",
+      "size": 1508
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmi6.tfm",
+      "size": 1512
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmi7.tfm",
+      "size": 1528
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmi8.tfm",
+      "size": 1520
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmi9.tfm",
+      "size": 1524
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmmib10.tfm",
+      "size": 1524
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr10.tfm",
+      "size": 1296
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr12.tfm",
+      "size": 1288
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr17.tfm",
+      "size": 1292
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr5.tfm",
+      "size": 1220
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr6.tfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr7.tfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr8.tfm",
+      "size": 1292
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmr9.tfm",
+      "size": 1292
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsl10.tfm",
+      "size": 1508
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsl12.tfm",
+      "size": 1504
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsl8.tfm",
+      "size": 1504
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsl9.tfm",
+      "size": 1504
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsltt10.tfm",
+      "size": 772
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmss10.tfm",
+      "size": 1316
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmss12.tfm",
+      "size": 1324
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmss17.tfm",
+      "size": 1320
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmss8.tfm",
+      "size": 1296
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmss9.tfm",
+      "size": 1320
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssbx10.tfm",
+      "size": 1272
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssdc10.tfm",
+      "size": 1328
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssi10.tfm",
+      "size": 1520
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssi12.tfm",
+      "size": 1532
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssi17.tfm",
+      "size": 1528
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssi8.tfm",
+      "size": 1500
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssi9.tfm",
+      "size": 1524
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssq8.tfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmssqi8.tfm",
+      "size": 1496
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsy10.tfm",
+      "size": 1124
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsy5.tfm",
+      "size": 1112
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsy6.tfm",
+      "size": 1116
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsy7.tfm",
+      "size": 1120
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsy8.tfm",
+      "size": 1120
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmsy9.tfm",
+      "size": 1116
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtcsc10.tfm",
+      "size": 776
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtex10.tfm",
+      "size": 768
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtex8.tfm",
+      "size": 768
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtex9.tfm",
+      "size": 764
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmti10.tfm",
+      "size": 1480
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmti12.tfm",
+      "size": 1484
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmti7.tfm",
+      "size": 1492
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmti8.tfm",
+      "size": 1504
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmti9.tfm",
+      "size": 1476
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtt10.tfm",
+      "size": 768
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtt12.tfm",
+      "size": 772
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtt8.tfm",
+      "size": 768
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmtt9.tfm",
+      "size": 764
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmu10.tfm",
+      "size": 1276
+    },
+    {
+      "path": "texmf/fonts/tfm/public/cm/cmvtt10.tfm",
+      "size": 1248
+    },
+    {
+      "path": "texmf/fonts/tfm/public/latex-fonts/lcircle10.tfm",
+      "size": 820
+    },
+    {
+      "path": "texmf/fonts/tfm/public/latex-fonts/lcirclew10.tfm",
+      "size": 820
+    },
+    {
+      "path": "texmf/fonts/tfm/public/latex-fonts/line10.tfm",
+      "size": 748
+    },
+    {
+      "path": "texmf/fonts/tfm/public/latex-fonts/linew10.tfm",
+      "size": 748
+    },
+    {
+      "path": "texmf/fonts/tfm/public/lm/rm-lmbx10.tfm",
+      "size": 11880
+    },
+    {
+      "path": "texmf/fonts/tfm/public/lm/rm-lmbx12.tfm",
+      "size": 11880
+    },
+    {
+      "path": "texmf/fonts/tfm/public/lm/rm-lmr10.tfm",
+      "size": 11868
+    },
+    {
+      "path": "texmf/fonts/tfm/public/lm/rm-lmr12.tfm",
+      "size": 11888
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmb10.pfb",
+      "size": 31983
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmb10.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbsy10.pfb",
+      "size": 34793
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbsy10.pfm",
+      "size": 662
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx10.pfb",
+      "size": 34811
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx10.pfm",
+      "size": 1305
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx12.pfb",
+      "size": 32080
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx12.pfm",
+      "size": 1305
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx5.pfb",
+      "size": 32034
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx5.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx6.pfb",
+      "size": 32378
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx6.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx7.pfb",
+      "size": 32007
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx7.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx8.pfb",
+      "size": 32166
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx8.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx9.pfb",
+      "size": 32298
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbx9.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbxsl10.pfb",
+      "size": 33268
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbxsl10.pfm",
+      "size": 1307
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbxti10.pfb",
+      "size": 36554
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmbxti10.pfm",
+      "size": 1303
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmcsc10.pfb",
+      "size": 32001
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmcsc10.pfm",
+      "size": 1314
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmdunh10.pfb",
+      "size": 33089
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmdunh10.pfm",
+      "size": 1307
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmex10.pfb",
+      "size": 30251
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmex10.pfm",
+      "size": 671
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmff10.pfb",
+      "size": 33987
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmff10.pfm",
+      "size": 1305
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmfi10.pfb",
+      "size": 34247
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmfi10.pfm",
+      "size": 1301
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmfib8.pfb",
+      "size": 32945
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmfib8.pfm",
+      "size": 1305
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cminch.pfb",
+      "size": 8797
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cminch.pfm",
+      "size": 553
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmitt10.pfb",
+      "size": 26057
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmitt10.pfm",
+      "size": 580
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi10.pfb",
+      "size": 36299
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi10.pfm",
+      "size": 1213
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi12.pfb",
+      "size": 36741
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi12.pfm",
+      "size": 1213
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi5.pfb",
+      "size": 37912
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi5.pfm",
+      "size": 1212
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi6.pfb",
+      "size": 37166
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi6.pfm",
+      "size": 1212
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi7.pfb",
+      "size": 36281
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi7.pfm",
+      "size": 1212
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi8.pfb",
+      "size": 35469
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi8.pfm",
+      "size": 1212
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi9.pfb",
+      "size": 36094
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmi9.pfm",
+      "size": 1212
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmib10.pfb",
+      "size": 36912
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmmib10.pfm",
+      "size": 1214
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr10.pfb",
+      "size": 35752
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr10.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr12.pfb",
+      "size": 32722
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr12.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr17.pfb",
+      "size": 32362
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr17.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr5.pfb",
+      "size": 31809
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr5.pfm",
+      "size": 1263
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr6.pfb",
+      "size": 32734
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr6.pfm",
+      "size": 1303
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr7.pfb",
+      "size": 32762
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr7.pfm",
+      "size": 1303
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr8.pfb",
+      "size": 32726
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr8.pfm",
+      "size": 1303
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr9.pfb",
+      "size": 33993
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmr9.pfm",
+      "size": 1303
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl10.pfb",
+      "size": 35022
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl10.pfm",
+      "size": 1305
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl12.pfb",
+      "size": 34586
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl12.pfm",
+      "size": 1305
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl8.pfb",
+      "size": 34511
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl8.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl9.pfb",
+      "size": 34568
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsl9.pfm",
+      "size": 1304
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsltt10.pfb",
+      "size": 30171
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsltt10.pfm",
+      "size": 581
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss10.pfb",
+      "size": 24457
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss10.pfm",
+      "size": 1153
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss12.pfb",
+      "size": 24393
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss12.pfm",
+      "size": 1153
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss17.pfb",
+      "size": 24416
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss17.pfm",
+      "size": 1153
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss8.pfb",
+      "size": 24420
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss8.pfm",
+      "size": 1152
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss9.pfb",
+      "size": 24373
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmss9.pfm",
+      "size": 1152
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssbx10.pfb",
+      "size": 28902
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssbx10.pfm",
+      "size": 1155
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssdc10.pfb",
+      "size": 28932
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssdc10.pfm",
+      "size": 1155
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi10.pfb",
+      "size": 25150
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi10.pfm",
+      "size": 1154
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi12.pfb",
+      "size": 25095
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi12.pfm",
+      "size": 1154
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi17.pfb",
+      "size": 24977
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi17.pfm",
+      "size": 1154
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi8.pfb",
+      "size": 25168
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi8.pfm",
+      "size": 1153
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi9.pfb",
+      "size": 25029
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssi9.pfm",
+      "size": 1153
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssq8.pfb",
+      "size": 28158
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssq8.pfm",
+      "size": 1153
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssqi8.pfb",
+      "size": 29668
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmssqi8.pfm",
+      "size": 1154
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy10.pfb",
+      "size": 32569
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy10.pfm",
+      "size": 661
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy5.pfb",
+      "size": 32915
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy5.pfm",
+      "size": 660
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy6.pfb",
+      "size": 32587
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy6.pfm",
+      "size": 660
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy7.pfb",
+      "size": 32716
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy7.pfm",
+      "size": 660
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy8.pfb",
+      "size": 32626
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy8.pfm",
+      "size": 660
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy9.pfb",
+      "size": 32442
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmsy9.pfm",
+      "size": 660
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtcsc10.pfb",
+      "size": 29025
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtcsc10.pfm",
+      "size": 581
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtex10.pfb",
+      "size": 29352
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtex10.pfm",
+      "size": 580
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtex8.pfb",
+      "size": 24887
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtex8.pfm",
+      "size": 579
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtex9.pfb",
+      "size": 29687
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtex9.pfm",
+      "size": 579
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti10.pfb",
+      "size": 37944
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti10.pfm",
+      "size": 1301
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti12.pfb",
+      "size": 36118
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti12.pfm",
+      "size": 1301
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti7.pfb",
+      "size": 36607
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti7.pfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti8.pfb",
+      "size": 35660
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti8.pfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti9.pfb",
+      "size": 36310
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmti9.pfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt10.pfb",
+      "size": 31099
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt10.pfm",
+      "size": 579
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt12.pfb",
+      "size": 24252
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt12.pfm",
+      "size": 579
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt8.pfb",
+      "size": 24287
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt8.pfm",
+      "size": 578
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt9.pfb",
+      "size": 29078
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmtt9.pfm",
+      "size": 578
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmu10.pfb",
+      "size": 32955
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmu10.pfm",
+      "size": 1300
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmvtt10.pfb",
+      "size": 29471
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cm/cmvtt10.pfm",
+      "size": 1306
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy5.pfb",
+      "size": 33824
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy5.pfm",
+      "size": 661
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy6.pfb",
+      "size": 33380
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy6.pfm",
+      "size": 661
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy7.pfb",
+      "size": 30068
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy7.pfm",
+      "size": 661
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy8.pfb",
+      "size": 29407
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy8.pfm",
+      "size": 661
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy9.pfb",
+      "size": 27817
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmbsy9.pfm",
+      "size": 661
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmcsc8.pfb",
+      "size": 32957
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmcsc8.pfm",
+      "size": 1289
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmcsc9.pfb",
+      "size": 31942
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmcsc9.pfm",
+      "size": 1289
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmex7.pfb",
+      "size": 30457
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmex7.pfm",
+      "size": 670
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmex8.pfb",
+      "size": 30273
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmex8.pfm",
+      "size": 670
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmex9.pfb",
+      "size": 30212
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmex9.pfm",
+      "size": 670
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib5.pfb",
+      "size": 40540
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib5.pfm",
+      "size": 1213
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib6.pfb",
+      "size": 38151
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib6.pfm",
+      "size": 1213
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib7.pfb",
+      "size": 39386
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib7.pfm",
+      "size": 1213
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib8.pfb",
+      "size": 35479
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib8.pfm",
+      "size": 1213
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib9.pfb",
+      "size": 36510
+    },
+    {
+      "path": "texmf/fonts/type1/public/amsfonts/cmextra/cmmib9.pfm",
+      "size": 1213
+    },
+    {
+      "path": "texmf/fonts/type1/public/lm/lmbx10.pfb",
+      "size": 121021
+    },
+    {
+      "path": "texmf/fonts/type1/public/lm/lmbx12.pfb",
+      "size": 116908
+    },
+    {
+      "path": "texmf/fonts/type1/public/lm/lmr10.pfb",
+      "size": 119235
+    },
+    {
+      "path": "texmf/tex/generic/atbegshi/atbegshi.sty",
+      "size": 24708
+    },
+    {
+      "path": "texmf/tex/generic/babel/hyphen.cfg",
+      "size": 6443
+    },
+    {
+      "path": "texmf/tex/generic/babel/xebabel.def",
+      "size": 17546
+    },
+    {
+      "path": "texmf/tex/generic/bigintcalc/bigintcalc.sty",
+      "size": 40635
+    },
+    {
+      "path": "texmf/tex/generic/bitset/bitset.sty",
+      "size": 33961
+    },
+    {
+      "path": "texmf/tex/generic/gettitlestring/gettitlestring.sty",
+      "size": 8371
+    },
+    {
+      "path": "texmf/tex/generic/hyphen/dumyhyph.tex",
+      "size": 419
+    },
+    {
+      "path": "texmf/tex/generic/hyphen/hyphen.tex",
+      "size": 27860
+    },
+    {
+      "path": "texmf/tex/generic/hyphen/zerohyph.tex",
+      "size": 402
+    },
+    {
+      "path": "texmf/tex/generic/iftex/iftex.sty",
+      "size": 7984
+    },
+    {
+      "path": "texmf/tex/generic/iftex/ifvtex.sty",
+      "size": 1057
+    },
+    {
+      "path": "texmf/tex/generic/infwarerr/infwarerr.sty",
+      "size": 8356
+    },
+    {
+      "path": "texmf/tex/generic/intcalc/intcalc.sty",
+      "size": 31769
+    },
+    {
+      "path": "texmf/tex/generic/knuth-lib/null.tex",
+      "size": 212
+    },
+    {
+      "path": "texmf/tex/generic/kvdefinekeys/kvdefinekeys.sty",
+      "size": 5412
+    },
+    {
+      "path": "texmf/tex/generic/ltxcmds/ltxcmds.sty",
+      "size": 17865
+    },
+    {
+      "path": "texmf/tex/generic/pdfescape/pdfescape.sty",
+      "size": 19007
+    },
+    {
+      "path": "texmf/tex/generic/pdftexcmds/pdftexcmds.sty",
+      "size": 20089
+    },
+    {
+      "path": "texmf/tex/generic/stringenc/stringenc.sty",
+      "size": 21514
+    },
+    {
+      "path": "texmf/tex/generic/unicode-data/CaseFolding.txt",
+      "size": 87539
+    },
+    {
+      "path": "texmf/tex/generic/unicode-data/GraphemeBreakProperty.txt",
+      "size": 99377
+    },
+    {
+      "path": "texmf/tex/generic/unicode-data/load-unicode-data.tex",
+      "size": 7058
+    },
+    {
+      "path": "texmf/tex/generic/unicode-data/SpecialCasing.txt",
+      "size": 17049
+    },
+    {
+      "path": "texmf/tex/generic/unicode-data/UnicodeData.txt",
+      "size": 2198209
+    },
+    {
+      "path": "texmf/tex/generic/unicode-data/WordBreakProperty.txt",
+      "size": 114445
+    },
+    {
+      "path": "texmf/tex/generic/uniquecounter/uniquecounter.sty",
+      "size": 7008
+    },
+    {
+      "path": "texmf/tex/latex/amsmath/amsbsy.sty",
+      "size": 2222
+    },
+    {
+      "path": "texmf/tex/latex/amsmath/amsgen.sty",
+      "size": 4173
+    },
+    {
+      "path": "texmf/tex/latex/amsmath/amsmath.sty",
+      "size": 88471
+    },
+    {
+      "path": "texmf/tex/latex/amsmath/amsopn.sty",
+      "size": 4474
+    },
+    {
+      "path": "texmf/tex/latex/amsmath/amstext.sty",
+      "size": 2444
+    },
+    {
+      "path": "texmf/tex/latex/atveryend/atveryend.sty",
+      "size": 1695
+    },
+    {
+      "path": "texmf/tex/latex/base/article.cls",
+      "size": 20144
+    },
+    {
+      "path": "texmf/tex/latex/base/atbegshi-ltx.sty",
+      "size": 2963
+    },
+    {
+      "path": "texmf/tex/latex/base/atveryend-ltx.sty",
+      "size": 2378
+    },
+    {
+      "path": "texmf/tex/latex/base/fontenc.sty",
+      "size": 5275
+    },
+    {
+      "path": "texmf/tex/latex/base/fontmath.cfg",
+      "size": 1978
+    },
+    {
+      "path": "texmf/tex/latex/base/fontmath.ltx",
+      "size": 24944
+    },
+    {
+      "path": "texmf/tex/latex/base/fonttext.cfg",
+      "size": 1978
+    },
+    {
+      "path": "texmf/tex/latex/base/fonttext.ltx",
+      "size": 3317
+    },
+    {
+      "path": "texmf/tex/latex/base/latex.ltx",
+      "size": 765547
+    },
+    {
+      "path": "texmf/tex/latex/base/omlcmm.fd",
+      "size": 2332
+    },
+    {
+      "path": "texmf/tex/latex/base/omlenc.def",
+      "size": 1947
+    },
+    {
+      "path": "texmf/tex/latex/base/omscmsy.fd",
+      "size": 2262
+    },
+    {
+      "path": "texmf/tex/latex/base/omsenc.def",
+      "size": 2739
+    },
+    {
+      "path": "texmf/tex/latex/base/omxcmex.fd",
+      "size": 2040
+    },
+    {
+      "path": "texmf/tex/latex/base/ot1cmr.fd",
+      "size": 3705
+    },
+    {
+      "path": "texmf/tex/latex/base/ot1cmss.fd",
+      "size": 3152
+    },
+    {
+      "path": "texmf/tex/latex/base/ot1cmtt.fd",
+      "size": 2909
+    },
+    {
+      "path": "texmf/tex/latex/base/ot1enc.def",
+      "size": 4781
+    },
+    {
+      "path": "texmf/tex/latex/base/preload.cfg",
+      "size": 1977
+    },
+    {
+      "path": "texmf/tex/latex/base/preload.ltx",
+      "size": 2024
+    },
+    {
+      "path": "texmf/tex/latex/base/size10.clo",
+      "size": 8448
+    },
+    {
+      "path": "texmf/tex/latex/base/size11.clo",
+      "size": 8464
+    },
+    {
+      "path": "texmf/tex/latex/base/size12.clo",
+      "size": 8449
+    },
+    {
+      "path": "texmf/tex/latex/base/t1cmr.fd",
+      "size": 2569
+    },
+    {
+      "path": "texmf/tex/latex/base/t1cmss.fd",
+      "size": 2641
+    },
+    {
+      "path": "texmf/tex/latex/base/t1cmtt.fd",
+      "size": 2443
+    },
+    {
+      "path": "texmf/tex/latex/base/t1enc.def",
+      "size": 11012
+    },
+    {
+      "path": "texmf/tex/latex/base/texsys.cfg",
+      "size": 8067
+    },
+    {
+      "path": "texmf/tex/latex/base/ts1cmr.fd",
+      "size": 2466
+    },
+    {
+      "path": "texmf/tex/latex/base/ts1cmss.fd",
+      "size": 2411
+    },
+    {
+      "path": "texmf/tex/latex/base/ts1cmtt.fd",
+      "size": 2324
+    },
+    {
+      "path": "texmf/tex/latex/base/ts1enc.def",
+      "size": 8090
+    },
+    {
+      "path": "texmf/tex/latex/base/tuenc.def",
+      "size": 26445
+    },
+    {
+      "path": "texmf/tex/latex/base/tulmr.fd",
+      "size": 4822
+    },
+    {
+      "path": "texmf/tex/latex/base/tulmss.fd",
+      "size": 3663
+    },
+    {
+      "path": "texmf/tex/latex/base/tulmtt.fd",
+      "size": 4574
+    },
+    {
+      "path": "texmf/tex/latex/base/ucmr.fd",
+      "size": 3680
+    },
+    {
+      "path": "texmf/tex/latex/etoolbox/etoolbox.sty",
+      "size": 46885
+    },
+    {
+      "path": "texmf/tex/latex/firstaid/latex2e-first-aid-for-external-files.ltx",
+      "size": 14202
+    },
+    {
+      "path": "texmf/tex/latex/fontspec/fontspec-xetex.sty",
+      "size": 164714
+    },
+    {
+      "path": "texmf/tex/latex/fontspec/fontspec.cfg",
+      "size": 549
+    },
+    {
+      "path": "texmf/tex/latex/fontspec/fontspec.sty",
+      "size": 3804
+    },
+    {
+      "path": "texmf/tex/latex/geometry/geometry.sty",
+      "size": 41904
+    },
+    {
+      "path": "texmf/tex/latex/graphics/color.sty",
+      "size": 7245
+    },
+    {
+      "path": "texmf/tex/latex/graphics/graphics.sty",
+      "size": 18363
+    },
+    {
+      "path": "texmf/tex/latex/graphics/graphicx.sty",
+      "size": 8118
+    },
+    {
+      "path": "texmf/tex/latex/graphics/keyval.sty",
+      "size": 2671
+    },
+    {
+      "path": "texmf/tex/latex/graphics/mathcolor.ltx",
+      "size": 2885
+    },
+    {
+      "path": "texmf/tex/latex/graphics/trig.sty",
+      "size": 4023
+    },
+    {
+      "path": "texmf/tex/latex/graphics-cfg/color.cfg",
+      "size": 1213
+    },
+    {
+      "path": "texmf/tex/latex/graphics-cfg/graphics.cfg",
+      "size": 1224
+    },
+    {
+      "path": "texmf/tex/latex/graphics-def/xetex.def",
+      "size": 14788
+    },
+    {
+      "path": "texmf/tex/latex/hycolor/hycolor.sty",
+      "size": 17914
+    },
+    {
+      "path": "texmf/tex/latex/hyperref/hxetex.def",
+      "size": 44484
+    },
+    {
+      "path": "texmf/tex/latex/hyperref/hyperref.sty",
+      "size": 222324
+    },
+    {
+      "path": "texmf/tex/latex/hyperref/nameref.sty",
+      "size": 11459
+    },
+    {
+      "path": "texmf/tex/latex/hyperref/pd1enc.def",
+      "size": 14249
+    },
+    {
+      "path": "texmf/tex/latex/hyperref/puenc.def",
+      "size": 117118
+    },
+    {
+      "path": "texmf/tex/latex/kvoptions/kvoptions.sty",
+      "size": 22555
+    },
+    {
+      "path": "texmf/tex/latex/kvsetkeys/kvsetkeys.sty",
+      "size": 13815
+    },
+    {
+      "path": "texmf/tex/latex/l3backend/l3backend-xetex.def",
+      "size": 32929
+    },
+    {
+      "path": "texmf/tex/latex/l3kernel/expl3-code.tex",
+      "size": 1380944
+    },
+    {
+      "path": "texmf/tex/latex/l3kernel/expl3.ltx",
+      "size": 5632
+    },
+    {
+      "path": "texmf/tex/latex/l3kernel/expl3.sty",
+      "size": 6558
+    },
+    {
+      "path": "texmf/tex/latex/l3packages/xparse/xparse.sty",
+      "size": 10176
+    },
+    {
+      "path": "texmf/tex/latex/lm/ot1lmr.fd",
+      "size": 1882
+    },
+    {
+      "path": "texmf/tex/latex/lm/ts1lmr.fd",
+      "size": 1914
+    },
+    {
+      "path": "texmf/tex/latex/refcount/refcount.sty",
+      "size": 9878
+    },
+    {
+      "path": "texmf/tex/latex/rerunfilecheck/rerunfilecheck.sty",
+      "size": 9684
+    },
+    {
+      "path": "texmf/tex/latex/tex-ini-files/xelatex.ini",
+      "size": 486
+    },
+    {
+      "path": "texmf/tex/latex/tools/longtable.sty",
+      "size": 16014
+    },
+    {
+      "path": "texmf/tex/latex/url/url.sty",
+      "size": 12796
+    },
+    {
+      "path": "texmf/tex/latex/xcolor/xcolor.sty",
+      "size": 55384
+    },
+    {
+      "path": "texmf/web2c/texmf.cnf",
+      "size": 43630
+    },
+    {
+      "path": "texmf/web2c/xelatex.fmt",
+      "size": 4432355
+    },
+    {
+      "path": "texmf/web2c/xelatex.ini",
+      "size": 486
+    },
+    {
+      "path": "fonts/lmroman10-bold.otf",
+      "size": 111240
+    },
+    {
+      "path": "fonts/lmroman10-bolditalic.otf",
+      "size": 118204
+    },
+    {
+      "path": "fonts/lmroman10-italic.otf",
+      "size": 118828
+    },
+    {
+      "path": "fonts/lmroman10-regular.otf",
+      "size": 111536
+    },
+    {
+      "path": "fonts/lmroman12-bold.otf",
+      "size": 110496
+    },
+    {
+      "path": "fonts/lmroman12-italic.otf",
+      "size": 117732
+    },
+    {
+      "path": "fonts/lmroman12-regular.otf",
+      "size": 110400
+    },
+    {
+      "path": "fonts/THSarabun-Bold.ttf",
+      "size": 117744
+    },
+    {
+      "path": "fonts/THSarabun-BoldItalic.ttf",
+      "size": 102916
+    },
+    {
+      "path": "fonts/THSarabun-Italic.ttf",
+      "size": 103136
+    },
+    {
+      "path": "fonts/THSarabun.ttf",
+      "size": 98764
+    },
+    {
+      "path": "icu/icu4c-76_1-data-bin-l-README.md",
+      "size": 762
+    },
+    {
+      "path": "icu/icudt76l.dat",
+      "size": 31851856
+    },
+    {
+      "path": "icu/LICENSE",
+      "size": 26487
+    },
+    {
+      "path": "fontconfig/fonts.conf",
+      "size": 184
+    }
+  ]
+}

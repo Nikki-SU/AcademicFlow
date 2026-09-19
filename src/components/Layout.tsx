@@ -1,6 +1,7 @@
 /**
  * 顶部 Tab 导航布局
- * 六个核心页面：追踪、阅读、学习、写作、排版、管理
+ * 五个核心页面：追踪、阅读、学习、写作、管理
+ * （「排版」不再是独立页面 —— 已并进写作页的 LaTeX 工作区）
  */
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -10,7 +11,6 @@ import {
   GraduationCap,
   PenTool,
   FolderCog,
-  LayoutTemplate,
   Settings,
   LogOut,
   User,
@@ -29,7 +29,6 @@ const tabs = [
   { path: '/reading', label: '阅读', icon: BookOpen },
   { path: '/learn', label: '学习', icon: GraduationCap },
   { path: '/writing', label: '写作', icon: PenTool },
-  { path: '/journal-format', label: '排版', icon: LayoutTemplate },
   { path: '/management', label: '管理', icon: FolderCog },
 ]
 

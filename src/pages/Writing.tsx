@@ -25,7 +25,7 @@ import {
   X,
   BookText,
   LayoutTemplate,
-  FileOutput,
+  Play,
   Loader2,
   Check,
   ListTree,
@@ -36,12 +36,16 @@ import {
   FolderOpen,
   Clipboard,
   GripVertical,
-  Eye,
-  File,
   BookPlus,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getAllTemplates } from '../services/journal-templates'
+import { getAllTemplates, updateTemplate } from '../services/journal-templates'
+import {
+  convertMarkdownToLatex,
+  refineLatexWithAI,
+  buildLatexSkeletonFromTemplate,
+} from '../services/latex-converter'
+import { compileLatex, getCompileErrorLog, createPdfObjectUrl } from '../services/xelatex-compiler'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { JournalTemplate } from '../types'
@@ -53,6 +57,10 @@ import {
   saveProjects,
   loadManuscript,
   saveManuscript,
+  loadManuscriptLatex,
+  saveManuscriptLatex,
+  loadBibtex,
+  saveBibtex,
   loadReferences,
   savePaperReferences,
   saveBookReferences,
@@ -72,15 +80,28 @@ import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '.
 /**
  * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边。
  * 大纲不在其中：按需求它固定挂在左侧「项目导航」下方，可收起/展开（仿 Obsidian）。
+ *
+ * `hint` 是「选中后会自动把另一侧切成什么」的提示 —— 只有需要左右联动的两项才有：
+ * - 选「期刊模板」→ 另一侧自动变 LaTeX 工作区 = 模板调试
+ * - 选「编辑区」  → 另一侧自动变 LaTeX 工作区 = 排版
  */
-const PANEL_MODES: { value: PanelMode; label: string; icon: typeof PenTool }[] = [
-  { value: 'editor', label: '编辑区', icon: PenTool },
+const PANEL_MODES: {
+  value: PanelMode
+  label: string
+  icon: typeof PenTool
+  hint?: string
+}[] = [
+  { value: 'editor', label: '编辑区', icon: PenTool, hint: '排版' },
+  { value: 'template', label: '期刊模板', icon: LayoutTemplate, hint: '模板调试' },
+  { value: 'typesetting', label: 'LaTeX 工作区', icon: FileCode },
   { value: 'references', label: '文献列表', icon: BookCopy },
   { value: 'ai', label: 'AI 助手', icon: Sparkles },
   { value: 'library', label: '文献库', icon: Library },
   { value: 'knowledge', label: '知识库', icon: GraduationCap },
-  { value: 'typesetting', label: '期刊排版', icon: LayoutTemplate },
 ]
+
+/** 需要和「LaTeX 工作区」配对的模式：选中它们时另一侧自动切过去（左右联动） */
+const LATEX_PAIRED_MODES: PanelMode[] = ['editor', 'template']
 
 const CITATION_SCOPES = [
   { value: 'all', label: '全部文献' },
@@ -201,7 +222,14 @@ const CITATION_ICON =
   '<svg viewBox="0 0 32 32"><g transform="scale(0.7)"><path d="M27.769 26.667h-9.316l3.556-7.111h-4.231v-14.222h14.222v12.871l-4.231 8.462zM24.213 23.111h1.351l2.88-5.76v-8.462h-7.111v7.111h6.436l-3.556 7.111zM9.991 26.667h-9.316l3.556-7.111h-4.231v-14.222h14.222v12.871l-4.231 8.462zM6.436 23.111h1.351l2.88-5.76v-8.462h-7.111v7.111h6.436l-3.556 7.111z"/></g><path d="M22.5 20.5h3V24h3.5v3h-3.5v3.5h-3V27H19v-3h3.5z"/></svg>'
 
 /** 面板可显示的功能（左右两侧通用）；大纲固定在左侧导航里，不在此列 */
-type PanelMode = 'editor' | 'references' | 'ai' | 'library' | 'knowledge' | 'typesetting'
+type PanelMode =
+  | 'editor'
+  | 'template'
+  | 'typesetting'
+  | 'references'
+  | 'ai'
+  | 'library'
+  | 'knowledge'
 
 const DEFAULT_MD = `# 引言
 
@@ -469,82 +497,6 @@ function memoryToMessages(md: string): AIMessage[] {
   return out
 }
 
-function markdownToLatex(md: string, template: JournalTemplate): string {
-  let tex = md
-
-  const options = template.document_options ? `[${template.document_options}]` : '[10pt]'
-  const docClass = `\\documentclass${options}{${template.document_class || 'article'}}`
-
-  const pkgList = [
-    'graphicx',
-    'amsmath',
-    'amssymb',
-    'booktabs',
-    'hyperref',
-    'url',
-    'geometry',
-    ...(template.packages || []),
-  ]
-  const packages = pkgList
-    .map((p) => `\\usepackage${p.includes('[') ? p : `{${p}}`}`)
-    .join('\n')
-  const geometry = template.margins
-    ? `\\geometry{${Object.entries(template.margins)
-        .filter(([, v]) => v)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(',')}}`
-    : '\\geometry{margin=1in}'
-  const customPreamble = template.custom_preamble || ''
-
-  tex = tex.replace(/^# (.*)$/gm, '\\title{$1}')
-  tex = tex.replace(/^## (.*)$/gm, '\\section{$1}')
-  tex = tex.replace(/^### (.*)$/gm, '\\subsection{$1}')
-  tex = tex.replace(/^#### (.*)$/gm, '\\subsubsection{$1}')
-  tex = tex.replace(/^##### (.*)$/gm, '\\paragraph{$1}')
-  tex = tex.replace(/^###### (.*)$/gm, '\\subparagraph{$1}')
-
-  tex = tex.replace(/\*\*(.+?)\*\*/g, '\\textbf{$1}')
-  tex = tex.replace(/\*(.+?)\*/g, '\\textit{$1}')
-  tex = tex.replace(/`([^`]+)`/g, '\\texttt{$1}')
-
-  tex = tex.replace(/```(\w*)\n([\s\S]*?)\n```/g, '\\begin{verbatim}\n$2\\end{verbatim}')
-
-  tex = tex.replace(/^> (.*)$/gm, '\\textit{$1}')
-
-  tex = tex.replace(/^- (.*)$/gm, '\\item $1')
-  tex = tex.replace(/(\\item[^\n]*\n)+/g, '\\begin{itemize}\n$&\\end{itemize}\n')
-
-  tex = tex.replace(/^\d+\. (.*)$/gm, '\\item $1')
-  tex = tex.replace(/(\\item[^\n]*\n)+/g, (match) => {
-    if (match.includes('begin{itemize}')) return match
-    return '\\begin{enumerate}\n' + match + '\\end{enumerate}\n'
-  })
-
-  tex = tex.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '\\href{$2}{$1}')
-  tex = tex.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '\\includegraphics{$2}')
-
-  const titleMatch = tex.match(/\\title\{(.*?)\}/)
-  const title = titleMatch ? titleMatch[1] : 'Untitled'
-
-  return `${docClass}
-${packages}
-${geometry}
-${customPreamble}
-
-\\title{${title}}
-\\author{Author Name}
-\\affiliation{University / Institution}
-\\date{\\today}
-
-\\begin{document}
-
-\\maketitle
-
-${tex.replace(/\\title\{.*?\}\n?/, '')}
-
-\\end{document}`
-}
-
 export default function WritingPage() {
   const { repo } = useWorkspaceStore()
   const [projects, setProjects] = useState<Project[]>([])
@@ -587,11 +539,23 @@ export default function WritingPage() {
 
   const [templates, setTemplates] = useState<JournalTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
-  const [typesettingProgress, setTypesettingProgress] = useState(0)
-  const [isTypesetting, setIsTypesetting] = useState(false)
-  const [typesetDone, setTypesetDone] = useState(false)
-  const [latexOutput, setLatexOutput] = useState('')
-  const [showPdfPreview, setShowPdfPreview] = useState(false)
+  // ── LaTeX 工作区：代码板（上半） + 编译器（下半） ──
+  /** 代码板里的完整 LaTeX 源码：可手改，也可由正文 / 期刊模板生成 */
+  const [latexCode, setLatexCode] = useState('')
+  /** 编译用的 BibTeX 数据库内容（有才会挂进虚拟文件系统并跑 bibtex） */
+  const [latexBib, setLatexBib] = useState('')
+  const [isGeneratingLatex, setIsGeneratingLatex] = useState(false)
+  const [latexGenStatus, setLatexGenStatus] = useState('')
+  /** 真实编译（XeLaTeX WASM）状态 */
+  const [isCompiling, setIsCompiling] = useState(false)
+  const [compileStatus, setCompileStatus] = useState('')
+  const [compileError, setCompileError] = useState('')
+  /** 编译产物 PDF 的 blob URL，用于内嵌 iframe 预览 */
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  // ── 期刊模板面板：让 AI 直接改 LaTeX 代码 ──
+  const [templateInstruction, setTemplateInstruction] = useState('')
+  const [isRefiningLatex, setIsRefiningLatex] = useState(false)
+  const [refineStatus, setRefineStatus] = useState('')
   const [showNewProjectInput, setShowNewProjectInput] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [citations, setCitations] = useState<CitationRef[]>([])
@@ -780,10 +744,12 @@ export default function WritingPage() {
 
     async function loadProjectData() {
       try {
-        const [manuscript, refs, memoryMd] = await Promise.all([
+        const [manuscript, refs, memoryMd, savedLatex, savedBib] = await Promise.all([
           loadManuscript(projectId),
           loadReferences(projectId),
           loadMemory(projectId),
+          loadManuscriptLatex(projectId),
+          loadBibtex(projectId),
         ])
         if (cancelled) return
 
@@ -803,6 +769,12 @@ export default function WritingPage() {
           return [...filtered, ...refsWithProjectId]
         })
         setLastSaved(Date.now())
+        // LaTeX 工作区跟着项目走：把上次的代码板 / BibTeX 还原回来
+        setLatexCode(savedLatex)
+        setLatexBib(savedBib)
+        setCompileError('')
+        setCompileStatus('')
+        setPdfObjectUrl(null)
         setTimeout(() => { memoryLoadingRef.current = false }, 0)
       } catch (err) {
         console.warn('[Writing] 加载项目数据失败:', err)
@@ -865,6 +837,22 @@ export default function WritingPage() {
     }, 1000)
     return () => clearTimeout(timer)
   }, [mdContent, saveStatus, activeProjectId])
+
+  // 代码板 / BibTeX 改动 → 防抖落盘到项目目录（manuscript.tex / references.bib）。
+  // 手改代码板、AI 改代码、由正文生成 三条路都从这里统一持久化。
+  useEffect(() => {
+    if (!activeProjectId) return
+    if (!latexCode.trim() && !latexBib.trim()) return
+    const timer = setTimeout(() => {
+      if (latexCode.trim()) {
+        saveManuscriptLatex(activeProjectId, latexCode).catch(() => {})
+      }
+      if (latexBib.trim()) {
+        saveBibtex(activeProjectId, latexBib).catch(() => {})
+      }
+    }, 1200)
+    return () => clearTimeout(timer)
+  }, [latexCode, latexBib, activeProjectId])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1331,28 +1319,191 @@ export default function WritingPage() {
     navigator.clipboard?.writeText(content).catch(() => {})
   }
 
-  const startTypesetting = () => {
+  // ══════════════════════════════════════════════════════════
+  // LaTeX 工作区：代码板 → 浏览器内真编译 → PDF
+  // ══════════════════════════════════════════════════════════
+
+  /** 编译产物的 blob URL 要随手释放，否则每编译一次漏一个 PDF */
+  const pdfUrlRef = useRef<string | null>(null)
+  const setPdfObjectUrl = (next: string | null) => {
+    if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current)
+    pdfUrlRef.current = next
+    setPdfUrl(next)
+  }
+  useEffect(() => {
+    return () => {
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current)
+    }
+  }, [])
+
+  /**
+   * 排版：把正文交给 AI 转成期刊 LaTeX，结果写进代码板。
+   * 手动触发 —— 只有用户明确点这个按钮，正文才会被发出去。
+   */
+  const generateLatexFromMarkdown = async () => {
     if (!currentTemplate) {
-      toast.error('请先在“期刊模板”页面创建至少一个期刊模板')
+      toast.error('请先在「期刊模板」面板创建并选择一个期刊模板')
       return
     }
-    setIsTypesetting(true)
-    setTypesettingProgress(0)
-    setTypesetDone(false)
-    setShowPdfPreview(false)
-    const interval = setInterval(() => {
-      setTypesettingProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsTypesetting(false)
-          setTypesetDone(true)
-          const latex = markdownToLatex(mdContent, currentTemplate)
-          setLatexOutput(latex)
-          return 100
-        }
-        return prev + 10
+    if (!mdContent.trim()) {
+      toast.error('正文为空，先写点东西吧')
+      return
+    }
+    const { getDualEngineConfig } = useSettingsStore.getState()
+    const { ai1, ai2 } = getDualEngineConfig()
+    setIsGeneratingLatex(true)
+    setLatexGenStatus('准备中...')
+    try {
+      const result = await convertMarkdownToLatex({
+        markdown: mdContent,
+        template: currentTemplate,
+        ai1,
+        ai2,
+        onProgress: (e) => setLatexGenStatus(e.message || ''),
       })
-    }, 300)
+      setLatexCode(result.latex)
+      setLatexBib(result.bibtex)
+      setCompileError('')
+      toast.success('已生成 LaTeX，可在代码板继续修改')
+    } catch (err) {
+      toast.error(`生成失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsGeneratingLatex(false)
+      setLatexGenStatus('')
+    }
+  }
+
+  /** 模板调试：把模板的 LaTeX 载入代码板；模板还没写过就给一份可编译骨架 */
+  const loadTemplateIntoLatexBoard = () => {
+    if (!currentTemplate) {
+      toast.error('请先选择期刊模板')
+      return
+    }
+    const existing = currentTemplate.template_tex?.trim()
+    setLatexCode(existing || buildLatexSkeletonFromTemplate(currentTemplate))
+    setCompileError('')
+    toast.success(existing ? '已载入模板 LaTeX' : '该模板还没有 LaTeX，已生成可编译骨架')
+  }
+
+  /** 把代码板内容存回期刊模板（落到 templates/journals/{id}/template.tex） */
+  const saveLatexToTemplate = async () => {
+    if (!currentTemplate) {
+      toast.error('请先选择期刊模板')
+      return
+    }
+    if (!latexCode.trim()) {
+      toast.error('代码板为空，没有可保存的内容')
+      return
+    }
+    try {
+      await updateTemplate(currentTemplate.id, { template_tex: latexCode })
+      const now = Date.now()
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.id === currentTemplate.id ? { ...t, template_tex: latexCode, updated_at: now } : t,
+        ),
+      )
+      toast.success('已保存回期刊模板')
+    } catch (err) {
+      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /**
+   * 模板调试：让 AI 按指令直接改代码板里的 LaTeX。
+   * 可信检索开着时，模板的投稿须知原文会一起作为 ground truth 交出去，
+   * AI-2 会核查「改出来的东西有没有依据」，防止它凭空加需求。
+   */
+  const refineLatexCode = async () => {
+    if (!latexCode.trim()) {
+      toast.error('代码板为空，先载入模板或由正文生成 LaTeX')
+      return
+    }
+    const instruction = templateInstruction.trim()
+    if (!instruction) {
+      toast.error('先写清楚要怎么改，例如「改成双栏排版」')
+      return
+    }
+    const { getDualEngineConfig } = useSettingsStore.getState()
+    const { ai1, ai2 } = getDualEngineConfig()
+    setIsRefiningLatex(true)
+    setRefineStatus('准备中...')
+    try {
+      const result = await refineLatexWithAI({
+        latex: latexCode,
+        instruction,
+        template: currentTemplate,
+        guidelines: trustedSearch ? currentTemplate?.guidelines_content : undefined,
+        ai1,
+        ai2,
+        onProgress: (e) => setRefineStatus(e.message || ''),
+      })
+      setLatexCode(result.latex)
+      setCompileError('')
+      setTemplateInstruction('')
+      toast.success(
+        result.reviewPassed === false
+          ? 'AI 已改完，但 AI-2 忠实性核查未完全通过，请核对'
+          : 'AI 已改完，结果在代码板',
+      )
+    } catch (err) {
+      toast.error(`AI 改代码失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsRefiningLatex(false)
+      setRefineStatus('')
+    }
+  }
+
+  /** 编译代码板 → 真 PDF（浏览器内 XeLaTeX WASM，全程不联网） */
+  const compileCurrentLatex = async () => {
+    if (!latexCode.trim()) {
+      toast.error('代码板为空，先生成或粘贴 LaTeX 源码')
+      return
+    }
+    setIsCompiling(true)
+    setCompileError('')
+    setCompileStatus('正在加载 XeLaTeX 运行时...')
+    try {
+      const result = await compileLatex({
+        source: latexCode,
+        bibtex: latexBib.trim() || undefined,
+        onStatus: (e) => setCompileStatus(e.message),
+      })
+      setPdfObjectUrl(createPdfObjectUrl(result.pdf))
+      setCompileStatus(`编译完成 · ${result.passes} 趟 XeTeX${result.bibtexRan ? ' + BibTeX' : ''}`)
+      toast.success('编译完成')
+    } catch (err) {
+      const log = getCompileErrorLog(err)
+      setCompileError(log || (err instanceof Error ? err.message : String(err)))
+      setCompileStatus('')
+      toast.error('编译失败，见下方日志')
+    } finally {
+      setIsCompiling(false)
+    }
+  }
+
+  /** 下载代码板里的 .tex */
+  const downloadLatexSource = () => {
+    const blob = new Blob([latexCode], { type: 'text/x-tex;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${activeProject?.title || 'paper'}.tex`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  /** 下载编译出的 PDF */
+  const downloadCompiledPdf = () => {
+    if (!pdfUrl) return
+    const a = document.createElement('a')
+    a.href = pdfUrl
+    a.download = `${activeProject?.title || 'paper'}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   const handleDragStart = (e: React.MouseEvent) => {
@@ -1717,6 +1868,15 @@ export default function WritingPage() {
                             key={mode.value}
                             onClick={() => {
                               p.setMode(mode.value)
+                              // 左右联动：选「编辑区」或「期刊模板」时，
+                              // 自动把另一侧切成 LaTeX 工作区 —— 排版 / 模板调试都靠这一对
+                              if (LATEX_PAIRED_MODES.includes(mode.value)) {
+                                const otherSet =
+                                  p.side === 'left' ? setRightPanelMode : setLeftPanelMode
+                                const otherMode =
+                                  p.side === 'left' ? rightPanelMode : leftPanelMode
+                                if (otherMode !== 'typesetting') otherSet('typesetting')
+                              }
                               p.setShowDropdown(false)
                             }}
                             className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
@@ -1727,6 +1887,9 @@ export default function WritingPage() {
                             <span className={`text-sm ${active ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
                               {mode.label}
                             </span>
+                            {mode.hint && (
+                              <span className="text-[0.625rem] text-slate-400">{mode.hint}</span>
+                            )}
                             {active && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
                           </button>
                         )
@@ -2582,21 +2745,12 @@ export default function WritingPage() {
             </div>
           )}
 
-          {p.mode === 'typesetting' && (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-3 border-b border-slate-100">
-                <div className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">
-                  <LayoutTemplate className="w-3.5 h-3.5 text-indigo-600" />
-                  期刊排版
-                </div>
-                <p className="text-[0.6875rem] text-slate-500 leading-relaxed">
-                  选择目标期刊，一键转换为对应格式的 LaTeX 模板
-                </p>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-3 space-y-4">
+          {/* ── 期刊模板：选模板 / 载入·回存 LaTeX / 让 AI 改代码（模板调试的左半） ── */}
+          {p.mode === 'template' && (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
                 <div>
-                  <div className="text-xs font-medium text-slate-600 mb-1.5">选择目标期刊</div>
+                  <div className="text-xs font-medium text-slate-600 mb-1.5">目标期刊模板</div>
                   <div className="relative">
                     <select
                       value={selectedTemplateId}
@@ -2604,9 +2758,7 @@ export default function WritingPage() {
                       disabled={templates.length === 0}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none pr-8 disabled:bg-slate-100 disabled:text-slate-400"
                     >
-                      {templates.length === 0 && (
-                        <option value="">未创建期刊模板</option>
-                      )}
+                      {templates.length === 0 && <option value="">未创建期刊模板</option>}
                       {templates.map((t) => (
                         <option key={t.id} value={t.id}>
                           {t.short_name || t.name}
@@ -2615,104 +2767,226 @@ export default function WritingPage() {
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                   </div>
+                  {templates.length === 0 && (
+                    <p className="mt-1.5 text-[0.6875rem] text-slate-400 leading-relaxed">
+                      还没有期刊模板，先到「管理 → 期刊模板」里用 AI 从投稿须知提取一个。
+                    </p>
+                  )}
                 </div>
 
-                <button
-                  onClick={startTypesetting}
-                  disabled={isTypesetting}
-                  className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center justify-center gap-2"
-                >
-                  {isTypesetting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      排版中...
-                    </>
-                  ) : (
-                    <>
-                      <FileOutput className="w-4 h-4" />
-                      开始排版
-                    </>
-                  )}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={loadTemplateIntoLatexBoard}
+                    disabled={!currentTemplate}
+                    className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    载入到代码板
+                  </button>
+                  <button
+                    onClick={saveLatexToTemplate}
+                    disabled={!currentTemplate || !latexCode.trim()}
+                    className="flex-1 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    保存回模板
+                  </button>
+                </div>
 
-                {(isTypesetting || typesetDone) && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600 font-medium">排版进度</span>
-                      <span className="text-indigo-600 font-mono">{typesettingProgress}%</span>
+                {currentTemplate && (
+                  <div className="p-2.5 bg-slate-50 rounded-lg text-[0.6875rem] text-slate-500 leading-relaxed">
+                    <div className="font-medium text-slate-600 mb-0.5">
+                      {currentTemplate.short_name || currentTemplate.name}
                     </div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-300"
-                        style={{ width: `${typesettingProgress}%` }}
-                      />
+                    <div>
+                      文档类：{currentTemplate.document_class}
+                      {currentTemplate.document_options ? ` [${currentTemplate.document_options}]` : ''}
+                      {' · '}
+                      {currentTemplate.bibtex_style}
+                      {' · '}
+                      {currentTemplate.two_column ? '双栏' : '单栏'}
                     </div>
-                    <div className="text-[0.6875rem] text-slate-500">
-                      {typesettingProgress < 30 && '解析 Markdown 内容...'}
-                      {typesettingProgress >= 30 && typesettingProgress < 60 && '转换 LaTeX 结构...'}
-                      {typesettingProgress >= 60 && typesettingProgress < 90 && '应用期刊模板...'}
-                      {typesettingProgress >= 90 && typesettingProgress < 100 && '生成最终文件...'}
-                      {typesettingProgress >= 100 && '排版完成！'}
+                    <div className="mt-0.5">
+                      {currentTemplate.guidelines_content
+                        ? '已有投稿须知原文，可信检索可用'
+                        : '该模板没有投稿须知原文，可信检索无依据可锚定'}
                     </div>
                   </div>
                 )}
 
-                {typesetDone && (
-                  <div className="space-y-3">
-                    <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                        <span className="text-sm font-medium text-emerald-700">排版完成</span>
-                      </div>
-                      <p className="text-xs text-emerald-600 mt-1">
-                        已成功转换为 {currentTemplate?.short_name || currentTemplate?.name || '当前模板'} 格式
-                      </p>
-                    </div>
+                <div className="border-t border-slate-100 pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-600">让 AI 改 LaTeX 代码</span>
+                    <button
+                      onClick={() => setTrustedSearch(!trustedSearch)}
+                      className={`flex items-center gap-1 text-[0.6875rem] px-1.5 py-0.5 rounded transition ${
+                        trustedSearch
+                          ? 'text-indigo-600 hover:bg-indigo-50'
+                          : 'text-slate-400 hover:bg-slate-50'
+                      }`}
+                      title="开启后会把模板的投稿须知原文作为 ground truth 交给 AI，AI-2 会核查每条改动的依据"
+                    >
+                      {trustedSearch ? (
+                        <ToggleRight className="w-4 h-4" />
+                      ) : (
+                        <ToggleLeft className="w-4 h-4" />
+                      )}
+                      可信检索
+                    </button>
+                  </div>
+                  <textarea
+                    value={templateInstruction}
+                    onChange={(e) => setTemplateInstruction(e.target.value)}
+                    rows={3}
+                    placeholder="例如：改成双栏排版；摘要压到 200 字以内；标题全部小写"
+                    className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg resize-none focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                  />
+                  <button
+                    onClick={refineLatexCode}
+                    disabled={isRefiningLatex}
+                    className="w-full py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-xs font-medium hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  >
+                    {isRefiningLatex ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        AI 改代码中...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-3.5 h-3.5" />
+                        让 AI 改代码
+                      </>
+                    )}
+                  </button>
+                  {refineStatus && (
+                    <p className="text-[0.625rem] text-slate-400 leading-relaxed">{refineStatus}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
-                    <div className="p-3 bg-slate-900 rounded-lg overflow-x-auto max-h-64 overflow-y-auto">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-[0.625rem] text-slate-400 font-mono">LaTeX 输出</div>
+          {/* ── LaTeX 工作区：上半「代码板」 + 下半「编译器」，竖排各占一半 ── */}
+          {p.mode === 'typesetting' && (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {/* 上半：LaTeX 代码板 */}
+              <div className="flex-1 min-h-0 flex flex-col border-b border-slate-200">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex-shrink-0">
+                  <FileCode className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-slate-700 flex-shrink-0">
+                    LaTeX 代码板
+                  </span>
+                  <div className="flex-1 min-w-0" />
+                  <button
+                    onClick={generateLatexFromMarkdown}
+                    disabled={isGeneratingLatex}
+                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-white bg-indigo-600 rounded hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="把左侧 markdown 正文交给 AI 转成 LaTeX（注意：正文会被发送到 AI 服务）"
+                  >
+                    {isGeneratingLatex ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3 h-3" />
+                    )}
+                    由正文生成
+                  </button>
+                  <button
+                    onClick={() => handleCopyContent(latexCode)}
+                    disabled={!latexCode}
+                    className="flex-shrink-0 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40"
+                    title="复制 LaTeX 源码"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={downloadLatexSource}
+                    disabled={!latexCode}
+                    className="flex-shrink-0 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40"
+                    title="下载 .tex"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {latexGenStatus && (
+                  <div className="px-3 py-1 text-[0.625rem] text-indigo-600 bg-indigo-50/60 border-b border-indigo-100 flex-shrink-0 truncate">
+                    {latexGenStatus}
+                  </div>
+                )}
+                <textarea
+                  value={latexCode}
+                  onChange={(e) => setLatexCode(e.target.value)}
+                  spellCheck={false}
+                  placeholder="这里是 LaTeX 源码。点上方「由正文生成」，或在左侧「期刊模板」里点「载入到代码板」。"
+                  className="flex-1 min-h-0 w-full resize-none p-3 font-mono text-[0.6875rem] leading-relaxed text-slate-800 bg-white focus:outline-none"
+                />
+              </div>
+
+              {/* 下半：编译器（浏览器内 XeLaTeX WASM，真编译） */}
+              <div className="flex-1 min-h-0 flex flex-col">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex-shrink-0">
+                  <Play className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-slate-700 flex-shrink-0">编译器</span>
+                  {compileStatus && (
+                    <span className="text-[0.625rem] text-slate-400 truncate">{compileStatus}</span>
+                  )}
+                  <div className="flex-1 min-w-0" />
+                  {pdfUrl && (
+                    <button
+                      onClick={downloadCompiledPdf}
+                      className="flex-shrink-0 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                      title="下载 PDF"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={compileCurrentLatex}
+                    disabled={isCompiling}
+                    className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-white bg-emerald-600 rounded hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isCompiling ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Play className="w-3 h-3" />
+                    )}
+                    {isCompiling ? '编译中' : '编译'}
+                  </button>
+                </div>
+
+                <div className="flex-1 min-h-0 bg-slate-100 overflow-hidden">
+                  {compileError ? (
+                    <div className="h-full flex flex-col">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border-b border-red-100 flex-shrink-0">
+                        <X className="w-3.5 h-3.5 text-red-500" />
+                        <span className="text-[0.6875rem] font-medium text-red-600">
+                          编译失败 · TeX 日志
+                        </span>
+                        <div className="flex-1" />
                         <button
-                          onClick={() => handleCopyContent(latexOutput)}
-                          className="text-[0.625rem] text-slate-400 hover:text-white flex items-center gap-1"
+                          onClick={() => handleCopyContent(compileError)}
+                          className="text-[0.625rem] text-red-500 hover:text-red-700 flex items-center gap-1"
                         >
                           <Copy className="w-3 h-3" />
                           复制
                         </button>
                       </div>
-                      <pre className="text-[0.6875rem] text-slate-300 font-mono leading-relaxed whitespace-pre-wrap">
-                        {latexOutput}
+                      <pre className="flex-1 min-h-0 overflow-auto p-3 text-[0.625rem] text-red-700 font-mono whitespace-pre-wrap">
+                        {compileError}
                       </pre>
                     </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          const blob = new Blob([latexOutput], { type: 'text/x-tex;charset=utf-8' })
-                          const url = URL.createObjectURL(blob)
-                          const a = document.createElement('a')
-                          a.href = url
-                          a.download = `${activeProject?.title || 'paper'}.tex`
-                          document.body.appendChild(a)
-                          a.click()
-                          document.body.removeChild(a)
-                          URL.revokeObjectURL(url)
-                        }}
-                        className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1.5"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        下载 .tex
-                      </button>
-                      <button
-                        onClick={() => setShowPdfPreview(true)}
-                        className="flex-1 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        预览 PDF
-                      </button>
+                  ) : pdfUrl ? (
+                    <iframe src={pdfUrl} title="编译结果 PDF" className="w-full h-full border-0" />
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-center px-6">
+                      <Play className="w-8 h-8 text-slate-300 mb-2" />
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        点「编译」在浏览器里跑 XeLaTeX
+                        <br />
+                        出来的是真 PDF，不联网、不上传
+                      </p>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -3357,73 +3631,6 @@ export default function WritingPage() {
               >
                 确定 ({selectedChapterIds.length}章)
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPdfPreview && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <File className="w-5 h-5 text-indigo-600" />
-                <h3 className="text-base font-semibold text-slate-800">PDF 预览</h3>
-                <span className="text-xs text-slate-500">— {currentTemplate?.short_name || currentTemplate?.name || '默认'} 格式</span>
-              </div>
-              <button
-                onClick={() => setShowPdfPreview(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-8 bg-slate-100">
-              <div className="max-w-2xl mx-auto bg-white shadow-xl p-12 min-h-[50rem]">
-                <div className="text-center mb-8">
-                  <h1 className="text-2xl font-bold text-slate-900 mb-2">
-                    {activeProject?.title || 'Research Paper'}
-                  </h1>
-                  <p className="text-sm text-slate-600">Author Name · University / Institution</p>
-                  <p className="text-xs text-slate-400 mt-1">{currentTemplate?.name || ''}</p>
-                </div>
-                <div className="border-t-2 border-slate-200 pt-6">
-                  <div
-                    className="text-sm text-slate-700 leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(mdContent) }}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                预览仅供参考，正式排版以下载的 LaTeX 文件为准
-              </span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowPdfPreview(false)}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
-                >
-                  关闭
-                </button>
-                <button
-                  onClick={() => {
-                    const blob = new Blob([latexOutput], { type: 'text/x-tex;charset=utf-8' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `${activeProject?.title || 'paper'}.tex`
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                    URL.revokeObjectURL(url)
-                  }}
-                  className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium flex items-center gap-1.5"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  下载 LaTeX
-                </button>
-              </div>
             </div>
           </div>
         </div>

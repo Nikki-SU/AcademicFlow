@@ -232,6 +232,206 @@ function assembleFullLatex(
   return lines.join('\n')
 }
 
+/**
+ * 用期刊模板拼一份「能直接编译」的最小骨架文档。
+ * -------------------------------------------------
+ * 模板调试场景下，用户可能还没往 template.tex 里写过任何东西，
+ * 但代码板需要有个可编译的起点，否则空代码板一上来就报错。
+ */
+export function buildLatexSkeletonFromTemplate(template: JournalTemplate): string {
+  const body = [
+    '\\title{论文标题}',
+    '\\author{作者}',
+    '\\date{\\today}',
+    '',
+    '\\begin{document}',
+    '\\maketitle',
+    '',
+    '\\begin{abstract}',
+    '摘要内容。',
+    '\\end{abstract}',
+    '',
+    '\\section{引言}',
+    '正文内容。',
+    '',
+    '\\bibliographystyle{' + template.bibtex_style + '}',
+    '\\bibliography{references}',
+    '',
+    '\\end{document}',
+  ]
+  return assembleFullLatex(body.join('\n'), template)
+}
+
+// ============================================================
+// AI 修改 LaTeX 代码（模板调试 / 代码板润色）
+// ============================================================
+
+interface RefineLatexParams {
+  /** 当前 LaTeX 代码：既是修改对象，也是忠实性核查的基准 */
+  latex: string
+  /** 用户的修改指令，如「改成双栏」「摘要压到 200 字以内」 */
+  instruction: string
+  /** 目标期刊模板，提供 documentclass / 引用样式等上下文 */
+  template?: JournalTemplate | null
+  /**
+   * 可信检索：把期刊投稿须知原文一并作为 ground truth 交给 AI。
+   * 关闭时 AI 只能依据当前代码 + 自身知识作答。
+   */
+  guidelines?: string
+  ai1: {
+    baseUrl: string
+    apiKey: string
+    model: string
+  }
+  ai2: {
+    baseUrl: string
+    apiKey: string
+    model: string
+  }
+  enableReview?: boolean
+  onProgress?: LatexConvertProgress
+}
+
+export interface RefineLatexResult {
+  latex: string
+  reviewPassed?: boolean
+  reviewIssues?: Array<{ type: string; description: string; suggestion: string }>
+  ai_raw_output: string
+  duration_ms: number
+}
+
+/**
+ * 让 AI 按指令修改现有 LaTeX 代码。
+ * -------------------------------------------------
+ * 复用 runDualEngine：AI-1 改代码，AI-2 拿「原始代码 / 投稿须知」做忠实性核查 ——
+ * 防止 AI 顺手替用户改需求之外的东西，或凭空编造投稿须知里没有的排版要求。
+ */
+export async function refineLatexWithAI(
+  params: RefineLatexParams,
+): Promise<RefineLatexResult> {
+  const {
+    latex,
+    instruction,
+    template,
+    guidelines,
+    ai1,
+    ai2,
+    enableReview = true,
+    onProgress,
+  } = params
+
+  const startTime = Date.now()
+
+  // 源材料 = 当前代码 +（可信检索时的）投稿须知原文；
+  // AI-2 的每条 claim 都必须能在这份材料里锚定到原文。
+  const sourceParts: string[] = ['【当前 LaTeX 代码】', latex]
+  if (guidelines && guidelines.trim()) {
+    sourceParts.push('', '【期刊投稿须知原文】', guidelines)
+  }
+  if (template) {
+    sourceParts.push(
+      '',
+      '【目标期刊模板参数】',
+      `- 期刊名称：${template.name}`,
+      `- 文档类：${template.document_class}${template.document_options ? ` [${template.document_options}]` : ''}`,
+      `- 引用样式：${template.bibtex_style}`,
+      `- 排版方式：${template.two_column ? '双栏（twocolumn）' : '单栏'}`,
+      template.custom_preamble ? `- 自定义前置代码：${template.custom_preamble}` : '',
+    )
+  }
+  const sourceMaterial = sourceParts.filter((line) => line !== '').join('\n')
+
+  const ai1RolePrompt = [
+    '你是一名专业的学术 LaTeX 排版工程师。用户会提供一份【源材料】（当前 LaTeX 代码，',
+    '可能还包含期刊投稿须知原文）和一条【修改指令】，你要按指令修改 LaTeX 代码。',
+    '',
+    '【核心约束（必须严格遵守）】',
+    '1. 只做【修改指令】要求的那件事，其余内容原样保留（含注释、空行、宏包顺序）。',
+    '2. 禁止引入指令未要求的新内容；禁止删改与指令无关的正文、图表、引用。',
+    '3. 若指令要求的内容在源材料中找不到依据，不要编造，用 [NOT_IN_SOURCE] 标注该处。',
+    '4. 输出必须是完整、可直接编译的 LaTeX 源码（保留 \\documentclass 与 \\begin{document}）。',
+    '5. 只输出 LaTeX 代码，不要任何解释文字，不要用 markdown 代码块包裹。',
+  ].join('\n')
+
+  const ai1Instruction = [
+    '请按下面的【修改指令】修改【当前 LaTeX 代码】。',
+    '',
+    '【修改指令】',
+    instruction,
+    '',
+    '输出要求：',
+    '- 输出修改后的完整 LaTeX 源码（可编译）',
+    '- 不要 markdown 代码块，不要解释',
+  ].join('\n')
+
+  const dualEngineProgress: DualEngineProgressCallback = (event) => {
+    switch (event.stage) {
+      case 'ai1_running':
+        onProgress?.({ stage: 'ai_converting', message: `AI-1: 修改 LaTeX 代码（第 ${event.attempt} 轮）...` })
+        break
+      case 'ai1_done':
+        onProgress?.({ stage: 'ai_converting', message: 'AI-1 修改完成，准备 AI-2 核查...' })
+        break
+      case 'ai2_running':
+        onProgress?.({ stage: 'ai_reviewing', message: `AI-2: 修改忠实性核查中（第 ${event.attempt} 轮）...` })
+        break
+      case 'ai2_self_correct_running':
+        onProgress?.({ stage: 'ai_reviewing', message: `AI-2: 引证锚定自纠中（第 ${event.attempt} 轮）...` })
+        break
+      case 'verifying':
+        onProgress?.({ stage: 'ai_reviewing', message: '引证锚定校验中...' })
+        break
+      case 'attempt_failed_retry':
+        onProgress?.({ stage: 'ai_reviewing', message: `第 ${event.attempt} 轮未通过，准备重试...` })
+        break
+      case 'finished':
+        onProgress?.({ stage: 'ai_reviewing', message: '双引擎核查完成' })
+        break
+      case 'error':
+        onProgress?.({ stage: 'error', message: `双引擎错误：${event.errorMessage}` })
+        break
+    }
+  }
+
+  try {
+    const dualResult = await runDualEngine({
+      taskType: 'latex_conversion',
+      sourceMaterial,
+      ai1Instruction,
+      ai1,
+      ai2,
+      onProgress: dualEngineProgress,
+      ai1RolePrompt,
+      ...(enableReview ? {} : { maxAttempts: 1 }),
+    })
+
+    let nextLatex = dualResult.ai1Output.trim()
+    const fenceMatch = nextLatex.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
+    if (fenceMatch) nextLatex = fenceMatch[1].trim()
+
+    const duration = Date.now() - startTime
+    onProgress?.({ stage: 'done', message: `完成！耗时 ${(duration / 1000).toFixed(1)}s` })
+
+    return {
+      latex: nextLatex,
+      reviewPassed: dualResult.finalPassed,
+      reviewIssues: dualResult.ai2Feedback.claims
+        .filter((c) => c.verdict !== 'supported')
+        .map((c) => ({
+          type: c.verdict,
+          description: c.claim,
+          suggestion: c.explanation,
+        })),
+      ai_raw_output: dualResult.ai1Output,
+      duration_ms: duration,
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    onProgress?.({ stage: 'error', message: `修改失败：${msg}`, detail: err })
+    throw err
+  }
+}
+
 // ============================================================
 // 主转换函数
 // ============================================================

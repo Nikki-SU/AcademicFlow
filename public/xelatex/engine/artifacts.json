@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "artifact": "browser/xetex/xetex.mjs",
+      "output": "engine/xetex.mjs",
+      "size": 190496,
+      "sha256": "ee38e7cf1b788a7d28c921b9bc27feb6fff4ba673c369a2edb65a8aa2fe85261"
+    },
+    {
+      "artifact": "browser/xetex/xetex.wasm",
+      "output": "engine/xetex.wasm",
+      "size": 22768766,
+      "sha256": "1fbe15103bb14f62d5ba593c21c39c45790202ed9e9239d29b8b0c635a5461de"
+    },
+    {
+      "artifact": "browser/xdvipdfmx/xdvipdfmx.mjs",
+      "output": "engine/xdvipdfmx.mjs",
+      "size": 150770,
+      "sha256": "bfa018fd9a736e094b87d9902e729e9a5e99a69322d0591ebf3ffb7ec606a4aa"
+    },
+    {
+      "artifact": "browser/xdvipdfmx/xdvipdfmx.wasm",
+      "output": "engine/xdvipdfmx.wasm",
+      "size": 3934124,
+      "sha256": "034cb906af04d8e4b56af3c6404f776779daf88dd09652d42001bd5835bb4b00"
+    },
+    {
+      "artifact": "browser/bibtex/bibtex.mjs",
+      "output": "engine/bibtex.mjs",
+      "size": 145100,
+      "sha256": "42830725271ebc0905e9e3eaad603c4b3db64764b13e707d4499e2779681aeee"
+    },
+    {
+      "artifact": "browser/bibtex/bibtex.wasm",
+      "output": "engine/bibtex.wasm",
+      "size": 1052494,
+      "sha256": "a495022e1bf49a39ef013297a38a5d78ba132319d62bb1d3cc1456c510a738da"
+    }
+  ]
+}

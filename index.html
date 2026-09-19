@@ -7,10 +7,14 @@
     <meta name="description" content="AcademicFlow - 学术工作流工具" />
     <meta name="theme-color" content="#4f46e5" />
     <link rel="manifest" href="manifest.json" />
-    <!-- CSP：script-src 加 'unsafe-eval' 为 libsodium-wrappers WASM 必需；其他保持严格 -->
+    <!-- CSP：script-src 加 'unsafe-eval' 为 libsodium-wrappers WASM 必需；
+         'wasm-unsafe-eval' 为浏览器端 XeLaTeX 编译（public/xelatex）必需 ——
+         现代 Chrome/Firefox 编译 WASM 不再被 'unsafe-eval' 放行，必须单独声明；
+         frame-src 放行 blob: 用于内嵌显示编译出的 PDF。
+         其他保持严格 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://github.com https://api.siliconflow.cn https://mineru.net https://api.crossref.org https://api.openalex.org https://export.arxiv.org https://*.aliyuncs.com; font-src 'self' data:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:;"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://github.com https://api.siliconflow.cn https://mineru.net https://api.crossref.org https://api.openalex.org https://export.arxiv.org https://*.aliyuncs.com; font-src 'self' data:; manifest-src 'self'; object-src 'none'; frame-src 'self' blob:; base-uri 'self'; form-action 'self'; worker-src 'self' blob:;"
     />
     <title>AcademicFlow</title>
     <style>
