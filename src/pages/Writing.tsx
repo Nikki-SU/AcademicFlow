@@ -2866,11 +2866,11 @@ export default function WritingPage() {
             </div>
           )}
 
-          {/* ── LaTeX 工作区：上半「代码板」 + 下半「编译器」，竖排各占一半 ── */}
+          {/* ── LaTeX 工作区：左「代码板」 + 右「编译器」，左右并排各占一半 ── */}
           {p.mode === 'typesetting' && (
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              {/* 上半：LaTeX 代码板 */}
-              <div className="flex-1 min-h-0 flex flex-col border-b border-slate-200">
+            <div className="flex-1 flex flex-row min-h-0 overflow-hidden">
+              {/* 左半：LaTeX 代码板 */}
+              <div className="flex-1 min-w-0 min-h-0 flex flex-col border-r border-slate-200">
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex-shrink-0">
                   <FileCode className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                   <span className="text-xs font-semibold text-slate-700 flex-shrink-0">
@@ -2921,8 +2921,8 @@ export default function WritingPage() {
                 />
               </div>
 
-              {/* 下半：编译器（浏览器内 XeLaTeX WASM，真编译） */}
-              <div className="flex-1 min-h-0 flex flex-col">
+              {/* 右半：编译器（浏览器内 XeLaTeX WASM，真编译） */}
+              <div className="flex-1 min-w-0 min-h-0 flex flex-col">
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex-shrink-0">
                   <Play className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
                   <span className="text-xs font-semibold text-slate-700 flex-shrink-0">编译器</span>
