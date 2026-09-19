@@ -20,9 +20,13 @@ lerna-debug.log*
 
 # Vite
 node_modules
-dist
+/dist
 dist-ssr
 *.local
+# 例外：Vditor 运行时资源是按 `${cdn}/dist/js/...` 寻址的，必须随仓库走
+# （离线 / 墙内都要能用，不能依赖 unpkg）
+!public/vditor/dist
+!public/vditor/dist/**
 
 # Env
 .env

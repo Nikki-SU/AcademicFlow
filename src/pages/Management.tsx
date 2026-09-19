@@ -97,6 +97,8 @@ interface Paper {
   mdStatus: 'none' | 'converting' | 'done' | 'failed'
   mdProgress: number
   postStage?: 'none' | 'translating' | 'words' | 'done' | 'error'
+  /** 是否已导入 PDF（来自 CSV 的 pdf_added_at > 0，筛选用） */
+  hasPdf: boolean
   categoryIds: string[]
 }
 
@@ -163,8 +165,8 @@ interface BookItem {
 
 const subTabs: { id: SubTabId; label: string; icon: typeof BookMarked }[] = [
   { id: 'library', label: '文献库', icon: BookMarked },
+  { id: 'knowledge', label: '图书库', icon: BookCopy },
   { id: 'templates', label: '期刊模板', icon: BookOpen },
-  { id: 'knowledge', label: '知识库', icon: BookCopy },
   { id: 'import-export', label: '导入导出', icon: ArrowLeftRight },
 ]
 
@@ -188,6 +190,7 @@ function literatureToPaper(lit: Literature): Paper {
     hasNotes: false,
     mdStatus: lit.mdStatus || 'none',
     mdProgress: 0,
+    hasPdf: (lit.pdfAddedAt || 0) > 0,
     categoryIds: lit.trackingGroup ? [lit.trackingGroup] : [],
   }
 }
@@ -328,6 +331,8 @@ export default function ManagementPage() {
 
   // 文献库状态
   const [tierFilter, setTierFilter] = useState<'all' | 1 | 2>('all')
+  /** PDF 导入状态筛选：all=全部 / has=已导入 PDF / missing=未导入 PDF */
+  const [pdfFilter, setPdfFilter] = useState<'all' | 'has' | 'missing'>('all')
   const [libraryPage, setLibraryPage] = useState(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [showAddPaperModal, setShowAddPaperModal] = useState(false)
@@ -685,8 +690,8 @@ export default function ManagementPage() {
     return counts
   }, [papers])
 
-  // 筛选文献
-  const filteredPapers = useMemo(() => {
+  // 筛选文献：先按分类 / tier / 搜索过滤（PDF 与否单独一层，方便给筛选按钮算数量）
+  const basePapers = useMemo(() => {
     let result = papers
     if (activePaperCategory !== 'all') {
       result = result.filter((p) => p.categoryIds.includes(activePaperCategory))
@@ -706,6 +711,12 @@ export default function ManagementPage() {
     }
     return result
   }, [papers, tierFilter, searchQuery, activePaperCategory])
+
+  /** 一级 / 二级都支持"有没有导入 PDF"的筛选 */
+  const filteredPapers = useMemo(() => {
+    if (pdfFilter === 'all') return basePapers
+    return basePapers.filter((p) => (pdfFilter === 'has' ? p.hasPdf : !p.hasPdf))
+  }, [basePapers, pdfFilter])
 
   const totalPages = Math.ceil(filteredPapers.length / PAGE_SIZE)
   const pagedPapers = filteredPapers.slice((libraryPage - 1) * PAGE_SIZE, libraryPage * PAGE_SIZE)
@@ -820,6 +831,7 @@ export default function ManagementPage() {
         hasNotes: false,
         mdStatus: 'none',
         mdProgress: 0,
+        hasPdf: false,
         categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [],
       }
       const updated = [paper, ...papers]
@@ -874,6 +886,7 @@ export default function ManagementPage() {
       hasNotes: false,
       mdStatus: 'none',
       mdProgress: 0,
+      hasPdf: false,
       categoryIds: newPaper.categoryIds,
     }
     const updated = [paper, ...papers]
@@ -1852,7 +1865,7 @@ export default function ManagementPage() {
             <FolderCog className="w-6 h-6 text-indigo-600" />
             管理中心
           </h1>
-          <p className="text-sm text-slate-500 mt-1">文献库、期刊模板、知识库、数据管理</p>
+          <p className="text-sm text-slate-500 mt-1">文献库、图书库、期刊模板、数据管理</p>
         </div>
       </div>
 
@@ -2058,6 +2071,41 @@ export default function ManagementPage() {
                     {filteredPapers.filter((p) => p.tier === 2).length}
                   </span>
                 </button>
+
+                {/* PDF 筛选：一级 / 二级通用 */}
+                <div className="ml-auto flex items-center gap-1 pl-3 border-l border-slate-200">
+                  <span className="text-xs text-slate-400 px-1">PDF</span>
+                  {([
+                    { v: 'all', label: '全部' },
+                    { v: 'has', label: '已导入' },
+                    { v: 'missing', label: '未导入' },
+                  ] as const).map((o) => {
+                    const count = o.v === 'all'
+                      ? basePapers.length
+                      : o.v === 'has'
+                        ? basePapers.filter((p) => p.hasPdf).length
+                        : basePapers.filter((p) => !p.hasPdf).length
+                    return (
+                      <button
+                        key={o.v}
+                        onClick={() => {
+                          setPdfFilter(o.v)
+                          setLibraryPage(1)
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                          pdfFilter === o.v
+                            ? 'bg-white text-indigo-600 shadow-sm border border-slate-200'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        {o.label}
+                        <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded-full">
+                          {count}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* 表格视图 */}
@@ -2650,7 +2698,7 @@ export default function ManagementPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500">
-                  知识库存储图书，PDF 上传后自动转换为 Markdown。超过200页按180页切分，多卷管理。
+                  图书库存储图书，PDF 上传后自动转换为 Markdown。超过200页按180页切分，多卷管理。
                 </p>
               </div>
               <button

@@ -247,6 +247,68 @@ async function fetchFromCrossref(doi: string): Promise<CitationEntry | null> {
 }
 
 // ============================================================
+// 在线检索（插入引用用）
+// ============================================================
+
+export interface OnlineSearchResult {
+  doi: string
+  title: string
+  authors: string
+  year: number
+  journal: string
+}
+
+/**
+ * Crossref 在线检索。
+ * 中文关键词直接透传即可 —— Crossref 收录了大量中文期刊（含中文标题/英文标题），
+ * 不需要额外的中文库；检索式走 query.bibliographic，对"标题+作者+期刊"最友好。
+ */
+export async function searchCrossref(query: string, rows = 10): Promise<OnlineSearchResult[]> {
+  const q = query.trim()
+  if (!q) return []
+
+  const url =
+    `${CROSSREF_API_BASE}/works?query.bibliographic=${encodeURIComponent(q)}` +
+    `&rows=${rows}&select=DOI,title,author,issued,container-title`
+
+  const resp = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'AcademicFlow/1.0 (mailto:contact@example.com)',
+    },
+  })
+  if (!resp.ok) throw new Error(`CrossRef 检索失败（${resp.status}）`)
+
+  const data = (await resp.json()) as {
+    message?: {
+      items?: Array<{
+        DOI?: string
+        title?: string[]
+        author?: Array<{ family?: string; given?: string; name?: string }>
+        'container-title'?: string[]
+        issued?: { 'date-parts'?: Array<number[]> }
+      }>
+    }
+  }
+
+  return (data.message?.items || [])
+    .map((item) => {
+      const authors = (item.author || [])
+        .map((a) => (a.family ? (a.given ? `${a.family}, ${a.given}` : a.family) : a.name || ''))
+        .filter(Boolean)
+        .join('; ')
+      return {
+        doi: (item.DOI || '').toLowerCase(),
+        title: item.title?.[0] || '',
+        authors,
+        year: item.issued?.['date-parts']?.[0]?.[0] || 0,
+        journal: item['container-title']?.[0] || '',
+      }
+    })
+    .filter((r) => r.doi && r.title)
+}
+
+// ============================================================
 // 缓存管理
 // ============================================================
 

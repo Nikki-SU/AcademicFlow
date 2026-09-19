@@ -495,7 +495,13 @@ async function commitLocalFiles(fileRelPaths, message) {
 //   .tmp_enumerated.md    编号骨架
 //   .tmp_translated.json  已翻译的块（{translations: {目标下标 → 译文}}）
 //   .tmp_words.json       AI-1 提取的候选词汇
-// 全部成功结束后这些文件会被清理掉，不留垃圾。
+//
+// 清理规则（只认一条：全流程跑通才允许删）
+//   1) 中途失败 → 一个都不删，下次 dispatch 从断点继续（描述见 describeResume）
+//   2) 全流程成功 → 才清理 AI 阶段存档（cleaned/tagged/enumerated/translated/words）
+//   3) .tmp_meta.json 永不删 —— 它是"MinerU 产物属于哪个 PDF"的凭证。
+//      留着它，用户重新转换（换 prompt / 重跑）时才能直接复用 full.md + images/，
+//      不再白烧一次 MinerU 额度。
 // ============================================================
 
 function artifactPaths(slug) {
@@ -1644,9 +1650,7 @@ async function main() {
 
     // 4. 提交所有变更到 GitHub（一次 git commit + push）
     await writeProgress(slug, { stage: 'commit', message: '提交到 GitHub...', pct: 98, node: 3 })
-    // 全流程成功 → 阶段存档作废：本地删掉，并把删除动作一起提交（否则 .tmp 会永远留在仓库里）
-    const ckptRels = Object.values(artifactPaths(slug))
-    for (const rel of ckptRels) { try { fs.unlinkSync(localFull(rel)) } catch {} }
+    // ⚠️ 这里先不碰 .tmp_* 存档 —— 万一后面写终态失败，它们还得留着续跑
     // 上次失败留下的 .diag 诊断产物：这次成功了就不该再留在私库里占空间
     const diagDirRel = `literatures/${slug}/.diag`
     try { fs.rmSync(localFull(diagDirRel), { recursive: true, force: true }) } catch {}
@@ -1658,7 +1662,6 @@ async function main() {
       `vocabulary/vocabulary.csv`,
       `literatures/${slug}/.progress.json`,
       diagDirRel,
-      ...ckptRels,
     ], `[pipeline] convert ${slug}: ${title}`)
 
     // 4.5 写终态 stage=done（给前端 UI 最后一次进度反馈）
@@ -1670,6 +1673,14 @@ async function main() {
     await commitLocalFiles(['literatures/literatures.csv'], `[pipeline] ${slug} done`)
     try { fs.unlinkSync(path.join(REPO_ROOT, `literatures/${slug}/.progress.json`)) } catch {}
     try { await ghDelete(`literatures/${slug}/.progress.json`, 'progress done') } catch {}
+
+    // 6. 走到这里才算「全流程跑通」→ 现在才允许清理 AI 阶段存档。
+    //    中途失败的路径一个都不会删（见上方 catch），下次 dispatch 直接续跑。
+    //    .tmp_meta.json 保留：下次重新转换靠它复用 full.md + images/，不重跑 MinerU。
+    const ck = artifactPaths(slug)
+    const dropRels = [ck.cleaned, ck.tagged, ck.enumerated, ck.translated, ck.words]
+    for (const rel of dropRels) { try { fs.unlinkSync(localFull(rel)) } catch {} }
+    await commitLocalFiles(dropRels, `[pipeline] ${slug} 全流程成功，清理阶段存档`)
 
     console.log(`=== Pipeline done ===`)
   } catch (err) {

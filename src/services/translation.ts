@@ -6,7 +6,7 @@
  */
 import type { RenderMarkdownOptions } from './markdown-renderer'
 import { renderMarkdownToHtml, extractMath, restoreMathInMarkdown, isBlockMathOnly } from './markdown-renderer'
-import { readAnyDocument, isTranslatable, type ReadBlockItem } from './blocks.mjs'
+import { readAnyDocument, isTranslatable, blockId, type ReadBlockItem } from './blocks.mjs'
 
 export type TranslationMode = 'original' | 'bilingual' | 'chinese' | 'english'
 export type ParagraphType = 'text' | 'image' | 'formula' | 'code' | 'heading' | 'table' | 'other'
@@ -170,6 +170,14 @@ export function renderAlignedMdHtml(
     '<div class="translation-paragraph bg-indigo-50/30 border-l-2 border-indigo-300 pl-3 my-2">' +
     render(cn) + '</div>'
 
+  /**
+   * 给该块的 HTML 打上 data-block-id（只往第一个元素标签里加属性，不改 DOM 结构）。
+   * 用途：阅读页"点批注跳回位置"——当前显示模式下找不到批注原文时，
+   * 仍能靠块号定位到对应段落（中英锚点互通）。
+   */
+  const withBlockId = (html: string, id: string | null): string =>
+    id ? html.replace(/^\s*<([a-zA-Z][\w-]*)/, `<$1 data-block-id="${id}"`) : html
+
   for (const it of items) {
     // 块外裸文本：原样渲染，绝不吞掉
     if (it.t === 'text') {
@@ -179,17 +187,19 @@ export function renderAlignedMdHtml(
 
     const { node, content, cn } = it
     const body = content.trim()
+    const bid = blockId(node)
+    const wrap = (html: string) => withBlockId(html, bid)
 
     // 图 / 公式：不翻译，原样显示
     if (node.kind === 'float' && (node.type === '图' || node.type === '公式')) {
-      if (body) chunks.push(render(body))
+      if (body) chunks.push(wrap(render(body)))
       continue
     }
 
     // 表：中文/对照模式优先显示译表
     if (node.kind === 'float' && node.type === '表') {
-      if (showCn && !blank(cn)) chunks.push(render(cn!.trim()))
-      else if (body) chunks.push(render(body))
+      if (showCn && !blank(cn)) chunks.push(wrap(render(cn!.trim())))
+      else if (body) chunks.push(wrap(render(body)))
       if (showCn && blank(cn)) chunks.push(pendingNote)
       continue
     }
@@ -201,17 +211,17 @@ export function renderAlignedMdHtml(
       if (mode === 'chinese') {
         chunks.push('<div class="text-xs text-slate-400 italic mb-2">（参考文献不参与翻译）</div>')
       }
-      if (body) chunks.push(render(body))
+      if (body) chunks.push(wrap(render(body)))
       continue
     }
 
     // 标题 / 正文 / 列表 / 图注 / 引文：需要翻译
     if (mode === 'original' || mode === 'english') {
-      if (body) chunks.push(render(body))
+      if (body) chunks.push(wrap(render(body)))
     } else if (mode === 'chinese') {
-      chunks.push(!blank(cn) ? render(cn!.trim()) : fallback(body))
+      chunks.push(wrap(!blank(cn) ? render(cn!.trim()) : fallback(body)))
     } else {
-      if (body) chunks.push(render(body))
+      if (body) chunks.push(wrap(render(body)))
       chunks.push(!blank(cn) ? cnBox(cn!.trim()) : pendingNote)
     }
   }

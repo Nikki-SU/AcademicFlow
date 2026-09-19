@@ -81,6 +81,54 @@ export async function loadManuscript(projectId: string): Promise<string> {
   return result?.content || ''
 }
 
+/**
+ * AI 记忆（memory.md）
+ * -------------------------------------------------
+ * "项目即对话"：一个项目 = 一个 AI 对话，对话与 AI 记忆都落在这里。
+ * md 格式，人可读、可回查、可手改；AI 忘了就回来读它。
+ */
+export async function loadMemory(projectId: string): Promise<string> {
+  const result = await readMdFile(`projects/${projectId}/memory.md`)
+  return result?.content || ''
+}
+
+export async function saveMemory(projectId: string, content: string): Promise<void> {
+  await writeMdFile(`projects/${projectId}/memory.md`, content, 'Update AI memory')
+}
+
+/**
+ * 自定义快捷指令（全局，跨项目复用）
+ * -------------------------------------------------
+ * 存 settings/quick-actions.md，按 `## 指令名` 分节，正文就是发给 AI 的 prompt。
+ * 内置指令（找文献 / 找引用 / 引用检验）写死在代码里，不进这个文件。
+ */
+export interface QuickAction {
+  label: string
+  prompt: string
+}
+
+const QUICK_ACTIONS_PATH = 'settings/quick-actions.md'
+
+export async function loadQuickActions(): Promise<QuickAction[]> {
+  const result = await readMdFile(QUICK_ACTIONS_PATH)
+  const content = result?.content || ''
+  const actions: QuickAction[] = []
+  const sections = content.split(/^##\s+/m).slice(1)
+  for (const section of sections) {
+    const nl = section.indexOf('\n')
+    const label = (nl === -1 ? section : section.slice(0, nl)).trim()
+    const prompt = (nl === -1 ? '' : section.slice(nl + 1)).trim()
+    if (label && prompt) actions.push({ label, prompt })
+  }
+  return actions
+}
+
+export async function saveQuickActions(actions: QuickAction[]): Promise<void> {
+  const body = actions.map((a) => `## ${a.label}\n${a.prompt}`).join('\n\n')
+  const content = `# 快捷指令\n\n${body}${body ? '\n' : ''}`
+  await writeMdFile(QUICK_ACTIONS_PATH, content, 'Update quick actions')
+}
+
 export async function saveManuscript(projectId: string, content: string): Promise<void> {
   await writeMdFile(
     `projects/${projectId}/manuscript.md`,

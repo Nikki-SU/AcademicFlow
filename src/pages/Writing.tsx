@@ -8,19 +8,6 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
-  Bold,
-  Italic,
-  Heading1,
-  Heading2,
-  Heading3,
-  Heading4,
-  Heading5,
-  Heading6,
-  List,
-  ListOrdered,
-  Code,
-  Link,
-  Image,
   FileText,
   BookOpen,
   Library,
@@ -34,16 +21,13 @@ import {
   Save,
   Search,
   Wand2,
-  Languages,
   FileCode,
-  AlignLeft,
   X,
   BookText,
   LayoutTemplate,
   FileOutput,
   Loader2,
   Check,
-  Minus,
   ListTree,
   BookCopy,
   GraduationCap,
@@ -54,8 +38,9 @@ import {
   GripVertical,
   Eye,
   File,
+  Brain,
+  BookPlus,
 } from 'lucide-react'
-import TableGridPicker from '../components/TableGridPicker'
 import { toast } from 'sonner'
 import { getAllTemplates } from '../services/journal-templates'
 import { useSettingsStore } from '../stores/settings'
@@ -72,18 +57,18 @@ import {
   loadReferences,
   savePaperReferences,
   saveBookReferences,
+  loadMemory,
+  saveMemory,
+  loadQuickActions,
+  saveQuickActions,
   type Project,
+  type QuickAction,
   type CitationRef as ServiceCitationRef,
 } from '../services/projectData'
 import { loadLiteratures, type Literature } from '../services/literatureData'
-
-const STAGES = [
-  { value: 'topic', label: '选题', leftPanel: 'outline', rightPanel: 'knowledge' },
-  { value: 'review', label: '文献综述', leftPanel: 'references', rightPanel: 'library' },
-  { value: 'writing', label: '正文撰写', leftPanel: 'editor', rightPanel: 'ai' },
-  { value: 'citation', label: '引用', leftPanel: 'references', rightPanel: 'library' },
-  { value: 'typesetting', label: '排版', leftPanel: 'editor', rightPanel: 'typesetting' },
-]
+import { callAI } from '../services/ai/client'
+import { searchCrossref, type OnlineSearchResult } from '../services/citation'
+import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
 
 const LEFT_PANEL_MODES = [
   { value: 'editor', label: '编辑区', icon: PenTool },
@@ -106,14 +91,37 @@ const CITATION_SCOPES = [
   { value: 'chapters', label: '指定章节' },
 ]
 
-const QUICK_ACTIONS = [
-  { key: 'continue', label: '继续写作', icon: PenTool },
-  { key: 'polish', label: '润色', icon: Wand2 },
-  { key: 'translate', label: '翻译', icon: Languages },
-  { key: 'expand', label: '扩写', icon: Plus },
-  { key: 'shorten', label: '缩写', icon: Minus },
-  { key: 'search', label: '找文献', icon: Search },
-  { key: 'summarize', label: '总结', icon: FileText },
+/**
+ * 内置快捷指令（写死，不可删）
+ * -------------------------------------------------
+ * 只保留学术场景真正需要的三条：
+ * - 找文献：按主题检索文献
+ * - 找引用：给出观点 → 定位原文（DOI + 原句），并检查文中是否有相反观点
+ * - 引用检验：给出你写的文字 + 引文 DOI → 原文是否有相同 / 相反意思
+ */
+const BUILTIN_ACTIONS: QuickActionDef[] = [
+  {
+    key: 'find-papers',
+    label: '找文献',
+    icon: Search,
+    prompt: '请检索与以下研究主题相关的文献，逐条给出标题、作者、年份、期刊和 DOI：\n\n',
+  },
+  {
+    key: 'find-quote',
+    label: '找引用',
+    icon: BookText,
+    prompt:
+      '请为下面这个观点找到原文佐证：先检索定位到具体文章，再给出原文中的原句和 DOI；' +
+      '同时说明该文章里是否存在相反的观点。\n\n观点：',
+  },
+  {
+    key: 'verify-citation',
+    label: '引用检验',
+    icon: CheckCircle2,
+    prompt:
+      '请检验我写的这段文字与所引文献是否匹配：原文里是否有相同意思的表述？' +
+      '原文里是否有相反意思的表述？\n\n我的文字：\n\n引文 DOI：',
+  },
 ]
 
 const PANEL_RATIOS = [
@@ -142,6 +150,8 @@ interface BookRef extends CitationRef {
 
 interface AIMessage {
   id: string
+  /** 落盘 memory.md 用的时间戳（缺省时回退到 id） */
+  createdAt?: number
   role: 'user' | 'assistant'
   content: string
   citations?: CitationRef[]
@@ -153,6 +163,17 @@ interface OutlineItem {
   text: string
   id: string
 }
+
+interface QuickActionDef {
+  key: string
+  label: string
+  icon: typeof Search
+  prompt: string
+}
+
+/** 「插入引用」工具栏图标（Vditor 的 icon 需要 SVG 字符串） */
+const CITATION_ICON =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>'
 
 type LeftPanelMode = 'editor' | 'outline' | 'references'
 type RightPanelMode = 'ai' | 'library' | 'knowledge' | 'typesetting'
@@ -334,61 +355,6 @@ function renderMarkdown(text: string): string {
   return result.join('\n')
 }
 
-function htmlToMarkdown(html: string): string {
-  let md = html
-
-  md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n')
-  md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n')
-  md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n')
-  md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n')
-  md = md.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '##### $1\n\n')
-  md = md.replace(/<h6[^>]*>(.*?)<\/h6>/gi, '###### $1\n\n')
-
-  md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
-  md = md.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
-  md = md.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
-  md = md.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
-
-  md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, content) => {
-    return content.trim().split('\n').map((line: string) => '> ' + line.trim()).join('\n') + '\n\n'
-  })
-
-  md = md.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
-  md = md.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '```\n$1\n```\n\n')
-
-  md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, content) => {
-    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n') + '\n'
-  })
-
-  md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, content) => {
-    let i = 1
-    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, () => {
-      return `${i++}. $1\n`
-    }) + '\n'
-  })
-
-  md = md.replace(/<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
-  md = md.replace(/<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*>/gi, '![$2]($1)')
-
-  md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n')
-  md = md.replace(/<br\s*\/?>/gi, '\n')
-  md = md.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '$1\n')
-  md = md.replace(/<hr\s*\/?>/gi, '---\n\n')
-
-  md = md.replace(/<[^>]+>/g, '')
-
-  md = md.replace(/&nbsp;/g, ' ')
-  md = md.replace(/&amp;/g, '&')
-  md = md.replace(/&lt;/g, '<')
-  md = md.replace(/&gt;/g, '>')
-  md = md.replace(/&quot;/g, '"')
-
-  md = md.replace(/\n{3,}/g, '\n\n')
-  md = md.trim()
-
-  return md
-}
-
 function extractOutline(html: string): OutlineItem[] {
   const outline: OutlineItem[] = []
   const regex = /<h([1-6])[^>]*>(.*?)<\/h\1>/gi
@@ -405,6 +371,77 @@ function extractOutline(html: string): OutlineItem[] {
 function formatTime(timestamp: number): string {
   const d = new Date(timestamp)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// ══════════════════════════════════════════════════════════════
+// 项目即对话：对话 ⇄ memory.md
+// 格式（md，人可读、可回查、可手改）：
+//   # AI 记忆 · 项目名
+//   ## 用户 · 2026-09-19 10:30
+//   内容
+//   ## AI · 2026-09-19 10:31 · pass
+//   内容
+// ══════════════════════════════════════════════════════════════
+
+function formatMinute(ts: number): string {
+  const d = new Date(ts)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function messagesToMemory(projectTitle: string, messages: AIMessage[]): string {
+  const body = messages
+    .map((m) => {
+      const who = m.role === 'user' ? '用户' : 'AI'
+      const status = m.role === 'assistant' && m.reviewStatus ? ` · ${m.reviewStatus}` : ''
+      const ts = m.createdAt ?? (Number(m.id) || Date.now())
+      return `## ${who} · ${formatMinute(ts)}${status}\n${m.content.trim()}`
+    })
+    .join('\n\n')
+  return `# AI 记忆 · ${projectTitle}\n\n${body}${body ? '\n' : ''}`
+}
+
+function memoryToMessages(md: string): AIMessage[] {
+  const out: AIMessage[] = []
+  let cur: {
+    role: 'user' | 'assistant'
+    status?: 'pending' | 'pass' | 'fail'
+    time: number
+    buf: string[]
+  } | null = null
+
+  const flush = () => {
+    if (!cur) return
+    const content = cur.buf.join('\n').trim()
+    if (content) {
+      out.push({
+        id: `${cur.time}_${out.length}`,
+        createdAt: cur.time,
+        role: cur.role,
+        content,
+        reviewStatus: cur.status,
+      })
+    }
+    cur = null
+  }
+
+  for (const line of md.split('\n')) {
+    const m = /^##\s+(用户|AI)\s*·\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?:\s*·\s*(pending|pass|fail))?\s*$/.exec(line)
+    if (m) {
+      flush()
+      const parsed = Date.parse(m[2].replace(' ', 'T') + ':00')
+      cur = {
+        role: m[1] === '用户' ? 'user' : 'assistant',
+        status: (m[3] as 'pending' | 'pass' | 'fail' | undefined),
+        time: Number.isNaN(parsed) ? Date.now() : parsed,
+        buf: [],
+      }
+      continue
+    }
+    if (cur) cur.buf.push(line)
+  }
+  flush()
+  return out
 }
 
 function markdownToLatex(md: string, template: JournalTemplate): string {
@@ -490,7 +527,6 @@ export default function WritingPage() {
   const [mdContent, setMdContent] = useState('')
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [lastSaved, setLastSaved] = useState<number | null>(null)
-  const [editorLoaded, setEditorLoaded] = useState(false)
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isAiGenerating, setIsAiGenerating] = useState(false)
@@ -537,39 +573,53 @@ export default function WritingPage() {
   })
   const [showBibtexInput, setShowBibtexInput] = useState(false)
   const [bibtexText, setBibtexText] = useState('')
-  const [imagePlaceholderId, setImagePlaceholderId] = useState<string | null>(null)
   const [selectedBookIds, setSelectedBookIds] = useState<string[]>([])
   const [selectedBookForChapters, setSelectedBookForChapters] = useState<string | null>(null)
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([])
   const [showBookSelector, setShowBookSelector] = useState(false)
   const [showChapterSelector, setShowChapterSelector] = useState(false)
 
-  void saveBookReferences
-  void loadLiteratures
-  void ({} as Literature)
+  // ── 项目即对话：AI 记忆（memory.md）与自定义快捷指令 ──
+  const [memory, setMemory] = useState('')
+  const [showMemoryModal, setShowMemoryModal] = useState(false)
+  const [customActions, setCustomActions] = useState<QuickAction[]>([])
+  const [showActionModal, setShowActionModal] = useState(false)
+  const [newActionLabel, setNewActionLabel] = useState('')
+  const [newActionPrompt, setNewActionPrompt] = useState('')
+  const [actionRequirement, setActionRequirement] = useState('')
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false)
 
-  const editorRef = useRef<HTMLDivElement>(null)
+  // ── 项目文献（项目内临时知识库）──
+  const [availablePapers, setAvailablePapers] = useState<Literature[]>([])
+  const [showProjectLitModal, setShowProjectLitModal] = useState(false)
+  const [projectLitSearch, setProjectLitSearch] = useState('')
+  const [projectLitSelected, setProjectLitSelected] = useState<string[]>([])
+  const [projectLitTargetId, setProjectLitTargetId] = useState<string | null>(null)
+
+  // ── 插入引用：本地 / 在线（中英文）──
+  const [citationSource, setCitationSource] = useState<'local' | 'online'>('local')
+  const [onlineQuery, setOnlineQuery] = useState('')
+  const [onlineResults, setOnlineResults] = useState<OnlineSearchResult[]>([])
+  const [isSearchingOnline, setIsSearchingOnline] = useState(false)
+  const [importedDois, setImportedDois] = useState<string[]>([])
+
+  void saveBookReferences
+
+  const editorVdRef = useRef<VditorEditorHandle>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const aiInputRef = useRef<HTMLTextAreaElement>(null)
   const leftDropdownRef = useRef<HTMLDivElement>(null)
   const rightDropdownRef = useRef<HTMLDivElement>(null)
   const citationScopeRef = useRef<HTMLDivElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
   const dragStartRatio = useRef(70)
-  const savedRangeRef = useRef<Range | null>(null)
-
-  const [projectStages, setProjectStages] = useState<Record<string, string>>({})
+  const memorySaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 加载记忆期间不要回写，否则会把刚解析出来的对话立刻覆盖成空 */
+  const memoryLoadingRef = useRef(false)
 
   const activeProject = projects.find((p) => p.projectId === activeProjectId)
-
-  const activeProjectStage = activeProjectId ? projectStages[activeProjectId] || 'writing' : 'writing'
-
-  const setActiveProjectStage = useCallback((stage: string) => {
-    if (!activeProjectId) return
-    setProjectStages((prev) => ({ ...prev, [activeProjectId]: stage }))
-  }, [activeProjectId])
 
   const getProjectLitCount = useCallback((projectId: string) => {
     return citations.filter((c) => c.projectId === projectId).length
@@ -617,15 +667,32 @@ export default function WritingPage() {
   }, [selectedBookForChapters, bookReferences])
 
   const outline = useMemo(() => {
-    const html = editorRef.current?.innerHTML || renderMarkdown(mdContent)
-    return extractOutline(html)
-  }, [mdContent, editorLoaded, leftPanelMode])
+    return extractOutline(renderMarkdown(mdContent))
+  }, [mdContent])
 
   const currentTemplate = useMemo(() => {
     return templates.find((t) => t.id === selectedTemplateId) || templates[0] || null
   }, [templates, selectedTemplateId])
 
   const wordCount = mdContent.replace(/\s/g, '').length
+
+  /**
+   * 写作正文工具栏：Vditor 内置项 + 「插入引用」。
+   * 「插入公式」由 VditorEditor 自动补在末尾，不用在这里重复声明。
+   */
+  const writingToolbar: VditorToolbarItem[] = [
+    'headings', 'bold', 'italic', 'strike', '|',
+    'list', 'ordered-list', 'check', '|',
+    'quote', 'line', 'code', 'inline-code', '|',
+    'table', 'upload', '|',
+    {
+      name: 'insert-citation',
+      tip: '插入引用 (Ctrl+Shift+K)',
+      icon: CITATION_ICON,
+      click: () => setShowCitationModal(true),
+    },
+    '|', 'undo', 'redo', '|', 'edit-mode', 'fullscreen',
+  ]
 
   useEffect(() => {
     if (!repo) return
@@ -673,9 +740,10 @@ export default function WritingPage() {
 
     async function loadProjectData() {
       try {
-        const [manuscript, refs] = await Promise.all([
+        const [manuscript, refs, memoryMd] = await Promise.all([
           loadManuscript(projectId),
           loadReferences(projectId),
+          loadMemory(projectId),
         ])
         if (cancelled) return
 
@@ -685,15 +753,20 @@ export default function WritingPage() {
           chapters: r.type === 'book' ? [] : undefined,
         }))
 
+        // 项目即对话：记忆文件就是这个项目的对话记录，切项目/切窗口都从这里恢复
+        memoryLoadingRef.current = true
+        setMemory(memoryMd)
+        setMessages(memoryToMessages(memoryMd))
         setMdContent(manuscript || DEFAULT_MD)
         setCitations((prev) => {
           const filtered = prev.filter((c) => c.projectId !== projectId)
           return [...filtered, ...refsWithProjectId]
         })
         setLastSaved(Date.now())
-        setEditorLoaded(false)
+        setTimeout(() => { memoryLoadingRef.current = false }, 0)
       } catch (err) {
         console.warn('[Writing] 加载项目数据失败:', err)
+        memoryLoadingRef.current = false
       }
     }
 
@@ -719,13 +792,6 @@ export default function WritingPage() {
     loadTemplates()
     return () => { cancelled = true }
   }, [repo])
-
-  useEffect(() => {
-    if (editorRef.current && !editorLoaded) {
-      editorRef.current.innerHTML = renderMarkdown(mdContent)
-      setEditorLoaded(true)
-    }
-  }, [mdContent, editorLoaded])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -775,224 +841,66 @@ export default function WritingPage() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // 对话一变就落盘 memory.md（防抖 800ms）。切窗口/切项目都不丢对话。
   useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    const handlePlaceholderClick = (e: Event) => {
-      const customEvent = e as CustomEvent
-      if (customEvent.detail?.id) {
-        setImagePlaceholderId(customEvent.detail.id)
-        imageInputRef.current?.click()
+    if (!activeProjectId || memoryLoadingRef.current) return
+    const projectId = activeProjectId
+    const title = activeProject?.title || projectId
+    const md = messagesToMemory(title, messages)
+
+    if (memorySaveTimerRef.current) clearTimeout(memorySaveTimerRef.current)
+    memorySaveTimerRef.current = setTimeout(() => {
+      setMemory(md)
+      saveMemory(projectId, md).catch((err) => {
+        console.warn('[Writing] 保存 AI 记忆失败:', err)
+      })
+    }, 800)
+
+    return () => {
+      if (memorySaveTimerRef.current) clearTimeout(memorySaveTimerRef.current)
+    }
+    // activeProject?.title 变化不需要触发写盘，故不进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, activeProjectId])
+
+  // 自定义快捷指令（全局）+ 文献库清单（供"项目文献"选择用）
+  useEffect(() => {
+    if (!repo) return
+    let cancelled = false
+    async function loadAux() {
+      try {
+        const [actions, papers] = await Promise.all([loadQuickActions(), loadLiteratures()])
+        if (cancelled) return
+        setCustomActions(actions)
+        setAvailablePapers(papers)
+      } catch (err) {
+        console.warn('[Writing] 加载快捷指令 / 文献库失败:', err)
       }
     }
-    editor.addEventListener('imagePlaceholderClick', handlePlaceholderClick)
-    return () => {
-      editor.removeEventListener('imagePlaceholderClick', handlePlaceholderClick)
-    }
-  }, [])
+    loadAux()
+    return () => { cancelled = true }
+  }, [repo])
 
-  const handleStageChange = useCallback((stage: string) => {
-    if (!activeProjectId) return
-    setActiveProjectStage(stage)
-    const stageConfig = STAGES.find(s => s.value === stage)
-    if (stageConfig) {
-      setLeftPanelMode(stageConfig.leftPanel as LeftPanelMode)
-      setRightPanelMode(stageConfig.rightPanel as RightPanelMode)
-    }
-  }, [activeProjectId, setActiveProjectStage])
-
-  const handleEditorInput = () => {
-    if (!editorRef.current) return
-    const html = editorRef.current.innerHTML
-    const md = htmlToMarkdown(html)
+  // 写作正文：Vditor 所见即所得编辑器（ir 模式，md 进 md 出）
+  const handleEditorChange = (md: string) => {
     setMdContent(md)
     setSaveStatus('unsaved')
   }
 
-  const handleEditorPaste = (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items
-    if (!items) return
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault()
-        const file = item.getAsFile()
-        if (file) {
-          const reader = new FileReader()
-          reader.onload = (ev) => {
-            const dataUrl = ev.target?.result as string
-            insertImageAtCursor(dataUrl, file.name, true)
-          }
-          reader.readAsDataURL(file)
-        }
-        return
-      }
-    }
-  }
-
-  const saveSelection = () => {
-    const sel = window.getSelection()
-    if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0)
-      if (editorRef.current && editorRef.current.contains(range.commonAncestorContainer)) {
-        savedRangeRef.current = range.cloneRange()
-      }
-    }
-  }
-
-  const restoreSelection = () => {
-    const sel = window.getSelection()
-    if (savedRangeRef.current && editorRef.current) {
-      editorRef.current.focus()
-      sel?.removeAllRanges()
-      sel?.addRange(savedRangeRef.current.cloneRange())
-      return true
-    }
-    if (editorRef.current) {
-      editorRef.current.focus()
-    }
-    return false
-  }
-
-  const handleEditorSelect = () => {
-    saveSelection()
-  }
-
-  const execCommand = (command: string, value?: string) => {
-    restoreSelection()
-    const result = document.execCommand(command, false, value)
-    if (!result && (command === 'insertUnorderedList' || command === 'insertOrderedList')) {
-      insertListManual(command === 'insertOrderedList')
-    }
-    saveSelection()
-    handleEditorInput()
-  }
-
-  const insertListManual = (isOrdered: boolean) => {
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0) return
-    const text = sel.toString() || '列表项'
-    const tag = isOrdered ? 'ol' : 'ul'
-    const listHtml = `<${tag} style="margin:0.75rem 0;padding-left:1.5rem;"><li>${text}</li></${tag}><p><br></p>`
-    document.execCommand('insertHTML', false, listHtml)
-  }
-
-  const insertCodeBlock = () => {
-    restoreSelection()
-    const sel = window.getSelection()
-    const selectedText = sel?.toString() || ''
-    const codeHtml = `<pre style="margin:1rem 0;padding:1rem;background:#0f172a;color:#f1f5f9;border-radius:0.5rem;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.875rem;line-height:1.6;"><code>${selectedText || '// 在此输入代码'}</code></pre><p><br></p>`
-    document.execCommand('insertHTML', false, codeHtml)
-    saveSelection()
-    handleEditorInput()
-  }
-
-  const insertHeading = (level: number) => {
-    execCommand('formatBlock', `h${level}`)
-  }
-
-  const insertHorizontalRule = () => {
-    execCommand('insertHorizontalRule')
-  }
-
-  const insertLink = () => {
-    restoreSelection()
-    const sel = window.getSelection()
-    const selectedText = sel?.toString() || ''
-    const linkText = selectedText || '链接文字'
-    const linkHtml = `<a href="https://" target="_blank" rel="noopener noreferrer" style="color:#4f46e5;text-decoration:underline;cursor:pointer;">${linkText}</a>`
-    document.execCommand('insertHTML', false, linkHtml)
-    saveSelection()
-    handleEditorInput()
-  }
-
-  const insertImageAtCursor = (src: string, alt: string, fromPaste = false) => {
-    restoreSelection()
-    if (fromPaste && imagePlaceholderId && editorRef.current) {
-      const placeholder = editorRef.current.querySelector(`[data-placeholder-id="${imagePlaceholderId}"]`)
-      if (placeholder) {
-        const imgHtml = `<div style="margin:1rem 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:0.5rem;border:1px solid #e2e8f0;" /><p style="font-size:0.75rem;color:#64748b;margin-top:0.5rem;">${alt}</p></div>`
-        placeholder.outerHTML = imgHtml
-        setImagePlaceholderId(null)
-        saveSelection()
-        handleEditorInput()
-        return
-      }
-    }
-    const html = `<div style="margin:1rem 0;text-align:center;"><img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:0.5rem;border:1px solid #e2e8f0;" /><p style="font-size:0.75rem;color:#64748b;margin-top:0.5rem;">${alt}</p></div><p><br></p>`
-    document.execCommand('insertHTML', false, html)
-    saveSelection()
-    handleEditorInput()
-  }
-
-  const insertImagePlaceholder = () => {
-    saveSelection()
-    restoreSelection()
-    const placeholderId = `img-placeholder-${Date.now()}`
-    const placeholderHtml = `<div data-placeholder-id="${placeholderId}" contenteditable="false" style="margin:1rem 0;padding:2.5rem 1.25rem;border:1px dashed #cbd5e1;border-radius:0.5rem;background:#f8fafc;text-align:center;cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('imagePlaceholderClick', {bubbles: true, detail: {id: '${placeholderId}'}}))">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;pointer-events:none;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-          <circle cx="9" cy="9" r="2"/>
-          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-        </svg>
-        <span style="font-size:0.875rem;color:#64748b;">点击添加图片或粘贴图片</span>
-        <span style="font-size:0.75rem;color:#94a3b8;">支持 JPG、PNG、GIF 等格式</span>
-      </div>
-    </div><p><br></p>`
-    document.execCommand('insertHTML', false, placeholderHtml)
-    setImagePlaceholderId(placeholderId)
-    saveSelection()
-    handleEditorInput()
-  }
-
-  const handleImageButtonClick = () => {
-    if (!imagePlaceholderId) {
-      insertImagePlaceholder()
-    }
-    imageInputRef.current?.click()
-  }
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string
-      insertImageAtCursor(dataUrl, file.name, true)
-    }
-    reader.readAsDataURL(file)
-    e.target.value = ''
-  }
-
-  const insertTableWithSize = (rows: number, cols: number) => {
-    restoreSelection()
-    const headerCells = Array.from({ length: cols }, () => `<th style="padding:0.625rem 1rem;font-size:0.875rem;font-weight:600;background:#f8fafc;text-align:left;border-bottom:1px solid #e2e8f0;min-width:5rem;">&nbsp;</th>`).join('')
-    const bodyRows = Array.from({ length: rows }, () => {
-      const cells = Array.from({ length: cols }, () => `<td style="padding:0.625rem 1rem;font-size:0.875rem;border-bottom:1px solid #e2e8f0;min-width:5rem;">&nbsp;</td>`).join('')
-      return `<tr>${cells}</tr>`
-    }).join('')
-    const tableHtml = `<div style="margin:1rem 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:0.5rem;"><table style="width:100%;border-collapse:collapse;"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div><p><br></p>`
-    document.execCommand('insertHTML', false, tableHtml)
-    saveSelection()
-    handleEditorInput()
-  }
-
+  /** 在光标处插入引用标记 */
   const insertCitation = (doi: string) => {
-    restoreSelection()
-    const citeHtml = `<sup style="color:#4f46e5;font-weight:500;cursor:pointer;">[${doi}]</sup>`
-    document.execCommand('insertHTML', false, citeHtml)
-    saveSelection()
-    handleEditorInput()
+    editorVdRef.current?.insertValue(`<sup style="color:#4f46e5;font-weight:500;">[${doi}]</sup>`)
+    setSaveStatus('unsaved')
     setShowCitationModal(false)
   }
 
   const insertSelectedCitations = () => {
     if (selectedCitations.length === 0) return
-    restoreSelection()
-    const cites = selectedCitations.map(d => `<sup style="color:#4f46e5;font-weight:500;cursor:pointer;">[${d}]</sup>`).join('')
-    document.execCommand('insertHTML', false, cites)
-    saveSelection()
-    handleEditorInput()
+    const cites = selectedCitations
+      .map((d) => `<sup style="color:#4f46e5;font-weight:500;">[${d}]</sup>`)
+      .join('')
+    editorVdRef.current?.insertValue(cites)
+    setSaveStatus('unsaved')
     setSelectedCitations([])
     setShowCitationModal(false)
   }
@@ -1015,6 +923,7 @@ export default function WritingPage() {
 
     const userMsg: AIMessage = {
       id: String(Date.now()),
+      createdAt: Date.now(),
       role: 'user',
       content: text,
     }
@@ -1027,6 +936,7 @@ export default function WritingPage() {
     const genMsgId = String(Date.now() + 1)
     const genMsg: AIMessage = {
       id: genMsgId,
+      createdAt: Date.now() + 1,
       role: 'assistant',
       content: '正在调用 AI-1 生成内容…',
       citations: undefined,
@@ -1075,11 +985,17 @@ export default function WritingPage() {
 
       const sourceMaterial = literatureContext
 
-      // 3. 调用双引擎（AI-1 生成 + AI-2 忠实性核查 + 引证锚定 + 分层归因重试）
+      // 3. 项目记忆：把 memory.md 的既有对话作为上下文带上（AI 忘了也能靠它续上；
+      //    这里只是 AI 自己的对话记忆，绝不包含用户手稿）
+      const memoryContext = memory.trim()
+        ? `【本项目此前的对话记忆（memory.md 摘要）】\n${memory.trim().slice(-6000)}\n\n【当前需求】\n`
+        : ''
+
+      // 4. 调用双引擎（AI-1 生成 + AI-2 忠实性核查 + 引证锚定 + 分层归因重试）
       const result = await runDualEngine({
         taskType: 'faithfulness_check',
         sourceMaterial,
-        ai1Instruction: text,
+        ai1Instruction: `${memoryContext}${text}`,
         ai1,
         ai2,
         onProgress: (event) => {
@@ -1105,7 +1021,7 @@ export default function WritingPage() {
         },
       })
 
-      // 4. 写回最终内容 + 审阅结论
+      // 5. 写回最终内容 + 审阅结论
       setIsAiGenerating(false)
       setIsAiReviewing(false)
 
@@ -1143,18 +1059,175 @@ export default function WritingPage() {
     }
   }
 
-  const handleQuickAction = (action: string) => {
-    const prompts: Record<string, string> = {
-      continue: '请基于当前上下文继续写作',
-      polish: '请润色当前段落，优化语言表达',
-      translate: '请将选中内容进行中英文互译',
-      expand: '请扩写当前段落，丰富内容',
-      shorten: '请缩写当前段落，精简内容',
-      search: '请推荐与当前研究主题相关的文献',
-      summarize: '请总结当前段落的核心要点',
-    }
-    handleSendMessage(prompts[action] || action)
+  /**
+   * 快捷指令：把指令正文填进输入框（不直接发送）——
+   * 找引用 / 引用检验都需要用户补上观点、段落或 DOI，填好再自己发。
+   */
+  const applyQuickAction = (prompt: string) => {
+    setInputValue(prompt)
+    setTimeout(() => aiInputRef.current?.focus(), 0)
   }
+
+  const handleSaveAction = async () => {
+    const label = newActionLabel.trim()
+    const prompt = newActionPrompt.trim()
+    if (!label || !prompt) {
+      toast.error('请填写指令名称和内容')
+      return
+    }
+    const next = [...customActions, { label, prompt }]
+    setCustomActions(next)
+    setShowActionModal(false)
+    setNewActionLabel('')
+    setNewActionPrompt('')
+    setActionRequirement('')
+    try {
+      await saveQuickActions(next)
+    } catch (err) {
+      console.error('[Writing] 保存快捷指令失败:', err)
+      toast.error('保存失败，请检查仓库权限')
+    }
+  }
+
+  const handleDeleteAction = async (label: string) => {
+    const next = customActions.filter((a) => a.label !== label)
+    setCustomActions(next)
+    try {
+      await saveQuickActions(next)
+    } catch (err) {
+      console.error('[Writing] 删除快捷指令失败:', err)
+      toast.error('删除失败，请检查仓库权限')
+    }
+  }
+
+  /** 由"需求"生成 prompt：一次轻量 AI 调用，生成结果可编辑后再保存 */
+  const handleGeneratePrompt = async () => {
+    const requirement = actionRequirement.trim()
+    if (!requirement) {
+      toast.error('请先写一句需求')
+      return
+    }
+    setIsGeneratingPrompt(true)
+    try {
+      const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+      const resp = await callAI({
+        baseUrl: ai1.baseUrl,
+        apiKey: ai1.apiKey,
+        model: ai1.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是学术写作助手的 prompt 工程师。用户会给一句需求，请你输出一条可直接发送给 AI 的提示词：' +
+              '只输出提示词本身，不要任何解释、不要引号、不要 markdown 代码块。',
+          },
+          { role: 'user', content: requirement },
+        ],
+      })
+      const generated = resp.content.trim()
+      if (!generated) throw new Error('AI 未返回内容')
+      setNewActionPrompt(generated)
+      if (!newActionLabel.trim()) {
+        setNewActionLabel(requirement.slice(0, 12))
+      }
+    } catch (err) {
+      console.error('[Writing] 生成 prompt 失败:', err)
+      toast.error(err instanceof Error ? err.message : '生成失败，请检查 AI 配置')
+    } finally {
+      setIsGeneratingPrompt(false)
+    }
+  }
+
+  // ── 项目文献（项目内临时知识库）──
+  const openProjectLitModal = (projectId: string) => {
+    setProjectLitTargetId(projectId)
+    setProjectLitSearch('')
+    setProjectLitSelected([])
+    setShowProjectLitModal(true)
+  }
+
+  const handleAddProjectLiterature = async () => {
+    const projectId = projectLitTargetId
+    if (!projectId || projectLitSelected.length === 0) {
+      setShowProjectLitModal(false)
+      return
+    }
+    const picked: CitationRef[] = availablePapers
+      .filter((p) => projectLitSelected.includes(p.doi))
+      .map((p) => ({
+        id: p.doi,
+        doi: p.doi,
+        title: p.title,
+        authors: p.authors || '',
+        year: p.year || 0,
+        journal: p.journal || '',
+        type: 'paper' as const,
+        projectId,
+      }))
+
+    setCitations((prev) => {
+      const existing = prev.filter((c) => c.projectId === projectId && c.type === 'paper')
+      const existDois = new Set(existing.map((c) => c.doi))
+      const merged = [...existing, ...picked.filter((p) => !existDois.has(p.doi))]
+      savePaperReferences(projectId, merged).catch((err) => {
+        console.error('[Writing] 保存项目文献失败:', err)
+        toast.error('保存项目文献失败，请检查仓库权限')
+      })
+      // 只影响本项目：其余引用原样保留
+      return [...prev.filter((c) => !(c.projectId === projectId && c.type === 'paper')), ...merged]
+    })
+
+    setShowProjectLitModal(false)
+    setProjectLitSelected([])
+    setProjectLitTargetId(null)
+  }
+
+  // ── 插入引用：在线检索（Crossref，中英文关键词都支持）──
+  const handleOnlineSearch = async () => {
+    const q = onlineQuery.trim()
+    if (!q) return
+    setIsSearchingOnline(true)
+    try {
+      const results = await searchCrossref(q, 12)
+      setOnlineResults(results)
+      if (results.length === 0) toast.info('没有检索到结果，换个关键词试试')
+    } catch (err) {
+      console.error('[Writing] 在线检索失败:', err)
+      toast.error(err instanceof Error ? err.message : '在线检索失败')
+    } finally {
+      setIsSearchingOnline(false)
+    }
+  }
+
+  /** 把在线检索到的一条导入为引用（落进项目文献，随后即可勾选插入） */
+  const handleImportOnlineResult = async (result: OnlineSearchResult) => {
+    const targetProjectId = activeProjectId
+    const ref: CitationRef = {
+      id: result.doi,
+      doi: result.doi,
+      title: result.title,
+      authors: result.authors,
+      year: result.year,
+      journal: result.journal,
+      type: 'paper',
+      projectId: targetProjectId || undefined,
+    }
+
+    setCitations((prev) => {
+      if (prev.some((c) => c.doi === result.doi)) return prev
+      const next = [...prev, ref]
+      if (targetProjectId) {
+        const projectRefs = next.filter((c) => c.projectId === targetProjectId && c.type === 'paper')
+        savePaperReferences(targetProjectId, projectRefs).catch((err) => {
+          console.error('[Writing] 导入引用失败:', err)
+        })
+      }
+      return next
+    })
+    setImportedDois((prev) => [...prev, result.doi])
+    toast.success('已导入到引用列表')
+  }
+
 
   const handleCopyContent = (content: string) => {
     navigator.clipboard?.writeText(content).catch(() => {})
@@ -1210,6 +1283,12 @@ export default function WritingPage() {
       setIsDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      // 松手即吸附：只允许 3:7 / 5:5 / 7:3 三档
+      setPanelRatio((cur) =>
+        PANEL_RATIOS.map((r) => r.left).reduce((best, v) =>
+          Math.abs(v - cur) < Math.abs(best - cur) ? v : best,
+        ),
+      )
     }
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
@@ -1218,10 +1297,6 @@ export default function WritingPage() {
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isDragging, navCollapsed])
-
-  const setPresetRatio = (ratio: number) => {
-    setPanelRatio(ratio)
-  }
 
   const handleOpenFolder = () => {
     folderInputRef.current?.click()
@@ -1250,6 +1325,8 @@ export default function WritingPage() {
       setActiveProjectId(projectId)
       setNewProjectName('')
       setShowNewProjectInput(false)
+      // 新建项目 → 立刻选项目文献（这个项目的临时知识库）；可跳过，之后也能随时补
+      openProjectLitModal(projectId)
     }
   }
 
@@ -1355,6 +1432,16 @@ export default function WritingPage() {
                 </button>
               </div>
             )}
+            {activeProject && (
+              <button
+                onClick={() => openProjectLitModal(activeProject.projectId)}
+                className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 rounded-md transition"
+                title="给当前项目补充文献（项目内临时知识库）"
+              >
+                <BookPlus className="w-3.5 h-3.5" />
+                添加项目文献
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto">
             {projects.length === 0 && !isLoading && (
@@ -1377,10 +1464,7 @@ export default function WritingPage() {
                 }`}
               >
                 <div className="text-sm font-medium text-slate-700 truncate">{p.title}</div>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">
-                    {STAGES.find((s) => s.value === (projectStages[p.projectId] || 'writing'))?.label}
-                  </span>
+                <div className="flex items-center justify-end mt-1">
                   <span className="text-xs text-slate-400 flex items-center gap-1">
                     <BookOpen className="w-3 h-3" />
                     {getProjectLitCount(p.projectId)}篇
@@ -1388,45 +1472,6 @@ export default function WritingPage() {
                 </div>
               </button>
             ))}
-          </div>
-          <div className="border-t border-slate-200 p-3 bg-slate-50/50">
-            <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-              <AlignLeft className="w-3.5 h-3.5" />
-              阶段导航
-            </div>
-            <div className="space-y-1">
-              {STAGES.map((s, idx) => {
-                const cur = activeProjectStage === s.value
-                const isPast = STAGES.findIndex((st) => st.value === activeProjectStage) > idx
-                return (
-                  <button
-                    key={s.value}
-                    disabled={!activeProject}
-                    onClick={() => handleStageChange(s.value)}
-                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition flex items-center gap-2 ${
-                      cur
-                        ? 'bg-indigo-600 text-white font-medium shadow-sm'
-                        : isPast
-                        ? 'text-slate-500 hover:bg-slate-200/60 disabled:opacity-40 disabled:cursor-not-allowed'
-                        : 'text-slate-400 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed'
-                    }`}
-                  >
-                    <span
-                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[0.625rem] font-bold flex-shrink-0 ${
-                        cur
-                          ? 'bg-white/20 text-white'
-                          : isPast
-                          ? 'bg-green-100 text-green-600'
-                          : 'bg-slate-200 text-slate-400'
-                      }`}
-                    >
-                      {idx + 1}
-                    </span>
-                    {s.label}
-                  </button>
-                )
-              })}
-            </div>
           </div>
         </div>
       </aside>
@@ -1490,139 +1535,14 @@ export default function WritingPage() {
                   <span className="text-sm font-semibold text-slate-700 truncate max-w-40">
                     {activeProject.title}
                   </span>
-                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium flex-shrink-0">
-                    {STAGES.find((s) => s.value === activeProjectStage)?.label}
-                  </span>
                 </>
               )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 text-xs">
-                {PANEL_RATIOS.map((r) => (
-                  <button
-                    key={r.value}
-                    onClick={() => setPresetRatio(r.left)}
-                    className={`px-2 py-0.5 rounded font-mono transition ${
-                      Math.abs(panelRatio - r.left) < 5
-                        ? 'bg-indigo-100 text-indigo-700 font-medium'
-                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                    }`}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 
           {leftPanelMode === 'editor' && (
             <>
-              <div className="flex items-center gap-0.5 px-3 py-1.5 bg-white border-b border-slate-200 flex-shrink-0">
-                <button
-                  onClick={() => insertHeading(1)}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="一级标题"
-                >
-                  <Heading1 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => insertHeading(2)}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="二级标题"
-                >
-                  <Heading2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => insertHeading(3)}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="三级标题"
-                >
-                  <Heading3 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => insertHeading(4)}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="四级标题"
-                >
-                  <Heading4 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => insertHeading(5)}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="五级标题"
-                >
-                  <Heading5 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => insertHeading(6)}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="六级标题"
-                >
-                  <Heading6 className="w-4 h-4" />
-                </button>
-                <div className="w-px h-4 bg-slate-200 mx-1" />
-                <button
-                  onClick={() => execCommand('bold')}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="加粗"
-                >
-                  <Bold className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => execCommand('italic')}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="斜体"
-                >
-                  <Italic className="w-4 h-4" />
-                </button>
-                <div className="w-px h-4 bg-slate-200 mx-1" />
-                <button
-                  onClick={() => execCommand('insertUnorderedList')}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="无序列表"
-                >
-                  <List className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => execCommand('insertOrderedList')}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="有序列表"
-                >
-                  <ListOrdered className="w-4 h-4" />
-                </button>
-                <div className="w-px h-4 bg-slate-200 mx-1" />
-                <button
-                  onClick={insertHorizontalRule}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="分隔线"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={insertCodeBlock}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="代码块"
-                >
-                  <Code className="w-4 h-4" />
-                </button>
-                <div className="w-px h-4 bg-slate-200 mx-1" />
-                <button
-                  onClick={insertLink}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="链接"
-                >
-                  <Link className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleImageButtonClick}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                  title="插入图片 (支持粘贴)"
-                >
-                  <Image className="w-4 h-4" />
-                </button>
-                <TableGridPicker onSelect={insertTableWithSize} />
-                <div className="w-px h-4 bg-slate-200 mx-1" />
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border-b border-slate-200 flex-shrink-0">
                 <button
                   onClick={() => setShowCitationModal(true)}
                   className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition flex items-center gap-1"
@@ -1664,25 +1584,20 @@ export default function WritingPage() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-auto bg-white">
-                <div className="max-w-3xl mx-auto p-8">
-                  <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleEditorInput}
-                    onPaste={handleEditorPaste}
-                    onSelect={handleEditorSelect}
-                    onMouseUp={handleEditorSelect}
-                    onKeyUp={handleEditorSelect}
-                    onClick={handleEditorSelect}
-                    className="min-h-full outline-none prose prose-slate max-w-none"
-                  />
-                </div>
+              <div className="flex-1 min-h-0 bg-white">
+                <VditorEditor
+                  ref={editorVdRef}
+                  value={mdContent}
+                  onChange={handleEditorChange}
+                  height="100%"
+                  placeholder="开始撰写正文…"
+                  toolbar={writingToolbar}
+                  className="h-full"
+                />
               </div>
 
               <div className="px-4 py-1.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
-                <span>所见即所得富文本编辑器 · 支持粘贴图片</span>
+                <span>所见即所得编辑器 · 支持插入引用 / 公式 / 图片（图片自动内嵌）</span>
                 <span className="font-mono">{wordCount} 字</span>
               </div>
             </>
@@ -1852,16 +1767,26 @@ export default function WritingPage() {
                     <Zap className="w-3.5 h-3.5 text-amber-500" />
                     可信检索
                   </span>
-                  <button
-                    onClick={() => setTrustedSearch(!trustedSearch)}
-                    className="text-indigo-600"
-                  >
-                    {trustedSearch ? (
-                      <ToggleRight className="w-9 h-5" />
-                    ) : (
-                      <ToggleLeft className="w-9 h-5 text-slate-300" />
-                    )}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowMemoryModal(true)}
+                      className="flex items-center gap-1 px-1.5 py-0.5 text-[0.625rem] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                      title="查看/回查本项目的 AI 记忆（projects/项目id/memory.md）"
+                    >
+                      <Brain className="w-3.5 h-3.5" />
+                      记忆
+                    </button>
+                    <button
+                      onClick={() => setTrustedSearch(!trustedSearch)}
+                      className="text-indigo-600"
+                    >
+                      {trustedSearch ? (
+                        <ToggleRight className="w-9 h-5" />
+                      ) : (
+                        <ToggleLeft className="w-9 h-5 text-slate-300" />
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-1.5 text-[0.625rem] text-slate-400 leading-relaxed">
                   AI-1 生成内容并标注原文引用，AI-2 核查事实准确性
@@ -1992,21 +1917,52 @@ export default function WritingPage() {
               </div>
 
               <div className="p-2.5 border-b border-slate-100 bg-white">
-                <div className="text-[0.6875rem] font-medium text-slate-500 mb-2 px-1">快捷指令</div>
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <span className="text-[0.6875rem] font-medium text-slate-500">快捷指令</span>
+                  <button
+                    onClick={() => setShowActionModal(true)}
+                    className="p-0.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                    title="添加自定义指令（可直接写 prompt，也可让 AI 按需求生成）"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {QUICK_ACTIONS.map((action) => {
+                  {BUILTIN_ACTIONS.map((action) => {
                     const Icon = action.icon
                     return (
                       <button
                         key={action.key}
-                        onClick={() => handleQuickAction(action.key)}
+                        onClick={() => applyQuickAction(action.prompt)}
                         className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center gap-1"
+                        title={action.prompt}
                       >
                         <Icon className="w-3 h-3" />
                         {action.label}
                       </button>
                     )
                   })}
+                  {customActions.map((action) => (
+                    <span
+                      key={action.label}
+                      className="inline-flex items-center text-xs bg-slate-50 border border-slate-200 text-slate-600 rounded-full hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition"
+                    >
+                      <button
+                        onClick={() => applyQuickAction(action.prompt)}
+                        className="pl-2.5 pr-1 py-1.5"
+                        title={action.prompt}
+                      >
+                        {action.label}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAction(action.label)}
+                        className="pr-1.5 pl-0.5 py-1.5 text-slate-300 hover:text-red-500 transition"
+                        title="删除该指令"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
                 </div>
               </div>
 
@@ -2159,8 +2115,8 @@ export default function WritingPage() {
                     <FolderOpen className="w-4 h-4" />
                     <span>导入</span>
                   </button>
-                  <input
-                    type="text"
+                  <textarea
+                    ref={aiInputRef}
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={(e) => {
@@ -2169,8 +2125,9 @@ export default function WritingPage() {
                         handleSendMessage()
                       }
                     }}
-                    placeholder="询问 AI 助手..."
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                    rows={2}
+                    placeholder="给 AI 一个需求…（Enter 发送，Shift+Enter 换行）"
+                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y min-h-[38px] max-h-40"
                   />
                   <button
                     onClick={() => handleSendMessage()}
@@ -2588,70 +2545,174 @@ export default function WritingPage() {
             </div>
 
             <div className="px-4 py-3 border-b border-slate-100">
+              <div className="flex gap-1 mb-2">
+                <button
+                  onClick={() => setCitationSource('local')}
+                  className={`px-2.5 py-1 text-xs rounded-full transition ${
+                    citationSource === 'local' ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  本地文献
+                </button>
+                <button
+                  onClick={() => setCitationSource('online')}
+                  className={`px-2.5 py-1 text-xs rounded-full transition flex items-center gap-1 ${
+                    citationSource === 'online' ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  <Search className="w-3 h-3" />
+                  在线检索（中英文）
+                </button>
+              </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  value={citationSearch}
-                  onChange={(e) => setCitationSearch(e.target.value)}
-                  placeholder="搜索文献标题、作者、期刊或 DOI..."
+                  value={citationSource === 'local' ? citationSearch : onlineQuery}
+                  onChange={(e) =>
+                    citationSource === 'local' ? setCitationSearch(e.target.value) : setOnlineQuery(e.target.value)
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && citationSource === 'online') handleOnlineSearch()
+                  }}
+                  placeholder={
+                    citationSource === 'local'
+                      ? '搜索文献标题、作者、期刊或 DOI...'
+                      : '输入中文或英文关键词，回车在 Crossref 检索...'
+                  }
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                   autoFocus
                 />
               </div>
-              <div className="mt-2 text-[0.6875rem] text-slate-400">
-                快捷键：<kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono">Ctrl+Shift+K</kbd>
-              </div>
+              {citationSource === 'online' ? (
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[0.6875rem] text-slate-400">数据源：Crossref（中英文关键词均可）</span>
+                  <button
+                    onClick={handleOnlineSearch}
+                    disabled={isSearchingOnline || !onlineQuery.trim()}
+                    className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {isSearchingOnline && <Loader2 className="w-3 h-3 animate-spin" />}
+                    检索
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2 text-[0.6875rem] text-slate-400">
+                  快捷键：<kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono">Ctrl+Shift+K</kbd>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {scopedCitations.length === 0 && (
-                <div className="text-center py-8 text-sm text-slate-400">
-                  未找到匹配的文献
-                </div>
-              )}
-              {scopedCitations.map((cit) => {
-                const isSelected = selectedCitations.includes(cit.doi)
-                return (
-                  <div
-                    key={cit.doi}
-                    onClick={() => {
-                      if (isSelected) {
-                        setSelectedCitations((prev) => prev.filter((d) => d !== cit.doi))
-                      } else {
-                        setSelectedCitations((prev) => [...prev, cit.doi])
-                      }
-                    }}
-                    className={`p-3 rounded-lg border cursor-pointer transition ${
-                      isSelected
-                        ? 'border-indigo-400 bg-indigo-50/60'
-                        : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
-                      }`}>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
+              {citationSource === 'online' ? (
+                <>
+                  {onlineResults.length === 0 && (
+                    <div className="text-center py-8 text-sm text-slate-400">
+                      {isSearchingOnline ? '检索中…' : '输入关键词后点「检索」，结果可一键导入引用列表'}
+                    </div>
+                  )}
+                  {onlineResults.map((result) => {
+                    const imported = importedDois.includes(result.doi) || citations.some((c) => c.doi === result.doi)
+                    const isSelected = selectedCitations.includes(result.doi)
+                    return (
+                      <div
+                        key={result.doi}
+                        className={`p-3 rounded-lg border transition ${
+                          isSelected ? 'border-indigo-400 bg-indigo-50/60' : 'border-slate-200'
+                        }`}
+                      >
                         <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
-                          {cit.title}
+                          {result.title}
                         </div>
                         <div className="text-xs text-slate-500 mt-1.5 truncate">
-                          {cit.authors} ({cit.year})
+                          {result.authors} ({result.year})
                         </div>
-                        <div className="text-xs text-slate-400 truncate mt-0.5">
-                          {cit.journal}
-                        </div>
-                        <div className="text-[0.6875rem] mt-1">
-                          <DoiLink doi={cit.doi} mode="short" />
+                        <div className="text-xs text-slate-400 truncate mt-0.5">{result.journal}</div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <DoiLink doi={result.doi} mode="short" />
+                          {imported ? (
+                            <button
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedCitations((prev) => prev.filter((d) => d !== result.doi))
+                                } else {
+                                  setSelectedCitations((prev) => [...prev, result.doi])
+                                }
+                              }}
+                              className={`px-2 py-1 text-[0.6875rem] rounded transition flex items-center gap-1 ${
+                                isSelected
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
+                              }`}
+                            >
+                              {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                              {isSelected ? '已选择' : '选择'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleImportOnlineResult(result)}
+                              className="px-2 py-1 text-[0.6875rem] bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition flex items-center gap-1"
+                            >
+                              <Plus className="w-3 h-3" />
+                              导入
+                            </button>
+                          )}
                         </div>
                       </div>
+                    )
+                  })}
+                </>
+              ) : (
+                <>
+                  {scopedCitations.length === 0 && (
+                    <div className="text-center py-8 text-sm text-slate-400">
+                      未找到匹配的文献
                     </div>
-                  </div>
-                )
-              })}
+                  )}
+                  {scopedCitations.map((cit) => {
+                    const isSelected = selectedCitations.includes(cit.doi)
+                    return (
+                      <div
+                        key={cit.doi}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedCitations((prev) => prev.filter((d) => d !== cit.doi))
+                          } else {
+                            setSelectedCitations((prev) => [...prev, cit.doi])
+                          }
+                        }}
+                        className={`p-3 rounded-lg border cursor-pointer transition ${
+                          isSelected
+                            ? 'border-indigo-400 bg-indigo-50/60'
+                            : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                            isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                          }`}>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                              {cit.title}
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1.5 truncate">
+                              {cit.authors} ({cit.year})
+                            </div>
+                            <div className="text-xs text-slate-400 truncate mt-0.5">
+                              {cit.journal}
+                            </div>
+                            <div className="text-[0.6875rem] mt-1">
+                              <DoiLink doi={cit.doi} mode="short" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
             </div>
 
             <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
@@ -2678,6 +2739,242 @@ export default function WritingPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showProjectLitModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">选择项目文献</h3>
+                <p className="text-[0.6875rem] text-slate-400 mt-0.5">
+                  这些文献会成为该项目的临时知识库，随时可以再加
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowProjectLitModal(false)
+                  setProjectLitTargetId(null)
+                  setProjectLitSelected([])
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-4 py-2 border-b border-slate-100">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={projectLitSearch}
+                  onChange={(e) => setProjectLitSearch(e.target.value)}
+                  placeholder="搜索文献库（标题 / 作者 / 期刊 / DOI）..."
+                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {availablePapers.length === 0 && (
+                <div className="text-center py-8 text-sm text-slate-400">
+                  文献库为空，请先到文献管理页添加文献
+                </div>
+              )}
+              {availablePapers
+                .filter((p) => {
+                  const q = projectLitSearch.trim().toLowerCase()
+                  if (!q) return true
+                  return `${p.title} ${p.authors} ${p.journal} ${p.doi}`.toLowerCase().includes(q)
+                })
+                .map((p) => {
+                  const isSelected = projectLitSelected.includes(p.doi)
+                  return (
+                    <div
+                      key={p.doi}
+                      onClick={() => {
+                        if (isSelected) {
+                          setProjectLitSelected((prev) => prev.filter((d) => d !== p.doi))
+                        } else {
+                          setProjectLitSelected((prev) => [...prev, p.doi])
+                        }
+                      }}
+                      className={`p-2.5 rounded-lg border cursor-pointer transition ${
+                        isSelected
+                          ? 'border-indigo-400 bg-indigo-50/60'
+                          : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                          isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                            {p.title}
+                          </div>
+                          <div className="text-[0.6875rem] text-slate-500 mt-1 truncate">
+                            {p.journal} ({p.year})
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
+              <span className="text-xs text-slate-500">
+                已选 <span className="font-semibold text-indigo-600">{projectLitSelected.length}</span> 篇
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowProjectLitModal(false)
+                    setProjectLitTargetId(null)
+                    setProjectLitSelected([])
+                  }}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                >
+                  跳过
+                </button>
+                <button
+                  onClick={handleAddProjectLiterature}
+                  disabled={projectLitSelected.length === 0}
+                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  添加
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showActionModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">添加自定义快捷指令</h3>
+                <p className="text-[0.6875rem] text-slate-400 mt-0.5">
+                  可以直接写 prompt，也可以给一句需求让 AI 生成
+                </p>
+              </div>
+              <button
+                onClick={() => setShowActionModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">给一句需求，让 AI 生成 prompt</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={actionRequirement}
+                    onChange={(e) => setActionRequirement(e.target.value)}
+                    placeholder="例如：帮我把一段中文摘要改写成期刊风格"
+                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                  />
+                  <button
+                    onClick={handleGeneratePrompt}
+                    disabled={isGeneratingPrompt || !actionRequirement.trim()}
+                    className="px-3 py-2 text-xs bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 flex-shrink-0"
+                  >
+                    {isGeneratingPrompt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                    AI 生成
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">指令名称</label>
+                <input
+                  type="text"
+                  value={newActionLabel}
+                  onChange={(e) => setNewActionLabel(e.target.value)}
+                  placeholder="例如：改写成期刊风格"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">指令内容（点一下就会填进输入框）</label>
+                <textarea
+                  value={newActionPrompt}
+                  onChange={(e) => setNewActionPrompt(e.target.value)}
+                  rows={5}
+                  placeholder="发送给 AI 的提示词..."
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 resize-y"
+                />
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end gap-2">
+              <button
+                onClick={() => setShowActionModal(false)}
+                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveAction}
+                disabled={!newActionLabel.trim() || !newActionPrompt.trim()}
+                className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMemoryModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-base font-semibold text-slate-800">AI 记忆</h3>
+                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">
+                    projects/{activeProjectId || '—'}/memory.md —— AI 忘了就回来查这里
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(memory).then(
+                      () => toast.success('已复制'),
+                      () => toast.error('复制失败'),
+                    )
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  复制
+                </button>
+                <button
+                  onClick={() => setShowMemoryModal(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <pre className="flex-1 overflow-auto p-4 text-xs text-slate-600 whitespace-pre-wrap font-mono bg-slate-50/50">
+              {memory.trim() || '（这个项目还没有对话记录）'}
+            </pre>
           </div>
         </div>
       )}
@@ -2976,13 +3273,6 @@ export default function WritingPage() {
         </div>
       )}
 
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleImageUpload}
-        className="hidden"
-      />
       <input
         ref={folderInputRef}
         type="file"

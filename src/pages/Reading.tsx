@@ -15,31 +15,22 @@ import {
   Clock,
   X,
   ChevronRight,
-  Bold,
-  Italic,
-  List,
-  ListOrdered,
-  Quote,
-  Code,
-  Link,
-  Image,
-  Heading1,
-  Heading2,
-  Heading3,
   Check,
   Edit3,
   Plus,
   Languages,
 } from 'lucide-react'
-import { loadLiteratures, loadFulltext, loadNotes, saveNotes, loadTranslation, loadAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
+import { loadLiteratures, loadFulltext, loadNotes, saveNotes, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
-import { renderMarkdownToHtml, escapeHtml } from '../services/markdown-renderer'
+import { renderMarkdownToHtml } from '../services/markdown-renderer'
 import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
-import { readAnyDocument } from '../services/blocks.mjs'
+import { readAnyDocument, blockId, type ReadBlockItem } from '../services/blocks.mjs'
+import { clearHighlights, highlightAnnotation } from '../services/text-highlight'
+import VditorEditor, { type VditorEditorHandle } from '../components/VditorEditor'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 type SideTab = 'notes' | 'annotations'
@@ -190,77 +181,6 @@ function getColorInfo(color: HighlightColor) {
   return HIGHLIGHT_COLORS.find((c) => c.value === color) || HIGHLIGHT_COLORS[0]
 }
 
-function htmlToMarkdown(html: string): string {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  let md = ''
-
-  const walk = (node: Node, depth: number = 0): string => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent || ''
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return ''
-
-    const el = node as HTMLElement
-    const tag = el.tagName.toLowerCase()
-    let result = ''
-
-    switch (tag) {
-      case 'h1': result = `# ${el.textContent}\n\n`; break
-      case 'h2': result = `## ${el.textContent}\n\n`; break
-      case 'h3': result = `### ${el.textContent}\n\n`; break
-      case 'h4': result = `#### ${el.textContent}\n\n`; break
-      case 'h5': result = `##### ${el.textContent}\n\n`; break
-      case 'h6': result = `###### ${el.textContent}\n\n`; break
-      case 'p': result = `${el.textContent}\n\n`; break
-      case 'br': result = '\n'; break
-      case 'strong':
-      case 'b': result = `**${el.textContent}**`; break
-      case 'em':
-      case 'i': result = `*${el.textContent}*`; break
-      case 'blockquote': result = `> ${el.textContent}\n\n`; break
-      case 'code': result = `\`${el.textContent}\``; break
-      case 'pre': result = `\`\`\`\n${el.textContent}\n\`\`\`\n\n`; break
-      case 'a': result = `[${el.textContent}](${el.getAttribute('href') || ''})`; break
-      case 'img': result = `![${el.getAttribute('alt') || ''}](${el.getAttribute('src') || ''})\n\n`; break
-      case 'ul': {
-        let list = ''
-        el.querySelectorAll(':scope > li').forEach(li => {
-          list += `- ${li.textContent}\n`
-        })
-        return list + '\n'
-      }
-      case 'ol': {
-        let list = ''
-        let i = 1
-        el.querySelectorAll(':scope > li').forEach(li => {
-          list += `${i}. ${li.textContent}\n`
-          i++
-        })
-        return list + '\n'
-      }
-      case 'li': return ''
-      case 'div': {
-        let content = ''
-        el.childNodes.forEach(child => { content += walk(child, depth + 1) })
-        return content
-      }
-      default:
-        el.childNodes.forEach(child => { result += walk(child, depth + 1) })
-    }
-    return result
-  }
-
-  tmp.childNodes.forEach(child => { md += walk(child) })
-  return md.replace(/\n{3,}/g, '\n\n').trim()
-}
-
-function getWordCountFromHtml(html: string): number {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  return (tmp.textContent || '').replace(/\s/g, '').length
-}
-
 export default function ReadingPage() {
   const { repo } = useWorkspaceStore()
   const [papers, setPapers] = useState<Paper[]>([])
@@ -271,8 +191,7 @@ export default function ReadingPage() {
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [fontSize, setFontSize] = useState(16)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
-  const [currentNoteHtml, setCurrentNoteHtml] = useState('')
-  const [noteLoaded, setNoteLoaded] = useState(false)
+  const [currentNoteMd, setCurrentNoteMd] = useState('')
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null)
   const [showToolbar, setShowToolbar] = useState(false)
@@ -283,13 +202,17 @@ export default function ReadingPage() {
   const [translation_mode, set_translation_mode] = useState<TranslationMode>('original')
   const [translation_content, set_translation_content] = useState('')
 const [aligned_content, set_aligned_content] = useState('')
+  /** 编辑模式开关：开启后才允许改文献正文 */
+  const [editMode, setEditMode] = useState(false)
+  const [articleDraft, setArticleDraft] = useState('')
+  const [articleSaving, setArticleSaving] = useState(false)
 
   const readerRef = useRef<HTMLDivElement>(null)
-  const noteEditorRef = useRef<HTMLDivElement>(null)
+  const noteVditorRef = useRef<VditorEditorHandle>(null)
+  const articleVditorRef = useRef<VditorEditorHandle>(null)
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
-  const noteImageInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!repo) return
@@ -317,8 +240,7 @@ const [aligned_content, set_aligned_content] = useState('')
   useEffect(() => {
     if (!selectedPaperId) {
       setAnnotations([])
-      setCurrentNoteHtml('')
-      setNoteLoaded(false)
+      setCurrentNoteMd('')
       setSelectedAnnotationId(null)
       setEditingAnnotationId(null)
       set_translation_content('')
@@ -328,6 +250,10 @@ const [aligned_content, set_aligned_content] = useState('')
 
     let cancelled = false
     const doi = selectedPaperId
+
+    // 换文献 = 退出编辑模式，避免把上一篇的草稿写到这一篇
+    setEditMode(false)
+    setArticleDraft('')
 
     async function loadPaperData() {
       try {
@@ -378,29 +304,16 @@ const [aligned_content, set_aligned_content] = useState('')
 
       try {
         const noteContent = await loadNotes(doi)
-        if (!cancelled) {
-          const html = renderMarkdownToHtml(noteContent)
-          setCurrentNoteHtml(html)
-          setNoteLoaded(true)
-        }
+        if (!cancelled) setCurrentNoteMd(noteContent || '')
       } catch (err) {
         console.error('[Reading] 加载笔记失败:', err)
-        if (!cancelled) {
-          setCurrentNoteHtml('')
-          setNoteLoaded(true)
-        }
+        if (!cancelled) setCurrentNoteMd('')
       }
     }
 
     loadPaperData()
     return () => { cancelled = true }
   }, [selectedPaperId])
-
-  useEffect(() => {
-    if (noteEditorRef.current && noteLoaded) {
-      noteEditorRef.current.innerHTML = currentNoteHtml
-    }
-  }, [noteLoaded, currentNoteHtml])
 
   const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
     if (!selectedPaperId) return
@@ -426,15 +339,14 @@ const [aligned_content, set_aligned_content] = useState('')
     }, 500)
   }, [selectedPaperId])
 
-  const saveNoteToStorage = useCallback((html: string) => {
+  const saveNoteToStorage = useCallback((md: string) => {
     if (!selectedPaperId) return
     if (noteSaveTimerRef.current) {
       clearTimeout(noteSaveTimerRef.current)
     }
     setNoteSaveState({ status: 'saving', lastSaved: null })
     noteSaveTimerRef.current = setTimeout(() => {
-      setCurrentNoteHtml(html)
-      const md = htmlToMarkdown(html)
+      // 笔记本来就以 md 落盘：md 进 md 出，不再走 html↔md 的有损往返
       saveNotes(selectedPaperId, md).catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
       setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
@@ -542,10 +454,11 @@ const [aligned_content, set_aligned_content] = useState('')
   const paperAnnotations = annotations
 
   /**
-   * 批注排序用的"正文扁平纯文本"：按块顺序把原文与译文拼起来，去掉 markdown 标记、压平空白。
+   * 批注排序用的"正文扁平纯文本"：按块顺序把原文与译文拼起来，去掉 markdown 标记、**去掉所有空白**。
    *
    * 用它而不是渲染后的 HTML —— 不受显示模式影响，选中英文原文或中文译文都能定到同一个位置，
-   * 而且不用为了排序多渲染一遍全文。
+   * 而且不用为了排序多渲染一遍全文。去空白是为了容错：批注文本里带着换行/连续空格，
+   * 正文块里的空白排法又不一样，直接 indexOf 匹配不上会把已定位的批注误排到最后。
    */
   const articleFlatText = useMemo(() => {
     const flat = (s: string) =>
@@ -553,7 +466,7 @@ const [aligned_content, set_aligned_content] = useState('')
         .replace(/<[^>]*>/g, '')
         .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
         .replace(/[#*_`>|]/g, '')
-        .replace(/\s+/g, ' ')
+        .replace(/\s+/g, '')
     if (aligned_content.trim()) {
       const { items } = readAnyDocument(aligned_content)
       return flat(items.map((it) => (it.t === 'block' ? `${it.content} ${it.cn ?? ''}` : it.content)).join(' '))
@@ -567,7 +480,7 @@ const [aligned_content, set_aligned_content] = useState('')
    * 定位不到的（正文里已找不到原句，比如重新转换过）排在最后，内部按时间排。
    */
   const orderedAnnotations = useMemo(() => {
-    const flat = (s: string) => s.replace(/[#*_`>|]/g, '').replace(/\s+/g, ' ').trim()
+    const flat = (s: string) => s.replace(/[#*_`>|]/g, '').replace(/\s+/g, '')
     const pos = new Map<string, number>()
     for (const a of paperAnnotations) {
       const needle = flat(a.text || '')
@@ -583,6 +496,41 @@ const [aligned_content, set_aligned_content] = useState('')
       return pa - pb || a.createdAt - b.createdAt
     })
   }, [paperAnnotations, articleFlatText])
+
+  /**
+   * 批注 → 它所属的块号。
+   * 锚点可能是英文原文，也可能是中文译文，两者都认（按块找包含它的那一块）。
+   * 用途：当前显示模式下正文里没有这段文字时，"点批注"仍能跳到正确的段落。
+   */
+  const annotationBlockIds = useMemo(() => {
+    const map = new Map<string, string>()
+    if (!aligned_content.trim()) return map
+    const norm = (s: string) => String(s ?? '').replace(/[#*_`>|]/g, '').replace(/\s+/g, '')
+    const { items } = readAnyDocument(aligned_content)
+    const blocks = items.filter((it): it is ReadBlockItem => it.t === 'block')
+    for (const a of paperAnnotations) {
+      const needle = norm(a.text || '')
+      if (!needle) continue
+      const hit = blocks.find((b) => norm(b.content).includes(needle) || norm(b.cn ?? '').includes(needle))
+      if (!hit) continue
+      const id = blockId(hit.node)
+      if (id) map.set(a.id, id)
+    }
+    return map
+  }, [aligned_content, paperAnnotations])
+
+  /**
+   * 译文到底有没有 —— 以结构化块文档里"带译文的可翻译块数 > 0"为准。
+   * 旧的 translation.md 只作兜底（老文献走的还是旧路径）。
+   * 这条决定了工具栏那个"原文/中英对照/全中文"按钮显不显示「（未生成）」。
+   */
+  const hasTranslationContent = useMemo(() => {
+    if (aligned_content.trim()) {
+      const { items } = readAnyDocument(aligned_content)
+      return items.some((it) => it.t === 'block' && !!it.cn && !!it.cn.trim())
+    }
+    return !!translation_content.trim()
+  }, [aligned_content, translation_content])
 
   const rendered_html = useMemo(() => {
     const opts = { imageBaseUrl: getImageBaseUrl(selectedPaperId ?? '') }
@@ -625,87 +573,55 @@ const [aligned_content, set_aligned_content] = useState('')
     return () => clearTimeout(t)
   }, [rendered_html])
 
-  const focusNoteEditor = () => {
-    if (noteEditorRef.current) {
-      noteEditorRef.current.focus()
-    }
-  }
-
-  const handleNoteInput = () => {
-    if (!selectedPaperId || !noteEditorRef.current) return
-    const html = noteEditorRef.current.innerHTML
-    saveNoteToStorage(html)
-  }
-
-  const execNoteCommand = (command: string, value?: string) => {
-    focusNoteEditor()
-    document.execCommand(command, false, value)
-    handleNoteInput()
-  }
-
-  const insertHeading = (level: number) => {
-    execNoteCommand('formatBlock', `H${level}`)
-  }
-
-  const insertBold = () => {
-    execNoteCommand('bold')
-  }
-
-  const insertItalic = () => {
-    execNoteCommand('italic')
-  }
-
-  const insertLink = () => {
-    focusNoteEditor()
-    const sel = window.getSelection()
-    const selectedText = sel?.toString() || '链接文字'
-    const linkHtml = `<a href="https://" target="_blank" rel="noopener noreferrer" class="text-indigo-600 underline">${selectedText}</a>`
-    document.execCommand('insertHTML', false, linkHtml)
-    handleNoteInput()
-  }
-
-  const handleNoteImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !selectedPaperId) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string
-      focusNoteEditor()
-      document.execCommand('insertImage', false, dataUrl)
-      handleNoteInput()
-    }
-    reader.readAsDataURL(file)
-    e.target.value = ''
-  }
-
-  const insertImage = () => {
-    noteImageInputRef.current?.click()
-  }
-
-  const insertCodeBlock = () => {
-    focusNoteEditor()
-    const sel = window.getSelection()
-    const selectedText = sel?.toString() || '代码'
-    const codeHtml = `<pre class="bg-slate-100 p-3 rounded text-sm font-mono overflow-x-auto"><code>${escapeHtml(selectedText)}</code></pre><p><br></p>`
-    document.execCommand('insertHTML', false, codeHtml)
-    handleNoteInput()
-  }
-
-  const insertUnorderedList = () => {
-    execNoteCommand('insertUnorderedList')
-  }
-
-  const insertOrderedList = () => {
-    execNoteCommand('insertOrderedList')
-  }
-
-  const insertBlockquote = () => {
-    execNoteCommand('formatBlock', 'BLOCKQUOTE')
+  // 笔记：Vditor 所见即所得编辑器（工具栏/图片上传由编辑器自带）
+  const handleNoteChange = (md: string) => {
+    setCurrentNoteMd(md)
+    saveNoteToStorage(md)
   }
 
   const exportNote = () => {
-    if (!selectedPaper || !currentNoteHtml) return
-    exportMarkdown(htmlToMarkdown(currentNoteHtml), `${selectedPaper.title}-笔记.md`)
+    if (!selectedPaper || !currentNoteMd.trim()) return
+    exportMarkdown(currentNoteMd, `${selectedPaper.title}-笔记.md`)
+  }
+
+  /**
+   * 文献正文的编辑目标：显示哪一份就改哪一份 ——
+   * 有知识库 md（{slug}.md）时改它，否则退回 full.md。
+   */
+  const articleSourceLabel = aligned_content.trim()
+    ? `${doiToSlug(selectedPaperId ?? '')}.md`
+    : 'full.md'
+  const articleSourceMd = aligned_content.trim()
+    ? aligned_content
+    : (selectedPaper?.markdownContent ?? '')
+
+  const enterEditMode = () => {
+    if (!selectedPaper?.hasMarkdown) return
+    setArticleDraft(articleSourceMd)
+    setEditMode(true)
+    setShowToolbar(false)
+  }
+
+  const saveArticle = async () => {
+    if (!selectedPaperId) return
+    setArticleSaving(true)
+    try {
+      if (aligned_content.trim()) {
+        await saveAlignedMd(selectedPaperId, articleDraft)
+        set_aligned_content(articleDraft)
+      } else {
+        await saveFulltext(selectedPaperId, articleDraft)
+        setPapers(prev => prev.map(p =>
+          p.id === selectedPaperId ? { ...p, markdownContent: articleDraft } : p
+        ))
+      }
+      setEditMode(false)
+    } catch (err) {
+      console.error('[Reading] 保存文献失败:', err)
+      alert('保存失败，请检查网络或仓库权限后重试')
+    } finally {
+      setArticleSaving(false)
+    }
   }
 
   const exportAllAnnotations = () => {
@@ -726,72 +642,38 @@ const [aligned_content, set_aligned_content] = useState('')
     exportMarkdown(content, `${selectedPaper.title}-全部批注.md`)
   }
 
+  /**
+   * 点批注 → 回到正文位置。
+   * 优先滚到高亮本身；当前显示模式下没有这段文字（英文批注 + 全中文模式等）时，
+   * 退化成"滚到它所属的块"——靠 data-block-id 定位，保证任何模式下都能跳得到。
+   */
   const scrollToAnnotation = (anno: Annotation) => {
     setSelectedAnnotationId(anno.id)
     setEditingAnnotationId(null)
-    if (!readerRef.current) return
+    const root = readerRef.current
+    if (!root) return
 
-    const element = readerRef.current.querySelector(`[data-annotation-id="${anno.id}"]`)
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const mark = root.querySelector(`[data-annotation-id="${anno.id}"]`)
+    if (mark) {
+      mark.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
     }
+    const bid = annotationBlockIds.get(anno.id)
+    const block = bid ? root.querySelector(`[data-block-id="${bid}"]`) : null
+    if (block) block.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
   useEffect(() => {
-    if (!readerRef.current || paperAnnotations.length === 0) return
+    const root = readerRef.current
+    if (!root) return
 
-    const highlightText = (annotation: Annotation) => {
-      if (!readerRef.current) return
+    // 每次重新渲染（切模式 / 换文献 / 图片 hydrate）React 都会重设 innerHTML，
+    // 之前挂上的高亮会被一起冲掉 —— 所以渲染结果一变就必须重挂一遍。
+    clearHighlights(root)
 
-      const treeWalker = document.createTreeWalker(
-        readerRef.current,
-        NodeFilter.SHOW_TEXT,
-        null
-      )
-
-      const textNodes: Text[] = []
-      let node: Node | null
-      while ((node = treeWalker.nextNode())) {
-        textNodes.push(node as Text)
-      }
-
-      for (const textNode of textNodes) {
-        const text = textNode.textContent || ''
-        const index = text.indexOf(annotation.text)
-
-        if (index !== -1) {
-          const range = document.createRange()
-          range.setStart(textNode, index)
-          range.setEnd(textNode, index + annotation.text.length)
-
-          const span = document.createElement('span')
-          span.setAttribute('data-annotation-id', annotation.id)
-          span.className = `annotation-highlight ${getColorInfo(annotation.color).bg} cursor-pointer rounded-sm transition-all hover:opacity-80`
-          if (selectedAnnotationId === annotation.id) {
-            span.classList.add('ring-2', getColorInfo(annotation.color).ring, 'ring-offset-1')
-          }
-
-          try {
-            range.surroundContents(span)
-          } catch (e) {
-            console.warn('Failed to highlight text:', e)
-          }
-          break
-        }
-      }
-    }
-
-    const spans = readerRef.current.querySelectorAll('.annotation-highlight')
-    spans.forEach((span) => {
-      const parent = span.parentNode
-      if (parent) {
-        const text = document.createTextNode(span.textContent || '')
-        parent.replaceChild(text, span)
-        parent.normalize()
-      }
+    paperAnnotations.forEach((annotation) => {
+      highlightAnnotation(root, annotation.id, annotation.text, selectedAnnotationId === annotation.id, getColorInfo(annotation.color))
     })
-
-    paperAnnotations.forEach(highlightText)
 
     const handleClick = (e: Event) => {
       const target = e.target as HTMLElement
@@ -806,14 +688,9 @@ const [aligned_content, set_aligned_content] = useState('')
       }
     }
 
-    readerRef.current.addEventListener('click', handleClick)
-
-    return () => {
-      if (readerRef.current) {
-        readerRef.current.removeEventListener('click', handleClick)
-      }
-    }
-  }, [paperAnnotations, selectedAnnotationId])
+    root.addEventListener('click', handleClick)
+    return () => root.removeEventListener('click', handleClick)
+  }, [paperAnnotations, selectedAnnotationId, rendered_html])
 
   useEffect(() => {
     if (selectedAnnotationId && activeSideTab === 'annotations') {
@@ -824,7 +701,12 @@ const [aligned_content, set_aligned_content] = useState('')
     }
   }, [selectedAnnotationId, activeSideTab])
 
-  const wordCount = currentNoteHtml ? getWordCountFromHtml(currentNoteHtml) : 0
+  // 笔记字数：直接数 md 正文（去掉代码块、图片、markdown 标记与空白）
+  const wordCount = currentNoteMd
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/[#>*`_~\-|[\]()]/g, '')
+    .replace(/\s+/g, '').length
 
   return (
     <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
@@ -996,7 +878,7 @@ const [aligned_content, set_aligned_content] = useState('')
                 </button>
                 <button
                   onClick={exportNote}
-                  disabled={!currentNoteHtml}
+                  disabled={!currentNoteMd.trim()}
                   className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                   title="导出笔记"
                 >
@@ -1004,27 +886,74 @@ const [aligned_content, set_aligned_content] = useState('')
                   导出笔记
                 </button>
                 <div className="w-px h-5 bg-slate-200 mx-1" />
-                <button
-                  onClick={() => {
-                    const modes: TranslationMode[] = ['original', 'bilingual', 'chinese', 'english']
-                    const idx = modes.indexOf(translation_mode)
-                    set_translation_mode(modes[(idx + 1) % modes.length])
-                  }}
-                  className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1"
-                  title={translation_content ? '切换翻译模式（已预生成）' : '翻译尚未生成'}
-                >
-                  <Languages className="w-3.5 h-3.5" />
-                  {translation_mode === 'original' && '原文'}
-                  {translation_mode === 'bilingual' && '中英对照'}
-                  {translation_mode === 'chinese' && '全中文'}
-                  {translation_mode === 'english' && '全英文'}
-                  {!translation_content && '（未生成）'}
-                </button>
+                {editMode ? (
+                  <>
+                    <span className="text-xs text-slate-400 px-1">编辑中 · {articleSourceLabel}</span>
+                    <button
+                      onClick={saveArticle}
+                      disabled={articleSaving}
+                      className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-50 flex items-center gap-1"
+                      title="保存到仓库"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {articleSaving ? '保存中…' : '保存'}
+                    </button>
+                    <button
+                      onClick={() => { setEditMode(false); setArticleDraft('') }}
+                      disabled={articleSaving}
+                      className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition disabled:opacity-50"
+                      title="放弃修改"
+                    >
+                      取消
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        // 没有译文时只在「原文 / 全英文」之间切 —— 否则切过去只能看到一段"译文排队中"的提示
+                        const modes: TranslationMode[] = hasTranslationContent
+                          ? ['original', 'bilingual', 'chinese', 'english']
+                          : ['original', 'english']
+                        const idx = modes.indexOf(translation_mode)
+                        set_translation_mode(modes[(idx + 1) % modes.length])
+                      }}
+                      className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1"
+                      title={hasTranslationContent ? '切换显示模式（原文 / 中英对照 / 全中文 / 全英文）' : '该文献还没有译文，仅可切换 原文 / 全英文'}
+                    >
+                      <Languages className="w-3.5 h-3.5" />
+                      {translation_mode === 'original' && '原文'}
+                      {translation_mode === 'bilingual' && '中英对照'}
+                      {translation_mode === 'chinese' && '全中文'}
+                      {translation_mode === 'english' && '全英文'}
+                      {!hasTranslationContent && '（未生成）'}
+                    </button>
+                    <button
+                      onClick={enterEditMode}
+                      disabled={!selectedPaper?.hasMarkdown}
+                      className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="编辑模式开关：开启后可修改文献正文"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      编辑
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className={editMode ? 'flex-1 min-h-0' : 'flex-1 overflow-y-auto'}>
               {selectedPaper.hasMarkdown && selectedPaper.markdownContent ? (
+                editMode ? (
+                  <VditorEditor
+                    ref={articleVditorRef}
+                    value={articleDraft}
+                    onChange={setArticleDraft}
+                    height="100%"
+                    placeholder="编辑文献 Markdown（⟨⟨⟨…⟩⟩⟩ 为块元信息，改动正文即可）"
+                    className="h-full"
+                  />
+                ) : (
                 <div className="max-w-3xl mx-auto px-8 py-8">
                   <div
                     className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 relative"
@@ -1060,6 +989,7 @@ const [aligned_content, set_aligned_content] = useState('')
                     )}
                   </div>
                 </div>
+                )
               ) : (
                 <div className="h-full flex items-center justify-center">
                   <div className="text-center text-slate-400">
@@ -1114,121 +1044,27 @@ const [aligned_content, set_aligned_content] = useState('')
 
         <div className="flex-1 overflow-hidden flex flex-col">
           {activeSideTab === 'notes' ? (
-            <div className="flex-1 flex flex-col">
-              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-slate-50/50">
-                <div className="flex items-center gap-0.5">
-                  <button
-                    onClick={() => insertHeading(1)}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="标题1"
-                    disabled={!selectedPaper}
-                  >
-                    <Heading1 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => insertHeading(2)}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="标题2"
-                    disabled={!selectedPaper}
-                  >
-                    <Heading2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => insertHeading(3)}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="标题3"
-                    disabled={!selectedPaper}
-                  >
-                    <Heading3 className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="w-px h-4 bg-slate-200 mx-0.5" />
-                  <button
-                    onClick={insertBold}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="加粗"
-                    disabled={!selectedPaper}
-                  >
-                    <Bold className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={insertItalic}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="斜体"
-                    disabled={!selectedPaper}
-                  >
-                    <Italic className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="w-px h-4 bg-slate-200 mx-0.5" />
-                  <button
-                    onClick={insertUnorderedList}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="无序列表"
-                    disabled={!selectedPaper}
-                  >
-                    <List className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={insertOrderedList}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="有序列表"
-                    disabled={!selectedPaper}
-                  >
-                    <ListOrdered className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="w-px h-4 bg-slate-200 mx-0.5" />
-                  <button
-                    onClick={insertBlockquote}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="引用"
-                    disabled={!selectedPaper}
-                  >
-                    <Quote className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={insertCodeBlock}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="代码块"
-                    disabled={!selectedPaper}
-                  >
-                    <Code className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={insertLink}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="链接"
-                    disabled={!selectedPaper}
-                  >
-                    <Link className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={insertImage}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="图片"
-                    disabled={!selectedPaper}
-                  >
-                    <Image className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={exportNote}
-                    disabled={!selectedPaper || !currentNoteHtml}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    导出
-                  </button>
-                </div>
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-end flex-shrink-0 bg-slate-50/50">
+                <button
+                  onClick={exportNote}
+                  disabled={!selectedPaper || !currentNoteMd.trim()}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  导出
+                </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 min-h-0">
                 {selectedPaper ? (
-                  <div
-                    ref={noteEditorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleNoteInput}
-                    className="w-full h-full p-3 text-sm focus:outline-none prose prose-slate max-w-none note-editor"
+                  <VditorEditor
+                    ref={noteVditorRef}
+                    value={currentNoteMd}
+                    onChange={handleNoteChange}
+                    height="100%"
+                    placeholder="记录这篇文献的笔记…"
+                    className="h-full"
                   />
                 ) : (
                   <div className="text-center text-slate-400 py-8">
@@ -1266,13 +1102,6 @@ const [aligned_content, set_aligned_content] = useState('')
                   {wordCount} 字
                 </span>
               </div>
-              <input
-                ref={noteImageInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleNoteImageUpload}
-              />
             </div>
           ) : (
             <div className="flex-1 flex flex-col">
