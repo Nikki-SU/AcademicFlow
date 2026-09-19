@@ -59,7 +59,7 @@ const THINKING_ROWS: {
   { field: 'thinkingClean', label: '清理正文', desc: '去页眉页脚、拼回断段，纯搬运 → 建议关闭' },
   { field: 'thinkingTag', label: '打标', desc: '判断标题/图注/列表类型，规则明确 → 建议关闭' },
   { field: 'thinkingTranslate', label: '翻译', desc: '逐段与表格翻译，不需要推理 → 建议关闭' },
-  { field: 'thinkingWords', label: '提词核验', desc: '筛选学术词汇，需要一点判断 → 可保留低强度' },
+  { field: 'thinkingWords', label: '提词核验', desc: '筛选学术词汇，机械筛选 → 建议关闭（要更保守可手动开启）' },
 ]
 
 function formatFetchedAt(ts: number | null): string {

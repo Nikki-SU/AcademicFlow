@@ -173,7 +173,7 @@
 | DOI 元数据 | CrossRef API | 无需 key |
 | 文献追踪源 | CrossRef + OpenAlex + arXiv + 目标期刊 RSS | 多源并行、DOI 归一化去重 |
 | 词典 | Free Dictionary + Wiktionary + Merriam-Webster/Oxford（可选）+ IUPAC Gold Book | 免费源打底，AI 兜底 |
-| AI 服务 | 使用者自配 key，兼容 OpenAI 协议 | 支持 OpenAI / Anthropic / Gemini / DeepSeek / Kimi / 本地 |
+| AI 服务 | 使用者自配 key，兼容 OpenAI 协议 | 支持 OpenAI / Anthropic / Gemini / DeepSeek 及任意 OpenAI 兼容端点；AI-1 / AI-2 各自独立配服务商、模型与**思考模式**（off / low / high / max，按 clean / tag / translate / words 四阶段分别设） |
 | PDF 编译 | Tectonic（WASM 编译版本，浏览器内跑） | md → LaTeX → PDF；无需服务器 |
 | Word 编译 | **Pandoc（WASM 版）或等价方案**（v0.2.2 新增） | md → .docx，浏览器内跑；引用/图表映射与 PDF 一致，见 §1.10 / §5.8 |
 | 引用样式 | CSL（Citation Style Language） | 出厂预置一份**通用样板**，具体样式由用户自建/导入 |
@@ -272,16 +272,15 @@
 {repo-name}/
 ├── literatures/
 │   ├── literatures.csv              # 一级+二级共表
-│   ├── {doi-normalized-slug}/       # 二级文献目录（有 md 才建）
-│   │   ├── content.md               # PDF → md 正文（图片引 image/）
-│   │   ├── image/                   # 抽出的所有图片
-│   │   │   ├── fig-1.png
-│   │   │   ├── graphical-abstract.png
-│   │   │   └── ...
-│   │   └── annotations/             # 该文献的批注 md
-│   │       └── {annotation-id}.md
-│   └── pdfs-recent/                 # 近 30 天 PDF（自动删）
-│       └── {doi-slug}.pdf
+│   └── {doi-slug}/                  # 二级文献目录（有 md 才建）
+│       ├── source/                  # 原始 PDF（{时间戳}_{文件名}.pdf）
+│       ├── full.md                  # MinerU 原始产物（永不改写/删除）
+│       ├── images/                  # 抽出的所有图片（md 引 images/xxx.jpg）
+│       ├── {doi-slug}.md            # 唯一成品：原文 + 译文（阅读页/编辑器读它）
+│       ├── .tmp_*.md / .tmp_*.json  # 五阶段断点续跑存档（成功后自动清理）
+│       ├── .progress.json           # 进度播报（前端轮询，跑完删除）
+│       └── annotations/             # 该文献的批注
+│           └── annotations.csv      # 批注表（id/type/color/text/note/created_at/updated_at）
 ├── vocabulary/
 │   └── vocabulary.csv               # 词汇本
 ├── sentences/
@@ -322,11 +321,15 @@
 │   └── tracking/                    # 追踪日志（默认静默）
 │       └── {yyyy-mm-dd}.md
 └── .github/
-    └── workflows/
-        └── daily-tracking.yml       # 每日追踪
+    ├── workflows/
+    │   ├── daily-tracking.yml       # 每日追踪
+    │   └── paper-convert.yml        # PDF → md 流水线（前端 dispatch 触发）
+    └── scripts/
+        ├── paper_convert.mjs        # 五阶段流水线脚本
+        └── blocks.mjs               # 块语法解析器（与前端 src/services/blocks.mjs 同一份）
 ```
 
-**命名规则**：DOI 归一化后 slug 规则 = 全小写 + `/` 替换为 `__`（例如 `10.1038/s41586-020-2649-2` → `10.1038__s41586-020-2649-2`）。
+**命名规则**：DOI 归一化后 slug 规则 = `encodeURIComponent(doi)` 后把 `%2F` 换成 `_`、`.` 换成 `-`（例如 `10.1021/jacs.3c07992` → `10-1021_jacs-3c07992`）。
 
 ---
 
@@ -440,15 +443,30 @@ Markdown 结构化配置，示例：
 - language_mode: cn    # cn / en，决定推送摘要/词典是否翻译
 
 ## AI 服务
-- ai1_provider: openai
-- ai1_model: gpt-4o
-- ai2_provider: anthropic
-- ai2_model: claude-3-5-sonnet
-- ai_endpoint_override: (空)
+- ai_provider_mode: deepseek          # deepseek / custom（custom = 自建 OpenAI 兼容端点）
+- ai1_model: deepseek-flash
+- ai2_model: deepseek-v4-pro
+- ai_2_provider_mode: deepseek
+- advanced_mode: false                # 开 = 暴露自定义端点配置
+- custom_ai_1_base_url: (空)          # advanced_mode 下才写
+- custom_ai_1_model: (空)
+- custom_ai_2_base_url: (空)
+- custom_ai_2_model: (空)
+
+## 思考模式（runner 直接读取，按阶段拼进请求体）
+# off = 关闭思考，输出预算全给正文；low/high/max = 开启并控制强度
+- ai_thinking_clean: off
+- ai_thinking_tag: off
+- ai_thinking_translate: off
+- ai_thinking_words: off
 
 ## PDF 处理
 - mineru_api_key: 存在本地 IndexedDB `settings` object store（不进 md，v0.2.5 修正）
 - pdf_retention_days: 30    # 硬编码 30，此项仅显示不许改
+- extract_cover_image: true
+- auto_extract_words: false
+- mineru_debug_mode: true
+- word_gen_count: 15
 
 ## 追踪
 - daily_push_time: 08:00
@@ -626,42 +644,71 @@ Markdown 结构化配置，示例：
 ### 5.3 模块 · PDF → Markdown 流水线
 
 **上游触发**：
-- 使用者上传 PDF（文献或课本）
+- 使用者上传 PDF（文献或课本）→ 前端推入 `literatures/{doi-slug}/source/`，并 dispatch 私库内 `.github/workflows/paper-convert.yml`
+- **转换全程在 GitHub Actions runner 里跑**，前端只轮询 `literatures/{doi-slug}/.progress.json` 播报进度；关掉浏览器/手机锁屏都不影响转换
 
-**流水线步骤**：
-1. 拿到 PDF → 上传到 MinerU API
-2. 判断页数：≤200 → 单次处理；>200 → 按 200 页拆分为 N 段，分别处理
-3. 每段 MinerU 返回 zip → 前端解压
-4. 只取 `.md` 和 `image/` 目录里的图片；**丢弃所有 JSON**
-5. N 段拼接（按段内页码顺序、图片路径重映射避免冲突）→ 单一 `content.md` + 统一 `image/`
-6. 提取题图（Graphical Abstract）：
-   - **规则层**：在 md 中扫描 "graphical abstract" / "TOC" / 位于摘要正后方的第一张大图
-   - **AI 兜底**：规则失败时，AI-1 从 md 全文判断哪张图是题图，AI-2 审
-   - 命中的图 rename 为 `image/graphical-abstract.{ext}`
-7. **抽取生词入词汇本**（见 §5.6）
-8. 落盘到 `literatures/{doi-slug}/`
+**五阶段流水线**（`.github/scripts/paper_convert.mjs`）：
 
-**日常存储**：`content.md` 里图片走相对路径 `![](image/xxx.png)`。
+| # | 阶段 | 执行者 | 做什么 |
+|---|---|---|---|
+| 0 | MinerU | 外部 API | PDF → `full.md` + `images/`；产物落 `literatures/{slug}/full.md`、`literatures/{slug}/images/` |
+| 1 | clean | AI-1 | 去页眉页脚/页码/版权行，拼回被断词断开的段落，保留 Markdown 表格、LaTeX 公式、参考文献章节；**图片语法连路径逐字照抄** |
+| 2 | tag | AI-1 | 按块语法把清理稿切成块；只切块、逐字保留内容，**不负责编号** |
+| 3 | enumerate | 纯代码 | `renumber` 统一重排编号 + 内容守恒校验 + 图片校验 |
+| 4 | translate | AI-2 | 只翻可翻译块（标题/正文/列表/表/图注/引文），按块下标存 `.tmp_translated.json`，可断点续跑 |
+| 5 | assemble | 纯代码 | 译文合并回块 → 输出 `literatures/{slug}/{slug}.md`（唯一成品，阅读页/编辑器读它） |
+| 6 | words | AI-1 提 + AI-2 核 | 抽取学术词汇入词汇本（见 §5.6） |
+
+**块语法**（AI 只切块，编号一律由代码 `renumber` 重排，AI 数错不影响结果）：
+
+- **定界符**：`⟨⟨⟨` 开、`⟩⟩⟩` 收；闭合一律 `⟨⟨⟨/⟩⟩⟩`，即 `⟨⟨⟨元信息⟩⟩⟩内容原文⟨⟨⟨/⟩⟩⟩`
+- 元信息分隔符是 `·`（U+00B7）；标记只存在于 md 文件里，前端渲染时隐藏
+- **流块**（全文连续编号 1..N；标题/正文/列表**共用同一序列**）
+  - 标题 `文字·标题·L·N`（L = 标题级别 1-6）
+  - 正文 `文字·正文·0·N`
+  - 列表 `列表·L·N`（L = 列表层级）
+- **浮动块**（锚 A + 序号 S；A = 该块前面最近的流块编号，S = 同一锚点内 图/表/图注/公式 **共用一个序列**，从 1 起）
+  - 图 `图·A·S` / 表 `表·A·S` / 图注 `图注·A·S` / 公式 `公式·A·S`（独占一段的块级 `$$...$$`；行内 `$...$` 留在正文）
+- **独立块**（不参与流块编号）：引文 `引文`（整段引用，通常 `>` 开头）、参考文献 `文献`（References 整章一个块）
+- **派生块**：译文 `译文@ID`，紧挂在对应源块旁；无编号源块用裸 `译文`，按紧邻挂载
+- **容错铁律**：无法识别的标记、块外的裸文本一律**原样保留并告警**，绝不静默丢弃
+
+**共享解析器（权威实现只有一份）**：`src/services/blocks.mjs` 是解析 / 序列化 / 重排 / 译文配对的唯一实现——
+前端直接 `import`，runner 也 `import` 同一份（初始化时以 base64 内嵌写入私库 `.github/scripts/blocks.mjs`），
+从根上杜绝"前后端各写一份解析器"导致的必然分叉。主要导出：`parseBlocks` / `serializeBlocks` / `renumber` /
+`readDocument` / `stripMarkers` / `isTranslatable` / `blockId` / `legacyToBlocks`（旧 `<!-- PARA_EN -->` 格式仅作兼容读取）。
+
+**日常存储**：
+- `literatures/{slug}/full.md` —— MinerU 原始产物，**永不改写、永不删除**（阅读页英文原文与图片的来源）
+- `literatures/{slug}/images/` —— 所有图片；md 里走相对路径 `![](images/xxx.jpg)`
+- `literatures/{slug}/{slug}.md` —— 唯一成品（原文 + 译文合并），阅读页只读它
+- `literatures/{slug}/.tmp_*.md` / `.tmp_*.json` / `.progress.json` —— 断点续跑存档，成功后清理
+
+**图片零丢失校验**（纯代码，四道，缺一张即中止并报错）：
+1. clean 后核对；若发现路径被吃掉（`![](images/x.jpg)` 被写成 `![image]`）→ **只重跑含丢失图的那几个分块**，不整篇重来
+2. tag 每处理一个分块即核对
+3. enumerate 全量核对图片 + 内容守恒（打标稿比清理稿少 3% 字符即判定丢正文）
+4. assemble 最终核对（源块 → 成品）
+
+**题图识别（Graphical Abstract）**：规则层扫 "graphical abstract" / "TOC" / 摘要正后方第一张大图，失败时 AI-1 判 + AI-2 审（见 §5.6 的双引擎）。
+
+**断点续跑**：每阶段的存档都带**源 PDF 指纹**（路径 + 字节数），指纹不匹配即作废存档从头跑；MinerU 产物（`full.md` + `images/`）直接复用，不重复消耗 MinerU 额度。
 
 **分享导出**：使用者点"生成便携版" → 前端读 md + 图片 → 转 base64 内嵌 → 输出单文件 md。
 
-**图片零丢失校验**（AI-2 兜底）：
-- 拆合前后图片数量一致
-- md 中所有 `![](...)` 引用都能在 `image/` 里找到
-- 校验不通过 → 报错、拒绝落盘、告知使用者
-
 **PDF 保留**：
-- 落盘到 `literatures/pdfs-recent/{doi-slug}.pdf`
+- 落盘到 `literatures/{slug}/source/{时间戳}_{文件名}.pdf`
 - 每日 Actions 顺带跑 GC：`pdf_added_at` > 30 天的 PDF 自动 `git rm`
 - 保留天数硬编码 30，UI 上仅显示不允许修改
 
 ### 5.4 模块 · 阅读 + 批注
 
-**阅读**：直接展示 `content.md`（Milkdown 只读模式渲染，交互见 §1.11），左侧目录、右侧批注侧栏。
+**阅读**：直接展示 `literatures/{doi-slug}/{doi-slug}.md`（成品 md，块标记渲染时隐藏；Milkdown 只读模式渲染，交互见 §1.11），左侧目录、右侧批注侧栏。
 
 **批注核心**：
-- 批注 = **独立 md 文件**，路径 `literatures/{doi-slug}/annotations/{annotation-id}.md`
-- 批注文件头部 YAML frontmatter 记录锚点：
+- 批注存 `literatures/{doi-slug}/annotations/annotations.csv`（一行一条：`id,type,color,text,note,created_at,updated_at`），其中 `text` 即锚点引文。**文献本体 md 永远不被改写**，可迁移性完整保留。
+- **侧栏顺序 = 批注在正文中出现的先后**：按 `text` 在正文里定位（中英对照模式下命中原文或译文都算同一位置）；定位不到（例如文献重转过）的排最后，内部按录入时间。与录入先后无关。
+- 锚点升级方案（v0.3 待落地，用 YAML frontmatter 精确记录上下文，提升定位鲁棒性）：
   ```yaml
   ---
   anchor:
@@ -673,11 +720,10 @@ Markdown 结构化配置，示例：
   created_at: 2026-07-10T16:20:00+08:00
   ---
   ```
-- **文献本体 md 永远不变**，可迁移性完整保留。
 - 批注正文用主编辑器（同 §5.7，感受硬约束「内联能改、零弹窗、源码-渲染同框或至少无切换按钮」；技术候选池见 §1.11 & §8.3），支持全部元素/块（文本 / 图片 / 公式 / md 表格 / 思维导图 / 链表可视化 / 引用块），交互见 §1.11。
-- 批注中的图片默认落到 `annotations/image/`（与文献本身的 `image/` 分开）。
+- 批注中的图片默认落到 `annotations/images/`（与文献本身的 `images/` 分开）。
 
-**渲染时**：阅读界面加载后，前端扫 `annotations/*.md`，按 anchor 定位到正文对应位置，右侧展示批注气泡。
+**渲染时**：阅读界面加载后，前端读 `annotations/annotations.csv`，按 `text` 定位到正文对应位置，右侧展示批注气泡。
 
 ### 5.5 模块 · 笔记
 

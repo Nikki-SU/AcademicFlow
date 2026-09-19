@@ -83,11 +83,12 @@ const DEFAULT_SETTINGS: SettingsData = {
   autoExtractWords: false,
   mineruDebugMode: true,
   wordGenCount: 15,
-  // 思考模式默认：机械任务关掉（输出预算全给正文，且省钱），提词保留低强度
+  // 思考模式默认：四个阶段全部关掉（输出预算全给正文，且省钱）。
+  // 用户仍可在设置里逐阶段手动开启并调强度 —— 默认值只决定"没动过时"的行为。
   thinkingClean: 'off',
   thinkingTag: 'off',
   thinkingTranslate: 'off',
-  thinkingWords: 'low',
+  thinkingWords: 'off',
 }
 
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */

@@ -70,8 +70,10 @@ const AI_MAX_TOKENS = 32768
 // ============================================================
 const AI_THINKING_LEVELS = ['off', 'low', 'high', 'max']
 
-/** 按阶段的思考模式；main() 启动时由 loadThinkingConfig() 覆盖 */
-const THINKING = { clean: 'off', tag: 'off', translate: 'off', words: 'low' }
+/** 按阶段的思考模式；main() 启动时由 loadThinkingConfig() 覆盖
+ *  四个阶段默认全 off —— 实测提词（words）开思考会烧掉 52%~72% 的输出预算，
+ *  而它只是机械筛选。用户想开启就在前端设置页逐阶段选 low/high/max。 */
+const THINKING = { clean: 'off', tag: 'off', translate: 'off', words: 'off' }
 
 function loadThinkingConfig() {
   try {
@@ -924,6 +926,12 @@ const TAG_PROMPT = `你是文献结构标注助手。把给定的 Markdown 文�
 4. 块与块之间保留原有的空行（空行放在块外面）。
 5. 行内公式 $...$、行内代码、脚注标记都留在正文块里，不要单独成块。
 6. 禁止用三反引号代码块包裹整体输出。
+7. 【最容易判错，务必遵守】
+   - 孤立的编号/字母碎片（单独一行的 "(b)"、"a)"、"1."、"–" 之类）→ **并入相邻的正文块**，
+     绝对不要单独成块，更不要判成 图 / 图注 / 公式。
+   - 作者头像与作者简介、期刊封面、广告位、目录缩略图这类图片的说明文字**不是图注**，按正文处理。
+     只有带编号的图表说明（Figure 1. / Scheme 1. / Chart 1. / Table 1. 开头）才算图注。
+   - 拿不准类型时一律按 **正文** 处理 —— 正文是默认类型，类型不准没关系，内容错位才是大问题。
 
 示例（节选）：
 ${OPEN}文字·标题·1·1${CLOSE}From Powder to Technical Body${END}
