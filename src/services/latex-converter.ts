@@ -188,13 +188,15 @@ function assembleFullLatex(
   lines.push('')
 
   // 宏包
-  const defaultPackages = [
-    'amsmath',
-    'amssymb',
-    'graphicx',
-    'booktabs',
-    'hyperref',
-  ]
+  // 默认只列 XeLaTeX WASM 运行时（public/xelatex）里确实存在的包。
+  // 那个运行时是精简版 TeX 发行版：很多常见「非核心」包
+  // （amssymb / booktabs / caption / natbib / tabularx / multirow …）都没有，
+  // 期刊文档类（elsarticle / IEEEtran / acmart / revtex）也没有，
+  // 写进去会直接 `File not found` 编译失败 —— 之前 amssymb 就在默认列表里，
+  // 导致每一份生成出来的文档都编不过。
+  // 用户模板自带的 packages 不做过滤：缺包时让 TeX 明确报错，
+  // 比静默丢包（排版悄悄变样）更可预期。
+  const defaultPackages = ['amsmath', 'graphicx', 'hyperref']
   const allPackages = [...defaultPackages, ...template.packages]
   // 去重
   const seen = new Set<string>()
@@ -237,14 +239,16 @@ function assembleFullLatex(
  * -------------------------------------------------
  * 模板调试场景下，用户可能还没往 template.tex 里写过任何东西，
  * 但代码板需要有个可编译的起点，否则空代码板一上来就报错。
+ *
+ * 注意 body 只能是「\begin{document} 与 \end{document} 之间的正文」：
+ * 环境包裹和末尾的 \bibliographystyle / \bibliography 都由 assembleFullLatex 负责，
+ * 这里再写一遍就会拼出重复的 \begin{document} / \end{document}，直接编译不过。
  */
 export function buildLatexSkeletonFromTemplate(template: JournalTemplate): string {
   const body = [
     '\\title{论文标题}',
     '\\author{作者}',
     '\\date{\\today}',
-    '',
-    '\\begin{document}',
     '\\maketitle',
     '',
     '\\begin{abstract}',
@@ -253,11 +257,6 @@ export function buildLatexSkeletonFromTemplate(template: JournalTemplate): strin
     '',
     '\\section{引言}',
     '正文内容。',
-    '',
-    '\\bibliographystyle{' + template.bibtex_style + '}',
-    '\\bibliography{references}',
-    '',
-    '\\end{document}',
   ]
   return assembleFullLatex(body.join('\n'), template)
 }

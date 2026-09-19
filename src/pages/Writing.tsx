@@ -39,7 +39,11 @@ import {
   BookPlus,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getAllTemplates, updateTemplate } from '../services/journal-templates'
+import { getAllTemplates, createTemplate, updateTemplate } from '../services/journal-templates'
+import {
+  extractGuidelinesWithAI,
+  applyExtractedToTemplate,
+} from '../services/guideline-extractor'
 import {
   convertMarkdownToLatex,
   refineLatexWithAI,
@@ -556,6 +560,12 @@ export default function WritingPage() {
   const [templateInstruction, setTemplateInstruction] = useState('')
   const [isRefiningLatex, setIsRefiningLatex] = useState(false)
   const [refineStatus, setRefineStatus] = useState('')
+  // ── 期刊模板面板：就地新建模板（AI 提取只是草稿，必须能马上在代码板里改） ──
+  const [showNewTemplateForm, setShowNewTemplateForm] = useState(false)
+  const [newTemplateName, setNewTemplateName] = useState('')
+  const [newTemplateGuidelines, setNewTemplateGuidelines] = useState('')
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false)
+  const [templateCreateStatus, setTemplateCreateStatus] = useState('')
   const [showNewProjectInput, setShowNewProjectInput] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [citations, setCitations] = useState<CitationRef[]>([])
@@ -1370,6 +1380,131 @@ export default function WritingPage() {
     } finally {
       setIsGeneratingLatex(false)
       setLatexGenStatus('')
+    }
+  }
+
+  /**
+   * 新建模板后的统一收尾：刷新列表 → 选中它 → 立刻把骨架载入代码板。
+   * 这一步是关键 —— AI 或默认值生出来的模板不可能开箱即用，
+   * 所以创建完必须马上落到代码板里，让人就着手改 / 让 AI 改，再「保存回模板」。
+   */
+  const adoptNewTemplate = (tpl: JournalTemplate) => {
+    setTemplates((prev) => [tpl, ...prev.filter((t) => t.id !== tpl.id)])
+    setSelectedTemplateId(tpl.id)
+    setLatexCode(tpl.template_tex?.trim() || buildLatexSkeletonFromTemplate(tpl))
+    setCompileError('')
+  }
+
+  /**
+   * 新建期刊模板 —— 只建一份默认骨架。
+   * 粘了投稿须知就一并存进模板：之后「让 AI 改代码」开可信检索时，
+   * 才有原文可以当依据锚定，否则 AI 只能凭空发挥。
+   */
+  const createTemplateManually = async () => {
+    const name = newTemplateName.trim()
+    if (!name) {
+      toast.error('请填写期刊名称')
+      return
+    }
+    setIsCreatingTemplate(true)
+    setTemplateCreateStatus('创建中...')
+    try {
+      const created = await createTemplate({
+        name,
+        guidelines_content: newTemplateGuidelines.trim() || undefined,
+      })
+      const list = await getAllTemplates()
+      setTemplates(list)
+      adoptNewTemplate(list.find((t) => t.id === created.id) || created)
+      setShowNewTemplateForm(false)
+      setNewTemplateName('')
+      setNewTemplateGuidelines('')
+      toast.success('模板已创建，骨架已载入代码板 —— 改完记得「保存回模板」')
+    } catch (err) {
+      toast.error(`创建失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsCreatingTemplate(false)
+      setTemplateCreateStatus('')
+    }
+  }
+
+  /**
+   * 新建期刊模板 —— AI 从投稿须知提取排版参数（双引擎：AI-1 提取 + AI-2 核查）。
+   * AI 给的只是一份草稿：建完立刻载入代码板，接着用「让 AI 改代码」或手改把它调到能用。
+   */
+  const createTemplateWithAI = async () => {
+    const name = newTemplateName.trim()
+    const guidelines = newTemplateGuidelines.trim()
+    if (!name) {
+      toast.error('请填写期刊名称')
+      return
+    }
+    if (!guidelines) {
+      toast.error('请先粘贴投稿须知原文，AI 才有提取依据')
+      return
+    }
+    let ai1: { baseUrl: string; apiKey: string; model: string }
+    let ai2: { baseUrl: string; apiKey: string; model: string }
+    try {
+      const cfg = useSettingsStore.getState().getDualEngineConfig()
+      ai1 = cfg.ai1
+      ai2 = cfg.ai2
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'AI 配置不完整，请先在设置页填写 API Key')
+      return
+    }
+    setIsCreatingTemplate(true)
+    setTemplateCreateStatus('准备中...')
+    try {
+      const extracted = await extractGuidelinesWithAI({
+        guidelinesText: guidelines,
+        ai1,
+        ai2,
+        onProgress: (ev) => {
+          const label =
+            ev.stage === 'ai1_running'
+              ? `AI-1 提取排版参数（第 ${ev.attempt} 轮）...`
+              : ev.stage === 'ai2_running'
+                ? `AI-2 忠实性核查中（第 ${ev.attempt} 轮）...`
+                : ev.stage === 'ai2_self_correct_running'
+                  ? 'AI-2 引证锚定自纠中...'
+                  : ev.stage === 'verifying'
+                    ? '引证锚定校验中...'
+                    : ev.stage === 'attempt_failed_retry'
+                      ? `第 ${ev.attempt} 轮未通过，准备重试...`
+                      : ev.stage === 'finished'
+                        ? '核查完成'
+                        : ev.stage === 'error'
+                          ? `出错：${ev.errorMessage || ''}`
+                          : '处理中...'
+          setTemplateCreateStatus(label)
+        },
+      })
+
+      const created = await createTemplate({
+        name,
+        short_name: extracted.short_name,
+        publisher: extracted.publisher,
+        guidelines_content: guidelines,
+      })
+
+      // AI 提取结果落到模板上；期刊名以用户填的为准，不让 AI 猜的名字覆盖
+      const applied = applyExtractedToTemplate({}, extracted)
+      delete applied.name
+      const updated = (await updateTemplate(created.id, applied)) || created
+
+      const list = await getAllTemplates()
+      setTemplates(list)
+      adoptNewTemplate(list.find((t) => t.id === created.id) || updated)
+      setShowNewTemplateForm(false)
+      setNewTemplateName('')
+      setNewTemplateGuidelines('')
+      toast.success('AI 已提取并创建模板，骨架已载入代码板 —— 改完记得「保存回模板」')
+    } catch (err) {
+      toast.error(`AI 创建失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsCreatingTemplate(false)
+      setTemplateCreateStatus('')
     }
   }
 
@@ -2749,6 +2884,70 @@ export default function WritingPage() {
           {p.mode === 'template' && (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+                {/* ── 就地新建模板：AI 提取出来的只是草稿，建完直接落到代码板里接着改 ── */}
+                <div>
+                  <button
+                    onClick={() => setShowNewTemplateForm(!showNewTemplateForm)}
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 rounded-lg transition"
+                  >
+                    {showNewTemplateForm ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <Plus className="w-3.5 h-3.5" />
+                    )}
+                    新建期刊模板
+                  </button>
+
+                  {showNewTemplateForm && (
+                    <div className="mt-2 p-2.5 space-y-2 bg-slate-50 rounded-lg">
+                      <input
+                        type="text"
+                        value={newTemplateName}
+                        onChange={(e) => setNewTemplateName(e.target.value)}
+                        placeholder="期刊名称，如 Nature Communications"
+                        className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      />
+                      <textarea
+                        value={newTemplateGuidelines}
+                        onChange={(e) => setNewTemplateGuidelines(e.target.value)}
+                        rows={4}
+                        placeholder="投稿须知原文（可选）。粘了就可以让 AI 按须知定 documentclass / 引用样式 / 双栏等；不粘就直接建骨架，之后在代码板里改。"
+                        className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg resize-none focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={createTemplateWithAI}
+                          disabled={
+                            isCreatingTemplate ||
+                            !newTemplateName.trim() ||
+                            !newTemplateGuidelines.trim()
+                          }
+                          className="flex-1 py-1.5 bg-indigo-600 text-white rounded-lg text-[0.6875rem] font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        >
+                          {isCreatingTemplate ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3 h-3" />
+                          )}
+                          AI 提取并创建
+                        </button>
+                        <button
+                          onClick={createTemplateManually}
+                          disabled={isCreatingTemplate || !newTemplateName.trim()}
+                          className="flex-1 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          只建骨架
+                        </button>
+                      </div>
+                      {templateCreateStatus && (
+                        <p className="text-[0.625rem] text-slate-400 leading-relaxed">
+                          {templateCreateStatus}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <div className="text-xs font-medium text-slate-600 mb-1.5">目标期刊模板</div>
                   <div className="relative">
@@ -2769,7 +2968,8 @@ export default function WritingPage() {
                   </div>
                   {templates.length === 0 && (
                     <p className="mt-1.5 text-[0.6875rem] text-slate-400 leading-relaxed">
-                      还没有期刊模板，先到「管理 → 期刊模板」里用 AI 从投稿须知提取一个。
+                      点上面的「新建期刊模板」：粘投稿须知让 AI 提取，或先建一份骨架 ——
+                      建完会自动载入代码板，改到能编译再「保存回模板」。
                     </p>
                   )}
                 </div>

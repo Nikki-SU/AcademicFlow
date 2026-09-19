@@ -312,13 +312,13 @@ export async function createTemplate(data: {
   guidelines_content?: string
 }): Promise<JournalTemplate> {
   const now = Date.now()
-  const id =
-    data.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') +
-    '-' +
-    now.toString(36).slice(-4)
+  // 期刊名可能是中文：ASCII 化后会变成空串，直接拼会得到 "-6nzc" 这种
+  // 以连字符开头的非法目录名。兜一个通用前缀。
+  const slug = data.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const id = `${slug || 'journal'}-${now.toString(36).slice(-4)}`
 
   const template: JournalTemplate = {
     id,

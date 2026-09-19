@@ -28,6 +28,57 @@ import type {
  */
 const ASSET_BASE_URL = `${import.meta.env.BASE_URL}xelatex/`
 
+/**
+ * 字体兼容垫片（只加在送进编译器的源码里，代码板原文不动）
+ * -------------------------------------------------
+ * 运行时只带了 4 个 Latin Modern OTTO 字体：
+ *   lmroman10-regular / -italic / -bold / -bolditalic
+ *   lmroman12-regular / -italic / -bold
+ * 但 LaTeX 自带的 `tulmr.fd` 会按字号 / 字重把槽位指向别的文件：
+ *   「>=15pt」→ lmroman17-regular（\maketitle 的 \LARGE = 17.28pt 正好落在这）
+ *   「bx / n / 9pt」→ lmroman9-bold（\begin{abstract} 里的 \small 走这条）
+ *   还有 \small → lmroman9-regular …
+ * 这些文件都不在包里，于是整篇直接报
+ *   Font TU/lmr/... at Npt not loadable: Metric (TFM) file or installed font not found
+ * 一行都编不出来。
+ *
+ * 这里把 TU/lmr 的 12 个 (series, shape) 槽位**全量**重映射到已有的 4 个 OTF：
+ * 字号不再区分（<-> 表示任意尺寸都换算缩放），粗体/斜体仍按语义映射到对应字重的文件，
+ * 所以 \textbf / \textit 的效果保留；只有「超大字号的独立字形」被换成缩放的小字号字形，
+ * 视觉上略小一点，但文档能编、能出页面 —— 这才是可用与不可用的区别。
+ */
+const LMR_SHAPES: [string, string, string][] = [
+  ['m', 'n', 'lmroman10-regular'],
+  ['m', 'it', 'lmroman10-italic'],
+  ['m', 'sl', 'lmroman10-italic'],
+  ['m', 'sc', 'lmroman10-regular'],
+  ['m', 'ui', 'lmroman10-regular'],
+  ['m', 'scsl', 'lmroman10-italic'],
+  ['bx', 'n', 'lmroman10-bold'],
+  ['bx', 'it', 'lmroman10-bolditalic'],
+  ['bx', 'sl', 'lmroman10-bolditalic'],
+  ['b', 'n', 'lmroman10-bold'],
+  ['b', 'it', 'lmroman10-bolditalic'],
+  ['b', 'sl', 'lmroman10-bolditalic'],
+]
+
+const FONT_COMPAT_SHIM = [
+  '% ---- AcademicFlow: XeLaTeX WASM 运行时字体兼容垫片 ----',
+  ...LMR_SHAPES.map(
+    ([series, shape, file]) =>
+      `\\DeclareFontShape{TU}{lmr}{${series}}{${shape}}{<-> \\UnicodeFontFile{${file}}{\\UnicodeFontTeXLigatures}}{}`,
+  ),
+].join('\n')
+
+/** 把垫片插到 \begin{document} 之前（也就是 preamble 末尾） */
+function withRuntimeCompat(source: string): string {
+  if (source.includes('AcademicFlow: XeLaTeX WASM 运行时字体兼容垫片')) return source
+  const marker = '\\begin{document}'
+  const idx = source.indexOf(marker)
+  if (idx === -1) return `${source}\n${FONT_COMPAT_SHIM}\n`
+  return `${source.slice(0, idx)}${FONT_COMPAT_SHIM}\n${source.slice(idx)}`
+}
+
 /** BibTeX 数据库在虚拟文件系统里的文件名，需与正文 \bibliography{...} 一致 */
 export const BIB_FILE_NAME = 'references.bib'
 
@@ -81,7 +132,7 @@ export async function compileLatex(
     ]
   }
 
-  return (await instance.compile(params.source, compileOptions)) as XeLaTeXCompileResult
+  return (await instance.compile(withRuntimeCompat(params.source), compileOptions)) as XeLaTeXCompileResult
 }
 
 /** 从编译异常里取出 TeX 日志（不是编译错误时返回空串） */
