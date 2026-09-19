@@ -37,6 +37,9 @@ import {
   Clipboard,
   GripVertical,
   BookPlus,
+  Package,
+  Upload,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getAllTemplates, createTemplate, updateTemplate } from '../services/journal-templates'
@@ -50,6 +53,13 @@ import {
   buildLatexSkeletonFromTemplate,
 } from '../services/latex-converter'
 import { compileLatex, getCompileErrorLog, createPdfObjectUrl } from '../services/xelatex-compiler'
+import {
+  listLatexPackages,
+  importLatexPackages,
+  deleteLatexPackages,
+  loadLatexPackages,
+  type LatexPackageInfo,
+} from '../services/latex-packages'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { JournalTemplate } from '../types'
@@ -114,12 +124,13 @@ const LATEX_PAIRED_MODES: PanelMode[] = ['editor', 'template']
  * 用户看到这句通常以为是自己的写法错了 —— 其实是编译器没带那个包。
  */
 const RUNTIME_MISSING_FILE_HINT =
-  '【提示】编译器用的是随站点分发的 XeLaTeX 运行时（不联网），只内置了一部分宏包：\n' +
+  '【提示】编译器用的是随站点分发的 XeLaTeX 运行时（不联网），内置了这些宏包：\n' +
   '  基础：amsmath / graphicx / hyperref / geometry / xcolor / longtable / etoolbox / fontspec\n' +
-  '  常用：booktabs / natbib / amssymb / tabularx / multirow / caption / subcaption\n' +
-  '  文档类：IEEEtran / elsarticle（另有 article 等 LaTeX 自带类）\n' +
-  'acmart、revtex 这类重依赖文档类以及其它未内置的宏包都会报上面这条 not found，\n' +
-  '需要换等价的写法。\n' +
+  '  常用：booktabs / natbib / amssymb / tabularx / multirow / caption / subcaption / microtype\n' +
+  '  文档类：IEEEtran / elsarticle / acmart / revtex4-2（另有 article 等 LaTeX 自带类）\n' +
+  '  中文：xeCJK + Noto Serif SC（正文里出现汉字会自动接管）\n' +
+  '上面这条 not found 说明该宏包没内置。如果它是现成的 .sty/.cls，\n' +
+  '用右上角「宏包」把文件导进来就能用（导入后每次编译自动带上）。\n' +
   '\n'
 
 function withRuntimeHint(log: string): string {
@@ -575,6 +586,12 @@ export default function WritingPage() {
   const [compileError, setCompileError] = useState('')
   /** 编译产物 PDF 的 blob URL，用于内嵌 iframe 预览 */
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  // ── 导入宏包面板：用户自己带 .sty/.cls 进来，编译时自动挂进虚拟文件系统 ──
+  const [showPackagesPanel, setShowPackagesPanel] = useState(false)
+  const [latexPackages, setLatexPackages] = useState<LatexPackageInfo[]>([])
+  const [isLoadingPackages, setIsLoadingPackages] = useState(false)
+  const [isImportingPackages, setIsImportingPackages] = useState(false)
+  const [packageStatus, setPackageStatus] = useState('')
   // ── 期刊模板面板：让 AI 直接改 LaTeX 代码 ──
   const [templateInstruction, setTemplateInstruction] = useState('')
   const [isRefiningLatex, setIsRefiningLatex] = useState(false)
@@ -645,6 +662,8 @@ export default function WritingPage() {
   const rightDropdownRef = useRef<HTMLDivElement>(null)
   const citationScopeRef = useRef<HTMLDivElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const packageFileInputRef = useRef<HTMLInputElement>(null)
+  const packageFolderInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
   const dragStartRatio = useRef(70)
@@ -804,6 +823,12 @@ export default function WritingPage() {
         setCompileError('')
         setCompileStatus('')
         setPdfObjectUrl(null)
+        // 导入的宏包挂在项目目录下，切项目要重新列一遍
+        setIsLoadingPackages(true)
+        listLatexPackages(projectId)
+          .then((pkgs) => { if (!cancelled) setLatexPackages(pkgs) })
+          .catch((err) => console.warn('[Writing] 读取导入的宏包失败:', err))
+          .finally(() => { if (!cancelled) setIsLoadingPackages(false) })
         setTimeout(() => { memoryLoadingRef.current = false }, 0)
       } catch (err) {
         console.warn('[Writing] 加载项目数据失败:', err)
@@ -1608,6 +1633,64 @@ export default function WritingPage() {
     }
   }
 
+  /** 重新列出当前项目已导入的宏包 */
+  const reloadLatexPackages = async () => {
+    if (!activeProjectId) return
+    setIsLoadingPackages(true)
+    try {
+      setLatexPackages(await listLatexPackages(activeProjectId))
+    } catch (err) {
+      console.warn('[Writing] 读取导入的宏包失败:', err)
+    } finally {
+      setIsLoadingPackages(false)
+    }
+  }
+
+  /** 导入宏包：一次 commit 把所有选中文件写进项目目录，之后编译自动带上 */
+  const handleImportPackages = async (fileList: FileList | null) => {
+    if (!activeProjectId || !fileList || fileList.length === 0) return
+    setIsImportingPackages(true)
+    setPackageStatus('')
+    try {
+      const result = await importLatexPackages(activeProjectId, Array.from(fileList))
+      await reloadLatexPackages()
+      const parts: string[] = []
+      if (result.imported.length > 0) {
+        parts.push(`已导入 ${result.imported.length} 个：${result.imported.join('、')}`)
+      }
+      if (result.skipped.length > 0) {
+        parts.push(
+          `跳过 ${result.skipped.length} 个：` +
+            result.skipped.map((s) => `${s.name}（${s.reason}）`).join('；'),
+        )
+      }
+      setPackageStatus(parts.join('\n'))
+      if (result.imported.length > 0) {
+        toast.success(`已导入 ${result.imported.length} 个宏包，编译时自动带上`)
+      } else {
+        toast.error('没有导入任何文件')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setPackageStatus(`导入失败：${msg}`)
+      toast.error(`导入宏包失败：${msg}`)
+    } finally {
+      setIsImportingPackages(false)
+    }
+  }
+
+  /** 删除一个已导入的宏包 */
+  const handleDeletePackage = async (name: string) => {
+    if (!activeProjectId) return
+    try {
+      await deleteLatexPackages(activeProjectId, [name])
+      await reloadLatexPackages()
+      setPackageStatus(`已删除 ${name}`)
+    } catch (err) {
+      toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   /** 编译代码板 → 真 PDF（浏览器内 XeLaTeX WASM，全程不联网） */
   const compileCurrentLatex = async () => {
     if (!latexCode.trim()) {
@@ -1618,9 +1701,16 @@ export default function WritingPage() {
     setCompileError('')
     setCompileStatus('正在加载 XeLaTeX 运行时...')
     try {
+      // 导入的宏包挂在项目目录里，编译时要取出来挂进虚拟文件系统才真正生效
+      let additionalFiles: Array<{ path: string; data: Uint8Array }> = []
+      if (activeProjectId && latexPackages.length > 0) {
+        setCompileStatus(`正在加载 ${latexPackages.length} 个导入的宏包...`)
+        additionalFiles = await loadLatexPackages(activeProjectId)
+      }
       const result = await compileLatex({
         source: latexCode,
         bibtex: latexBib.trim() || undefined,
+        additionalFiles,
         onStatus: (e) => setCompileStatus(e.message),
       })
       setPdfObjectUrl(createPdfObjectUrl(result.pdf))
@@ -2969,13 +3059,17 @@ export default function WritingPage() {
 
                 {/* 编译器的能力边界：写清楚内置了什么，省得用户猜 */}
                 <p className="text-[0.625rem] text-slate-400 leading-relaxed bg-slate-50 rounded-lg p-2">
-                  编译器是随站点分发的 XeLaTeX 运行时（不联网，约 63MB，首次编译加载一次）。
+                  编译器是随站点分发的 XeLaTeX 运行时（不联网，约 85MB，首次编译加载一次）。
                   已内置基础宏包 amsmath / graphicx / hyperref / geometry / xcolor / longtable /
                   etoolbox / fontspec，常用宏包 booktabs、natbib、amssymb、tabularx、multirow、
-                  caption / subcaption，文档类 <b className="font-medium text-slate-500">IEEEtran</b> 与{' '}
-                  <b className="font-medium text-slate-500">elsarticle</b>（Elsevier），以及中文字体 Noto Serif SC。
-                  没内置的是 acmart、revtex 这类重依赖文档类和其它宏包，写进去会报{' '}
-                  <code className="text-slate-500">File not found</code>，需要换等价的写法。
+                  caption / subcaption / microtype，文档类{' '}
+                  <b className="font-medium text-slate-500">IEEEtran</b>、
+                  <b className="font-medium text-slate-500">elsarticle</b>、
+                  <b className="font-medium text-slate-500">acmart</b>、
+                  <b className="font-medium text-slate-500">revtex4-2</b>，
+                  中文走 xeCJK + Noto Serif SC（正文里有汉字就自动接管，拉丁文仍用文档类自己的字体）。
+                  其它宏包可以自己导入：在右边编译器顶部点「宏包」，把 .sty / .cls 选进来，
+                  导入一次之后每次编译自动带上。
                 </p>
 
                 <div>
@@ -3160,6 +3254,23 @@ export default function WritingPage() {
                     <span className="text-[0.625rem] text-slate-400 truncate">{compileStatus}</span>
                   )}
                   <div className="flex-1 min-w-0" />
+                  <button
+                    onClick={() => setShowPackagesPanel((v) => !v)}
+                    className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[0.6875rem] transition ${
+                      showPackagesPanel
+                        ? 'bg-indigo-100 text-indigo-700'
+                        : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'
+                    }`}
+                    title="导入 .sty / .cls 宏包，编译时自动带上"
+                  >
+                    <Package className="w-3 h-3" />
+                    宏包
+                    {latexPackages.length > 0 && (
+                      <span className="text-[0.625rem] text-indigo-600">
+                        {latexPackages.length}
+                      </span>
+                    )}
+                  </button>
                   {pdfUrl && (
                     <button
                       onClick={downloadCompiledPdf}
@@ -3182,6 +3293,85 @@ export default function WritingPage() {
                     {isCompiling ? '编译中' : '编译'}
                   </button>
                 </div>
+
+                {/* 导入宏包：运行时只内置了常用宏包，用户自己的 .sty/.cls 从这里进来 */}
+                {showPackagesPanel && (
+                  <div className="flex-shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-2 space-y-2 max-h-56 overflow-y-auto">
+                    <p className="text-[0.625rem] text-slate-500 leading-relaxed">
+                      编译器自带常用宏包与 IEEEtran / elsarticle / acmart / revtex4-2。
+                      没带的（冷门宏包、自己写的 .sty）从这里导入：
+                      文件存进本项目目录，<span className="text-slate-600">之后每次编译自动挂上</span>，导入一次长期可用。
+                    </p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        onClick={() => packageFileInputRef.current?.click()}
+                        disabled={isImportingPackages || !activeProjectId}
+                        className="flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-white bg-indigo-600 rounded hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isImportingPackages ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Upload className="w-3 h-3" />
+                        )}
+                        选择文件
+                      </button>
+                      <button
+                        onClick={() => packageFolderInputRef.current?.click()}
+                        disabled={isImportingPackages || !activeProjectId}
+                        className="flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="整包拖进来更省事：一个宏包常有好几个 .sty/.def/.cfg"
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                        选择文件夹
+                      </button>
+                      {isLoadingPackages && (
+                        <span className="text-[0.625rem] text-slate-400 flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          读取中
+                        </span>
+                      )}
+                    </div>
+                    {packageStatus && (
+                      <pre className="text-[0.625rem] text-slate-500 whitespace-pre-wrap leading-relaxed">
+                        {packageStatus}
+                      </pre>
+                    )}
+                    {latexPackages.length > 0 ? (
+                      <ul className="space-y-0.5">
+                        {latexPackages.map((pkg) => (
+                          <li
+                            key={pkg.name}
+                            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-white group"
+                          >
+                            <FileCode className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                            <span className="text-[0.625rem] font-mono text-slate-700 truncate">
+                              {pkg.name}
+                            </span>
+                            <span className="text-[0.625rem] text-slate-400 flex-shrink-0">
+                              {pkg.size < 1024
+                                ? `${pkg.size} B`
+                                : `${(pkg.size / 1024).toFixed(0)} KB`}
+                            </span>
+                            <div className="flex-1" />
+                            <button
+                              onClick={() => handleDeletePackage(pkg.name)}
+                              className="flex-shrink-0 p-0.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                              title={`删除 ${pkg.name}`}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      !isLoadingPackages && (
+                        <p className="text-[0.625rem] text-slate-400">
+                          这个项目还没导入宏包。整包文件夹拖进来最省事。
+                        </p>
+                      )
+                    )}
+                  </div>
+                )}
 
                 <div className="flex-1 min-h-0 bg-slate-100 overflow-hidden">
                   {compileError ? (
@@ -3877,6 +4067,35 @@ export default function WritingPage() {
         directory=""
         multiple
         onChange={handleFolderSelect}
+        className="hidden"
+      />
+
+      {/* 导入宏包：单文件/多选 */}
+      <input
+        ref={packageFileInputRef}
+        type="file"
+        accept=".sty,.cls,.def,.cfg,.clo,.fd,.rtx,.enc,.sto,.tex"
+        multiple
+        onChange={(e) => {
+          void handleImportPackages(e.target.files)
+          // 清空 value，否则同一批文件再选一次不会触发 onChange
+          e.target.value = ''
+        }}
+        className="hidden"
+      />
+
+      {/* 导入宏包：整个文件夹（宏包通常一堆文件，这个入口更实用） */}
+      <input
+        ref={packageFolderInputRef}
+        type="file"
+        // @ts-ignore webkitdirectory is non-standard
+        webkitdirectory=""
+        directory=""
+        multiple
+        onChange={(e) => {
+          void handleImportPackages(e.target.files)
+          e.target.value = ''
+        }}
         className="hidden"
       />
     </div>

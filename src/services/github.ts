@@ -597,7 +597,7 @@ function base64ToUtf8(base64: string): string {
 }
 
 // 原始二进制 → base64（用于上传 PDF / 图片等二进制文件）
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   let bin = ''
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
   return btoa(bin)
@@ -839,6 +839,32 @@ export async function downloadRepoBinaryFile(
     sha: data.sha,
     size: data.size ?? bytes.length,
   }
+}
+
+/**
+ * 列出仓库某个目录下的**文件**（不递归子目录）。
+ * 目录不存在时 GitHub 返回 404，这里当作空目录处理 —— 调用方不必先建目录。
+ */
+export async function listRepoFilesInDir(
+  owner: string,
+  repo: string,
+  dir: string,
+  token: string,
+): Promise<Array<{ name: string; path: string; size: number }>> {
+  const res = await githubFetch(
+    `/repos/${owner}/${repo}/contents/${encodeURI(dir)}`,
+    token,
+  )
+  if (res.status === 404) return []
+  if (!res.ok) {
+    const err = await res.text().catch(() => '')
+    throw new GitHubAPIError(res.status, err, `列出目录失败：${err}`)
+  }
+  const data = (await res.json()) as unknown
+  if (!Array.isArray(data)) return []
+  return (data as Array<{ type: string; name: string; path: string; size: number }>)
+    .filter((entry) => entry.type === 'file')
+    .map((entry) => ({ name: entry.name, path: entry.path, size: entry.size }))
 }
 
 /** 上传二进制文件（PDF / 图片等），返回 sha。内部用串行写队列避免 409 */

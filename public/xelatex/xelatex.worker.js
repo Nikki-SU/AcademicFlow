@@ -3,6 +3,28 @@ const worker = self;
 const runtimeBaseUrl = new URL("./", self.location.href);
 const engineBaseUrl = new URL("engine/", runtimeBaseUrl);
 const manifestUrl = new URL("runtime-manifest.json", runtimeBaseUrl);
+// ---- AcademicFlow patch -----------------------------------------------------
+// 原版把运行时全部文件用一把 Promise.all 拉下来。文件数一多就会打爆浏览器的
+// 连接池：本站把常用宏包与期刊文档类一并打包后，运行时从 427 个文件涨到近 2000 个，
+// 实测一次性并发会失败 805 个（fetch 抛 "TypeError: Failed to fetch"），
+// 运行时初始化失败 → 整个编译器不可用。改成固定并发上限后实测全部成功，
+// 且运行时的文件数继续增长也不会退化。
+// -----------------------------------------------------------------------------
+const RUNTIME_FETCH_CONCURRENCY = 16;
+async function mapWithConcurrency(items, limit, mapper) {
+    const results = new Array(items.length);
+    let next = 0;
+    const run = async () => {
+        while (true) {
+            const index = next++;
+            if (index >= items.length)
+                return;
+            results[index] = await mapper(items[index], index);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+    return results;
+}
 const texEnvironment = {
     HOME: "/work",
     TMPDIR: "/work",
@@ -87,7 +109,7 @@ async function loadRuntimeFiles() {
         }
         return bytes;
     };
-    const files = await Promise.all(manifest.files.map(async ({ path, size, chunks }) => {
+    const files = await mapWithConcurrency(manifest.files, RUNTIME_FETCH_CONCURRENCY, async ({ path, size, chunks }) => {
         let bytes;
         if (chunks?.length) {
             const chunkBytes = await Promise.all(chunks.map((chunk) => fetchAsset(chunk.path, chunk.size)));
@@ -111,7 +133,7 @@ async function loadRuntimeFiles() {
             path: `/${path}`,
             bytes,
         };
-    }));
+    });
     return { files, totalBytes };
 }
 post({
