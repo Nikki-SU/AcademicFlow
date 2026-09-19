@@ -559,7 +559,12 @@ export default function WritingPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   const [navCollapsed, setNavCollapsed] = useState(false)
-  /** 左侧导航里的大纲区是否展开（收起=只看项目，展开=看大纲） */
+  /**
+   * 左侧栏是「堆叠面板」（仿 Obsidian）：项目、大纲各占一块，各自能收起成一行。
+   * 收起的那块只剩标题行，展开的那块吃掉剩余高度 —— 于是整栏要么全是项目，要么只显示大纲。
+   */
+  const [projectsExpanded, setProjectsExpanded] = useState(true)
+  /** 大纲面板是否展开（收起时只剩「大纲」标题行） */
   const [outlineExpanded, setOutlineExpanded] = useState(false)
   const [leftPanelMode, setLeftPanelMode] = useState<PanelMode>('editor')
   const [rightPanelMode, setRightPanelMode] = useState<PanelMode>('ai')
@@ -1486,92 +1491,117 @@ export default function WritingPage() {
         }`}
       >
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-slate-200">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-indigo-600" />
-                项目导航
-              </h2>
+          {/* ── 堆叠面板 1/2：项目（收起后只剩标题行，标题显示当前项目） ── */}
+          <div className={`flex flex-col min-h-0 ${projectsExpanded ? 'flex-1' : 'flex-none'}`}>
+            <div className="flex items-center gap-0.5 pl-1 pr-2 py-1.5 border-b border-slate-200 flex-shrink-0">
+              <button
+                onClick={() => setProjectsExpanded(!projectsExpanded)}
+                className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-slate-50 transition"
+                title={projectsExpanded ? '收起项目' : '展开项目'}
+              >
+                {projectsExpanded ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                )}
+                <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                <span className="text-sm font-semibold text-slate-800 truncate">
+                  {projectsExpanded ? '项目导航' : activeProject?.title || '项目导航'}
+                </span>
+              </button>
               <button
                 onClick={() => setShowNewProjectInput(!showNewProjectInput)}
-                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                className="p-1 flex-shrink-0 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
                 title="新建项目"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            {showNewProjectInput && (
-              <div className="mt-2 flex gap-1">
-                <input
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateProject()
-                    if (e.key === 'Escape') {
-                      setShowNewProjectInput(false)
-                      setNewProjectName('')
-                    }
-                  }}
-                  placeholder="输入项目名称"
-                  autoFocus
-                  className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
-                />
-                <button
-                  onClick={handleCreateProject}
-                  className="px-2 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 transition"
-                >
-                  创建
-                </button>
-              </div>
-            )}
-            {activeProject && (
-              <button
-                onClick={() => openProjectLitModal(activeProject.projectId)}
-                className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 rounded-md transition"
-                title="给当前项目补充文献（项目内临时知识库）"
-              >
-                <BookPlus className="w-3.5 h-3.5" />
-                添加项目文献
-              </button>
-            )}
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            {projects.length === 0 && !isLoading && (
-              <div className="p-4 text-center">
-                <div className="text-sm text-slate-500 mb-2">暂无项目</div>
-                <button
-                  onClick={() => setShowNewProjectInput(true)}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
-                >
-                  点击创建第一个项目
-                </button>
-              </div>
-            )}
-            {projects.map((p) => (
-              <button
-                key={p.projectId}
-                onClick={() => setActiveProjectId(p.projectId)}
-                className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
-                  activeProjectId === p.projectId ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
-                }`}
-              >
-                <div className="text-sm font-medium text-slate-700 truncate">{p.title}</div>
-                <div className="flex items-center justify-end mt-1">
-                  <span className="text-xs text-slate-400 flex items-center gap-1">
-                    <BookOpen className="w-3 h-3" />
-                    {getProjectLitCount(p.projectId)}篇
-                  </span>
+
+            {projectsExpanded && (
+              <>
+                {(showNewProjectInput || activeProject) && (
+                  <div className="px-3 py-2 border-b border-slate-100 flex-shrink-0 space-y-2">
+                    {showNewProjectInput && (
+                      <div className="flex gap-1">
+                        <input
+                          type="text"
+                          value={newProjectName}
+                          onChange={(e) => setNewProjectName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleCreateProject()
+                            if (e.key === 'Escape') {
+                              setShowNewProjectInput(false)
+                              setNewProjectName('')
+                            }
+                          }}
+                          placeholder="输入项目名称"
+                          autoFocus
+                          className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                        />
+                        <button
+                          onClick={handleCreateProject}
+                          className="px-2 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 transition"
+                        >
+                          创建
+                        </button>
+                      </div>
+                    )}
+                    {activeProject && (
+                      <button
+                        onClick={() => openProjectLitModal(activeProject.projectId)}
+                        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 rounded-md transition"
+                        title="给当前项目补充文献（项目内临时知识库）"
+                      >
+                        <BookPlus className="w-3.5 h-3.5" />
+                        添加项目文献
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  {projects.length === 0 && !isLoading && (
+                    <div className="p-4 text-center">
+                      <div className="text-sm text-slate-500 mb-2">暂无项目</div>
+                      <button
+                        onClick={() => setShowNewProjectInput(true)}
+                        className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                      >
+                        点击创建第一个项目
+                      </button>
+                    </div>
+                  )}
+                  {projects.map((p) => (
+                    <button
+                      key={p.projectId}
+                      onClick={() => setActiveProjectId(p.projectId)}
+                      className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
+                        activeProjectId === p.projectId ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
+                      }`}
+                    >
+                      <div className="text-sm font-medium text-slate-700 truncate">{p.title}</div>
+                      <div className="flex items-center justify-end mt-1">
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                          <BookOpen className="w-3 h-3" />
+                          {getProjectLitCount(p.projectId)}篇
+                        </span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              </button>
-            ))}
+              </>
+            )}
           </div>
 
-          {/* 文档大纲（仿 Obsidian）：收起 = 面板里只有项目；展开 = 把大纲铺出来 */}
-          <div className="border-t border-slate-200 flex-shrink-0">
+          {/* ── 堆叠面板 2/2：大纲（收起后只剩标题行） ── */}
+          <div
+            className={`border-t border-slate-200 flex flex-col min-h-0 ${
+              outlineExpanded ? 'flex-1' : 'flex-none'
+            }`}
+          >
             <button
               onClick={() => setOutlineExpanded(!outlineExpanded)}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
               title={outlineExpanded ? '收起大纲' : '展开大纲'}
             >
               {outlineExpanded ? (
@@ -1584,7 +1614,7 @@ export default function WritingPage() {
               <span className="ml-auto text-slate-400 font-normal">{outline.length}</span>
             </button>
             {outlineExpanded && (
-              <div className="max-h-[45%] overflow-y-auto px-2 pb-2 space-y-0.5">
+              <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
                 {outline.length === 0 && (
                   <div className="text-xs text-slate-400 text-center py-3">暂无大纲</div>
                 )}
