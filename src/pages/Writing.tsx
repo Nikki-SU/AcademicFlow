@@ -2552,11 +2552,11 @@ export default function WritingPage() {
           navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-64 opacity-100'
         }`}
       >
-        <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {/* ── 堆叠面板 1/3：项目（收起后只剩标题行，标题显示当前项目） ── */}
           <div
             className={`flex flex-col ${
-              projectsExpanded ? 'flex-1 min-h-[160px]' : 'flex-none'
+              projectsExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
             <div className="flex items-center gap-0.5 pl-1 pr-2 py-1.5 border-b border-slate-200 flex-shrink-0">
@@ -2625,7 +2625,7 @@ export default function WritingPage() {
                     )}
                   </div>
                 )}
-                <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className="flex-auto min-h-0 overflow-y-auto">
                   {projects.length === 0 && !isLoading && (
                     <div className="p-4 text-center">
                       <div className="text-sm text-slate-500 mb-2">暂无项目</div>
@@ -2662,7 +2662,7 @@ export default function WritingPage() {
           {/* ── 堆叠面板 2/3：文献检索（只搜库内） ── */}
           <div
             className={`border-t border-slate-200 flex flex-col ${
-              libSearchExpanded ? 'flex-1 min-h-[180px]' : 'flex-none'
+              libSearchExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
             <button
@@ -2682,7 +2682,7 @@ export default function WritingPage() {
               </span>
             </button>
             {libSearchExpanded && (
-              <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-auto min-h-0 flex flex-col">
                 <div className="flex-shrink-0 px-2 pb-1.5">
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2708,7 +2708,7 @@ export default function WritingPage() {
                     {isLoadingTitleCn && ' 正在读取中文标题…'}
                   </div>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-1.5">
+                <div className="flex-auto min-h-0 overflow-y-auto px-2 pb-2 space-y-1.5">
                   {libSearch.trim() && librarySearchResults.length === 0 && (
                     <div className="text-[0.6875rem] text-slate-400 text-center py-3">
                       没找到匹配的文献
@@ -2769,7 +2769,7 @@ export default function WritingPage() {
           {/* ── 堆叠面板 3/3：大纲（收起后只剩标题行） ── */}
           <div
             className={`border-t border-slate-200 flex flex-col ${
-              outlineExpanded ? 'flex-1 min-h-[140px]' : 'flex-none'
+              outlineExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
             <button
@@ -2787,7 +2787,7 @@ export default function WritingPage() {
               <span className="ml-auto text-slate-400 font-normal">{outline.length}</span>
             </button>
             {outlineExpanded && (
-              <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
+              <div className="flex-auto min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
                 {outline.length === 0 && (
                   <div className="text-xs text-slate-400 text-center py-3">暂无大纲</div>
                 )}

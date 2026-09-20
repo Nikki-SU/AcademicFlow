@@ -264,6 +264,7 @@ const [aligned_content, set_aligned_content] = useState('')
   const [bookMarkdown, setBookMarkdown] = useState('')
   const [bookLoading, setBookLoading] = useState(false)
   const [bookOutlineOpen, setBookOutlineOpen] = useState(true)
+  const [listExpanded, setListExpanded] = useState(true)
 
   const readerRef = useRef<HTMLDivElement>(null)
   const noteVditorRef = useRef<VditorEditorHandle>(null)
@@ -834,17 +835,10 @@ const [aligned_content, set_aligned_content] = useState('')
 
   return (
     <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
-      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
-        <div className="p-3 border-b border-slate-200 flex-shrink-0">
-          <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
-            {isBook ? (
-              <BookCopy className="w-4 h-4 text-indigo-600" />
-            ) : (
-              <BookOpen className="w-4 h-4 text-indigo-600" />
-            )}
-            {isBook ? '图书列表' : '文献列表'}
-          </h2>
-          <div className="mt-2 flex gap-1 p-0.5 bg-slate-100 rounded-md">
+      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 overflow-hidden">
+        {/* 固定：阅读对象切换（文献 / 图书） */}
+        <div className="p-2 border-b border-slate-200 flex-shrink-0">
+          <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md">
             <button
               onClick={() => setDocType('paper')}
               className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs rounded transition ${
@@ -864,7 +858,34 @@ const [aligned_content, set_aligned_content] = useState('')
               图书
             </button>
           </div>
-          <div className="mt-2 relative">
+        </div>
+
+        {/* 堆叠面板 1/2：列表（收起只剩标题行；展开到实际高度，不超出左栏） */}
+        <div className={`flex flex-col ${listExpanded ? 'min-h-0' : 'flex-none'}`}>
+          <button
+            onClick={() => setListExpanded(!listExpanded)}
+            className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+            title={listExpanded ? '收起列表' : '展开列表'}
+          >
+            {listExpanded ? (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            )}
+            {isBook ? (
+              <BookCopy className="w-3.5 h-3.5 text-indigo-600" />
+            ) : (
+              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+            )}
+            {isBook ? '图书列表' : '文献列表'}
+            <span className="ml-auto text-slate-400 font-normal">
+              {isBook ? filteredBooks.length : filteredPapers.length}
+            </span>
+          </button>
+          {listExpanded && (
+          <div className="flex-auto min-h-0 flex flex-col">
+          <div className="flex-shrink-0 px-2 pb-2 space-y-2">
+          <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -909,8 +930,8 @@ const [aligned_content, set_aligned_content] = useState('')
             </button>
           </div>
           )}
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
+          </div>
+          <div className="flex-auto min-h-0 overflow-y-auto">
           {isBook ? (
             booksLoading ? (
               <div className="text-center py-8 text-slate-400 text-sm">
@@ -1029,11 +1050,14 @@ const [aligned_content, set_aligned_content] = useState('')
               </button>
             ))
           )}
+          </div>
+          </div>
+          )}
         </div>
 
-        {/* 图书大纲：按正文标题层级生成，点击跳转 */}
-        {isBook && selectedBook && (
-          <div className="flex-none max-h-[45%] border-t border-slate-200 flex flex-col">
+        {/* 堆叠面板 2/2：图书大纲（按正文标题层级生成，点击跳转） */}
+        {isBook && (
+          <div className={`flex flex-col border-t border-slate-200 ${bookOutlineOpen ? 'min-h-0' : 'flex-none'}`}>
             <button
               onClick={() => setBookOutlineOpen(!bookOutlineOpen)}
               className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
@@ -1049,7 +1073,7 @@ const [aligned_content, set_aligned_content] = useState('')
               <span className="ml-auto text-slate-400 font-normal">{bookOutline.length}</span>
             </button>
             {bookOutlineOpen && (
-              <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
+              <div className="flex-auto min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
                 {bookOutline.length === 0 && (
                   <div className="text-xs text-slate-400 text-center py-3">暂无大纲</div>
                 )}
