@@ -9,6 +9,7 @@
  * 这一层只做「机器可判定的」部分：定界符识别、下标定位、替换。
  * 「这个公式对不对」交给人和 AI，不在这里猜。
  */
+import { marked, type Token } from 'marked'
 import { readCsvFile, writeCsvFile } from './userData'
 
 export interface FormulaToken {
@@ -42,8 +43,39 @@ export interface MarkdownTable {
 }
 
 /**
+ * 深度遍历 marked 的 token 树。
+ * 为什么要递归：图片可能嵌在列表项、引用、表格单元格里，
+ * 只看顶层 token 会漏。
+ */
+function walkTokens(tokens: Token[], visit: (t: Token) => void) {
+  for (const t of tokens) {
+    visit(t)
+    const bag = t as unknown as Record<string, unknown>
+    if (Array.isArray(bag.tokens)) walkTokens(bag.tokens as Token[], visit)
+    if (Array.isArray(bag.items)) walkTokens(bag.items as Token[], visit)
+    if (Array.isArray(bag.header)) walkTokens(bag.header as Token[], visit)
+    if (Array.isArray(bag.rows)) {
+      for (const row of bag.rows as Token[][]) if (Array.isArray(row)) walkTokens(row, visit)
+    }
+  }
+}
+
+/** 用 marked 词法分析，失败时回退空数组（不因为解析异常让整个校对面板挂掉） */
+function lex(md: string): Token[] {
+  try {
+    return marked.lexer(md)
+  } catch {
+    return []
+  }
+}
+
+/**
  * 把代码内容涂成空格（换行保留）。
  * 长度与原串严格一致 —— 这是后面能直接用下标替换原文的前提。
+ *
+ * 代码区域来自 marked 的 `code` token（围栏块 + 缩进块都能认出来），
+ * 再补扫一遍行内代码 `...`；比纯正则可靠 —— 自己写围栏正则时
+ * 缩进代码块（4 空格）是漏的。
  */
 function maskCode(md: string): string {
   const chars = md.split('')
@@ -53,10 +85,17 @@ function maskCode(md: string): string {
     }
   }
 
-  // 围栏代码块：``` 或 ~~~（配对，允许信息串）
-  const fenceRe = /(^|\n)(`{3,}|~{3,})[^\n]*\n[\s\S]*?(\n\2[^\n]*|$)/g
-  let m: RegExpExecArray | null
-  while ((m = fenceRe.exec(md))) blank(m.index, m.index + m[0].length)
+  // 块级代码：按文档顺序在原文里定位（重复内容用游标依次匹配，不会错位）
+  let cursor = 0
+  for (const t of lex(md)) {
+    if (t.type !== 'code') continue
+    const raw = t.raw
+    if (!raw) continue
+    const at = md.indexOf(raw, cursor)
+    if (at === -1) continue
+    blank(at, at + raw.length)
+    cursor = at + raw.length
+  }
 
   const masked = chars.join('')
   // 行内代码：`...`（不跨行）
@@ -198,59 +237,79 @@ export function replaceFormulaOccurrences(
   return out
 }
 
-/** 扫出全部图片（文档顺序 = 渲染后 <img> 顺序） */
+/**
+ * 扫出全部图片（文档顺序 = 渲染后 <img> 顺序）。
+ *
+ * 走 marked 的 image token：alt / src / title 的边界都由真正的 Markdown 解析器
+ * 判定，自己写正则时「alt 里有括号」「src 里有空格」这类写法很容易切错。
+ */
 export function parseImages(md: string): MarkdownImage[] {
-  const masked = maskCode(md)
+  const found: Token[] = []
+  walkTokens(lex(md), (t) => {
+    if (t.type === 'image') found.push(t)
+  })
+
   const out: MarkdownImage[] = []
-  const re = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(masked))) {
-    // 从原文里取 src（masked 里 src 原样保留，因为不含反引号/围栏）
-    const srcMatch = /\(([^)\s]+)/.exec(md.slice(m.index))
+  let cursor = 0
+  found.forEach((img, i) => {
+    const bag = img as unknown as { raw?: string; text?: string; href?: string }
+    const raw = String(bag.raw || '')
+    let start = -1
+    if (raw) {
+      const at = md.indexOf(raw, cursor)
+      if (at !== -1) {
+        start = at
+        cursor = at + raw.length
+      }
+    }
     out.push({
-      index: out.length,
-      alt: m[1],
-      src: srcMatch ? srcMatch[1] : '',
-      start: m.index,
-      end: m.index + m[0].length,
+      index: i,
+      alt: String(bag.text || ''),
+      src: String(bag.href || ''),
+      start,
+      end: start === -1 ? -1 : start + raw.length,
     })
-  }
+  })
   return out
 }
 
-/** 扫出全部 markdown 表格（连续以 | 开头/结尾的行，且含对齐行） */
+/**
+ * 扫出全部 markdown 表格。
+ *
+ * 走 marked 的 table token：表头 / 数据行由解析器给出（对齐行天然不在里面，
+ * 单元格里的转义竖线也不会被切错），比按行正则稳。
+ */
 export function parseTables(md: string): MarkdownTable[] {
-  const lines = md.split('\n')
-  const isRow = (line: string) => /^\s*\|.*\|\s*$/.test(line)
-  const isSep = (line: string) =>
-    /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(line) && line.includes('-')
+  const found: Token[] = []
+  walkTokens(lex(md), (t) => {
+    if (t.type === 'table') found.push(t)
+  })
 
   const out: MarkdownTable[] = []
-  let i = 0
-  while (i < lines.length) {
-    if (!isRow(lines[i])) {
-      i++
-      continue
+  let cursor = 0
+  found.forEach((t, i) => {
+    const bag = t as unknown as {
+      header?: Array<{ text?: string }>
+      rows?: Array<Array<{ text?: string }>>
+      raw?: string
     }
-    let j = i
-    while (j < lines.length && isRow(lines[j])) j++
-    const block = lines.slice(i, j)
-    // 合法表格：至少 表头 + 对齐行（+ 数据行）
-    if (block.length >= 2 && isSep(block[1])) {
-      const rows = block
-        .filter((_, idx) => idx !== 1)
-        .map((line) =>
-          line
-            .trim()
-            .replace(/^\|/, '')
-            .replace(/\|$/, '')
-            .split('|')
-            .map((c) => c.trim()),
-        )
-      out.push({ index: out.length, rows, startLine: i, endLine: j - 1 })
+    const rows: string[][] = []
+    if (Array.isArray(bag.header)) rows.push(bag.header.map((c) => String(c?.text ?? '').trim()))
+    for (const r of bag.rows || []) rows.push(r.map((c) => String(c?.text ?? '').trim()))
+
+    const raw = String(bag.raw || '')
+    let startLine = 0
+    let endLine = 0
+    if (raw) {
+      const at = md.indexOf(raw, cursor)
+      if (at !== -1) {
+        startLine = md.slice(0, at).split('\n').length - 1
+        endLine = startLine + raw.replace(/\n$/, '').split('\n').length - 1
+        cursor = at + raw.length
+      }
     }
-    i = j
-  }
+    out.push({ index: i, rows, startLine, endLine })
+  })
   return out
 }
 

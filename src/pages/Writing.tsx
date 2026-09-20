@@ -33,6 +33,7 @@ import {
   GraduationCap,
   Newspaper,
   Copy,
+  AlertTriangle,
   FolderOpen,
   Clipboard,
   GripVertical,
@@ -43,7 +44,8 @@ import {
   CloudUpload,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getAllTemplates, createTemplate, updateTemplate } from '../services/journal-templates'
+import { getAllTemplates, createTemplate, updateTemplate, listTemplateAssets, loadTemplateAsset } from '../services/journal-templates'
+import { planTemplateAssets } from '../services/latex-assets'
 import {
   extractGuidelinesWithAI,
   applyExtractedToTemplate,
@@ -51,9 +53,11 @@ import {
 import {
   convertMarkdownToLatex,
   refineLatexWithAI,
-  patchLatexFromMarkdown,
+  patchLatexFromSidecar,
+  resyncSidecar,
   buildLatexSkeletonFromTemplate,
   parseLatexTemplate,
+  type LatexSidecar,
 } from '../services/latex-converter'
 import { compileLatex, getCompileErrorLog, createPdfObjectUrl } from '../services/xelatex-compiler'
 import {
@@ -77,6 +81,8 @@ import {
   saveManuscript,
   loadManuscriptLatex,
   saveManuscriptLatex,
+  loadLatexMap,
+  saveLatexMap,
   loadBibtex,
   saveBibtex,
   loadReferences,
@@ -92,7 +98,7 @@ import {
 } from '../services/projectData'
 import { loadLiteratures, loadTitleCns, type Literature } from '../services/literatureData'
 import { callAI } from '../services/ai/client'
-import { searchCrossref, normalizeDoi, type OnlineSearchResult } from '../services/citation'
+import { searchCrossref, normalizeDoi, preflightCitations, type OnlineSearchResult } from '../services/citation'
 import { readRepoTextFile, uploadRepoBinaryFile } from '../services/github'
 import { dispatchAiCall } from '../services/workflowClient'
 import { getRepoContext } from '../services/userData'
@@ -699,6 +705,13 @@ export default function WritingPage() {
   const [folderPath, setFolderPath] = useState('')
 
   const [showCitationModal, setShowCitationModal] = useState(false)
+  /** 引用体检结果：非空时弹出闸门，让用户决定「先回去修」还是「明知会 [?] 也继续」 */
+  const [citeGate, setCiteGate] = useState<{
+    total: string[]
+    resolved: string[]
+    unresolved: string[]
+    malformed: string[]
+  } | null>(null)
   const [citationSearch, setCitationSearch] = useState('')
   const [selectedCitations, setSelectedCitations] = useState<string[]>([])
 
@@ -712,6 +725,11 @@ export default function WritingPage() {
   // ── LaTeX 工作区：代码板（上半） + 编译器（下半） ──
   /** 代码板里的完整 LaTeX 源码：可手改，也可由正文 / 期刊模板生成 */
   const [latexCode, setLatexCode] = useState('')
+  /**
+   * 块映射（sidecar，存 projects/<id>/latex-map.json）。
+   * 「改 md → 只更正对应 LaTeX 片段」全靠它；它不进 .tex，正文保持干净。
+   */
+  const [latexSidecar, setLatexSidecar] = useState<LatexSidecar | null>(null)
   /** 编译用的 BibTeX 数据库内容（有才会挂进虚拟文件系统并跑 bibtex） */
   const [latexBib, setLatexBib] = useState('')
   const [isGeneratingLatex, setIsGeneratingLatex] = useState(false)
@@ -986,14 +1004,22 @@ export default function WritingPage() {
 
     async function loadProjectData() {
       try {
-        const [manuscript, refs, memoryMd, savedLatex, savedBib] = await Promise.all([
+        const [manuscript, refs, memoryMd, savedLatex, savedBib, savedMap] = await Promise.all([
           loadManuscript(projectId),
           loadReferences(projectId),
           loadMemory(projectId),
           loadManuscriptLatex(projectId),
           loadBibtex(projectId),
+          loadLatexMap(projectId),
         ])
         if (cancelled) return
+
+        // 块映射（sidecar）：局部更新要靠它把 md 的改动落到 tex 的对应片段上
+        try {
+          setLatexSidecar(savedMap ? (JSON.parse(savedMap) as LatexSidecar) : null)
+        } catch {
+          setLatexSidecar(null)
+        }
 
         const refsWithProjectId: CitationRef[] = refs.map((r) => ({
           ...r,
@@ -1090,7 +1116,7 @@ export default function WritingPage() {
   // 手改代码板、AI 改代码、由正文生成 三条路都从这里统一持久化。
   useEffect(() => {
     if (!activeProjectId) return
-    if (!latexCode.trim() && !latexBib.trim()) return
+    if (!latexCode.trim() && !latexBib.trim() && !latexSidecar) return
     const timer = setTimeout(() => {
       if (latexCode.trim()) {
         saveManuscriptLatex(activeProjectId, latexCode).catch(() => {})
@@ -1098,9 +1124,13 @@ export default function WritingPage() {
       if (latexBib.trim()) {
         saveBibtex(activeProjectId, latexBib).catch(() => {})
       }
+      // 块映射与 tex 一起落盘，避免「tex 更新了、映射还是旧的」导致下次局部更新错位
+      if (latexSidecar) {
+        saveLatexMap(activeProjectId, JSON.stringify(latexSidecar, null, 2)).catch(() => {})
+      }
     }, 1200)
     return () => clearTimeout(timer)
-  }, [latexCode, latexBib, activeProjectId])
+  }, [latexCode, latexBib, latexSidecar, activeProjectId])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1780,7 +1810,7 @@ export default function WritingPage() {
    * 排版：把正文交给 AI 转成期刊 LaTeX，结果写进代码板。
    * 手动触发 —— 只有用户明确点这个按钮，正文才会被发出去。
    */
-  const generateLatexFromMarkdown = async () => {
+  const generateLatexFromMarkdown = async (opts?: { skipCiteGate?: boolean }) => {
     if (!currentTemplate) {
       toast.error('请先在「期刊模板」面板创建并选择一个期刊模板')
       return
@@ -1789,6 +1819,29 @@ export default function WritingPage() {
       toast.error('正文为空，先写点东西吧')
       return
     }
+
+    // ── 引用体检闸门 ──
+    // 正文里如果有「CrossRef 查不到的 DOI」或「根本不像 DOI 的 [@...] 标记」，
+    // 生成出来会在 .tex 里留下一条 .bib 里没有的 \cite，编译后 PDF 上是 [?]。
+    // 这一步不阻止用户，但**必须在生成之前当面说清楚**，让用户自己决定，
+    // 而不是等他投出去以后被审稿人告知。
+    if (!opts?.skipCiteGate) {
+      setIsGeneratingLatex(true)
+      setLatexGenStatus('引用体检中...')
+      try {
+        const pre = await preflightCitations(mdContent)
+        if (pre.unresolved.length > 0 || pre.malformed.length > 0) {
+          setCiteGate(pre)
+          return
+        }
+      } catch {
+        // 体检本身失败（网络等）不该挡住出稿 —— 放行，正式生成时还会再查一次
+      } finally {
+        setIsGeneratingLatex(false)
+        setLatexGenStatus('')
+      }
+    }
+
     const { getDualEngineConfig } = useSettingsStore.getState()
     const { ai1, ai2 } = getDualEngineConfig()
     setIsGeneratingLatex(true)
@@ -1803,20 +1856,19 @@ export default function WritingPage() {
       })
       setLatexCode(result.latex)
       setLatexBib(result.bibtex)
+      setLatexSidecar(result.sidecar)
       setCompileError('')
 
-      // 块锚点自检 + 模板合规审查：这两条都不阻塞出稿，但必须让用户看见，
-      // 不能因为「生成成功了」就把它们吞掉。
-      const anchorBad =
-        (result.anchor_check?.missing.length || 0) + (result.anchor_check?.malformed.length || 0)
-      if (anchorBad > 0) {
+      // 块映射缺失 + 模板合规：都不阻塞出稿，但必须让用户看见
+      const mapped = result.sidecar.blocks.length
+      if (result.anchor_check?.missing.length) {
         toast.warning(
-          `已生成，但有 ${anchorBad} 个段落没被块锚点包住 —— 以后改 md 做「局部更新」时这些段落无法复用。` +
-            '可在代码板里搜 af:blk 核对。',
+          `已生成，但 ${result.anchor_check.missing.length} 个段落没能建好映射 —— ` +
+            '以后改 md 做「局部更新」时这些段落会整段重写（其余段落仍逐字更正）。',
           { duration: 9000 },
         )
       } else {
-        toast.success('已生成 LaTeX（块锚点齐全），可在代码板继续修改')
+        toast.success(`已生成 LaTeX，${mapped} 个段落全部建立了映射，可在代码板继续修改`)
       }
       if (result.template_compliance && !result.template_compliance.passed) {
         toast.warning(
@@ -1833,44 +1885,52 @@ export default function WritingPage() {
   }
 
   /**
-   * 改完 md 后**局部更新** LaTeX：只重写改动的那几段，其余段落从旧稿原样搬过来。
-   * 这是「转换后还想改文字」的正确路径 —— 在 md 侧改，而不是在 tex 里手改，
-   * 也不是整篇重新转换（整篇重转会让 AI 顺手改掉别处的措辞）。
+   * 改完 md 后的**局部更新** —— 「转换后还想改文字」的正确路径。
+   *
+   * 绝大多数改动是**纯文字替换**：不调 AI、不润色，直接把 md 里改的那几处
+   * 换到 tex 的对应片段上。只有替换不成（改动跨了 LaTeX 语法）才回退 AI，
+   * 并且把「哪几段回退了」明确说出来。
    */
-  const patchLatexFromMarkdownChange = async () => {
+  const runLatexLocalUpdate = async () => {
     if (!currentTemplate) {
       toast.error('请先在「期刊模板」面板创建并选择一个期刊模板')
       return
     }
     if (!latexCode.trim()) {
-      toast.error('代码板是空的：先点一次「由正文生成」拿到带锚点的稿子')
+      toast.error('代码板是空的：先点一次「由正文生成」')
+      return
+    }
+    if (!latexSidecar || latexSidecar.blocks.length === 0) {
+      toast.error(
+        '还没有「块映射」（这次生成的稿子可能是旧版本产出的）。请先点一次「由正文生成」重建映射，之后改字就能只改对应片段。',
+        { duration: 10000 },
+      )
       return
     }
     const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
     setIsGeneratingLatex(true)
     setLatexGenStatus('准备中...')
     try {
-      const result = await patchLatexFromMarkdown({
-        oldLatex: latexCode,
+      const result = await patchLatexFromSidecar({
+        currentLatex: latexCode,
         newMarkdown: mdContent,
+        sidecar: latexSidecar,
         template: currentTemplate,
         ai1,
         ai2,
         onProgress: (e) => setLatexGenStatus(e.message || ''),
       })
       setLatexCode(result.latex)
+      setLatexSidecar(result.sidecar)
       setCompileError('')
-      const anchorBad = result.anchorCheck.missing.length + result.anchorCheck.malformed.length
-      if (anchorBad > 0) {
-        toast.warning(
-          `局部更新完成（复用 ${result.reused} / 重写 ${result.regenerated} / 删除 ${result.dropped}），` +
-            `但 ${anchorBad} 个块锚点缺失，已在正文标 TODO，请人工核对。`,
-          { duration: 9000 },
-        )
-      } else {
-        toast.success(
-          `局部更新完成：复用 ${result.reused} 段 / 重写 ${result.regenerated} 段 / 删除 ${result.dropped} 段`,
-        )
+
+      toast.success(
+        `局部更新完成：逐字改 ${result.deterministic} 段（未走 AI）/ AI 重写 ${result.regenerated} 段 / 删除 ${result.dropped} 段 / 未动 ${result.untouched} 段`,
+        { duration: 9000 },
+      )
+      if (result.notes.length > 0) {
+        // 需要人看的说明一条都不藏：回退了 AI 的、被手改过没同步的，都在这里
+        toast.warning(result.notes.join('；'), { duration: 15000 })
       }
       if (result.compliance && !result.compliance.passed) {
         toast.warning(
@@ -1895,6 +1955,8 @@ export default function WritingPage() {
     setTemplates((prev) => [tpl, ...prev.filter((t) => t.id !== tpl.id)])
     setSelectedTemplateId(tpl.id)
     setLatexCode(tpl.template_tex?.trim() || buildLatexSkeletonFromTemplate(tpl))
+    // 代码板被模板内容整篇替换了，旧的块映射不再适用
+    setLatexSidecar(null)
     setCompileError('')
   }
 
@@ -2019,6 +2081,7 @@ export default function WritingPage() {
     }
     const existing = currentTemplate.template_tex?.trim()
     setLatexCode(existing || buildLatexSkeletonFromTemplate(currentTemplate))
+    setLatexSidecar(null) // 代码板换成模板内容，旧块映射作废
     setCompileError('')
     toast.success(existing ? '已载入模板 LaTeX' : '该模板还没有 LaTeX，已生成可编译骨架')
   }
@@ -2166,7 +2229,13 @@ export default function WritingPage() {
         asset_count: number
         file_count?: number
         main_tex: string
-        ai_review?: { passed: boolean; summary: string; issues: Array<{ area: string; problem: string; suggestion: string }> }
+        ai_review?: {
+          /** ok = 审完了；truncated / unavailable = **没审成**（不是「不通过」） */
+          status?: 'ok' | 'truncated' | 'unavailable'
+          passed?: boolean | null
+          summary: string
+          issues: Array<{ area: string; problem: string; suggestion: string }>
+        }
         warnings?: string[]
         cross_check?: { packages_only_in_ai: string[]; packages_only_in_regex: string[] }
       } | null = null
@@ -2199,9 +2268,17 @@ export default function WritingPage() {
         `已解包「${info.name}」：主模板 ${info.main_tex}，整包 ${info.file_count ?? info.asset_count} 个文件全部保留`,
         { duration: 8000 },
       )
-      if (review && !review.passed) {
+      // 三态：审出问题 ≠ 没审成。把「截断导致没审成」说成「复核未通过」是纯误报，
+      // 会把用户吓得以为模板有问题 —— 所以这里分开说。
+      if (review && review.status && review.status !== 'ok') {
+        toast.info(
+          `AI-2 复核「${info.name}」这次没跑完（${review.status === 'truncated' ? '输出被截断' : '无输出'}），` +
+            '不代表模板有问题，请人工过目一下模板的 meta.md。',
+          { duration: 12000 },
+        )
+      } else if (review && review.passed === false) {
         toast.warning(
-          `AI-2 复核「${info.name}」未通过：${review.summary || '见模板 meta.md 里的 issues'}`,
+          `AI-2 复核「${info.name}」发现 ${review.issues.length} 条问题：${review.summary || '见模板 meta.md'}`,
           { duration: 12000 },
         )
       }
@@ -2246,6 +2323,8 @@ export default function WritingPage() {
         onProgress: (e) => setRefineStatus(e.message || ''),
       })
       setLatexCode(result.latex)
+      // 整篇被 AI 重写过：能对上号的片段留着，对不上的丢掉（宁可重写也不留错位映射）
+      setLatexSidecar((prev) => (prev ? resyncSidecar(result.latex, prev) : prev))
       setCompileError('')
       setTemplateInstruction('')
       toast.success(
@@ -2319,6 +2398,45 @@ export default function WritingPage() {
     }
   }
 
+  /**
+   * 取「期刊模板自带、且当前源码真的引用到了」的资源文件。
+   *
+   * 出版社模板解包后整包文件都在 templates/journals/<slug>/assets/ 下（徽标、页眉图、
+   * 字体、.bst/.bib），但之前一件都没挂进编译，模板 .tex 里一句
+   * \includegraphics{head_foot/RSC_LOGO_CMYK} 就让 XeTeX 在 -halt-on-error 下直接失败 ——
+   * 用户看到的是「你们下载的官方模板都编不过」。
+   *
+   * 只挂被引用到的几件（整包十几 MB 全下载没有意义）；引用不到的**点名报出来**，
+   * 不让用户对着一句 not found 去猜是哪个文件。
+   */
+  const collectTemplateAssets = async (): Promise<{
+    files: Array<{ path: string; data: Uint8Array }>
+    missing: string[]
+  }> => {
+    if (!currentTemplate) return { files: [], missing: [] }
+    const assetPaths = await listTemplateAssets(currentTemplate.id)
+    if (assetPaths.length === 0) return { files: [], missing: [] }
+    const plan = planTemplateAssets(latexCode, assetPaths)
+    const files: Array<{ path: string; data: Uint8Array }> = []
+    for (const rel of plan.files) {
+      setCompileStatus(`正在加载模板资源 ${rel}...`)
+      const data = await loadTemplateAsset(currentTemplate.id, rel)
+      if (data) files.push({ path: rel, data })
+    }
+    return { files, missing: plan.missing }
+  }
+
+  /** 缺件提示：把文件名念出来，而不是让用户去日志里找 */
+  const warnMissingTemplateAssets = (missing: string[]) => {
+    if (missing.length === 0) return
+    toast.warning(
+      `模板里没有这些文件，编译会在它们上报 not found：` +
+        `${missing.slice(0, 5).join('、')}` +
+        (missing.length > 5 ? ` 等 ${missing.length} 个` : ''),
+      { duration: 12000 },
+    )
+  }
+
   /** 编译代码板 → 真 PDF（浏览器内 XeLaTeX WASM，全程不联网） */
   const compileCurrentLatex = async () => {
     if (!latexCode.trim()) {
@@ -2335,6 +2453,13 @@ export default function WritingPage() {
         setCompileStatus(`正在加载 ${latexPackages.length} 个导入的宏包...`)
         additionalFiles = await loadLatexPackages(activeProjectId)
       }
+
+      // 期刊模板整包留下的 assets/ 也要挂进去（见 collectTemplateAssets 注释）
+      setCompileStatus('正在检查模板自带资源...')
+      const tplAssets = await collectTemplateAssets()
+      warnMissingTemplateAssets(tplAssets.missing)
+      additionalFiles.push(...tplAssets.files)
+
       const result = await compileLatex({
         source: latexCode,
         bibtex: latexBib.trim() || undefined,
@@ -2372,6 +2497,12 @@ export default function WritingPage() {
     setCloudRunUrl('')
     setCompileStatus('正在准备云端编译...')
     try {
+      // 期刊模板自带资源同样要挂（见 collectTemplateAssets 注释）——
+      // 云端是把文件提交进私库、以 main.tex 所在目录为工作目录跑 latexmk，
+      // 所以这些文件要在同一个目录里按相对路径存在。
+      const tplAssets = await collectTemplateAssets()
+      warnMissingTemplateAssets(tplAssets.missing)
+
       const result = await compileOnGitHub(
         activeProjectId,
         latexCode,
@@ -2379,6 +2510,7 @@ export default function WritingPage() {
         {
           onStage: (s) => setCompileStatus(s),
           onRunUrl: (url) => setCloudRunUrl(url),
+          extraFiles: tplAssets.files,
         },
       )
       setPdfObjectUrl(createPdfObjectUrl(result.pdf))
@@ -4017,7 +4149,7 @@ export default function WritingPage() {
                   </span>
                   <div className="flex-1 min-w-0" />
                   <button
-                    onClick={generateLatexFromMarkdown}
+                    onClick={() => void generateLatexFromMarkdown()}
                     disabled={isGeneratingLatex}
                     className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-white bg-indigo-600 rounded hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     title="把左侧 markdown 正文交给 AI 转成 LaTeX（注意：正文会被发送到 AI 服务）"
@@ -4030,12 +4162,12 @@ export default function WritingPage() {
                     由正文生成
                   </button>
                   <button
-                    onClick={patchLatexFromMarkdownChange}
+                    onClick={runLatexLocalUpdate}
                     disabled={isGeneratingLatex || !latexCode.trim()}
                     className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-indigo-700 bg-indigo-50 rounded hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="只把改动过的段落重新生成，其余段落从当前代码板原样保留（改文字请走这条路，别整篇重转）"
+                    title="把 md 里改过的文字逐字更正到 LaTeX 对应位置；只有改不动的地方才交给 AI。改文字请走这条路，别整篇重转。"
                   >
-                    局部更新（改过 md 后）
+                    改字同步到 LaTeX
                   </button>
                   <button
                     onClick={() => handleCopyContent(latexCode)}
@@ -4591,6 +4723,114 @@ export default function WritingPage() {
                   className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   添加
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {citeGate && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="text-base font-semibold text-slate-800">引用体检没通过</h3>
+                  <p className="text-[0.6875rem] text-slate-500 mt-0.5">
+                    生成前先看一眼更好 —— 这些引用编译出来会在 PDF 上显示成 [?]
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCiteGate(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto">
+              {citeGate.malformed.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">
+                    写法不对，识别不出 DOI 的引用标记（{citeGate.malformed.length} 处）
+                  </div>
+                  <div className="space-y-1">
+                    {citeGate.malformed.map((s) => (
+                      <div
+                        key={s}
+                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-100 text-xs font-mono text-rose-700 break-all"
+                      >
+                        {s}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[0.6875rem] text-slate-500 mt-1.5">
+                    在正文里搜到这些标记，改成 <code className="font-mono">[@doi:10.xxxx/xxxx]</code> 的写法。
+                  </p>
+                </div>
+              )}
+
+              {citeGate.unresolved.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">
+                    查不到文献条目的 DOI（{citeGate.unresolved.length} / {citeGate.total.length} 条）
+                  </div>
+                  <div className="space-y-1">
+                    {citeGate.unresolved.map((d) => (
+                      <div
+                        key={d}
+                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-100"
+                      >
+                        <span className="text-xs font-mono text-amber-800 break-all">{d}</span>
+                        <a
+                          href={`https://doi.org/${d}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[0.6875rem] text-indigo-600 hover:underline flex-shrink-0"
+                        >
+                          打开 DOI
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[0.6875rem] text-slate-500 mt-1.5">
+                    可能是 DOI 写错了，也可能是 CrossRef 暂时查不到。点开确认一下；
+                    确认没问题的话，生成后需要在 .bib 里手动补这一条。
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between gap-2">
+              <button
+                onClick={() => {
+                  const all = [...citeGate.malformed, ...citeGate.unresolved]
+                  navigator.clipboard?.writeText(all.join('\n'))
+                  toast.success(`已复制 ${all.length} 条到剪贴板`)
+                }}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded-lg transition flex items-center gap-1.5"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                复制全部
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCiteGate(null)}
+                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+                >
+                  我先去改正文
+                </button>
+                <button
+                  onClick={() => {
+                    setCiteGate(null)
+                    void generateLatexFromMarkdown({ skipCiteGate: true })
+                  }}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                >
+                  仍然生成
                 </button>
               </div>
             </div>

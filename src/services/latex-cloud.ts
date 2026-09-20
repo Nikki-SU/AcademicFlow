@@ -22,6 +22,7 @@ import {
   downloadRepoBinaryFile,
   readRepoTextFile,
   writeFileBatch,
+  bytesToBase64,
   type BatchFileOp,
 } from './github'
 import { getRepoContext } from './userData'
@@ -59,6 +60,8 @@ export interface CloudCompileResult {
 export interface CloudCompileOptions {
   onStage?: (stage: string) => void
   onRunUrl?: (url: string) => void
+  /** 额外源文件（期刊模板自带的 assets/ 等），路径按 main.tex 的相对路径给 */
+  extraFiles?: Array<{ path: string; data: Uint8Array }>
   /** 整体超时，默认 8 分钟 —— docker 镜像冷拉 + TeX Live 首次编译都要时间 */
   timeoutMs?: number
 }
@@ -77,6 +80,7 @@ async function saveCloudSource(
   projectId: string,
   source: string,
   bib: string | undefined,
+  extraFiles: Array<{ path: string; data: Uint8Array }>,
   owner: string,
   repo: string,
   token: string,
@@ -87,6 +91,12 @@ async function saveCloudSource(
   ]
   if (bib && bib.trim()) {
     ops.push({ path: `${dir}/references.bib`, content: bib, encoding: 'utf-8' })
+  }
+  // 期刊模板自带资源（徽标、页眉图、字体、.bst/.bib）。落点必须与 main.tex 同目录、
+  // 且保留模板里的相对路径，这样 \includegraphics{head_foot/xxx} 才能按原样解析 ——
+  // workflow 是以 main.tex 所在目录为工作目录跑 latexmk 的。
+  for (const f of extraFiles) {
+    ops.push({ path: `${dir}/${f.path}`, content: bytesToBase64(f.data), encoding: 'base64' })
   }
   await writeFileBatch(ops, `云端编译：更新源文件（${projectId}）[skip ci]`, owner, repo, token)
 }
@@ -150,7 +160,7 @@ export async function compileOnGitHub(
   }
 
   stage('正在把源文件提交到私库…')
-  await saveCloudSource(projectId, source, bib, owner, repo, token)
+  await saveCloudSource(projectId, source, bib, opts.extraFiles ?? [], owner, repo, token)
 
   // dispatch 前先记下「当前最新一次 run」，之后靠 created_at 增量找出我们自己那次
   const before = await getLatestRun(LATEX_CLOUD_EVENT, owner, repo, token)

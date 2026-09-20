@@ -160,6 +160,26 @@ export async function saveManuscriptLatex(
   )
 }
 
+/**
+ * 块映射（sidecar）
+ * -------------------------------------------------
+ * `projects/{project-id}/latex-map.json` —— 记录「markdown 块 → LaTeX 片段」的对应关系。
+ * 单独存文件是为了让 manuscript.tex 保持干净（里面不出现任何我们的内部注释），
+ * 用户手改 tex 也不影响。
+ */
+export async function loadLatexMap(projectId: string): Promise<string> {
+  const result = await readMdFile(`projects/${projectId}/latex-map.json`)
+  return result?.content || ''
+}
+
+export async function saveLatexMap(projectId: string, content: string): Promise<void> {
+  await writeMdFile(
+    `projects/${projectId}/latex-map.json`,
+    content,
+    'Update LaTeX block map',
+  )
+}
+
 export async function loadBibtex(projectId: string): Promise<string> {
   const result = await readMdFile(`projects/${projectId}/references.bib`)
   return result?.content || ''

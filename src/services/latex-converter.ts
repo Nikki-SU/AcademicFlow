@@ -320,82 +320,297 @@ export function wrapAnchor(id: string, tex: string): string {
   return `%⟦af:blk:${id}⟧\n${tex.replace(/\s+$/, '')}\n%⟦/af:blk:${id}⟧`
 }
 
-/**
- * 取正文里**没有**被锚点包住的部分。
- * 典型是 assembleFullLatex 追加的 `\bibliographystyle{...}` / `\bibliography{...}` ——
- * 重建正文时必须把它原样接回去，否则参考文献就没了。
- */
-function extractNonAnchored(body: string): string {
-  return body
-    .replace(/^[ \t]*%⟦af:blk:[^⟧]+⟧[ \t]*\n[\s\S]*?^[ \t]*%⟦\/af:blk:[^⟧]+⟧[ \t]*$/gm, '')
+/** 只删掉锚点注释行，正文一个字不动 */
+export function stripAnchorLines(tex: string): string {
+  return tex
+    .replace(/^[ \t]*%⟦\/?af:blk:[^⟧]+⟧[ \t]*\r?\n?/gm, '')
+    .replace(/[ \t]+$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()
+}
+
+// ── 块 → 片段 映射（sidecar） ─────────────────────────────────
+
+export interface LatexBlockMapEntry {
+  /** 稳定块号（md 块内容的哈希） */
+  id: string
+  kind: MarkdownBlock['kind']
+  /** 生成这份 tex 时的 md 块原文（局部更新时拿它做 diff） */
+  text: string
+  /** 该块对应的 LaTeX 片段（**不含**锚点注释行） */
+  fragment: string
 }
 
 /**
- * 用「新的 Markdown 块序列」重建 LaTeX 正文：
- *   - 块号不变的块 → 直接复用旧片段（**不重新生成，文字不会被 AI 顺手改动**）
- *   - 新增 / 改动 / 锚点丢失的块 → 交给 generateBlocks 重新生成
- *   - 旧稿里有、新 md 里没有的块 → 丢弃（等于删除）
- * 未包在锚点里的部分（导言区之后的 \bibliography 之类）原样保留在末尾。
+ * .tex 旁边的「块映射」文件（projects/<id>/latex-map.json）。
  *
- * 注意：这是纯函数，generateBlocks 由调用方注入 —— 便于单测，也便于换实现。
+ * 为什么不把锚点写在 .tex 里：用户是要**看并改**这份 .tex 的，
+ * 里面躺着一堆 `%⟦af:blk:xxx⟧` 内部注释是纯噪音。
+ * 映射单独存一份，tex 保持干净；手改 tex 之后靠片段原文重新定位。
  */
-export async function rebuildBodyFromBlocks(
-  oldLatex: string,
-  newMd: string,
-  generateBlocks: (blocks: MarkdownBlock[]) => Promise<string>,
-): Promise<{ latex: string; reused: number; regenerated: number; dropped: number }> {
-  const beginTag = '\\begin{document}'
-  const endTag = '\\end{document}'
-  const beginAt = oldLatex.indexOf(beginTag)
-  const endAt = oldLatex.lastIndexOf(endTag)
-  const head = beginAt === -1 ? '' : oldLatex.slice(0, beginAt + beginTag.length)
-  const body = beginAt === -1 || endAt <= beginAt ? '' : oldLatex.slice(beginAt + beginTag.length, endAt)
-  const tail = endAt > beginAt ? oldLatex.slice(endAt) : ''
+export interface LatexSidecar {
+  version: 1
+  template_id: string
+  blocks: LatexBlockMapEntry[]
+  /**
+   * 生成时的 DOI → cite key 表。
+   * 局部更新时新生成的段落里是 `[@doi:...]` 标记，要用这张表换成 `\cite{key}`，
+   * 否则新旧段落会出现两套引用写法。
+   */
+  cite_keys?: Record<string, string>
+}
 
-  const oldFragments = extractAnchoredFragments(body)
-  const blocks = splitMarkdownBlocks(newMd)
-
-  const needGenerate: MarkdownBlock[] = []
-  for (const b of blocks) if (!oldFragments.has(b.id)) needGenerate.push(b)
-
-  let generated = ''
-  if (needGenerate.length > 0) generated = await generateBlocks(needGenerate)
-  const newFragments = extractAnchoredFragments(generated)
-
-  const pieces: string[] = []
-  let reused = 0
-  let regenerated = 0
+/**
+ * 把 AI 输出里的锚点拆成 sidecar，同时把锚点行从 .tex 里抹掉。
+ * missing = AI 漏写锚点的块号 —— 这些块拿不到片段，局部更新时只能整段重写。
+ */
+export function buildSidecarFromAnchored(
+  anchoredBody: string,
+  md: string,
+  templateId: string,
+  citeKeys?: Record<string, string>,
+): { cleanBody: string; sidecar: LatexSidecar; missing: string[] } {
+  const blocks = splitMarkdownBlocks(md)
+  const fragMap = extractAnchoredFragments(anchoredBody)
+  const entries: LatexBlockMapEntry[] = []
+  const missing: string[] = []
   for (const b of blocks) {
-    const reusedFrag = oldFragments.get(b.id)
-    if (reusedFrag) {
-      pieces.push(reusedFrag)
-      reused++
+    const raw = fragMap.get(b.id)
+    const fragment = raw ? stripAnchorLines(raw).trim() : ''
+    if (!fragment) {
+      missing.push(b.id)
       continue
     }
-    const frag = newFragments.get(b.id)
-    if (frag) {
-      pieces.push(frag)
-      regenerated++
-    } else {
-      // AI 没给这个块的锚点 —— 不猜、不静默丢，交给调用方在返回值里体现
-      pieces.push(`%⟦af:blk:${b.id}⟧\n% TODO: 该块未能生成 LaTeX（AI 未返回对应锚点）\n%⟦/af:blk:${b.id}⟧`)
+    entries.push({ id: b.id, kind: b.kind, text: b.text, fragment })
+  }
+  return {
+    cleanBody: stripAnchorLines(anchoredBody).trim(),
+    sidecar: { version: 1, template_id: templateId, blocks: entries, cite_keys: citeKeys },
+    missing,
+  }
+}
+
+// ── 确定性文字替换（不调 AI） ─────────────────────────────────
+
+/** 词 + 空白切分：空白单独成 token，保证 diff 后的拼接能还原原样 */
+function tokenizeWords(s: string): string[] {
+  return s.match(/\s+|[^\s]+/g) || []
+}
+
+interface DiffRun {
+  oldText: string
+  newText: string
+  /** 改动前后的邻近原文（定位不唯一时用来加长上下文） */
+  beforeCtx: string
+  afterCtx: string
+}
+
+/** LCS 匹配对（词级）—— 段落都很短，O(n·m) 足够 */
+function lcsMatches(a: string[], b: string[]): Array<[number, number]> {
+  const n = a.length
+  const m = b.length
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
     }
   }
-
-  const dropped = [...oldFragments.keys()].filter((id) => !blocks.some((b) => b.id === id)).length
-
-  // 锚点外的正文（\bibliographystyle / \bibliography 等）原样接回末尾
-  const leftover = extractNonAnchored(body)
-  const newBody = [pieces.join('\n\n'), leftover].filter((s) => s.trim() !== '').join('\n\n')
-
-  return {
-    latex: [head, '', newBody, '', tail].filter((s) => s !== '').join('\n').trimEnd(),
-    reused,
-    regenerated,
-    dropped,
+  const out: Array<[number, number]> = []
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push([i, j])
+      i++
+      j++
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) i++
+    else j++
   }
+  return out
+}
+
+/** 取出「不匹配的连续段」——这些就是需要替换的地方 */
+function diffRuns(oldText: string, newText: string, ctxTokens = 4): DiffRun[] {
+  const a = tokenizeWords(oldText)
+  const b = tokenizeWords(newText)
+  const matches = lcsMatches(a, b)
+  const runs: DiffRun[] = []
+  let ai = 0
+  let bj = 0
+  const push = (aEnd: number, bEnd: number) => {
+    if (aEnd === ai && bEnd === bj) return
+    runs.push({
+      oldText: a.slice(ai, aEnd).join(''),
+      newText: b.slice(bj, bEnd).join(''),
+      beforeCtx: a.slice(Math.max(0, ai - ctxTokens), ai).join(''),
+      afterCtx: a.slice(aEnd, aEnd + ctxTokens).join(''),
+    })
+  }
+  for (const [mi, mj] of matches) {
+    push(mi, mj)
+    ai = mi + 1
+    bj = mj + 1
+  }
+  push(a.length, b.length)
+  return runs
+}
+
+/** 空白压平 + 原文下标映射：tex 里的换行/缩进不该妨碍字面匹配 */
+function normalizeWithMap(s: string): { text: string; map: number[] } {
+  const chars: string[] = []
+  const map: number[] = []
+  let prevWs = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (/\s/.test(ch)) {
+      if (!prevWs) {
+        chars.push(' ')
+        map.push(i)
+      }
+      prevWs = true
+    } else {
+      chars.push(ch)
+      map.push(i)
+      prevWs = false
+    }
+  }
+  return { text: chars.join(''), map }
+}
+
+const normalizeText = (s: string) => s.replace(/\s+/g, ' ').trim()
+
+/** fragment 里给 md 文本补常见的 LaTeX 转义（原样找不到时的第二次尝试） */
+function escapeForTex(s: string): string {
+  return s.replace(/([&%$#_{}])/g, '\\$1')
+}
+
+/**
+ * 在 fragment 里定位 needle，要求**唯一命中**（唯一性靠加长上下文来争取）。
+ * 返回的是 fragment 原文坐标，以及命中时使用的规范化串长度（用来回推内层偏移）。
+ */
+function locateUnique(
+  haystack: string,
+  variants: string[],
+): { start: number; end: number; used: string } | null {
+  const h = normalizeWithMap(haystack)
+  for (const v of variants) {
+    const t = normalizeText(v)
+    if (!t) continue
+    const at = h.text.indexOf(t)
+    if (at === -1) continue
+    if (h.text.indexOf(t, at + 1) !== -1) continue // 不唯一 → 换更长的变体
+    return { start: h.map[at], end: h.map[at + t.length - 1] + 1, used: v }
+  }
+  return null
+}
+
+export interface DeterministicEditResult {
+  ok: boolean
+  fragment: string
+  /** 实际完成的替换处数 */
+  applied: number
+  /** ok=false 时说明为什么没敢改（要如实告诉用户「这段交给 AI 了」） */
+  reason?: string
+}
+
+/**
+ * 把「md 块内的一处文字改动」**原样搬到**该块的 LaTeX 片段上。
+ * 全程不调 AI、不做任何润色 —— 只把 diff 出来的旧文字替换成新文字。
+ *
+ * 找不到 / 不唯一 / 改动跨了 LaTeX 语法时返回 ok=false，
+ * 由调用方决定回退到 AI 重写，并把 reason 亮给用户。
+ */
+export function applyDeterministicTextEdit(
+  oldText: string,
+  newText: string,
+  fragment: string,
+): DeterministicEditResult {
+  if (oldText === newText) return { ok: true, fragment, applied: 0 }
+  const runs = diffRuns(oldText, newText)
+  if (runs.length === 0) return { ok: true, fragment, applied: 0 }
+
+  let out = fragment
+  let applied = 0
+
+  // 从后往前改：前面的替换不会影响后面 needle 的定位
+  for (let k = runs.length - 1; k >= 0; k--) {
+    const run = runs[k]
+
+    // 纯插入（oldText 为空）：拿前文当锚点，插到锚点之后
+    if (!run.oldText.trim()) {
+      const anchor = run.beforeCtx.trim()
+      if (!anchor) return { ok: false, fragment, applied, reason: '插入位置前面没有可定位的原文' }
+      const hit = locateUnique(out, [anchor])
+      if (!hit) return { ok: false, fragment, applied, reason: `插入锚点定位不到或不唯一：「${anchor.slice(-24)}」` }
+      out = out.slice(0, hit.end) + run.newText + out.slice(hit.end)
+      applied++
+      continue
+    }
+
+    // 修改 / 删除：先试原样，再试补了 LaTeX 转义的版本；都不唯一就加长上下文
+    const variants = [
+      run.oldText,
+      escapeForTex(run.oldText),
+      `${run.beforeCtx}${run.oldText}${run.afterCtx}`,
+      `${run.beforeCtx}${escapeForTex(run.oldText)}${run.afterCtx}`,
+    ]
+    const hit = locateUnique(out, variants)
+    if (!hit) {
+      return {
+        ok: false,
+        fragment,
+        applied,
+        reason: `这段文字在 tex 里找不到或出现多次：「${run.oldText.slice(0, 30)}」`,
+      }
+    }
+
+    // 上下文变体命中时，只替换里层那段，别把上下文一起吃进去
+    const usedNorm = normalizeText(hit.used)
+    const oldNorm = normalizeText(run.oldText)
+    if (usedNorm !== oldNorm) {
+      // 按 haystack 的规范化坐标，回推「里层那段」的原文区间
+      const h = normalizeWithMap(out)
+      const matchAt = h.text.indexOf(usedNorm)
+      if (matchAt === -1) return { ok: false, fragment, applied, reason: '定位漂移，已放弃逐字替换' }
+      const innerAt = matchAt + normalizeText(run.beforeCtx).length
+      if (h.text.slice(innerAt, innerAt + oldNorm.length) !== oldNorm) {
+        return { ok: false, fragment, applied, reason: '定位漂移，已放弃逐字替换' }
+      }
+      const s = h.map[innerAt]
+      const e = h.map[innerAt + oldNorm.length - 1] + 1
+      out = out.slice(0, s) + run.newText.replace(/\s+$/, '') + out.slice(e)
+      applied++
+      continue
+    }
+
+    out = out.slice(0, hit.start) + run.newText + out.slice(hit.end)
+    applied++
+  }
+
+  return { ok: true, fragment: out, applied }
+}
+
+/** 在 .tex 里找某段片段的落点（片段原文可能被手改过，找不到就是 null） */
+function locateFragment(latex: string, fragment: string): number {
+  const t = fragment.trim()
+  if (!t) return -1
+  const at = latex.indexOf(t)
+  if (at === -1) return -1
+  return latex.indexOf(t, at + 1) === -1 ? at : -1
+}
+
+/** 取一段片段的首行摘要，用于给用户看的提示文案 */
+function snippet(text: string, n = 24): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, n)
+}
+
+/**
+ * 代码板被整篇替换之后，把映射里**还能对上号**的片段留下，对不上的丢掉。
+ * 用在「让 AI 改代码（样式）」之后：样式改动通常不动正文，片段照样能定位；
+ * 动了正文的那些片段会失效，与其留着错位，不如丢掉（下次会整段重写）。
+ */
+export function resyncSidecar(latex: string, sidecar: LatexSidecar): LatexSidecar {
+  const kept = sidecar.blocks.filter((b) => locateFragment(latex, b.fragment) !== -1)
+  return { ...sidecar, blocks: kept }
 }
 
 // ============================================================
@@ -966,14 +1181,16 @@ function parseCompliance(raw: string): TemplateComplianceReport {
 }
 
 // ============================================================
-// 改 md 后：只重写改动的那几块，其余原样保留
+// 改 md 后：只更正改动的那几处，其余原文一个字不动
 // ============================================================
 
-export interface PatchLatexParams {
-  /** 上一次转换出来的完整 LaTeX（带块锚点） */
-  oldLatex: string
+export interface PatchFromSidecarParams {
+  /** 当前代码板里的完整 LaTeX（可能是用户手改过的） */
+  currentLatex: string
   /** 用户改过的 Markdown */
   newMarkdown: string
+  /** 上次生成 tex 时留下的块映射（projects/<id>/latex-map.json） */
+  sidecar: LatexSidecar
   template: JournalTemplate
   ai1: { baseUrl: string; apiKey: string; model: string }
   /** 传了就顺带跑一遍模板合规审查 */
@@ -981,46 +1198,94 @@ export interface PatchLatexParams {
   onProgress?: LatexConvertProgress
 }
 
-export interface PatchLatexResult {
+export interface PatchFromSidecarResult {
   latex: string
-  /** 复用的段落数（未被 AI 重写） */
-  reused: number
-  /** 重新生成的段落数 */
+  /** 更新后的块映射，要一起存回 sidecar 文件 */
+  sidecar: LatexSidecar
+  /** 逐字替换直接改好的段数（**没花 AI 调用、也不可能被改措辞**） */
+  deterministic: number
+  /** 交给 AI 重写的段数 */
   regenerated: number
-  /** 因 md 中已删除而丢弃的段落数 */
+  /** 因 md 里删掉而移除的段数 */
   dropped: number
-  /** 重生成部分的锚点自检 */
-  anchorCheck: AnchorCheck
+  /** 一个字都没动的段数 */
+  untouched: number
+  /** 需要人看的说明（哪些段回退了 AI、哪些段因为被手改过而没同步） */
+  notes: string[]
   compliance?: TemplateComplianceReport
 }
 
 /**
- * 「文字改动走 md 侧」的落点。
+ * 「文字改动走 md 侧」的落点 —— 这是**正确路径**，不是整篇重转。
  *
- * oldLatex 是上一次转换的产物，每个 md 块都被 %⟦af:blk:id⟧ 锚点包着。
- * 这里按「新 md 的块序列」重排：
- *   块号没变的 → 直接搬旧片段（一个字都不会被 AI 动）
- *   块号变了 / 新增 → 只把这几个块交给 AI 重写
- * 于是「改一句话」不会触发整篇重转，也不会让 AI 顺手改掉别的段落。
- *
- * ⚠️ 前提是老稿确实带锚点。老稿不带锚点（比如是手改过的、或早期版本生成的）
- *    就没法定位，此时返回值里 regenerated 会等于全部块数 —— 调用方应当提示用户
- *    「这等于整篇重转」，必要时让用户先重新生成一次带锚点的稿子。
+ * 做法是「外科手术式」的，不是重建整篇：
+ *   1. 块号没变的段 → 原样不动。
+ *   2. 块号变了（md 里改了字的段）：
+ *        a. 先做**确定性文字替换** —— 把 diff 出来的旧文字在新片段里换成新文字，
+ *           不调 AI、不润色、离线可用；
+ *        b. 只有替换不成（改动跨了 LaTeX 语法、或文字掺了公式/转义）才回退 AI 重写，
+ *           并把「这一段回退了」如实写进 notes。
+ *   3. 新增段 → AI 生成后插在前一段之后。
+ *   4. 删除段 → 从 tex 里精确移除。
+ *   5. 用户手改过的段（片段原文在 tex 里找不到）→ **不碰 tex**，只记进 notes，
+ *      宁可不改也不把稿子改花。
  */
-export async function patchLatexFromMarkdown(params: PatchLatexParams): Promise<PatchLatexResult> {
-  const { oldLatex, newMarkdown, template, ai1, ai2, onProgress } = params
+export async function patchLatexFromSidecar(
+  params: PatchFromSidecarParams,
+): Promise<PatchFromSidecarResult> {
+  const { currentLatex, newMarkdown, sidecar, template, ai1, ai2, onProgress } = params
 
   const blocks = splitMarkdownBlocks(newMarkdown)
-  const allIds = blocks.map((b) => b.id)
-  onProgress?.({
-    stage: 'ai_converting',
-    message: `比对改动段落（共 ${blocks.length} 块）…`,
-  })
+  const notes: string[] = []
+  onProgress?.({ stage: 'ai_converting', message: `比对改动段落（共 ${blocks.length} 块）…` })
 
-  const generateBlocks = async (targets: MarkdownBlock[]): Promise<string> => {
+  const byId = new Map(sidecar.blocks.map((b) => [b.id, b]))
+  let latex = currentLatex
+  const nextEntries: LatexBlockMapEntry[] = []
+  const needAi: MarkdownBlock[] = []
+  /** 被手改过、这次不动 tex 的块 → 只更新 md 侧文字记录 */
+  const staleOnly = new Map<string, string>()
+
+  let deterministic = 0
+  let untouched = 0
+
+  for (const b of blocks) {
+    const prev = byId.get(b.id)
+    if (!prev) {
+      needAi.push(b)
+      continue
+    }
+    if (prev.text === b.text) {
+      nextEntries.push(prev)
+      untouched++
+      continue
+    }
+    // md 里改了字 —— 先看这段在 tex 里还在不在（用户可能手改过）
+    if (locateFragment(latex, prev.fragment) === -1) {
+      notes.push(`「${snippet(b.text)}」这一段你在 .tex 里手改过，本次没有动代码板，请自行核对合并`)
+      staleOnly.set(b.id, b.text)
+      continue
+    }
+    const det = applyDeterministicTextEdit(prev.text, b.text, prev.fragment)
+    if (det.ok) {
+      latex = latex.replace(prev.fragment, det.fragment)
+      nextEntries.push({ ...prev, text: b.text, fragment: det.fragment })
+      deterministic++
+    } else {
+      notes.push(`「${snippet(b.text)}」无法逐字替换（${det.reason || '未知原因'}），已交给 AI 重写这一段`)
+      needAi.push(b)
+    }
+  }
+
+  const regenerated = needAi.length
+  if (needAi.length > 0) {
+    onProgress?.({
+      stage: 'ai_converting',
+      message: `${deterministic} 段已逐字改好；${needAi.length} 段需要 AI 重写…`,
+    })
     const user = [
-      '【需要重新生成的 Markdown 块（只有这些，其余块请勿输出）】',
-      targets.map((b) => `<!--af:blk:${b.id}-->\n${b.text}`).join('\n\n'),
+      '【需要重新生成的 Markdown 块（只有这些）】',
+      needAi.map((b) => `<!--af:blk:${b.id}-->\n${b.text}`).join('\n\n'),
       '',
       '要求：',
       '- 每个块输出为对应的 LaTeX 片段，并用 %⟦af:blk:块号⟧ … %⟦/af:blk:块号⟧ 包起来',
@@ -1028,7 +1293,6 @@ export async function patchLatexFromMarkdown(params: PatchLatexParams): Promise<
       '- 只输出这些块的 LaTeX，不要输出其余任何内容',
       '- [@doi:xxx] 引用标记保持原样',
     ].join('\n')
-
     const resp = await callAI({
       baseUrl: ai1.baseUrl,
       apiKey: ai1.apiKey,
@@ -1041,52 +1305,128 @@ export async function patchLatexFromMarkdown(params: PatchLatexParams): Promise<
     let out = resp.content.trim()
     const fence = out.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
     if (fence) out = fence[1].trim()
-    return out
+
+    const { sidecar: aiSidecar, missing } = buildSidecarFromAnchored(
+      out,
+      needAi.map((b) => b.text).join('\n\n'),
+      template.id,
+    )
+    const fragById = new Map(aiSidecar.blocks.map((e) => [e.id, e.fragment]))
+
+    for (const b of needAi) {
+      const raw = fragById.get(b.id)
+      if (!raw) {
+        notes.push(`AI 没返回「${snippet(b.text)}」这一段的 LaTeX，已跳过（md 里有、代码板里没有）`)
+        continue
+      }
+      // 新生成的片段里还是 [@doi:...] 标记，要用同一份 key 表换成 \cite{...}，
+      // 否则新段落会和旧段落出现两套引用写法
+      const fragment = replaceCitationMarkers(raw, sidecar.cite_keys || {})
+      const prev = byId.get(b.id)
+      const pos = findInsertPosition(latex, blocks, b, byId, nextEntries)
+      latex = latex.slice(0, pos) + fragment + '\n\n' + latex.slice(pos)
+      nextEntries.push({ id: b.id, kind: b.kind, text: b.text, fragment })
+      if (prev) if (missing.includes(b.id)) notes.push(`「${snippet(b.text)}」重写后仍未带锚点，已按整段插入`)
+    }
   }
 
-  const rebuilt = await rebuildBodyFromBlocks(oldLatex, newMarkdown, generateBlocks)
-
-  const anchorCheck = checkAnchors(rebuilt.latex, allIds)
-  if (anchorCheck.missing.length > 0 || anchorCheck.malformed.length > 0) {
-    onProgress?.({
-      stage: 'ai_reviewing',
-      message:
-        `锚点自检未通过：缺 ${anchorCheck.missing.length} 个、异常 ${anchorCheck.malformed.length} 个。` +
-        '受影响段落已标记 TODO，请人工核对或整篇重转。',
-    })
+  // 被手改过的块：只更新 md 文字，tex 保持用户手改后的样子
+  for (const b of blocks) {
+    const stale = staleOnly.get(b.id)
+    if (stale !== undefined) {
+      const prev = byId.get(b.id)!
+      nextEntries.push({ ...prev, text: stale })
+    }
   }
 
-  const result: PatchLatexResult = {
-    latex: rebuilt.latex,
-    reused: rebuilt.reused,
-    regenerated: rebuilt.regenerated,
-    dropped: rebuilt.dropped,
-    anchorCheck,
+  // md 里删掉的段 → 从 tex 精确移除
+  let dropped = 0
+  const aliveIds = new Set(blocks.map((b) => b.id))
+  for (const entry of sidecar.blocks) {
+    if (aliveIds.has(entry.id)) continue
+    const at = locateFragment(latex, entry.fragment)
+    if (at !== -1) {
+      latex = (latex.slice(0, at) + latex.slice(at + entry.fragment.length)).replace(/\n{3,}/g, '\n\n')
+      dropped++
+    } else {
+      notes.push(`md 里删掉了「${snippet(entry.text)}」，但它在 .tex 里被手改过，没能精确移除，请自行核对`)
+    }
+  }
+
+  const finalSidecar: LatexSidecar = {
+    version: 1,
+    template_id: template.id,
+    blocks: blocks
+      .map((b) => nextEntries.find((e) => e.id === b.id))
+      .filter((e): e is LatexBlockMapEntry => Boolean(e)),
+  }
+
+  const result: PatchFromSidecarResult = {
+    latex,
+    sidecar: finalSidecar,
+    deterministic,
+    regenerated,
+    dropped,
+    untouched,
+    notes,
   }
 
   if (ai2) {
-    result.compliance = await reviewTemplateCompliance({
-      latex: rebuilt.latex,
-      template,
-      ai2,
-      onProgress,
-    })
+    result.compliance = await reviewTemplateCompliance({ latex, template, ai2, onProgress })
   }
 
   onProgress?.({
     stage: 'done',
-    message: `完成：复用 ${rebuilt.reused} 段 / 重写 ${rebuilt.regenerated} 段 / 删除 ${rebuilt.dropped} 段`,
+    message:
+      `完成：逐字改 ${deterministic} 段 / AI 重写 ${regenerated} 段 / 删除 ${dropped} 段 / 未动 ${untouched} 段`,
   })
   return result
+}
+
+/**
+ * 给「新增的块」找插入位置：优先插在**前一个已定位块**的片段之后；
+ * 前面没有就插在**后一个已定位块**之前；都没有就插在 \begin{document} 之后。
+ * 返回 latex 里的字符下标。
+ */
+function findInsertPosition(
+  latex: string,
+  blocks: MarkdownBlock[],
+  target: MarkdownBlock,
+  byId: Map<string, LatexBlockMapEntry>,
+  placed: LatexBlockMapEntry[],
+): number {
+  const idx = blocks.findIndex((b) => b.id === target.id)
+  const placedIds = new Set(placed.map((p) => p.id))
+
+  for (let i = idx - 1; i >= 0; i--) {
+    const prev = byId.get(blocks[i].id)
+    if (prev && placedIds.has(prev.id)) {
+      const at = locateFragment(latex, prev.fragment)
+      if (at !== -1) return at + prev.fragment.length
+    }
+  }
+  for (let i = idx + 1; i < blocks.length; i++) {
+    const nxt = byId.get(blocks[i].id)
+    if (nxt && placedIds.has(nxt.id)) {
+      const at = locateFragment(latex, nxt.fragment)
+      if (at !== -1) return at
+    }
+  }
+  const beginTag = '\\begin{document}'
+  const beginAt = latex.indexOf(beginTag)
+  return beginAt === -1 ? latex.length : beginAt + beginTag.length
 }
 
 // ============================================================
 // 主转换函数
 // ============================================================
 
+/** 转换结果 + 块映射（sidecar 要单独落盘，所以不塞进共享的 LatexConversionResult 类型） */
+export type LatexConvertResult = LatexConversionResult & { sidecar: LatexSidecar }
+
 export async function convertMarkdownToLatex(
   params: ConvertParams,
-): Promise<LatexConversionResult> {
+): Promise<LatexConvertResult> {
   const {
     markdown,
     template,
@@ -1210,22 +1550,26 @@ export async function convertMarkdownToLatex(
     // 替换正文中的引用标记
     latexBody = replaceCitationMarkers(latexBody, citeKeys)
 
-    // 组装完整文档
-    const fullLatex = assembleFullLatex(latexBody, template)
-
-    // ---- 阶段 6: 块锚点自检 ----
-    // 锚点是「以后改 md 只重写改动段落」的前提。AI 经常会漏写几个锚点，
-    // 这里如实报出来 —— 用户在代码板里一眼能看到哪些段落没被锚住。
-    const expectedIds = splitMarkdownBlocks(markdown).map((b) => b.id)
-    const anchorCheck = checkAnchors(fullLatex, expectedIds)
-    if (anchorCheck.missing.length > 0 || anchorCheck.malformed.length > 0) {
+    // ---- 阶段 6: 拆出「块 → 片段」映射，并把锚点注释从 .tex 里抹掉 ----
+    // 用户是要看并手改这份 .tex 的，正文里不该躺着一堆内部注释；
+    // 映射单独存 sidecar，局部更新时按片段原文定位。
+    const { cleanBody, sidecar, missing } = buildSidecarFromAnchored(
+      latexBody,
+      markdown,
+      template.id,
+      citeKeys,
+    )
+    const anchorCheck = checkAnchors(latexBody, splitMarkdownBlocks(markdown).map((b) => b.id))
+    if (missing.length > 0) {
       onProgress?.({
         stage: 'ai_reviewing',
         message:
-          `块锚点自检：缺 ${anchorCheck.missing.length} 个 / 异常 ${anchorCheck.malformed.length} 个。` +
-          '缺锚点的段落在「改 md 局部更新」时无法复用，需要重写。',
+          `${missing.length} 个段落 AI 没给出对应的 LaTeX 片段，这些段落在「局部更新」时会整段重写。`,
       })
     }
+
+    // 组装完整文档（正文已无锚点注释）
+    const fullLatex = assembleFullLatex(cleanBody, template)
 
     // ---- 阶段 7: AI-2 模板合规审查（与忠实性审查是两条独立信号） ----
     let compliance: TemplateComplianceReport | undefined
@@ -1250,6 +1594,7 @@ export async function convertMarkdownToLatex(
       review_issues: reviewIssues,
       anchor_check: anchorCheck,
       template_compliance: compliance,
+      sidecar,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

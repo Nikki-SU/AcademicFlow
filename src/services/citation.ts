@@ -357,6 +357,56 @@ export async function getCitationEntries(
   return { entries, failed }
 }
 
+/**
+ * 引用体检：生成 LaTeX 之前，先看一遍正文里的引用标记能不能落成真实条目。
+ *
+ * 为什么要有这一步：拿不到元数据的 DOI 在正文里照样是 `[@doi:...]`，生成后会被
+ * 写成 `\cite{doi:...}`，而 .bib 里没有对应条目 —— 编译出来 PDF 上就是一个 `[?]`，
+ * 等投稿被审稿人看到就晚了。更糟的是写错的标记（比如 `[@doi:见附注]`）会被
+ * 无差别换成 `\cite{...}`，同样没有条目。这两种都不会报错，只会静默地坏掉。
+ *
+ * 所以把它提前到「点了生成之后、真正开始生成之前」，由界面当面说清楚：
+ * 哪几条找不到、写错的是哪几条，让用户选「先回去修」还是「明知会 [?] 也继续」。
+ *
+ * 复用 getCitationEntries，命中的结果会写进 citation_cache，
+ * 紧接着的正式生成基本是缓存命中，不会重复请求 CrossRef。
+ */
+export async function preflightCitations(markdown: string): Promise<{
+  /** 正文里识别出的合法 DOI */
+  total: string[]
+  /** 能拿到元数据的 DOI */
+  resolved: string[]
+  /** 拿不到元数据的 DOI（会在 PDF 里变成 [?]） */
+  unresolved: string[]
+  /** 写法就不像 DOI 的引用标记原文（逐字带上，方便用户去正文里搜） */
+  malformed: string[]
+}> {
+  const total = extractCitationsFromMarkdown(markdown)
+
+  // 所有 [@...] 标记里，拆开后不是合法 DOI 的那些 —— 它们同样会被换成 \cite{}
+  const malformed: string[] = []
+  const markerRegex = /\[@(?:doi:)?([^\]]+)\]/gi
+  let m: RegExpExecArray | null
+  while ((m = markerRegex.exec(markdown)) !== null) {
+    for (const part of m[1].split(/[;,]/)) {
+      const p = part.trim()
+      if (!p) continue
+      if (!normalizeDoi(p).valid) malformed.push(m[0])
+    }
+  }
+
+  if (total.length === 0) {
+    return { total, resolved: [], unresolved: [], malformed: [...new Set(malformed)] }
+  }
+  const { entries, failed } = await getCitationEntries(total)
+  return {
+    total,
+    resolved: entries.map((e) => e.doi),
+    unresolved: failed,
+    malformed: [...new Set(malformed)],
+  }
+}
+
 // ============================================================
 // BibTeX 生成
 // ============================================================

@@ -9,7 +9,7 @@
  * - IndexedDB 仅作为本地缓存，写操作总是同步到 GitHub 私库。
  */
 import { db } from './db'
-import { readRepoTextFile, writeRepoTextFile } from './github'
+import { readRepoTextFile, writeRepoTextFile, githubFetch, downloadRepoBinaryFile } from './github'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { useAuthStore } from '../stores/auth'
 import type { JournalTemplate, GuidelineVersion } from '../types'
@@ -278,6 +278,43 @@ export async function getAllTemplates(): Promise<JournalTemplate[]> {
 export async function getTemplateById(id: string): Promise<JournalTemplate | undefined> {
   const list = await getAllTemplates()
   return list.find((t) => t.id === id)
+}
+
+/**
+ * 列出模板自带的资源文件（templates/journals/<slug>/assets/**），
+ * 返回**相对 assets/ 的路径** —— .tex 里引用的就是这种相对路径，
+ * 挂进编译虚拟文件系统时要按原样还原，不能加 assets/ 前缀。
+ *
+ * 用一次 Git Trees 递归调用拿全量清单：contents API 不递归，
+ * 而模板包是带子目录的（例如 RSC 的 head_foot/*.pdf）。
+ */
+export async function listTemplateAssets(slug: string): Promise<string[]> {
+  const ctx = getUserContext()
+  if (!ctx) return []
+  const prefix = `${templateDir(slug)}/assets/`
+  const res = await githubFetch(
+    `/repos/${ctx.owner}/${ctx.repo}/git/trees/main?recursive=1`,
+    ctx.token,
+  )
+  if (!res.ok) return []
+  const data = (await res.json()) as { tree?: Array<{ path: string; type: string }> }
+  return (data.tree ?? [])
+    .filter((n) => n.type === 'blob' && n.path.startsWith(prefix))
+    .map((n) => n.path.slice(prefix.length))
+}
+
+/** 读取模板 assets/ 里的一个文件（PDF/图片等二进制） */
+export async function loadTemplateAsset(slug: string, rel: string): Promise<Uint8Array | null> {
+  const ctx = getUserContext()
+  if (!ctx) return null
+  const file = await downloadRepoBinaryFile(
+    ctx.owner,
+    ctx.repo,
+    `${templateDir(slug)}/assets/${rel}`,
+    ctx.token,
+  )
+  if (!file) return null
+  return new Uint8Array(await file.blob.arrayBuffer())
 }
 
 /**
