@@ -90,7 +90,7 @@ import {
 } from '../services/projectData'
 import { loadLiteratures, type Literature } from '../services/literatureData'
 import { callAI } from '../services/ai/client'
-import { searchCrossref, type OnlineSearchResult } from '../services/citation'
+import { searchCrossref, normalizeDoi, type OnlineSearchResult } from '../services/citation'
 import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
 
 /**
@@ -197,6 +197,62 @@ const BUILTIN_ACTIONS: QuickActionDef[] = [
     ],
   },
 ]
+
+/**
+ * 把 Crossref 的真实检索结果拼成【源材料】。
+ *
+ * 「找文献」不能只在你勾选的文献里找 —— 那样永远找不到库外文献（可信检索要的不是
+ * 「只用库里已有的」，而是「不许瞎编」）。但也不能让 AI 自己"检索"：DeepSeek 没有联网
+ * 能力，让它凭记忆报标题和 DOI 只会编。
+ *
+ * 折中：前端真去 Crossref 检索，把返回的真实记录当 ground truth 交给双引擎。
+ * AI 只能引用这里列出的条目，AI-2 照旧逐条锚定 —— 「找得到外部文献」和「不许瞎编」
+ * 两件事同时成立。
+ */
+function buildCrossrefSourceMaterial(topic: string, records: OnlineSearchResult[]): string {
+  // Crossref 的 title / container-title 里常带换行和多余空白（甚至 <sup> 标记），
+  // 原样喂给 AI 会让它"顺手整理一下"，一整理就和源材料对不上字面、被 AI-2 判成
+  // 引证锚定失败，然后反复重写。这里先把空白压平，让源材料本身就是规整的。
+  const flat = (s: string) => s.replace(/\s+/g, ' ').trim()
+  const blocks = records.map((r, i) => {
+    const lines = [`[${i + 1}] DOI: ${flat(r.doi)}`]
+    if (r.title) lines.push(`Title: ${flat(r.title)}`)
+    if (r.authors) lines.push(`Authors: ${flat(r.authors)}`)
+    if (r.year) lines.push(`Year: ${r.year}`)
+    if (r.journal) lines.push(`Journal: ${flat(r.journal)}`)
+    return lines.join('\n')
+  })
+  return `--- Crossref 检索结果（检索词：${topic}）---\n\n${blocks.join('\n\n')}`
+}
+
+/**
+ * 把中文研究主题转成 Crossref 能用的英文检索词。
+ *
+ * 起因是实测：Crossref 的 query.bibliographic 实际上只认英文 ——
+ * 传「Pd 催化的 gem-二氟环丙烷开环氢脱氟反应」进去，返回的是一堆 1985~1995 年的
+ * 冷门中文文献，完全跑偏；换成英文关键词，第一篇就是目标文献。所以中文主题先转英文。
+ *
+ * 只让它输出关键词串（不做整句翻译），避免把长句塞进检索接口。
+ */
+async function toEnglishSearchQuery(topic: string): Promise<string> {
+  const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+  const resp = await callAI({
+    baseUrl: ai1.baseUrl,
+    apiKey: ai1.apiKey,
+    model: ai1.model,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是学术检索助手。把用户给的中文研究主题转成一条用于文献数据库检索的英文关键词串：' +
+          '只输出英文关键词或短语本身，用空格分隔；不要引号、不要解释、不要换行、不要布尔运算符。' +
+          '控制在 12 个词以内，保留专有名词与化合物名。',
+      },
+      { role: 'user', content: topic },
+    ],
+  })
+  return resp.content.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, ' ')
+}
 
 const PANEL_RATIOS = [
   { value: '7:3', label: '7 : 3', left: 70 },
@@ -1018,7 +1074,17 @@ export default function WritingPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleSendMessage = async (prompt?: string) => {
+  const handleSendMessage = async (
+    prompt?: string,
+    opts?: {
+      /**
+       * 覆盖【源材料】的取法。默认只从「引用范围」里勾选的文献取全文，但快捷指令
+       * 需要例外：「找文献」要用 Crossref 的真实检索结果，「引用检验」要锁定用户
+       * 填的那个 DOI —— 两者都不该被引用范围下拉框限制住。
+       */
+      sourceMaterialProvider?: () => Promise<string>
+    },
+  ) => {
     const text = prompt || inputValue.trim()
     if (!text) return
 
@@ -1039,7 +1105,7 @@ export default function WritingPage() {
       id: genMsgId,
       createdAt: Date.now() + 1,
       role: 'assistant',
-      content: '正在调用 AI-1 生成内容…',
+      content: opts?.sourceMaterialProvider ? '正在检索文献…' : '正在调用 AI-1 生成内容…',
       citations: undefined,
       reviewStatus: 'pending',
     }
@@ -1054,7 +1120,13 @@ export default function WritingPage() {
       //    安全红线：用户手稿属于未发表内容，不可作为 AI 的知识库 / ground truth。
       //    可信检索模式下，sourceMaterial 只包含引用文献原文，AI 仅基于文献生成。
       let literatureContext = ''
-      if (trustedSearch) {
+      if (opts?.sourceMaterialProvider) {
+        literatureContext = await opts.sourceMaterialProvider()
+        // 检索完了，接下来是 AI 的活 —— 把占位文案换回来
+        setMessages((prev) =>
+          prev.map((m) => (m.id === genMsgId ? { ...m, content: '正在调用 AI-1 生成内容…' } : m)),
+        )
+      } else if (trustedSearch) {
         const sourceDois = scopedCitations
           .filter((c) => c.type === 'paper' && c.doi)
           .slice(0, 5)
@@ -1206,10 +1278,98 @@ export default function WritingPage() {
     activeAction?.kind === 'builtin' &&
     activeAction.def.params.some((p) => !actionValues[p.key]?.trim())
 
+  /**
+   * 不进 AI 的直接回答：把用户消息和固定答复一起塞进对话。
+   * 用于「填错了/库里没有」这类能当场判定、不该浪费一次 AI 调用的情况。
+   */
+  const pushFixedReply = (prompt: string, reply: string) => {
+    const now = Date.now()
+    setInputValue('')
+    setMessages((prev) => [
+      ...prev,
+      { id: String(now), createdAt: now, role: 'user', content: prompt },
+      { id: String(now + 1), createdAt: now + 1, role: 'assistant', content: reply },
+    ])
+  }
+
   const sendQuickAction = () => {
     const prompt = composeActionPrompt()
-    if (!prompt || actionIncomplete) return
+    if (!prompt || actionIncomplete || !activeAction) return
+    const action = activeAction
+    const values = actionValues
     setActiveActionKey(null)
+
+    // ── 「找文献」：先真检索，再交给双引擎 ──
+    // 默认链路只把「引用范围」里勾选的文献当源材料，于是"找文献"永远只能找到
+    // 你已经收藏的那几篇 —— 等于没用。这里改成前端先打 Crossref 拿真实记录，
+    // 再让 AI 基于这些记录作答（AI-2 照旧逐条锚定，编不出来）。
+    if (action.kind === 'builtin' && action.def.key === 'find-papers') {
+      const topic = (values.topic || '').trim()
+      handleSendMessage(prompt, {
+        sourceMaterialProvider: async () => {
+          // 中文主题先转英文 —— Crossref 基本上只认英文，中文 query 会返回一堆
+          // 1980 年代的冷门中文文献（实测）。纯英文/混合主题直接原样检索。
+          const keyword = /[\u4e00-\u9fff]/.test(topic) ? await toEnglishSearchQuery(topic) : topic
+          // 多取一些再筛：Crossref 会把同一篇论文的"补充材料"（DOI 以 .s001 结尾）
+          // 也当成独立条目返回，不筛的话结果一半是这类重复项。
+          const records = (await searchCrossref(keyword, 20))
+            .filter((r) => !/\.s\d{3}$/.test(r.doi))
+            .slice(0, 10)
+          if (records.length === 0) {
+            throw new Error(
+              `Crossref 没有检索到与「${topic}」相关的文献` +
+                (keyword === topic ? '' : `（已自动转成英文检索词：${keyword}）`) +
+                '。换个更具体的关键词，或直接用英文关键词再试。',
+            )
+          }
+          return buildCrossrefSourceMaterial(keyword, records)
+        },
+      })
+      return
+    }
+
+    // ── 「引用检验」：先判 DOI，库外直接给固定回答，不进 AI ──
+    // 可信检索只能基于文献原文核验。库外文献没有全文，交给 AI 只会得到编造的判断，
+    // 所以当场拦住并说清怎么办，比让 AI 猜一个"看起来很像"的结论好。
+    if (action.kind === 'builtin' && action.def.key === 'verify-citation') {
+      const rawDoi = (values.doi || '').trim()
+      const parsed = normalizeDoi(rawDoi)
+      if (!parsed.valid || !parsed.doi) {
+        pushFixedReply(
+          prompt,
+          `「${rawDoi}」不是一个能识别的 DOI，没法核验。\n\n` +
+            '下面这些写法都能认：\n' +
+            '- `10.1021/jacs.3c07992`\n' +
+            '- `https://doi.org/10.1021/jacs.3c07992`\n' +
+            '- `doi:10.1021/jacs.3c07992`',
+        )
+        return
+      }
+      const doi = parsed.doi
+      const inLibrary = availablePapers.some((p) => (p.doi || '').trim().toLowerCase() === doi)
+      if (!inLibrary) {
+        pushFixedReply(
+          prompt,
+          `这篇文献不在你的文献库里（DOI：\`${doi}\`），所以没法核验。\n\n` +
+            '可信检索只基于**文献原文**做核验；库外文献没有全文，交给 AI 只会编出一个看着很像的结论。\n\n' +
+            '先把这篇文献入库（管理页 →「快捷 DOI 入库」），等全文转换完成后再回来检验。',
+        )
+        return
+      }
+      handleSendMessage(prompt, {
+        sourceMaterialProvider: async () => {
+          const fulltext = await loadFulltext(doi)
+          if (!fulltext.trim()) {
+            throw new Error(
+              `文献库里有 ${doi} 这条记录，但没有它的全文（full.md 为空或缺失），无法核验。先让它走一遍 MinerU 转换。`,
+            )
+          }
+          return `--- ${doi} ---\n${fulltext}`
+        },
+      })
+      return
+    }
+
     handleSendMessage(prompt)
   }
 
