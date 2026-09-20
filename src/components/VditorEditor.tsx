@@ -44,34 +44,113 @@ export interface VditorEditorHandle {
   /** 滚动到第 index 个标题（序号与 extractOutline 解析出的顺序一致） */
   scrollToHeading: (index: number) => void
   /**
-   * 滚动到第 index 个「图 / 表 / 公式」，并短暂高亮。
-   * 序号与 parseImages / parseTables / parseFormulas 的结果顺序一致
-   * （都按文档从上到下；渲染后的 <img>/<table>/.katex 同样是文档顺序）。
-   * 用于「文稿校对」：点清单里的一条 → 正文跳到那一条的位置。
+   * 滚动到某个「图 / 表 / 公式」，并短暂高亮。
+   *
+   * 优先按**内容**定位（match 传该条目的源码/原文）；传了 match 又对不上时，
+   * 才退回按 index 顺数。详见 collectAnchors 上的说明：序号法在 IR 模式下不可靠。
    */
-  scrollToBlock: (kind: 'image' | 'table' | 'formula', index: number) => void
+  scrollToBlock: (kind: 'image' | 'table' | 'formula', index: number, match?: string) => void
   /** 聚焦编辑器 */
   focus: () => void
 }
 
-/** 取当前模式下可编辑的 DOM 根节点（ir / wysiwyg / sv 各自的 element） */
+/**
+ * 取当前模式下可编辑的 DOM 根节点。
+ *
+ * 注意层级：Vditor 实例本身没有 ir/wysiwyg/sv，它们挂在 `vditor.vditor`（IVditor）上
+ * —— 之前写成 `vditor[mode]` 一直取到 undefined，函数**静默返回 null**，
+ * 跳转就没反应（不报错、不提示）。实测踩过。
+ * mode='ir' 时拿到的是 `<pre class="vditor-reset">`，块都在它里面。
+ */
 function editorElement(vditor: Vditor | null): HTMLElement | null {
   if (!vditor) return null
-  const node = (vditor as unknown as Record<string, { element?: HTMLElement } | undefined>)[
-    vditor.getCurrentMode()
-  ]
-  return node?.element ?? null
+  const inner = vditor.vditor as unknown as
+    | Record<string, { element?: HTMLElement } | undefined>
+    | undefined
+  return inner?.[vditor.getCurrentMode()]?.element ?? null
+}
+
+/** 规范化：压平空白 —— md 解析出的源码与 DOM 里的源码在缩进/换行上可能不同 */
+function normalizeSource(s: string): string {
+  return s.replace(/\s+/g, ' ').trim()
 }
 
 /**
- * 「图 / 表 / 公式」在校对清单里的序号 → 渲染后 DOM 的查找选择器。
- * 公式用 `.katex`：KaTeX 每个公式只产出一个 `.katex` 根，行内行间都是，
- * 且文档顺序与 parseFormulas 一致（行间公式的 `.katex-display` 只是它的外层）。
+ * 去掉 Markdown 标记，只留「文字骨架」。
+ *
+ * 用途只有一个：**表格**的兜底比对。实测 IR 模式下表格没有源码视图
+ * （只有 `<table data-type="table">` 渲染结果），单元格里的 `**加粗**` / `[链接](url)`
+ * 渲染后 textContent 是不带标记的，跟 md 原文对不上。此时比骨架还能对上。
  */
-const BLOCK_SELECTORS: Record<'image' | 'table' | 'formula', string> = {
-  image: 'img',
-  table: 'table',
-  formula: '.katex',
+function markdownSkeleton(s: string): string {
+  return s.replace(/[\s*_`~$\\{}[\]()!|#>+\-]/g, '')
+}
+
+interface ContentAnchor {
+  /** 规范化后的内容：公式 = 源码；图片 = ![alt](src)；表格 = 表头文字 */
+  text: string
+  /** 滚动 / 高亮的目标节点 */
+  target: HTMLElement
+}
+
+/**
+ * 按**内容**在渲染后的 DOM 里认「图 / 表 / 公式」。
+ *
+ * 为什么不能用序号：IR 模式下每个块在 DOM 里都是「源码视图 + 渲染视图」两份，
+ * 实测一篇含 4 个公式的文档，`.katex` 有 4 个、带 data-type 的公式节点却有 8 个；
+ * 图/表同样各有源码与渲染两份。于是只要任何一处数量与 md 解析结果对不上
+ * （公式渲染失败、图片没加载出来、光标停在公式里触发的浮动面板……），
+ * 序号就整体偏移 —— 用户点第 3 条跳到第 2 条，而且**错得毫无提示**。
+ *
+ * 实测（Vditor 3.11.2 / ir 模式）拿到的稳定锚点，就是源码视图本身：
+ *   行内公式：<code class="vditor-ir__marker--pre" data-type="math-inline"> 的 textContent
+ *   行间公式：<div class="vditor-ir__node" data-type="math-block"> 内
+ *             <code data-type="math-block"> 的 textContent
+ *   图片    ：<span class="vditor-ir__node" data-type="img"> 的 textContent（即 ![alt](src)）
+ *   表格    ：<table data-type="table"> 无源码视图，按表头/首行文字比对
+ */
+function collectAnchors(
+  root: HTMLElement,
+  kind: 'image' | 'table' | 'formula',
+): ContentAnchor[] {
+  // 浮动面板（光标停在公式里时 Vditor 弹的预览）里的节点一律不算
+  const isInEditorContent = (n: HTMLElement) =>
+    !n.closest('[class*="vditor-panel"],[class*="vditor-tip"],[class*="vditor-resize"]')
+
+  if (kind === 'formula') {
+    return Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'code.vditor-ir__marker--pre[data-type="math-inline"], .vditor-ir__node[data-type="math-block"]',
+      ),
+    )
+      .filter(isInEditorContent)
+      .map((n) => {
+        const isInlineSource = n.tagName === 'CODE'
+        const srcNode = isInlineSource
+          ? n
+          : n.querySelector<HTMLElement>('code[data-type="math-block"]')
+        const target = isInlineSource
+          ? (n.closest<HTMLElement>('.vditor-ir__node') ?? n)
+          : n
+        return { text: normalizeSource((srcNode ?? n).textContent ?? ''), target }
+      })
+  }
+
+  if (kind === 'image') {
+    return Array.from(root.querySelectorAll<HTMLElement>('.vditor-ir__node[data-type="img"]'))
+      .filter(isInEditorContent)
+      .map((n) => ({ text: normalizeSource(n.textContent ?? ''), target: n }))
+  }
+
+  return Array.from(root.querySelectorAll<HTMLElement>('table[data-type="table"]'))
+    .filter(isInEditorContent)
+    .map((n) => {
+      const cells = Array.from(n.querySelectorAll<HTMLElement>('th, td')).slice(0, 4)
+      return {
+        text: normalizeSource(cells.map((c) => c.textContent ?? '').join(' ')),
+        target: n,
+      }
+    })
 }
 
 /** 短暂描边高亮，帮用户在一屏里立刻看到「跳过来的这一条」是哪个 */
@@ -275,18 +354,30 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
         const headings = containerRef.current?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')
         headings?.[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       },
-      scrollToBlock: (kind, index) => {
+      scrollToBlock: (kind, index, match) => {
         const el = editorElement(vditorRef.current)
         if (!el) return
-        let nodes = Array.from(el.querySelectorAll<HTMLElement>(BLOCK_SELECTORS[kind]))
-        if (kind === 'formula') {
-          // IR 模式下，光标停在公式里时 Vditor 会额外弹一个浮动预览面板，
-          // 里面也是一个 .katex —— 不排掉它，序号会整体偏移一位。
-          nodes = nodes.filter(
-            (n) => !n.closest('[class*="vditor-panel"], [class*="vditor-tip"], [class*="vditor-resize"]'),
-          )
+        const anchors = collectAnchors(el, kind)
+
+        let node: HTMLElement | undefined
+        const want = match ? normalizeSource(match) : ''
+        if (want) {
+          // 同一内容可能出现多次（同一个公式用了两遍），此时用 index 在**内容相同的候选里**
+          // 挑第几个 —— 选错也只是同一段文字里的另一处，不会整体错位。
+          const exact = anchors.filter((a) => a.text === want)
+          const wantSkel = markdownSkeleton(want)
+          const loose = exact.length
+            ? exact
+            : anchors.filter(
+                (a) =>
+                  a.text.includes(want) ||
+                  want.includes(a.text) ||
+                  (wantSkel.length > 0 && markdownSkeleton(a.text) === wantSkel),
+              )
+          node = loose[index]?.target ?? loose[0]?.target
         }
-        const node = nodes[index]
+        // 内容对不上（md 刚改过、Vditor 还没重渲染等）才退回序号，尽量别让点击没反应
+        if (!node) node = anchors[index]?.target
         if (!node) return
         node.scrollIntoView({ behavior: 'smooth', block: 'center' })
         flashElement(node)

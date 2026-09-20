@@ -20,8 +20,16 @@ type Kind = 'image' | 'table' | 'formula'
 
 interface ProofreadPanelProps {
   md: string
-  /** 跳到正文第 index 个「图/表/公式」 */
-  onJump: (kind: Kind, index: number) => void
+  /**
+   * 跳到正文某一条「图/表/公式」。
+   *
+   * `match` 是这一条的**原文内容**（公式源码 / `![alt](src)` / 表头文字），
+   * 编辑器优先按它去 DOM 里认，认不到才退回 index 顺数。
+   * 为什么不只给 index：见 VditorEditor 里 collectAnchors 的注释 ——
+   * IR 模式下每个块在 DOM 里是「源码视图 + 渲染视图」两份，序号法一错就整体偏移，
+   * 用户点第 3 条跳到第 2 条还毫无提示。
+   */
+  onJump: (kind: Kind, index: number, match?: string) => void
   /** 打开公式侧栏改第 index 个公式（只改这一处，可再切全局） */
   onEditFormula: (index: number) => void
 }
@@ -111,7 +119,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                   onToggle={() => toggle(key)}
                   index={img.index}
                   badge="图"
-                  onJump={() => onJump('image', img.index)}
+                  onJump={() => onJump('image', img.index, `![${img.alt}](${img.src})`)}
                 >
                   <img
                     src={img.src}
@@ -141,7 +149,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                   onToggle={() => toggle(key)}
                   index={t.index}
                   badge="表"
-                  onJump={() => onJump('table', t.index)}
+                  onJump={() => onJump('table', t.index, t.rows[0]?.join(' ') ?? '')}
                 >
                   <div className="overflow-x-auto rounded border border-slate-200">
                     <table className="text-[0.6875rem] border-collapse">
@@ -180,7 +188,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                   onToggle={() => toggle(key)}
                   index={index}
                   badge={f.kind === 'block' ? '行间' : '行内'}
-                  onJump={() => onJump('formula', index)}
+                  onJump={() => onJump('formula', index, f.tex)}
                   onEdit={() => onEditFormula(index)}
                 >
                   <div

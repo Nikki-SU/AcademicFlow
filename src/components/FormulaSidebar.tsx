@@ -64,8 +64,8 @@ interface FormulaSidebarProps {
     global: boolean,
     matchTex: string,
   ) => void
-  /** 跳转到正文里第 index 个公式 */
-  onJump: (index: number) => void
+  /** 跳转到正文里第 index 个公式（tex 一并带上，编辑器按源码内容定位，不靠序号） */
+  onJump: (index: number, tex: string) => void
   onClose: () => void
   /** 从校对清单点「改这条」进来时带的待编辑公式 */
   editTarget?: FormulaEditTarget | null
@@ -520,7 +520,7 @@ export default function FormulaSidebar({
                   </span>
                   <div className="ml-auto flex items-center gap-1">
                     <button
-                      onClick={() => onJump(f.index)}
+                      onClick={() => onJump(f.index, f.tex)}
                       className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
                       title="跳到正文这一处"
                     >

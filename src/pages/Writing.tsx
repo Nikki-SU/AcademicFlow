@@ -1273,15 +1273,17 @@ export default function WritingPage() {
   /**
    * 跳到正文里第 index 个「图 / 表 / 公式」（文稿校对用）。
    * 编辑区可能在另一侧、或当前根本没显示 —— 先把它切出来，等挂载完再滚。
+   *
+   * `match` 传这一条的原文内容，编辑器优先按内容在 DOM 里认（序号法在 IR 模式下不可靠）。
    */
-  const jumpToBlock = (kind: 'image' | 'table' | 'formula', index: number) => {
+  const jumpToBlock = (kind: 'image' | 'table' | 'formula', index: number, match?: string) => {
     const editorVisible = leftPanelMode === 'editor' || rightPanelMode === 'editor'
     if (!editorVisible) {
       setLeftPanelMode('editor')
-      setTimeout(() => primaryEditor()?.scrollToBlock(kind, index), 140)
+      setTimeout(() => primaryEditor()?.scrollToBlock(kind, index, match), 140)
       return
     }
-    primaryEditor()?.scrollToBlock(kind, index)
+    primaryEditor()?.scrollToBlock(kind, index, match)
   }
 
   const exportMarkdown = () => {
@@ -3135,7 +3137,7 @@ export default function WritingPage() {
                       handleEditorChange(next)
                       setSaveStatus('unsaved')
                     }}
-                    onJump={(index) => jumpToBlock('formula', index)}
+                    onJump={(index, tex) => jumpToBlock('formula', index, tex)}
                     editTarget={formulaEditTarget}
                     onConsumeEditTarget={() => setFormulaEditTarget(null)}
                     onClose={() => setShowFormulaPanel(false)}
