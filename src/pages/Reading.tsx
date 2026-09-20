@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   BookOpen,
+  BookCopy,
   Highlighter,
   MessageSquare,
   StickyNote,
@@ -15,12 +16,15 @@ import {
   Clock,
   X,
   ChevronRight,
+  ChevronDown,
   Check,
   Edit3,
   Plus,
   Languages,
+  ListTree,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadNotes, saveNotes, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
+import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
@@ -35,6 +39,8 @@ import VditorEditor, { type VditorEditorHandle } from '../components/VditorEdito
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 type SideTab = 'notes' | 'annotations'
 type FilterType = 'all' | 'has-md' | 'no-md'
+/** 阅读对象：文献（按 doi）或图书（按书名） */
+type DocType = 'paper' | 'book'
 
 interface Annotation {
   id: string
@@ -73,6 +79,38 @@ function literatureToPaper(lit: Literature): Paper {
     hasMarkdown: false,
     markdownContent: undefined,
   }
+}
+
+/** 图书大纲项：level 决定缩进，anchor 指向正文里对应标题的 id */
+interface OutlineItem {
+  level: number
+  text: string
+  anchor: string
+}
+
+/**
+ * 给渲染后的 HTML 里的 h1~h6 注入 id，并顺带抽出一份大纲。
+ * 用递增序号做 id（book-h-N）—— 标题文本可能重复或含特殊字符，用文本当锚点会撞。
+ */
+function buildOutlineAndAnchors(html: string): { html: string; outline: OutlineItem[] } {
+  const outline: OutlineItem[] = []
+  let seq = 0
+  const withIds = html.replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/gi, (_m, lv: string, attrs: string, inner: string) => {
+    const level = parseInt(lv, 10)
+    const anchor = `book-h-${seq++}`
+    const text = inner
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .trim()
+    if (text) outline.push({ level, text, anchor })
+    const cleanAttrs = attrs.replace(/\sid="[^"]*"/i, '')
+    return `<h${lv}${cleanAttrs} id="${anchor}">${inner}</h${lv}>`
+  })
+  return { html: withIds, outline }
 }
 
 const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; border: string; text: string; dot: string; ring: string }[] = [
@@ -118,6 +156,17 @@ function getImageBaseUrl(doi: string): string {
   const repo = encodeURIComponent(ws.repo.name)
   const slugEnc = encodeURIComponent(slug)
   return `https://api.github.com/repos/${owner}/${repo}/contents/literatures/${slugEnc}/`
+}
+
+/** 图书图片基准 URL：图片落在 textbooks/{书名}/ 下（MinerU 产物的相对路径） */
+function getBookImageBaseUrl(bookId: string): string {
+  const auth = useAuthStore.getState()
+  const ws = useWorkspaceStore.getState()
+  if (!auth.user || !ws.repo) return ''
+  const owner = encodeURIComponent(auth.user.login)
+  const repo = encodeURIComponent(ws.repo.name)
+  const dir = bookId.split('/').map(encodeURIComponent).join('/')
+  return `https://api.github.com/repos/${owner}/${repo}/contents/textbooks/${dir}/`
 }
 
 /**
@@ -207,6 +256,15 @@ const [aligned_content, set_aligned_content] = useState('')
   const [articleDraft, setArticleDraft] = useState('')
   const [articleSaving, setArticleSaving] = useState(false)
 
+  // 图书阅读（按书名；正文取自 textbooks/{书名}/content.md）
+  const [docType, setDocType] = useState<DocType>('paper')
+  const [books, setBooks] = useState<BookSummary[]>([])
+  const [booksLoading, setBooksLoading] = useState(true)
+  const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
+  const [bookMarkdown, setBookMarkdown] = useState('')
+  const [bookLoading, setBookLoading] = useState(false)
+  const [bookOutlineOpen, setBookOutlineOpen] = useState(true)
+
   const readerRef = useRef<HTMLDivElement>(null)
   const noteVditorRef = useRef<VditorEditorHandle>(null)
   const articleVditorRef = useRef<VditorEditorHandle>(null)
@@ -236,6 +294,36 @@ const [aligned_content, set_aligned_content] = useState('')
     loadPapers()
     return () => { cancelled = true }
   }, [repo])
+
+  // 图书列表：textbooks/ 下的一级目录即书名
+  useEffect(() => {
+    if (!repo) return
+    let cancelled = false
+    setBooksLoading(true)
+    listBooks()
+      .then((list) => { if (!cancelled) setBooks(list) })
+      .catch((err) => console.error('[Reading] 加载图书列表失败:', err))
+      .finally(() => { if (!cancelled) setBooksLoading(false) })
+    return () => { cancelled = true }
+  }, [repo])
+
+  // 选中图书后加载整本正文
+  useEffect(() => {
+    if (!selectedBookId) {
+      setBookMarkdown('')
+      return
+    }
+    let cancelled = false
+    setBookLoading(true)
+    loadBookContent(selectedBookId)
+      .then((md) => { if (!cancelled) setBookMarkdown(md) })
+      .catch((err) => {
+        console.error('[Reading] 加载图书正文失败:', err)
+        if (!cancelled) setBookMarkdown('')
+      })
+      .finally(() => { if (!cancelled) setBookLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedBookId])
 
   useEffect(() => {
     if (!selectedPaperId) {
@@ -453,6 +541,28 @@ const [aligned_content, set_aligned_content] = useState('')
   const selectedPaper = papers.find((p) => p.id === selectedPaperId)
   const paperAnnotations = annotations
 
+  const isBook = docType === 'book'
+  const selectedBook = books.find((b) => b.id === selectedBookId) || null
+
+  const filteredBooks = books.filter(
+    (b) => !searchQuery.trim() || b.title.toLowerCase().includes(searchQuery.trim().toLowerCase()),
+  )
+
+  /** 图书正文渲染 + 大纲：标题注入 id 后按标题层级生成大纲 */
+  const { html: bookRenderedHtml, outline: bookOutline } = useMemo(() => {
+    if (!isBook || !bookMarkdown.trim()) return { html: '', outline: [] as OutlineItem[] }
+    const raw = renderMarkdownToHtml(bookMarkdown, {
+      imageBaseUrl: getBookImageBaseUrl(selectedBookId ?? ''),
+    })
+    return buildOutlineAndAnchors(raw)
+  }, [isBook, bookMarkdown, selectedBookId])
+
+  /** 点大纲跳到正文对应标题 */
+  const jumpToAnchor = useCallback((anchor: string) => {
+    const el = readerRef.current?.querySelector<HTMLElement>(`[id="${anchor}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
   /**
    * 批注排序用的"正文扁平纯文本"：按块顺序把原文与译文拼起来，去掉 markdown 标记、**去掉所有空白**。
    *
@@ -572,6 +682,20 @@ const [aligned_content, set_aligned_content] = useState('')
     }, 50)
     return () => clearTimeout(t)
   }, [rendered_html])
+
+  // 图书正文的图片预加载（与文献同一套 blob URL 方案）
+  useEffect(() => {
+    if (!bookRenderedHtml || !readerRef.current) return
+    const token = useAuthStore.getState().token
+    if (!token) return
+    const mode = getResolvedAuthMode()
+    const t = setTimeout(() => {
+      if (readerRef.current) {
+        void hydrateImages(readerRef.current, token, mode)
+      }
+    }, 50)
+    return () => clearTimeout(t)
+  }, [bookRenderedHtml])
 
   // 笔记：Vditor 所见即所得编辑器（工具栏/图片上传由编辑器自带）
   const handleNoteChange = (md: string) => {
@@ -711,21 +835,46 @@ const [aligned_content, set_aligned_content] = useState('')
   return (
     <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
       <aside className="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
-        <div className="p-3 border-b border-slate-200">
+        <div className="p-3 border-b border-slate-200 flex-shrink-0">
           <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-indigo-600" />
-            文献列表
+            {isBook ? (
+              <BookCopy className="w-4 h-4 text-indigo-600" />
+            ) : (
+              <BookOpen className="w-4 h-4 text-indigo-600" />
+            )}
+            {isBook ? '图书列表' : '文献列表'}
           </h2>
+          <div className="mt-2 flex gap-1 p-0.5 bg-slate-100 rounded-md">
+            <button
+              onClick={() => setDocType('paper')}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs rounded transition ${
+                !isBook ? 'bg-white text-indigo-600 font-medium shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              文献
+            </button>
+            <button
+              onClick={() => setDocType('book')}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs rounded transition ${
+                isBook ? 'bg-white text-indigo-600 font-medium shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <BookCopy className="w-3.5 h-3.5" />
+              图书
+            </button>
+          </div>
           <div className="mt-2 relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="标题、作者、期刊、年份、关键词、DOI..."
+              placeholder={isBook ? '按书名搜索...' : '标题、作者、期刊、年份、关键词、DOI...'}
               className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400"
             />
           </div>
+          {!isBook && (
           <div className="mt-2 flex gap-1">
             <button
               onClick={() => setFilterType('all')}
@@ -759,9 +908,63 @@ const [aligned_content, set_aligned_content] = useState('')
               无Markdown
             </button>
           </div>
+          )}
         </div>
-        <div className="flex-1 overflow-y-auto">
-          {papersLoading ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {isBook ? (
+            booksLoading ? (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+                <p>加载中...</p>
+              </div>
+            ) : books.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm px-4">
+                <BookCopy className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-slate-500 font-medium mb-1">还没有图书</p>
+                <p className="text-xs text-slate-400 mb-3">
+                  上传图书 PDF 转换后，正文会落到 textbooks/&lt;书名&gt;/content.md
+                </p>
+                <button
+                  onClick={() => window.location.hash = '#/management'}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  去上传图书
+                </button>
+              </div>
+            ) : filteredBooks.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p>没有找到匹配的图书</p>
+              </div>
+            ) : (
+              filteredBooks.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => setSelectedBookId(b.id)}
+                  className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
+                    selectedBookId === b.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
+                  }`}
+                >
+                  <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                    {b.title}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    {b.hasContent ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium">
+                        <FileText className="w-3 h-3" />
+                        已转换
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[0.625rem]">
+                        待转换
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))
+            )
+          ) : papersLoading ? (
             <div className="text-center py-8 text-slate-400 text-sm">
               <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
               <p>加载中...</p>
@@ -827,10 +1030,136 @@ const [aligned_content, set_aligned_content] = useState('')
             ))
           )}
         </div>
+
+        {/* 图书大纲：按正文标题层级生成，点击跳转 */}
+        {isBook && selectedBook && (
+          <div className="flex-none max-h-[45%] border-t border-slate-200 flex flex-col">
+            <button
+              onClick={() => setBookOutlineOpen(!bookOutlineOpen)}
+              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              title={bookOutlineOpen ? '收起大纲' : '展开大纲'}
+            >
+              {bookOutlineOpen ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <ListTree className="w-3.5 h-3.5 text-indigo-600" />
+              大纲
+              <span className="ml-auto text-slate-400 font-normal">{bookOutline.length}</span>
+            </button>
+            {bookOutlineOpen && (
+              <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
+                {bookOutline.length === 0 && (
+                  <div className="text-xs text-slate-400 text-center py-3">暂无大纲</div>
+                )}
+                {bookOutline.map((item) => (
+                  <button
+                    key={item.anchor}
+                    onClick={() => jumpToAnchor(item.anchor)}
+                    className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
+                      item.level === 1
+                        ? 'font-semibold text-slate-700'
+                        : item.level === 2
+                          ? 'font-medium text-slate-600'
+                          : 'text-slate-500'
+                    }`}
+                    style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
+                    title={item.text}
+                  >
+                    {item.text}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </aside>
 
       <section className="flex-1 bg-slate-50 flex flex-col min-w-0">
-        {selectedPaper ? (
+        {isBook ? (
+          selectedBook ? (
+            <>
+              <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    onClick={() => setSelectedBookId(null)}
+                    className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition flex-shrink-0"
+                    title="返回列表"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-700 truncate">
+                      {selectedBook.title}
+                    </div>
+                    <div className="text-xs text-slate-400 truncate">
+                      图书 · textbooks/{selectedBook.id}/content.md
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => setFontSize((s) => Math.max(12, s - 1))}
+                    className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition"
+                    title="减小字号"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs text-slate-400 w-8 text-center">{fontSize / 16}rem</span>
+                  <button
+                    onClick={() => setFontSize((s) => Math.min(24, s + 1))}
+                    className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition"
+                    title="增大字号"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {bookLoading ? (
+                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                    <div className="text-center">
+                      <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+                      <p>加载正文...</p>
+                    </div>
+                  </div>
+                ) : bookRenderedHtml ? (
+                  <div className="max-w-3xl mx-auto px-8 py-8">
+                    <div
+                      className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 relative"
+                      style={{ fontSize: `${fontSize / 16}rem` }}
+                    >
+                      <div
+                        ref={readerRef}
+                        className="relative prose-reader"
+                        dangerouslySetInnerHTML={{ __html: bookRenderedHtml }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-16 text-slate-400">
+                    <div className="text-center px-6">
+                      <BookCopy className="w-16 h-16 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm text-slate-500">这本书还没有正文</p>
+                      <p className="text-xs mt-1">
+                        转换完成后，正文会写入 textbooks/{selectedBook.id}/content.md
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-slate-400">
+              <div className="text-center">
+                <BookCopy className="w-16 h-16 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">从左侧选择一本书开始阅读</p>
+              </div>
+            </div>
+          )
+        ) : selectedPaper ? (
           <>
             <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3 min-w-0">
@@ -1011,6 +1340,7 @@ const [aligned_content, set_aligned_content] = useState('')
         )}
       </section>
 
+      {!isBook && (
       <aside className="w-80 bg-white border-l border-slate-200 flex flex-col flex-shrink-0">
         <div className="flex border-b border-slate-200 flex-shrink-0">
           <button
@@ -1274,6 +1604,7 @@ const [aligned_content, set_aligned_content] = useState('')
           )}
         </div>
       </aside>
+      )}
 
       <style>{`
         .prose-reader h1 {

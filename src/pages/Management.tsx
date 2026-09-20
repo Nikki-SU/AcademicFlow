@@ -1709,18 +1709,23 @@ export default function ManagementPage() {
     if (!files) return
     const fileArray = Array.from(files)
 
-    const newBooks: BookItem[] = fileArray.map((f, i) => ({
-      id: String(Date.now() + i),
-      title: f.name.replace('.pdf', ''),
-      author: '未知',
-      publisher: '未知',
-      pages: 0,
-      status: 'converting' as const,
-      progress: 5,
-      isSplit: false,
-      volumes: undefined,
-      categoryIds: uploadBookCategories,
-    }))
+    const newBooks: BookItem[] = fileArray.map((f) => {
+      // 书名即主键：textbooks/ 下的目录名与 textbook_id 都用书名（书基本不会重名），
+      // 阅读页按书名定位 textbooks/{书名}/content.md
+      const title = f.name.replace(/\.pdf$/i, '').trim()
+      return {
+        id: title,
+        title,
+        author: '未知',
+        publisher: '未知',
+        pages: 0,
+        status: 'converting' as const,
+        progress: 5,
+        isSplit: false,
+        volumes: undefined,
+        categoryIds: uploadBookCategories,
+      }
+    })
     const updated = [...newBooks, ...books]
     setBooks(updated)
     saveBooks(updated)
