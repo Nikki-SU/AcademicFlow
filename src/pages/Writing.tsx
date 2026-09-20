@@ -92,6 +92,9 @@ import {
 import { loadLiteratures, loadTitleCns, type Literature } from '../services/literatureData'
 import { callAI } from '../services/ai/client'
 import { searchCrossref, normalizeDoi, type OnlineSearchResult } from '../services/citation'
+import { readRepoTextFile, uploadRepoBinaryFile } from '../services/github'
+import { dispatchAiCall } from '../services/workflowClient'
+import { getRepoContext } from '../services/userData'
 import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
 
 /**
@@ -803,6 +806,8 @@ export default function WritingPage() {
   /** 上传 journal sample .tex：同一个 input 服务两个入口（新建 / 覆盖当前模板） */
   const texTemplateInputRef = useRef<HTMLInputElement>(null)
   const texImportModeRef = useRef<'create' | 'overwrite'>('create')
+  /** 上传出版社的整包投稿模板（.zip），交给后端解包 */
+  const texPackageInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
   const dragStartRatio = useRef(70)
@@ -1960,6 +1965,85 @@ export default function WritingPage() {
       )
     } catch (err) {
       toast.error(`解析失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsCreatingTemplate(false)
+      setTemplateCreateStatus('')
+    }
+  }
+
+  /**
+   * 上传出版社的整包投稿模板（.zip），由后端解包成期刊模板。
+   * -------------------------------------------------
+   * 期刊给的模板往往不是一个 .tex，而是一整包：主 sample .tex + .cls/.sty/.bst
+   * + 页眉页脚图片 + 专用字体。所以解包必须在后端做（浏览器里拼不出 assets/），
+   * 流程是：先把 zip 提交进私库 templates/packages/，再 dispatch 后端
+   * template_unpack，等它写出 templates/journals/<slug>/ 后刷新模板列表。
+   */
+  const handleImportTemplatePackage = async (file: File | null | undefined) => {
+    if (!file) return
+    if (!/\.zip$/i.test(file.name)) {
+      toast.error('请选择 .zip 投稿模板包')
+      return
+    }
+    const ctx = getRepoContext()
+    if (!ctx) {
+      toast.error('未登录或未选择仓库，无法上传模板包')
+      return
+    }
+    const pkgName = file.name.replace(/\.zip$/i, '')
+    const pkgPath = `templates/packages/${file.name}`
+    setIsCreatingTemplate(true)
+    try {
+      setTemplateCreateStatus(`上传 ${file.name}...`)
+      await uploadRepoBinaryFile(
+        ctx.owner,
+        ctx.repo,
+        pkgPath,
+        file,
+        ctx.token,
+        `chore(templates): 上传投稿模板包 ${file.name}`,
+      )
+
+      setTemplateCreateStatus('后端解包中（首次约 1~2 分钟）...')
+      const taskId = `tplunpack_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      const outputPath = `temp/ai/template_unpack/${taskId}.json`
+      await dispatchAiCall(
+        taskId,
+        'template_unpack',
+        { package_path: pkgPath, journal_name: newTemplateName.trim() || pkgName },
+        outputPath,
+        1,
+        ctx.owner,
+        ctx.repo,
+        ctx.token,
+      )
+
+      // 轮询后端结果（3s × 200 = 10min，与其它 AI 任务一致）
+      let unpacked: { slug: string; name: string; asset_count: number; main_tex: string } | null = null
+      for (let i = 0; i < 200; i++) {
+        await new Promise((r) => setTimeout(r, 3000))
+        const raw = await readRepoTextFile(ctx.owner, ctx.repo, outputPath, ctx.token)
+        if (!raw) continue
+        const parsed = JSON.parse(raw.content)
+        if (parsed.error) throw new Error(parsed.error)
+        if (parsed.done) {
+          unpacked = parsed.data
+          break
+        }
+      }
+      if (!unpacked) throw new Error('后端解包超时（10 分钟未返回）')
+
+      const list = await getAllTemplates()
+      setTemplates(list)
+      const target = list.find((t) => t.id === unpacked!.slug)
+      if (target) adoptNewTemplate(target)
+      setShowNewTemplateForm(false)
+      setNewTemplateName('')
+      toast.success(
+        `已解包「${unpacked.name}」：主文件 ${unpacked.main_tex}，附属文件 ${unpacked.asset_count} 个`,
+      )
+    } catch (err) {
+      toast.error(`解包失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setIsCreatingTemplate(false)
       setTemplateCreateStatus('')
@@ -3595,6 +3679,15 @@ export default function WritingPage() {
                         <Upload className="w-3 h-3" />
                         上传 .tex 解析建模板
                       </button>
+                      <button
+                        onClick={() => texPackageInputRef.current?.click()}
+                        disabled={isCreatingTemplate}
+                        className="w-full py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        title="上传出版社给的整包投稿模板（.zip，含 sample .tex + .cls/.sty/.bst + 图片/字体）。后端会解包成期刊模板，附属文件一并收好"
+                      >
+                        <Package className="w-3 h-3" />
+                        上传投稿包 .zip 解包建模板
+                      </button>
                       {!newTemplateName.trim() && (
                         <p className="text-[0.625rem] text-slate-400 leading-relaxed">
                           不填期刊名就用文件名当模板名。
@@ -4675,6 +4768,18 @@ export default function WritingPage() {
         onChange={(e) => {
           void handleImportTexTemplate(e.target.files?.[0])
           // 清空 value，否则同一个文件再选一次不会触发 onChange
+          e.target.value = ''
+        }}
+        className="hidden"
+      />
+
+      {/* 上传投稿模板整包（.zip）：交给后端 template_unpack 解包 */}
+      <input
+        ref={texPackageInputRef}
+        type="file"
+        accept=".zip,application/zip"
+        onChange={(e) => {
+          void handleImportTemplatePackage(e.target.files?.[0])
           e.target.value = ''
         }}
         className="hidden"
