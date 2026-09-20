@@ -672,12 +672,14 @@ export default function WritingPage() {
 
   const [navCollapsed, setNavCollapsed] = useState(false)
   /**
-   * 左侧栏是「堆叠面板」（仿 Obsidian）：项目、文献检索、大纲各占一块，各自能收起成一行。
-   * 收起的那块只剩标题行，展开的那块吃掉剩余高度 —— 于是整栏一次只突出展示一块。
+   * 左侧栏是「堆叠面板」：项目、文献检索、大纲三块**共同占满**整条栏。
+   * 每块都能收起成一行（收起的那块不再吃高度，让给另外两块）；展开的块按 flex-1
+   * 平分剩余高度，但各自带一个 min-height 兜底 —— 栏再矮也不会把某一块挤到看不见，
+   * 实在放不下就让整栏滚动，而不是牺牲掉其中一块。
    */
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   /** 大纲面板是否展开（收起时只剩「大纲」标题行） */
-  const [outlineExpanded, setOutlineExpanded] = useState(false)
+  const [outlineExpanded, setOutlineExpanded] = useState(true)
   const [leftPanelMode, setLeftPanelMode] = useState<PanelMode>('editor')
   const [rightPanelMode, setRightPanelMode] = useState<PanelMode>('ai')
   const [showLeftDropdown, setShowLeftDropdown] = useState(false)
@@ -774,11 +776,13 @@ export default function WritingPage() {
   const [projectLitTargetId, setProjectLitTargetId] = useState<string | null>(null)
 
   // ── 侧栏「文献检索」—— 只搜库内；库外检索是 AI 助手里「找文献」的活 ──
-  const [libSearchExpanded, setLibSearchExpanded] = useState(false)
+  const [libSearchExpanded, setLibSearchExpanded] = useState(true)
   const [libSearch, setLibSearch] = useState('')
   /** doi → 中文标题。中文标题只长在对译 md 里，得读文件，所以缓存住 */
   const [titleCnMap, setTitleCnMap] = useState<Record<string, string>>({})
   const [isLoadingTitleCn, setIsLoadingTitleCn] = useState(false)
+  /** 中文标题只需在会话内批量读一次，别每敲一个字就重来 */
+  const titleCnLoadedRef = useRef(false)
 
   // ── 插入引用：本地 / 在线（中英文）──
   const [citationSource, setCitationSource] = useState<'local' | 'online'>('local')
@@ -855,26 +859,32 @@ export default function WritingPage() {
   }, [selectedBookForChapters, bookReferences])
 
   /**
-   * 展开检索面板时把库里所有文献的中文标题读出来。
+   * 用户开始在侧栏检索时，把库里所有文献的中文标题读出来。
    * 中文标题不在 CSV 里，只长在对译 md 的标题块中 —— 不读文件就既搜不到中文，
-   * 也展示不出来。loadTitleCns 自带并发上限与会话缓存，反复展开不会重复读。
+   * 也展示不出来。挂在「开始输入」而不是「页面加载」上：不搜就不读，
+   * 免得每次打开写作页都白拉一遍全库的 md。
    */
   useEffect(() => {
-    if (!libSearchExpanded || availablePapers.length === 0) return
+    if (!libSearchExpanded || !libSearch.trim() || availablePapers.length === 0) return
+    if (titleCnLoadedRef.current) return
+    titleCnLoadedRef.current = true
     let cancelled = false
     setIsLoadingTitleCn(true)
     loadTitleCns(availablePapers.map((p) => p.doi))
       .then((map) => {
         if (!cancelled) setTitleCnMap((prev) => ({ ...prev, ...map }))
       })
-      .catch((err) => console.warn('[Writing] 读取中文标题失败:', err))
+      .catch((err) => {
+        console.warn('[Writing] 读取中文标题失败:', err)
+        titleCnLoadedRef.current = false // 失败允许下次重试
+      })
       .finally(() => {
         if (!cancelled) setIsLoadingTitleCn(false)
       })
     return () => {
       cancelled = true
     }
-  }, [libSearchExpanded, availablePapers])
+  }, [libSearchExpanded, libSearch, availablePapers])
 
   /** 库内检索结果：每条带上「命中在哪个字段」和那段上下文 */
   const librarySearchResults = useMemo(() => {
@@ -1193,6 +1203,11 @@ export default function WritingPage() {
        * 填的那个 DOI —— 两者都不该被引用范围下拉框限制住。
        */
       sourceMaterialProvider?: () => Promise<string>
+      /**
+       * 取回结构化条目挂到 AI 消息上（「找文献」用）。
+       * 在 provider 跑完之后才调用，所以实现里可以直接读 provider 填好的变量。
+       */
+      attachCitations?: () => CitationRef[]
     },
   ) => {
     const text = prompt || inputValue.trim()
@@ -1313,12 +1328,15 @@ export default function WritingPage() {
         ? ''
         : `\n\n---\n*AI-2 审阅未通过（${result.attempts.length} 轮）：${result.ai2Feedback.summary || '存在忠实性问题，请人工核对'}*`
 
+      const attached = opts?.attachCitations?.() ?? []
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === genMsgId
             ? {
                 ...m,
                 content: (result.ai1Output || '（AI-1 未返回内容）') + reviewNote,
+                citations: attached.length > 0 ? attached : undefined,
                 reviewStatus: passed ? ('pass' as const) : ('fail' as const),
               }
             : m
@@ -1415,6 +1433,9 @@ export default function WritingPage() {
     // 再让 AI 基于这些记录作答（AI-2 照旧逐条锚定，编不出来）。
     if (action.kind === 'builtin' && action.def.key === 'find-papers') {
       const topic = (values.topic || '').trim()
+      // 检索到的条目挂到 AI 消息上：回复里除了 AI 的整理，还会列出结构化条目，
+      // 每条都能点开原文、一键复制 DOI 链接。
+      let found: CitationRef[] = []
       handleSendMessage(prompt, {
         sourceMaterialProvider: async () => {
           // 中文主题先转英文 —— Crossref 基本上只认英文，中文 query 会返回一堆
@@ -1432,8 +1453,18 @@ export default function WritingPage() {
                 '。换个更具体的关键词，或直接用英文关键词再试。',
             )
           }
+          found = records.map((r) => ({
+            id: r.doi,
+            doi: r.doi,
+            title: r.title,
+            authors: r.authors,
+            year: r.year,
+            journal: r.journal,
+            type: 'paper' as const,
+          }))
           return buildCrossrefSourceMaterial(keyword, records)
         },
+        attachCitations: () => found,
       })
       return
     }
@@ -2207,9 +2238,13 @@ export default function WritingPage() {
           navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-64 opacity-100'
         }`}
       >
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
           {/* ── 堆叠面板 1/3：项目（收起后只剩标题行，标题显示当前项目） ── */}
-          <div className={`flex flex-col min-h-0 ${projectsExpanded ? 'flex-1' : 'flex-none'}`}>
+          <div
+            className={`flex flex-col ${
+              projectsExpanded ? 'flex-1 min-h-[160px]' : 'flex-none'
+            }`}
+          >
             <div className="flex items-center gap-0.5 pl-1 pr-2 py-1.5 border-b border-slate-200 flex-shrink-0">
               <button
                 onClick={() => setProjectsExpanded(!projectsExpanded)}
@@ -2312,8 +2347,8 @@ export default function WritingPage() {
 
           {/* ── 堆叠面板 2/3：文献检索（只搜库内） ── */}
           <div
-            className={`border-t border-slate-200 flex flex-col min-h-0 ${
-              libSearchExpanded ? 'flex-1' : 'flex-none'
+            className={`border-t border-slate-200 flex flex-col ${
+              libSearchExpanded ? 'flex-1 min-h-[180px]' : 'flex-none'
             }`}
           >
             <button
@@ -2385,12 +2420,11 @@ export default function WritingPage() {
                       <div className="mt-0.5 text-[0.625rem] text-slate-400 truncate">
                         {[paper.authors, paper.year || '', paper.journal].filter(Boolean).join(' · ')}
                       </div>
-                      {hits.map((h, i) => (
-                        <div key={i} className="mt-1 text-[0.625rem] text-slate-500 leading-snug">
-                          <span className="text-slate-400">{h.field}：</span>
-                          <HighlightedSnippet text={h.snippet} query={libSearch.trim()} />
-                        </div>
-                      ))}
+                      {/* 命中多处时只给第一条 —— 侧栏就一条，列多了反而看不清 */}
+                      <div className="mt-1 text-[0.625rem] text-slate-500 leading-snug">
+                        <span className="text-slate-400">{hits[0].field}：</span>
+                        <HighlightedSnippet text={hits[0].snippet} query={libSearch.trim()} />
+                      </div>
                       <button
                         onClick={() => handleCopyDoiLink(paper.doi)}
                         className="mt-1 flex items-center gap-1 text-[0.625rem] text-indigo-600 hover:text-indigo-700"
@@ -2408,8 +2442,8 @@ export default function WritingPage() {
 
           {/* ── 堆叠面板 3/3：大纲（收起后只剩标题行） ── */}
           <div
-            className={`border-t border-slate-200 flex flex-col min-h-0 ${
-              outlineExpanded ? 'flex-1' : 'flex-none'
+            className={`border-t border-slate-200 flex flex-col ${
+              outlineExpanded ? 'flex-1 min-h-[140px]' : 'flex-none'
             }`}
           >
             <button
@@ -3041,7 +3075,7 @@ export default function WritingPage() {
                                 <div className="w-4 h-4 bg-emerald-100 rounded-full flex items-center justify-center">
                                   <BookMarked className="w-2.5 h-2.5 text-emerald-600" />
                                 </div>
-                                引用来源
+                                文献条目
                               </div>
                               <div className="space-y-2">
                                 {msg.citations.map((cit, idx) => (
@@ -3056,15 +3090,22 @@ export default function WritingPage() {
                                     <div className="text-[0.6875rem] text-slate-500 mt-1.5 ml-5">
                                       {cit.authors} ({cit.year}) · {cit.journal}
                                     </div>
-                                    <div className="text-[0.6875rem] text-slate-400 mt-0.5 ml-5 italic">
-                                      引用位置：第 {Math.floor(Math.random() * 10) + 1} 页 · 第 {Math.floor(Math.random() * 5) + 1} 段
+                                    <div className="flex items-center gap-3 mt-1.5 ml-5">
+                                      <DoiLink
+                                        doi={cit.doi}
+                                        mode="short"
+                                        showIcon
+                                        className="text-[0.6875rem] flex items-center gap-1 font-medium"
+                                      />
+                                      <button
+                                        onClick={() => handleCopyDoiLink(cit.doi)}
+                                        className="text-[0.6875rem] text-slate-400 hover:text-indigo-600 transition flex items-center gap-1"
+                                        title={doiLinkOf(cit.doi)}
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                        复制链接
+                                      </button>
                                     </div>
-                                    <DoiLink
-                                      doi={cit.doi}
-                                      mode="short"
-                                      showIcon
-                                      className="text-[0.6875rem] flex items-center gap-1 mt-1.5 ml-5 font-medium"
-                                    />
                                   </div>
                                 ))}
                               </div>
