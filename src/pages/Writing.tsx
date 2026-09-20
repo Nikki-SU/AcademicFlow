@@ -254,49 +254,44 @@ async function toEnglishSearchQuery(topic: string): Promise<string> {
   return resp.content.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, ' ')
 }
 
-/** 侧栏库内检索的一条命中：命中的字段名 + 该字段里关键词附近的片段 */
-interface LibraryHit {
-  field: string
-  snippet: string
-}
-
 /**
- * 在一个字段里找关键词，命中就返回前后一小段上下文。
- * 先压平空白再找 —— 摘要和作者列表里全是换行，不压平的话上下文会被切得很碎。
+ * 在一个字段里找关键词。命中就返回**该字段的内容本身**（不是"命中在哪"的标注）——
+ * 关键词由 HighlightedSnippet 高亮出来，用户一眼能看出是哪里命中的。
+ *
+ * 短字段（标题 / 作者 / 期刊 / 关键词 / DOI）整条给出，不截断；
+ * 只有摘要这类长文本才截一个以关键词为中心的窗口，否则一整段摘要会把侧栏塞满。
  */
-function hitInField(field: string, value: string, query: string): LibraryHit | null {
+function hitInField(value: string, query: string, isLongText = false): string | null {
   const flat = (value || '').replace(/\s+/g, ' ').trim()
   if (!flat) return null
   const idx = flat.toLowerCase().indexOf(query)
   if (idx === -1) return null
-  const start = Math.max(0, idx - 24)
-  const end = Math.min(flat.length, idx + query.length + 48)
-  return {
-    field,
-    snippet: `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`,
-  }
+  if (!isLongText) return flat
+  const start = Math.max(0, idx - 30)
+  const end = Math.min(flat.length, idx + query.length + 60)
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
 }
 
 /**
- * 库内检索：把一篇文献的每个字段都过一遍，返回全部命中。
+ * 库内检索：把一篇文献的每个字段都过一遍，返回全部命中的内容。
  * 顺序即展示优先级 —— 标题命中最说明问题，摘要命中放最后。
  */
-function findLibraryHits(query: string, paper: Literature, titleCn: string): LibraryHit[] {
+function findLibraryHits(query: string, paper: Literature, titleCn: string): string[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
-  const candidates: Array<[string, string]> = [
-    ['中文标题', titleCn],
-    ['英文标题', paper.title],
-    ['作者', paper.authors],
-    ['期刊', paper.journal],
-    ['关键词', paper.keywords],
-    ['中文摘要', paper.abstractCn],
-    ['英文摘要', paper.abstractEn],
-    ['DOI', paper.doi],
+  const candidates: Array<[string, boolean]> = [
+    [titleCn, false],
+    [paper.title, false],
+    [paper.authors, false],
+    [paper.journal, false],
+    [paper.keywords, false],
+    [paper.abstractCn, true],
+    [paper.abstractEn, true],
+    [paper.doi, false],
   ]
-  const hits: LibraryHit[] = []
-  for (const [field, value] of candidates) {
-    const hit = hitInField(field, value, q)
+  const hits: string[] = []
+  for (const [value, isLong] of candidates) {
+    const hit = hitInField(value, q, isLong)
     if (hit) hits.push(hit)
   }
   return hits
@@ -890,7 +885,7 @@ export default function WritingPage() {
   const librarySearchResults = useMemo(() => {
     const q = libSearch.trim()
     if (!q) return []
-    const found: Array<{ paper: Literature; titleCn: string; hits: LibraryHit[] }> = []
+    const found: Array<{ paper: Literature; titleCn: string; hits: string[] }> = []
     for (const p of availablePapers) {
       const titleCn = titleCnMap[p.doi] || ''
       const hits = findLibraryHits(q, p, titleCn)
@@ -2400,41 +2395,53 @@ export default function WritingPage() {
                       没找到匹配的文献
                     </div>
                   )}
-                  {librarySearchResults.map(({ paper, titleCn, hits }) => (
-                    <div
-                      key={paper.doi}
-                      className="rounded-md border border-slate-200 bg-white px-2 py-1.5 hover:border-indigo-200 transition"
-                    >
-                      {titleCn && (
-                        <div className="text-xs font-medium text-slate-700 leading-snug">
-                          {titleCn}
-                        </div>
-                      )}
+                  {librarySearchResults.map(({ paper, titleCn, hits }) => {
+                    const q = libSearch.trim()
+                    const meta = [paper.authors, paper.year || '', paper.journal]
+                      .filter(Boolean)
+                      .join(' · ')
+                    // 命中的内容如果本来就已经显示在上面几行了（标题/作者/期刊），
+                    // 就就地高亮，不再另起一行重复一遍；只有命中在关键词/摘要/DOI
+                    // 这些没露过面的字段上时，才额外显示一行内容。
+                    const extra = hits.find(
+                      (h) => !`${titleCn} ${paper.title} ${meta}`.includes(h),
+                    )
+                    return (
                       <div
-                        className={`text-[0.6875rem] leading-snug ${
-                          titleCn ? 'text-slate-500' : 'text-slate-700 font-medium'
-                        }`}
+                        key={paper.doi}
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 hover:border-indigo-200 transition"
                       >
-                        {paper.title}
+                        {titleCn && (
+                          <div className="text-xs font-medium text-slate-700 leading-snug">
+                            <HighlightedSnippet text={titleCn} query={q} />
+                          </div>
+                        )}
+                        <div
+                          className={`text-[0.6875rem] leading-snug ${
+                            titleCn ? 'text-slate-500' : 'text-slate-700 font-medium'
+                          }`}
+                        >
+                          <HighlightedSnippet text={paper.title} query={q} />
+                        </div>
+                        <div className="mt-0.5 text-[0.625rem] text-slate-400 truncate">
+                          <HighlightedSnippet text={meta} query={q} />
+                        </div>
+                        {extra && (
+                          <div className="mt-1 text-[0.625rem] text-slate-500 leading-snug">
+                            <HighlightedSnippet text={extra} query={q} />
+                          </div>
+                        )}
+                        <button
+                          onClick={() => handleCopyDoiLink(paper.doi)}
+                          className="mt-1 flex items-center gap-1 text-[0.625rem] text-indigo-600 hover:text-indigo-700"
+                          title={doiLinkOf(paper.doi)}
+                        >
+                          <Copy className="w-3 h-3" />
+                          复制 DOI 链接
+                        </button>
                       </div>
-                      <div className="mt-0.5 text-[0.625rem] text-slate-400 truncate">
-                        {[paper.authors, paper.year || '', paper.journal].filter(Boolean).join(' · ')}
-                      </div>
-                      {/* 命中多处时只给第一条 —— 侧栏就一条，列多了反而看不清 */}
-                      <div className="mt-1 text-[0.625rem] text-slate-500 leading-snug">
-                        <span className="text-slate-400">{hits[0].field}：</span>
-                        <HighlightedSnippet text={hits[0].snippet} query={libSearch.trim()} />
-                      </div>
-                      <button
-                        onClick={() => handleCopyDoiLink(paper.doi)}
-                        className="mt-1 flex items-center gap-1 text-[0.625rem] text-indigo-600 hover:text-indigo-700"
-                        title={doiLinkOf(paper.doi)}
-                      >
-                        <Copy className="w-3 h-3" />
-                        复制 DOI 链接
-                      </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
