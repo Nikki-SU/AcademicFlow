@@ -826,6 +826,21 @@ export interface LatexConversionResult {
     description: string
     suggestion: string
   }>
+  /**
+   * 块锚点自检结果。锚点是「改 md 只重写改动段落」的前提 ——
+   * AI 漏写/写坏锚点时这里会如实列出，前端据此提示用户（不静默）。
+   */
+  anchor_check?: {
+    found: string[]
+    missing: string[]
+    malformed: string[]
+  }
+  /** AI-2 的「是否符合期刊模板」审查（与忠实性审查是两件事，分开报） */
+  template_compliance?: {
+    passed: boolean
+    summary: string
+    issues: Array<{ area: string; problem: string; suggestion: string }>
+  }
 }
 
 /** DOI 归一化结果 */

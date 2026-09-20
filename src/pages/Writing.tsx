@@ -51,6 +51,7 @@ import {
 import {
   convertMarkdownToLatex,
   refineLatexWithAI,
+  patchLatexFromMarkdown,
   buildLatexSkeletonFromTemplate,
   parseLatexTemplate,
 } from '../services/latex-converter'
@@ -1803,9 +1804,82 @@ export default function WritingPage() {
       setLatexCode(result.latex)
       setLatexBib(result.bibtex)
       setCompileError('')
-      toast.success('已生成 LaTeX，可在代码板继续修改')
+
+      // 块锚点自检 + 模板合规审查：这两条都不阻塞出稿，但必须让用户看见，
+      // 不能因为「生成成功了」就把它们吞掉。
+      const anchorBad =
+        (result.anchor_check?.missing.length || 0) + (result.anchor_check?.malformed.length || 0)
+      if (anchorBad > 0) {
+        toast.warning(
+          `已生成，但有 ${anchorBad} 个段落没被块锚点包住 —— 以后改 md 做「局部更新」时这些段落无法复用。` +
+            '可在代码板里搜 af:blk 核对。',
+          { duration: 9000 },
+        )
+      } else {
+        toast.success('已生成 LaTeX（块锚点齐全），可在代码板继续修改')
+      }
+      if (result.template_compliance && !result.template_compliance.passed) {
+        toast.warning(
+          `AI-2 模板合规审查：${result.template_compliance.summary || '发现不符合模板的地方'}（${result.template_compliance.issues.length} 条）`,
+          { duration: 10000 },
+        )
+      }
     } catch (err) {
       toast.error(`生成失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsGeneratingLatex(false)
+      setLatexGenStatus('')
+    }
+  }
+
+  /**
+   * 改完 md 后**局部更新** LaTeX：只重写改动的那几段，其余段落从旧稿原样搬过来。
+   * 这是「转换后还想改文字」的正确路径 —— 在 md 侧改，而不是在 tex 里手改，
+   * 也不是整篇重新转换（整篇重转会让 AI 顺手改掉别处的措辞）。
+   */
+  const patchLatexFromMarkdownChange = async () => {
+    if (!currentTemplate) {
+      toast.error('请先在「期刊模板」面板创建并选择一个期刊模板')
+      return
+    }
+    if (!latexCode.trim()) {
+      toast.error('代码板是空的：先点一次「由正文生成」拿到带锚点的稿子')
+      return
+    }
+    const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
+    setIsGeneratingLatex(true)
+    setLatexGenStatus('准备中...')
+    try {
+      const result = await patchLatexFromMarkdown({
+        oldLatex: latexCode,
+        newMarkdown: mdContent,
+        template: currentTemplate,
+        ai1,
+        ai2,
+        onProgress: (e) => setLatexGenStatus(e.message || ''),
+      })
+      setLatexCode(result.latex)
+      setCompileError('')
+      const anchorBad = result.anchorCheck.missing.length + result.anchorCheck.malformed.length
+      if (anchorBad > 0) {
+        toast.warning(
+          `局部更新完成（复用 ${result.reused} / 重写 ${result.regenerated} / 删除 ${result.dropped}），` +
+            `但 ${anchorBad} 个块锚点缺失，已在正文标 TODO，请人工核对。`,
+          { duration: 9000 },
+        )
+      } else {
+        toast.success(
+          `局部更新完成：复用 ${result.reused} 段 / 重写 ${result.regenerated} 段 / 删除 ${result.dropped} 段`,
+        )
+      }
+      if (result.compliance && !result.compliance.passed) {
+        toast.warning(
+          `AI-2 模板合规审查：${result.compliance.summary || '发现不符合模板的地方'}`,
+          { duration: 10000 },
+        )
+      }
+    } catch (err) {
+      toast.error(`局部更新失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setIsGeneratingLatex(false)
       setLatexGenStatus('')
@@ -3929,6 +4003,14 @@ export default function WritingPage() {
                       <Wand2 className="w-3 h-3" />
                     )}
                     由正文生成
+                  </button>
+                  <button
+                    onClick={patchLatexFromMarkdownChange}
+                    disabled={isGeneratingLatex || !latexCode.trim()}
+                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-indigo-700 bg-indigo-50 rounded hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="只把改动过的段落重新生成，其余段落从当前代码板原样保留（改文字请走这条路，别整篇重转）"
+                  >
+                    局部更新（改过 md 后）
                   </button>
                   <button
                     onClick={() => handleCopyContent(latexCode)}

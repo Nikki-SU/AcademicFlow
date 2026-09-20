@@ -10,6 +10,7 @@
  * 5. 生成 BibTeX
  */
 import { runDualEngine } from './ai/dual-engine'
+import { callAI } from './ai/client'
 import type { DualEngineProgressCallback } from '../types'
 import {
   extractCitationsFromMarkdown,
@@ -56,84 +57,345 @@ interface ConvertParams {
 // AI-1: Markdown → LaTeX 正文转换
 // ============================================================
 
-function buildAI1SystemPrompt(template: JournalTemplate): string {
+/**
+ * 把期刊模板摊成一份**完整规格**交给 AI。
+ *
+ * 为什么不只给 documentclass + 宏包名：只报这几个参数，AI 只能按通用 article
+ * 硬套，出来不像那个期刊。这里把导言区原文、正文命令骨架、以及所有格式备注
+ * 一并给出 —— AI 才有足够依据「照着这个期刊的样子写」。
+ */
+function buildTemplateSpec(template: JournalTemplate): string {
   const twoColNote = template.two_column
-    ? '双栏排版（twocolumn），注意图表位置和文字流动。'
-    : '单栏排版。'
+    ? '双栏排版（twocolumn），注意图表位置和文字流动'
+    : '单栏排版'
 
-  // 模板骨架（上传的期刊 sample .tex，或「保存回模板」存下来的那份）：
-  // 把正文区的命令骨架交给 AI 当范式，它才知道这个期刊的标题、作者、摘要、
-  // 章节、参考文献各自该怎么写 —— 只报几个参数（documentclass / 宏包）是不够的，
-  // AI 只能按通用的 article 写法硬套，出来当然不像那个期刊。
+  const lines: string[] = [
+    `- 期刊名称：${template.name}`,
+    `- documentclass：\\documentclass${template.document_options ? `[${template.document_options}]` : ''}{${template.document_class}}`,
+    `- 排版方式：${twoColNote}`,
+    `- 引用样式：${template.bibtex_style || '（模板未标注）'}`,
+  ]
+  if (template.font_size) lines.push(`- 正文字号：${template.font_size}pt`)
+  if (template.packages.length > 0) lines.push(`- 宏包：${template.packages.join(', ')}`)
+  if (template.title_format_note) lines.push(`- 标题格式要求：${template.title_format_note}`)
+  if (template.abstract_format_note) lines.push(`- 摘要格式要求：${template.abstract_format_note}`)
+  if (template.reference_format_note) lines.push(`- 参考文献格式：${template.reference_format_note}`)
+
+  // 导言区原文（\documentclass 到 \begin{document} 之间）：模板里的自定义命令、
+  // 长度设置、宏包选项都在这里。AI 知道这些命令存在，才不会自己瞎定义一个同名的。
+  const tex = (template.template_tex || '').trim()
+  const beginAt = tex.indexOf('\\begin{document}')
+  if (beginAt > 0) {
+    const preamble = tex.slice(0, beginAt).trim()
+    if (preamble) {
+      lines.push('', '- 模板导言区原文（正文里可以直接使用其中定义的命令）：', '```latex', preamble, '```')
+    }
+  }
+  if (template.custom_preamble) {
+    lines.push('', '- 自定义前置代码：', '```latex', template.custom_preamble, '```')
+  }
+
+  // 正文命令骨架：结构范式（示例文字不要抄）
   const skeleton = extractSkeletonOutline(template.template_tex)
+  if (skeleton) {
+    lines.push(
+      '',
+      '- 模板正文的命令骨架（**严格照这个结构写**：标题/作者/摘要/章节/参考文献的写法与顺序；',
+      '  其中的示例文字只是结构示范，不要抄进正式稿）：',
+      '```latex',
+      skeleton,
+      '```',
+    )
+  }
 
+  return lines.join('\n')
+}
+
+function buildAI1SystemPrompt(template: JournalTemplate): string {
   return [
     '你是一名专业的学术 LaTeX 排版助手。你的任务是将 Markdown 格式的学术论文',
-    '转换为符合特定期刊要求的 LaTeX 正文代码。',
+    '转换为符合特定期刊模板要求的 LaTeX 正文代码。',
     '',
-    '【目标期刊模板】',
-    `- 期刊名称：${template.name}`,
-    `- 文档类：${template.document_class}${template.document_options ? ` [${template.document_options}]` : ''}`,
-    `- 引用样式：${template.bibtex_style}`,
-    `- 排版方式：${twoColNote}`,
-    template.title_format_note ? `- 标题格式要求：${template.title_format_note}` : '',
-    template.abstract_format_note ? `- 摘要格式要求：${template.abstract_format_note}` : '',
-    template.reference_format_note ? `- 参考文献格式：${template.reference_format_note}` : '',
-    template.custom_preamble ? `- 自定义前置代码：${template.custom_preamble}` : '',
-    ...(skeleton
-      ? [
-          '',
-          '【目标期刊模板的正文骨架】',
-          '下面是该模板正文的命令骨架，**请严格照这个结构写**（标题/作者/摘要/章节/参考文献的写法与顺序）。',
-          '它只是结构参考，其中的示例文字不要抄进正式稿。',
-          skeleton,
-        ]
-      : []),
+    '【目标期刊模板完整规格】',
+    buildTemplateSpec(template),
     '',
     '【转换规则（严格遵守）】',
     '1. 只输出 LaTeX 正文部分（\\begin{document} 和 \\end{document} 之间的内容），',
     '   不要包含 \\documentclass、\\usepackage、\\begin{document}、\\end{document}。',
-    '2. Markdown 标题转换为 LaTeX 对应层级：',
-    '   # → \\title',
+    '2. **样式全部由上面的模板规格决定**：文档类、宏包、栏数、字号、标题/摘要/参考文献',
+    '   的写法都照模板来；不要自行引入模板规格之外的宏包或排版命令。',
+    '3. Markdown 标题转换为 LaTeX 对应层级：',
+    '   # → \\title（论文标题）',
     '   ## → \\section',
     '   ### → \\subsection',
     '   #### → \\subsubsection',
-    '3. 第一个 # 标题是论文标题，用 \\title{...} 包裹。',
     '4. 如果 Markdown 中有 "作者" 或 "Author" 信息，转换为 \\author{...}。',
-    '5. 如果有 "摘要" 或 "Abstract" 段落，放在 \\begin{abstract}...\\end{abstract} 中。',
+    '5. 如果有 "摘要" 或 "Abstract" 段落，按模板骨架里的摘要环境写法放置。',
     '6. 引用标记处理：',
     '   - Markdown 中的 [@doi:10.xxx/xxx] 或 [@10.xxx/xxx] 保持原样不动',
-    '   - 不要把 DOI 转换成具体的引用编号',
-    '   - 后续系统会统一处理引用替换',
+    '   - 不要把 DOI 转换成具体的引用编号；后续系统会统一处理引用替换',
     '7. 公式：',
     '   - 行内公式 $...$ 保持不变（LaTeX 原生支持）',
     '   - 独立公式 $$...$$ 转换为 \\begin{equation}...\\end{equation}',
-    '8. 表格：Markdown 表格转换为 LaTeX table 环境，根据期刊风格调整。',
-    '9. 图片：![caption](url) 转换为 \\begin{figure}...\\end{figure}，',
-    '   包含 \\includegraphics 和 \\caption。注意双栏时用 figure* 环境。',
+    '8. 表格：Markdown 表格转换为 LaTeX table 环境，按模板风格调整；双栏时用 table*。',
+    '9. 图片：![caption](url) 转换为 figure 环境，含 \\includegraphics 和 \\caption；双栏时用 figure*。',
     '10. 列表：itemize / enumerate 环境。',
     '11. 粗体 **text** → \\textbf{text}，斜体 *text* → \\textit{text}。',
     '12. 代码块 → verbatim 或 lstlisting 环境。',
-    '13. 引用标记（[@...]）在正文中出现的位置保持不变，稍后系统会统一替换。',
+    '',
+    '【块锚点（重要，用于后续「只改改动的段落」）】',
+    'Markdown 原文按空行被切成若干「块」，每块前面都标了形如 `<!--af:blk:XXXX-->` 的块号。',
+    '输出时，**每个块对应的 LaTeX 片段都要用注释锚点包起来**，格式严格如下（一字不差）：',
+    '   %⟦af:blk:XXXX⟧',
+    '   ...该块转换出来的 LaTeX...',
+    '   %⟦/af:blk:XXXX⟧',
+    `其中 XXXX 就是该块在 Markdown 里的块号（不含 \`<!--af:blk:\` 前缀与 \`-->\` 后缀）。`,
+    '一个块拆成多个 LaTeX 命令也要全部包在同一对锚点里；锚点行必须各自独占一行。',
+    '锚点是 LaTeX 注释，不影响编译，但**不能省略、不能改名、不能嵌套**。',
     '',
     '【输出要求】',
     '- 只输出 LaTeX 代码，不要任何解释说明文字',
     '- 不要用 markdown 代码块包裹',
     '- 保持正确的缩进和换行',
     '- 确保代码可直接编译',
-  ]
-    .filter((line) => line !== null && line !== undefined)
-    .join('\n')
+  ].join('\n')
 }
 
 function buildAI1UserPrompt(markdown: string): string {
+  const blocks = splitMarkdownBlocks(markdown)
+  const marked = blocks
+    .map((b) => `<!--af:blk:${b.id}-->\n${b.text}`)
+    .join('\n\n')
   return [
-    '【Markdown 原文】',
-    markdown,
+    '【Markdown 原文（按块标注块号）】',
+    marked,
     '',
-    '请将上述 Markdown 论文转换为 LaTeX 正文代码。',
-    '注意：[@doi:xxx] 或 [@10.xxx/xxx] 形式的引用标记保持原样，不要替换。',
+    '请将上述 Markdown 论文转换为 LaTeX 正文代码。要求：',
+    '- 每个块对应的 LaTeX 片段用 %⟦af:blk:块号⟧ … %⟦/af:blk:块号⟧ 包起来（见 system 说明）',
+    '- [@doi:xxx] 或 [@10.xxx/xxx] 形式的引用标记保持原样，不要替换',
   ].join('\n')
+}
+
+// ============================================================
+// 块锚点：让「改 md 只重写改动的那几段」成为可能
+// ============================================================
+
+/** 一个 Markdown 块（按空行切分的最小单位，含围栏代码/表格/行间公式整块） */
+export interface MarkdownBlock {
+  /** 稳定块号：内容 sha 的短摘要（内容不变 → 块号不变），重复内容追加序号 */
+  id: string
+  /** 块类型，仅供展示与调试 */
+  kind: 'heading' | 'fence' | 'table' | 'formula' | 'image' | 'list' | 'text'
+  /** 块的原文（不含块号标注） */
+  text: string
+}
+
+/** 32 位 FNV-1a，纯前端、确定性 —— 只用来给块生成稳定 id，不用于安全场景 */
+function shortHash(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(36)
+}
+
+function classifyBlock(text: string): MarkdownBlock['kind'] {
+  const t = text.trimStart()
+  if (/^#{1,6}\s/.test(t)) return 'heading'
+  if (/^(```|~~~)/.test(t)) return 'fence'
+  if (/^\$\$/.test(t)) return 'formula'
+  if (/^!\[/.test(t)) return 'image'
+  if (/^\|/.test(t) && t.includes('|', 1)) return 'table'
+  if (/^([-*+]|\d+\.)\s/.test(t)) return 'list'
+  return 'text'
+}
+
+/**
+ * 把 Markdown 按块切开（确定性，不调 AI）。
+ * 规则：空行分块；围栏代码块 / 行间公式 / 表格整段算一块（内部空行不切）。
+ * id 由内容哈希生成 → 同一段文字改了才是新 id，没改的块 id 稳定不变。
+ */
+export function splitMarkdownBlocks(md: string): MarkdownBlock[] {
+  const lines = md.replace(/\r\n?/g, '\n').split('\n')
+  const rawBlocks: string[] = []
+  let buf: string[] = []
+  let fence: string | null = null
+  let inMath = false
+
+  const flush = () => {
+    const text = buf.join('\n').replace(/\s+$/, '')
+    if (text.trim()) rawBlocks.push(text)
+    buf = []
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (fence) {
+      buf.push(line)
+      if (trimmed.startsWith(fence)) fence = null
+      continue
+    }
+    if (inMath) {
+      buf.push(line)
+      if (trimmed.endsWith('$$')) inMath = false
+      continue
+    }
+    const fenceOpen = trimmed.match(/^(```|~~~)/)
+    if (fenceOpen) {
+      fence = fenceOpen[1]
+      buf.push(line)
+      continue
+    }
+    if (trimmed.startsWith('$$')) {
+      buf.push(line)
+      if (!(trimmed.length > 2 && trimmed.endsWith('$$'))) inMath = true
+      continue
+    }
+    if (trimmed === '') {
+      flush()
+      continue
+    }
+    buf.push(line)
+  }
+  flush()
+
+  const seen = new Map<string, number>()
+  return rawBlocks.map((text) => {
+    const base = shortHash(text)
+    const n = seen.get(base) ?? 0
+    seen.set(base, n + 1)
+    return {
+      id: n === 0 ? base : `${base}-${n}`,
+      kind: classifyBlock(text),
+      text,
+    }
+  })
+}
+
+const ANCHOR_OPEN_RE = /^[ \t]*%⟦af:blk:([^⟧]+)⟧[ \t]*$/gm
+const ANCHOR_CLOSE_RE = /^[ \t]*%⟦\/af:blk:([^⟧]+)⟧[ \t]*$/gm
+
+export interface AnchorCheck {
+  /** 正文里出现的块号（有序） */
+  found: string[]
+  /** prompt 里给了、但正文里没找到的块号 */
+  missing: string[]
+  /** 有开无合 / 有合无开 / 嵌套错乱 */
+  malformed: string[]
+}
+
+/** 校验 AI 输出的锚点是否完整成对（AI 漏写锚点必须被发现，不能静默） */
+export function checkAnchors(latex: string, expectedIds: string[]): AnchorCheck {
+  const opens: string[] = []
+  const closes: string[] = []
+  let m: RegExpExecArray | null
+  ANCHOR_OPEN_RE.lastIndex = 0
+  while ((m = ANCHOR_OPEN_RE.exec(latex))) opens.push(m[1])
+  ANCHOR_CLOSE_RE.lastIndex = 0
+  while ((m = ANCHOR_CLOSE_RE.exec(latex))) closes.push(m[1])
+
+  const malformed: string[] = []
+  const found: string[] = []
+  for (const id of opens) {
+    if (closes.includes(id)) found.push(id)
+    else malformed.push(id)
+  }
+  for (const id of closes) if (!opens.includes(id)) malformed.push(id)
+
+  const missing = expectedIds.filter((id) => !found.includes(id))
+  return { found, missing, malformed: [...new Set(malformed)] }
+}
+
+/** 从带锚点的 LaTeX 正文里抽出 块号 → 片段（含锚点行本身） */
+export function extractAnchoredFragments(body: string): Map<string, string> {
+  const out = new Map<string, string>()
+  const re = /^[ \t]*%⟦af:blk:([^⟧]+)⟧[ \t]*\n([\s\S]*?)^[ \t]*%⟦\/af:blk:\1⟧[ \t]*$/gm
+  let m: RegExpExecArray | null
+  while ((m = re.exec(body))) out.set(m[1], m[0])
+  return out
+}
+
+export function wrapAnchor(id: string, tex: string): string {
+  return `%⟦af:blk:${id}⟧\n${tex.replace(/\s+$/, '')}\n%⟦/af:blk:${id}⟧`
+}
+
+/**
+ * 取正文里**没有**被锚点包住的部分。
+ * 典型是 assembleFullLatex 追加的 `\bibliographystyle{...}` / `\bibliography{...}` ——
+ * 重建正文时必须把它原样接回去，否则参考文献就没了。
+ */
+function extractNonAnchored(body: string): string {
+  return body
+    .replace(/^[ \t]*%⟦af:blk:[^⟧]+⟧[ \t]*\n[\s\S]*?^[ \t]*%⟦\/af:blk:[^⟧]+⟧[ \t]*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
+ * 用「新的 Markdown 块序列」重建 LaTeX 正文：
+ *   - 块号不变的块 → 直接复用旧片段（**不重新生成，文字不会被 AI 顺手改动**）
+ *   - 新增 / 改动 / 锚点丢失的块 → 交给 generateBlocks 重新生成
+ *   - 旧稿里有、新 md 里没有的块 → 丢弃（等于删除）
+ * 未包在锚点里的部分（导言区之后的 \bibliography 之类）原样保留在末尾。
+ *
+ * 注意：这是纯函数，generateBlocks 由调用方注入 —— 便于单测，也便于换实现。
+ */
+export async function rebuildBodyFromBlocks(
+  oldLatex: string,
+  newMd: string,
+  generateBlocks: (blocks: MarkdownBlock[]) => Promise<string>,
+): Promise<{ latex: string; reused: number; regenerated: number; dropped: number }> {
+  const beginTag = '\\begin{document}'
+  const endTag = '\\end{document}'
+  const beginAt = oldLatex.indexOf(beginTag)
+  const endAt = oldLatex.lastIndexOf(endTag)
+  const head = beginAt === -1 ? '' : oldLatex.slice(0, beginAt + beginTag.length)
+  const body = beginAt === -1 || endAt <= beginAt ? '' : oldLatex.slice(beginAt + beginTag.length, endAt)
+  const tail = endAt > beginAt ? oldLatex.slice(endAt) : ''
+
+  const oldFragments = extractAnchoredFragments(body)
+  const blocks = splitMarkdownBlocks(newMd)
+
+  const needGenerate: MarkdownBlock[] = []
+  for (const b of blocks) if (!oldFragments.has(b.id)) needGenerate.push(b)
+
+  let generated = ''
+  if (needGenerate.length > 0) generated = await generateBlocks(needGenerate)
+  const newFragments = extractAnchoredFragments(generated)
+
+  const pieces: string[] = []
+  let reused = 0
+  let regenerated = 0
+  for (const b of blocks) {
+    const reusedFrag = oldFragments.get(b.id)
+    if (reusedFrag) {
+      pieces.push(reusedFrag)
+      reused++
+      continue
+    }
+    const frag = newFragments.get(b.id)
+    if (frag) {
+      pieces.push(frag)
+      regenerated++
+    } else {
+      // AI 没给这个块的锚点 —— 不猜、不静默丢，交给调用方在返回值里体现
+      pieces.push(`%⟦af:blk:${b.id}⟧\n% TODO: 该块未能生成 LaTeX（AI 未返回对应锚点）\n%⟦/af:blk:${b.id}⟧`)
+    }
+  }
+
+  const dropped = [...oldFragments.keys()].filter((id) => !blocks.some((b) => b.id === id)).length
+
+  // 锚点外的正文（\bibliographystyle / \bibliography 等）原样接回末尾
+  const leftover = extractNonAnchored(body)
+  const newBody = [pieces.join('\n\n'), leftover].filter((s) => s.trim() !== '').join('\n\n')
+
+  return {
+    latex: [head, '', newBody, '', tail].filter((s) => s !== '').join('\n').trimEnd(),
+    reused,
+    regenerated,
+    dropped,
+  }
 }
 
 // ============================================================
@@ -593,6 +855,232 @@ export async function refineLatexWithAI(
 }
 
 // ============================================================
+// AI-2：是否符合期刊模板（与「忠于 md」是两件事，分开审）
+// ============================================================
+
+export interface TemplateComplianceReport {
+  passed: boolean
+  summary: string
+  issues: Array<{ area: string; problem: string; suggestion: string }>
+}
+
+/**
+ * 让 AI-2 拿模板规格去审生成的 LaTeX。
+ *
+ * 为什么单独审、不塞进双引擎的忠实性循环：双引擎的通过/重试只认
+ * supported/added/contradicted 三态，那是「有没有编造」的判据；
+ * 「合不合模板」是另一套判据，混进去会把两条独立的信号搅在一起。
+ * 这里独立跑一次，结果单独报给用户，让他自己决定改不改。
+ */
+export async function reviewTemplateCompliance(params: {
+  latex: string
+  template: JournalTemplate
+  ai2: { baseUrl: string; apiKey: string; model: string }
+  onProgress?: LatexConvertProgress
+}): Promise<TemplateComplianceReport> {
+  const { latex, template, ai2, onProgress } = params
+  onProgress?.({ stage: 'ai_reviewing', message: 'AI-2: 检查是否符合期刊模板…' })
+
+  const system = [
+    '你是一名严格的期刊 LaTeX 模板合规审查员。你会收到【期刊模板规格】和一份【待审 LaTeX 稿】。',
+    '你的任务：判断这份稿子是否符合该期刊模板的排版要求。',
+    '',
+    '【审查维度】',
+    '1. documentclass 与选项是否与模板一致（栏数、字号）。',
+    '2. 是否使用了模板规格之外、模板导言区没有的宏包或自定义命令。',
+    '3. 标题 / 作者 / 摘要 / 章节 / 参考文献的写法与顺序是否与模板骨架一致。',
+    '4. 双栏期刊的图表是否用了 table* / figure*；单栏却用了带星号环境也算不符。',
+    '',
+    '【严格要求】',
+    '1. 只根据【期刊模板规格】判断，不要凭你对其它期刊的印象下结论。',
+    '2. 每条 issue 必须指出具体位置（引用稿中的片段）与改法。',
+    '3. 没有把握就不要报 —— 宁可漏报也不要编造规则。',
+    '4. 输出严格 JSON，不要 markdown 代码块。',
+    '',
+    '【输出 JSON 结构】',
+    '{',
+    '  "passed": boolean,',
+    '  "issues": [{ "area": string, "problem": string, "suggestion": string }],',
+    '  "summary": string',
+    '}',
+  ].join('\n')
+
+  const user = [
+    '【期刊模板规格】',
+    buildTemplateSpec(template),
+    '',
+    '【待审 LaTeX 稿】',
+    latex,
+    '',
+    '请按 system 指令输出合规审查 JSON。',
+  ].join('\n')
+
+  try {
+    const resp = await callAI({
+      baseUrl: ai2.baseUrl,
+      apiKey: ai2.apiKey,
+      model: ai2.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    })
+    return parseCompliance(resp.content)
+  } catch (err) {
+    // 审查失败不影响出稿 —— 如实报告「没审成」，而不是假装通过
+    return {
+      passed: false,
+      issues: [],
+      summary: `模板合规审查未能执行：${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+function parseCompliance(raw: string): TemplateComplianceReport {
+  let text = raw.trim()
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fence) text = fence[1].trim()
+  const first = text.indexOf('{')
+  const last = text.lastIndexOf('}')
+  if (first >= 0 && last > first) text = text.slice(first, last + 1)
+  try {
+    const parsed = JSON.parse(text) as {
+      passed?: boolean
+      issues?: Array<{ area?: string; problem?: string; suggestion?: string }>
+      summary?: string
+    }
+    return {
+      passed: Boolean(parsed.passed),
+      summary: String(parsed.summary ?? ''),
+      issues: Array.isArray(parsed.issues)
+        ? parsed.issues.map((i) => ({
+            area: String(i.area ?? ''),
+            problem: String(i.problem ?? ''),
+            suggestion: String(i.suggestion ?? ''),
+          }))
+        : [],
+    }
+  } catch {
+    return { passed: false, issues: [], summary: `审查返回的不是合法 JSON：${raw.slice(0, 300)}` }
+  }
+}
+
+// ============================================================
+// 改 md 后：只重写改动的那几块，其余原样保留
+// ============================================================
+
+export interface PatchLatexParams {
+  /** 上一次转换出来的完整 LaTeX（带块锚点） */
+  oldLatex: string
+  /** 用户改过的 Markdown */
+  newMarkdown: string
+  template: JournalTemplate
+  ai1: { baseUrl: string; apiKey: string; model: string }
+  /** 传了就顺带跑一遍模板合规审查 */
+  ai2?: { baseUrl: string; apiKey: string; model: string }
+  onProgress?: LatexConvertProgress
+}
+
+export interface PatchLatexResult {
+  latex: string
+  /** 复用的段落数（未被 AI 重写） */
+  reused: number
+  /** 重新生成的段落数 */
+  regenerated: number
+  /** 因 md 中已删除而丢弃的段落数 */
+  dropped: number
+  /** 重生成部分的锚点自检 */
+  anchorCheck: AnchorCheck
+  compliance?: TemplateComplianceReport
+}
+
+/**
+ * 「文字改动走 md 侧」的落点。
+ *
+ * oldLatex 是上一次转换的产物，每个 md 块都被 %⟦af:blk:id⟧ 锚点包着。
+ * 这里按「新 md 的块序列」重排：
+ *   块号没变的 → 直接搬旧片段（一个字都不会被 AI 动）
+ *   块号变了 / 新增 → 只把这几个块交给 AI 重写
+ * 于是「改一句话」不会触发整篇重转，也不会让 AI 顺手改掉别的段落。
+ *
+ * ⚠️ 前提是老稿确实带锚点。老稿不带锚点（比如是手改过的、或早期版本生成的）
+ *    就没法定位，此时返回值里 regenerated 会等于全部块数 —— 调用方应当提示用户
+ *    「这等于整篇重转」，必要时让用户先重新生成一次带锚点的稿子。
+ */
+export async function patchLatexFromMarkdown(params: PatchLatexParams): Promise<PatchLatexResult> {
+  const { oldLatex, newMarkdown, template, ai1, ai2, onProgress } = params
+
+  const blocks = splitMarkdownBlocks(newMarkdown)
+  const allIds = blocks.map((b) => b.id)
+  onProgress?.({
+    stage: 'ai_converting',
+    message: `比对改动段落（共 ${blocks.length} 块）…`,
+  })
+
+  const generateBlocks = async (targets: MarkdownBlock[]): Promise<string> => {
+    const user = [
+      '【需要重新生成的 Markdown 块（只有这些，其余块请勿输出）】',
+      targets.map((b) => `<!--af:blk:${b.id}-->\n${b.text}`).join('\n\n'),
+      '',
+      '要求：',
+      '- 每个块输出为对应的 LaTeX 片段，并用 %⟦af:blk:块号⟧ … %⟦/af:blk:块号⟧ 包起来',
+      '- 块号必须与上面给定的完全一致，不要新增/合并/省略块',
+      '- 只输出这些块的 LaTeX，不要输出其余任何内容',
+      '- [@doi:xxx] 引用标记保持原样',
+    ].join('\n')
+
+    const resp = await callAI({
+      baseUrl: ai1.baseUrl,
+      apiKey: ai1.apiKey,
+      model: ai1.model,
+      messages: [
+        { role: 'system', content: buildAI1SystemPrompt(template) },
+        { role: 'user', content: user },
+      ],
+    })
+    let out = resp.content.trim()
+    const fence = out.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
+    if (fence) out = fence[1].trim()
+    return out
+  }
+
+  const rebuilt = await rebuildBodyFromBlocks(oldLatex, newMarkdown, generateBlocks)
+
+  const anchorCheck = checkAnchors(rebuilt.latex, allIds)
+  if (anchorCheck.missing.length > 0 || anchorCheck.malformed.length > 0) {
+    onProgress?.({
+      stage: 'ai_reviewing',
+      message:
+        `锚点自检未通过：缺 ${anchorCheck.missing.length} 个、异常 ${anchorCheck.malformed.length} 个。` +
+        '受影响段落已标记 TODO，请人工核对或整篇重转。',
+    })
+  }
+
+  const result: PatchLatexResult = {
+    latex: rebuilt.latex,
+    reused: rebuilt.reused,
+    regenerated: rebuilt.regenerated,
+    dropped: rebuilt.dropped,
+    anchorCheck,
+  }
+
+  if (ai2) {
+    result.compliance = await reviewTemplateCompliance({
+      latex: rebuilt.latex,
+      template,
+      ai2,
+      onProgress,
+    })
+  }
+
+  onProgress?.({
+    stage: 'done',
+    message: `完成：复用 ${rebuilt.reused} 段 / 重写 ${rebuilt.regenerated} 段 / 删除 ${rebuilt.dropped} 段`,
+  })
+  return result
+}
+
+// ============================================================
 // 主转换函数
 // ============================================================
 
@@ -725,6 +1213,26 @@ export async function convertMarkdownToLatex(
     // 组装完整文档
     const fullLatex = assembleFullLatex(latexBody, template)
 
+    // ---- 阶段 6: 块锚点自检 ----
+    // 锚点是「以后改 md 只重写改动段落」的前提。AI 经常会漏写几个锚点，
+    // 这里如实报出来 —— 用户在代码板里一眼能看到哪些段落没被锚住。
+    const expectedIds = splitMarkdownBlocks(markdown).map((b) => b.id)
+    const anchorCheck = checkAnchors(fullLatex, expectedIds)
+    if (anchorCheck.missing.length > 0 || anchorCheck.malformed.length > 0) {
+      onProgress?.({
+        stage: 'ai_reviewing',
+        message:
+          `块锚点自检：缺 ${anchorCheck.missing.length} 个 / 异常 ${anchorCheck.malformed.length} 个。` +
+          '缺锚点的段落在「改 md 局部更新」时无法复用，需要重写。',
+      })
+    }
+
+    // ---- 阶段 7: AI-2 模板合规审查（与忠实性审查是两条独立信号） ----
+    let compliance: TemplateComplianceReport | undefined
+    if (enableReview) {
+      compliance = await reviewTemplateCompliance({ latex: fullLatex, template, ai2, onProgress })
+    }
+
     // ---- 完成 ----
     const duration = Date.now() - startTime
     onProgress?.({ stage: 'done', message: `完成！耗时 ${(duration / 1000).toFixed(1)}s` })
@@ -740,6 +1248,8 @@ export async function convertMarkdownToLatex(
       journal_template_id: template.id,
       review_passed: reviewPassed,
       review_issues: reviewIssues,
+      anchor_check: anchorCheck,
+      template_compliance: compliance,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
