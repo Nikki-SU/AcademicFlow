@@ -277,7 +277,16 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       },
       scrollToBlock: (kind, index) => {
         const el = editorElement(vditorRef.current)
-        const node = el?.querySelectorAll<HTMLElement>(BLOCK_SELECTORS[kind])[index]
+        if (!el) return
+        let nodes = Array.from(el.querySelectorAll<HTMLElement>(BLOCK_SELECTORS[kind]))
+        if (kind === 'formula') {
+          // IR 模式下，光标停在公式里时 Vditor 会额外弹一个浮动预览面板，
+          // 里面也是一个 .katex —— 不排掉它，序号会整体偏移一位。
+          nodes = nodes.filter(
+            (n) => !n.closest('[class*="vditor-panel"], [class*="vditor-tip"], [class*="vditor-resize"]'),
+          )
+        }
+        const node = nodes[index]
         if (!node) return
         node.scrollIntoView({ behavior: 'smooth', block: 'center' })
         flashElement(node)
