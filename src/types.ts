@@ -189,6 +189,13 @@ export interface SettingsData {
   /** MinerU JWT token（BYO）——用于 PDF → Markdown 解析 */
   mineruToken: string
   /**
+   * SimpleTex 访问令牌（BYO）——用于「识图输入公式」。
+   * 支持两种：UAT（SimpleTex 控制台直接发的 token）或 APP 的 app-id；
+   * 另有 appSecret 用于 APP 模式的 MD5 签名。都只存 IndexedDB。
+   */
+  simpletexToken: string
+  simpletexSecret: string
+  /**
    * 是否提取"题图（cover figure）"—— 论文里最能代表全文核心的那张单图。
    * 通常是第一张但不必然（有些论文第一张是路线图/示意图/TOC graphic）。
    * 理工科需要，社科可关。判断需要 AI 参与，逻辑在 Import 里落地。默认 true。

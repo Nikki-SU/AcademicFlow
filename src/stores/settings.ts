@@ -79,6 +79,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   customAi2ApiKey: '',
   customAi2Model: '',
   mineruToken: '',
+  simpletexToken: '',
+  simpletexSecret: '',
   extractCoverImage: true,
   autoExtractWords: false,
   mineruDebugMode: true,
@@ -98,6 +100,8 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'customAi2ApiKey',
   'deepseekApiKey2',
   'mineruToken',
+  'simpletexToken',
+  'simpletexSecret',
 ]
 
 /** 非敏感字段也存 IndexedDB 做本地备份
@@ -130,6 +134,8 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
   deepseekApiKey2: SETTING_KEYS.DEEPSEEK_API_KEY_2,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
+  simpletexToken: SETTING_KEYS.SIMPLETEX_TOKEN,
+  simpletexSecret: SETTING_KEYS.SIMPLETEX_SECRET,
 }
 
 /** 字段 → 序列化/反序列化（boolean 需转字符串） */
@@ -180,6 +186,8 @@ function detectPatContamination(
     'customAi2ApiKey',
     'deepseekApiKey2',
     'mineruToken',
+    'simpletexToken',
+    'simpletexSecret',
   ]
   const patPrefixes = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
   return secretFields.filter((field) => {

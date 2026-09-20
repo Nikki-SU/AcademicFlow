@@ -103,6 +103,8 @@ function Settings() {
     slot2ModelsFetchedAt,
     isLoadingSlot2Models,
     mineruToken,
+    simpletexToken,
+    simpletexSecret,
     updateSettings,
     refreshModels,
     init,
@@ -122,6 +124,8 @@ function Settings() {
         customAi2ApiKey: '自定义 AI-2 API Key',
         deepseekApiKey2: 'DeepSeek API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
+        simpletexToken: 'SimpleTex 令牌',
+        simpletexSecret: 'SimpleTex APP Secret',
       }
       const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
       toast.warning(
@@ -467,6 +471,33 @@ function Settings() {
               placeholder="eyJ...（MinerU JWT token）"
               value={mineruToken}
               onChange={(e) => updateSettings({ mineruToken: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            />
+          </div>
+
+          {/* SimpleTex 令牌 — 「识图输入公式」用（前端直连，不进 Secrets） */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">SimpleTex 令牌（公式识图）</label>
+            <p className="text-xs text-slate-500">
+              写作页「公式 → 识图输入公式」用它把图片转成 LaTeX。在{' '}
+              <a href="https://simpletex.cn/user/center" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                SimpleTex 用户中心
+              </a>{' '}
+              创建「用户授权令牌（UAT）」填到第一栏即可；要用 APP 鉴权则填 APP ID + APP Secret。
+              令牌只存本机浏览器，不会同步到 GitHub。
+            </p>
+            <input
+              type="password"
+              placeholder="UAT 或 APP ID"
+              value={simpletexToken}
+              onChange={(e) => updateSettings({ simpletexToken: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            />
+            <input
+              type="password"
+              placeholder="APP Secret（只有 APP 鉴权才需要，UAT 请留空）"
+              value={simpletexSecret}
+              onChange={(e) => updateSettings({ simpletexSecret: e.target.value })}
               className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500"
             />
           </div>

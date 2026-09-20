@@ -29,7 +29,7 @@ import {
   Loader2,
   Check,
   ListTree,
-  BookCopy,
+  ScanEye,
   GraduationCap,
   Newspaper,
   Copy,
@@ -96,6 +96,9 @@ import { readRepoTextFile, uploadRepoBinaryFile } from '../services/github'
 import { dispatchAiCall } from '../services/workflowClient'
 import { getRepoContext } from '../services/userData'
 import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
+import FormulaSidebar, { type FormulaEditTarget } from '../components/FormulaSidebar'
+import ProofreadPanel from '../components/ProofreadPanel'
+import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences } from '../services/formula'
 
 /**
  * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边。
@@ -114,7 +117,7 @@ const PANEL_MODES: {
   { value: 'editor', label: '编辑区', icon: PenTool, hint: '排版' },
   { value: 'template', label: '期刊模板', icon: LayoutTemplate, hint: '模板调试' },
   { value: 'typesetting', label: 'LaTeX 工作区', icon: FileCode },
-  { value: 'references', label: '文献列表', icon: BookCopy },
+  { value: 'proofread', label: '文稿校对', icon: ScanEye },
   { value: 'ai', label: 'AI 助手', icon: Sparkles },
   { value: 'library', label: '文献库', icon: Library },
   { value: 'knowledge', label: '知识库', icon: GraduationCap },
@@ -385,7 +388,7 @@ type PanelMode =
   | 'editor'
   | 'template'
   | 'typesetting'
-  | 'references'
+  | 'proofread'
   | 'ai'
   | 'library'
   | 'knowledge'
@@ -697,6 +700,11 @@ export default function WritingPage() {
   const [showCitationModal, setShowCitationModal] = useState(false)
   const [citationSearch, setCitationSearch] = useState('')
   const [selectedCitations, setSelectedCitations] = useState<string[]>([])
+
+  // ── 公式侧栏（编辑器内部临时侧栏，点工具栏「公式」开关） ──
+  const [showFormulaPanel, setShowFormulaPanel] = useState(false)
+  /** 非空 = 正在改正文里第 N 个公式（否则是新建） */
+  const [formulaEditTarget, setFormulaEditTarget] = useState<FormulaEditTarget | null>(null)
 
   const [templates, setTemplates] = useState<JournalTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
@@ -1211,6 +1219,38 @@ export default function WritingPage() {
     setSaveStatus('unsaved')
     setSelectedCitations([])
     setShowCitationModal(false)
+  }
+
+  /** 公式插进正文时补上定界符：行内 $…$ / 行间 $$…$$ */
+  const formatFormula = (tex: string, kind: 'inline' | 'block') =>
+    kind === 'inline' ? ` $${tex}$ ` : `\n$$\n${tex}\n$$\n`
+
+  /** 打开公式侧栏；target 非空表示「改正文里第 N 个公式」 */
+  const openFormulaPanel = (target: FormulaEditTarget | null) => {
+    if (!(leftPanelMode === 'editor' || rightPanelMode === 'editor')) setLeftPanelMode('editor')
+    setFormulaEditTarget(target)
+    setShowFormulaPanel(true)
+  }
+
+  /** 从校对清单点「改这条」：把正文里第 index 个公式丢进公式侧栏 */
+  const editFormulaAt = (index: number) => {
+    const f = parseFormulas(mdContent)[index]
+    if (!f) return
+    openFormulaPanel({ index, tex: f.tex, kind: f.kind })
+  }
+
+  /**
+   * 跳到正文里第 index 个「图 / 表 / 公式」（文稿校对用）。
+   * 编辑区可能在另一侧、或当前根本没显示 —— 先把它切出来，等挂载完再滚。
+   */
+  const jumpToBlock = (kind: 'image' | 'table' | 'formula', index: number) => {
+    const editorVisible = leftPanelMode === 'editor' || rightPanelMode === 'editor'
+    if (!editorVisible) {
+      setLeftPanelMode('editor')
+      setTimeout(() => primaryEditor()?.scrollToBlock(kind, index), 140)
+      return
+    }
+    primaryEditor()?.scrollToBlock(kind, index)
   }
 
   const exportMarkdown = () => {
@@ -2834,16 +2874,42 @@ export default function WritingPage() {
                 </button>
               </div>
 
-              <div className="flex-1 min-h-0 bg-white">
-                <VditorEditor
-                  ref={p.editorRef}
-                  value={mdContent}
-                  onChange={handleEditorChange}
-                  height="100%"
-                  placeholder="开始撰写正文…"
-                  toolbar={writingToolbar}
-                  className="h-full"
-                />
+              <div className="flex-1 min-h-0 flex bg-white">
+                <div className="flex-1 min-w-0 h-full">
+                  <VditorEditor
+                    ref={p.editorRef}
+                    value={mdContent}
+                    onChange={handleEditorChange}
+                    height="100%"
+                    placeholder="开始撰写正文…"
+                    toolbar={writingToolbar}
+                    onFormulaClick={() => openFormulaPanel(null)}
+                    className="h-full"
+                  />
+                </div>
+                {/* 公式侧栏：编辑器内部的临时侧栏（点工具栏「公式」开关） */}
+                {showFormulaPanel && (
+                  <FormulaSidebar
+                    md={mdContent}
+                    onInsert={(tex, kind) => {
+                      const ed = requireEditor()
+                      if (!ed) return
+                      ed.insertAtCursor(formatFormula(tex, kind))
+                      setSaveStatus('unsaved')
+                    }}
+                    onReplaceAt={(index, tex, kind, global, matchTex) => {
+                      const next = global
+                        ? replaceFormulaOccurrences(mdContent, matchTex, tex, kind)
+                        : replaceNthFormula(mdContent, index, tex, kind)
+                      handleEditorChange(next)
+                      setSaveStatus('unsaved')
+                    }}
+                    onJump={(index) => jumpToBlock('formula', index)}
+                    editTarget={formulaEditTarget}
+                    onConsumeEditTarget={() => setFormulaEditTarget(null)}
+                    onClose={() => setShowFormulaPanel(false)}
+                  />
+                )}
               </div>
 
               <div className="px-4 py-1.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
@@ -2853,59 +2919,12 @@ export default function WritingPage() {
             </>
           )}
 
-          {p.mode === 'references' && (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-3 border-b border-slate-100">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    value={citationSearch}
-                    onChange={(e) => setCitationSearch(e.target.value)}
-                    placeholder="搜索文献..."
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
-                  />
-                </div>
-                <div className="mt-2 text-[0.6875rem] text-slate-400 flex items-center gap-1.5">
-                  <span>共 {scopedCitations.length} 篇</span>
-                  <span className="text-slate-300">·</span>
-                  <span className="text-indigo-600 cursor-pointer hover:underline" onClick={() => setShowCitationModal(true)}>
-                    插入引用
-                  </span>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {scopedCitations.map((cit, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer"
-                    onClick={() => insertCitation(cit.doi)}
-                  >
-                    <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug">
-                      {cit.title}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[0.625rem] font-medium">
-                        {cit.year}
-                      </span>
-                      <span className="truncate">{cit.journal}</span>
-                    </div>
-                    <div className="text-xs text-slate-400 mt-1 truncate">
-                      {cit.authors}
-                    </div>
-                    <div className="mt-2 flex items-center justify-between">
-                      <DoiLink
-                        doi={cit.doi}
-                        mode="short"
-                        showIcon
-                        className="text-[0.6875rem] flex items-center gap-1 font-medium"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {p.mode === 'proofread' && (
+            <ProofreadPanel
+              md={mdContent}
+              onJump={jumpToBlock}
+              onEditFormula={(index) => editFormulaAt(index)}
+            />
           )}
 
           {p.mode === 'ai' && (

@@ -43,6 +43,13 @@ export interface VditorEditorHandle {
   insertAtCursor: (md: string) => void
   /** 滚动到第 index 个标题（序号与 extractOutline 解析出的顺序一致） */
   scrollToHeading: (index: number) => void
+  /**
+   * 滚动到第 index 个「图 / 表 / 公式」，并短暂高亮。
+   * 序号与 parseImages / parseTables / parseFormulas 的结果顺序一致
+   * （都按文档从上到下；渲染后的 <img>/<table>/.katex 同样是文档顺序）。
+   * 用于「文稿校对」：点清单里的一条 → 正文跳到那一条的位置。
+   */
+  scrollToBlock: (kind: 'image' | 'table' | 'formula', index: number) => void
   /** 聚焦编辑器 */
   focus: () => void
 }
@@ -54,6 +61,30 @@ function editorElement(vditor: Vditor | null): HTMLElement | null {
     vditor.getCurrentMode()
   ]
   return node?.element ?? null
+}
+
+/**
+ * 「图 / 表 / 公式」在校对清单里的序号 → 渲染后 DOM 的查找选择器。
+ * 公式用 `.katex`：KaTeX 每个公式只产出一个 `.katex` 根，行内行间都是，
+ * 且文档顺序与 parseFormulas 一致（行间公式的 `.katex-display` 只是它的外层）。
+ */
+const BLOCK_SELECTORS: Record<'image' | 'table' | 'formula', string> = {
+  image: 'img',
+  table: 'table',
+  formula: '.katex',
+}
+
+/** 短暂描边高亮，帮用户在一屏里立刻看到「跳过来的这一条」是哪个 */
+function flashElement(node: HTMLElement) {
+  const prevOutline = node.style.outline
+  const prevOffset = node.style.outlineOffset
+  node.style.outline = '2px solid #6366f1'
+  node.style.outlineOffset = '3px'
+  node.style.borderRadius = '2px'
+  window.setTimeout(() => {
+    node.style.outline = prevOutline
+    node.style.outlineOffset = prevOffset
+  }, 1500)
 }
 
 interface VditorEditorProps {
@@ -72,6 +103,12 @@ interface VditorEditorProps {
   mode?: VditorMode
   /** 传给 Vditor 的工具栏；不传用内置精简工具栏（含"插入公式"） */
   toolbar?: VditorToolbarItem[]
+  /**
+   * 点「插入公式」按钮时的回调。
+   * 传了就把公式按钮交给外部（写作页的公式侧栏）；不传则用内置的
+   * 「行内 / 行间」小菜单 + 模板插入（兼容其它页面）。
+   */
+  onFormulaClick?: () => void
   /** 只读（用于预览态） */
   disabled?: boolean
   className?: string
@@ -164,7 +201,7 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
 }
 
 const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function VditorEditor(
-  { value, onChange, onBlur, onReady, height = 420, placeholder = '开始写作…', mode = 'ir', toolbar, disabled = false, className = '' },
+  { value, onChange, onBlur, onReady, height = 420, placeholder = '开始写作…', mode = 'ir', toolbar, onFormulaClick, disabled = false, className = '' },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -188,10 +225,12 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
   const onReadyRef = useRef(onReady)
+  const onFormulaClickRef = useRef(onFormulaClick)
 
   onChangeRef.current = onChange
   onBlurRef.current = onBlur
   onReadyRef.current = onReady
+  onFormulaClickRef.current = onFormulaClick
 
   useImperativeHandle(
     ref,
@@ -236,6 +275,13 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
         const headings = containerRef.current?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')
         headings?.[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       },
+      scrollToBlock: (kind, index) => {
+        const el = editorElement(vditorRef.current)
+        const node = el?.querySelectorAll<HTMLElement>(BLOCK_SELECTORS[kind])[index]
+        if (!node) return
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        flashElement(node)
+      },
       focus: () => vditorRef.current?.focus(),
     }),
     [],
@@ -260,6 +306,11 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       tip: '插入公式（行内 / 行间）',
       icon: FORMULA_ICON,
       click: (event: Event) => {
+        // 外部接管（写作页的公式侧栏）：直接回调，不再弹小菜单
+        if (onFormulaClickRef.current) {
+          onFormulaClickRef.current()
+          return
+        }
         // Vditor 触发 click 时 currentTarget 可能已为空，用它的 data-type 兜底定位按钮
         const anchor =
           (event.currentTarget as HTMLElement | null) ??
