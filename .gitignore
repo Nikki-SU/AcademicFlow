@@ -43,3 +43,7 @@ dist-ssr
 .parcel-cache
 .trae-html-share-packages/
 .uploads/
+
+# 多任务隔离：每个 Trae 任务在这里有自己的 git worktree（见 TRAE_PROMPT.md「多任务隔离」）
+# 必须忽略 —— 否则主工作区的 `git add -A` 会把别的任务未提交的改动一起卷进提交
+.worktrees/

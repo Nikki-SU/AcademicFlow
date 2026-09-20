@@ -40,6 +40,34 @@ Trae 仔细读完整个 prompt + 上述 3 份配套文档再开工。
 - **当前部署**：GitHub Pages 静态 SPA（Vite + React + TypeScript）
 - **首次初始化**：BYO 架构，使用者自带 GitHub PAT + 私库
 
+## 多任务隔离（开工第一件事，必读）
+
+**问题**：多个 Trae 会话的工作目录都是 `/workspace`。只要有一个任务用 `git add -A` 提交，就会把**别的任务还没提交的改动**一起卷进它自己的 commit。2026-09-20 真实发生过：一个 MinerU 任务的提交 `feat: MinerU Connectivity Test Failed` 里装的全是另一条 LaTeX 线的 9 个文件改动，后来还导致 `main` 分叉、push 被拒。
+
+**开工前先给自己开一个独立工作区**（不要直接在 `/workspace` 根上改文件）：
+
+```bash
+bash scripts/new-task-worktree.sh <你的任务名>   # 例如 fix-citation-flow
+cd .worktrees/<你的任务名>
+```
+
+之后**所有**读写、`tsc`、`build`、commit 都在 `.worktrees/<你的任务名>/` 里做。
+
+**为什么这样能隔离**：`.worktrees/` 已进 `.gitignore`，主工作区的 `git add -A` 扫不到它；每个 worktree 有独立分支，互不抢 HEAD；`node_modules` 是软链，不用重装依赖。
+
+**纪律**（不管在不在 worktree 里都成立）：
+
+- 提交时**按文件名 `git add <具体文件>`**，禁止 `git add -A` / `git add .` / `git commit -a`
+- 提交前看一眼 `git status`，暂存区里出现不认识的模块 → 说明卷到别人的东西了
+- push 前先 `git fetch && git log --oneline -3 origin/main`，确认没有分叉再推
+
+**收工**：
+
+```bash
+git worktree remove .worktrees/<你的任务名>        # 保留分支
+git worktree remove .worktrees/<你的任务名> && git branch -D <你的任务名>   # 连分支一起删
+```
+
 ## 目标
 
 **10 次速通搭大框架**。每"次"= 1 轮你的输出。"速通"= 不纠结细节，按施工顺序每步拿到可跑通的最小可用版本。
