@@ -2,12 +2,10 @@
  * 课本章节切分服务
  * -------------------------------------------------
  * 将课本 Markdown 按一级/二级标题切分为章节，
- * 保存到 textbooks/{textbookId}/chapters/ 目录下，
- * 同时更新 textbooks.csv 的 chapters 字段。
+ * 保存到 textbooks/{textbookId}/chapters/ 目录下。
  */
 
 import { writeFileBatch, type BatchFileOp } from './github'
-import { loadTextbooks, saveTextbooks } from './textbookData'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 import { assertCanWrite } from './authError'
@@ -180,19 +178,6 @@ export async function splitAndSaveTextbookChapters(
     ops,
     `chore: split textbook ${textbookId.slice(0, 30)} into ${result.totalChapters} chapters`,
   )
-
-  const textbooks = await loadTextbooks()
-  const updated = textbooks.map((t) =>
-    t.textbookId === textbookId
-      ? {
-          ...t,
-          chapters: result.chapters.map((c) => c.id).join(';'),
-          includedChapters: result.chapters.map((c) => c.id).join(';'),
-          scope: `${result.totalChapters} chapters`,
-        }
-      : t,
-  )
-  await saveTextbooks(updated)
 
   return {
     chapters: result.chapters,

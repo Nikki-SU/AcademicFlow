@@ -3,6 +3,9 @@
  * -------------------------------------------------
  * SPEC §4.6 / §3：教材数据存储在 GitHub 私库 textbooks/textbooks.csv
  *
+ * 列以私库现有文件为准（后端那边就是这套表头）：
+ *   textbook_id,title,author,publisher,year,notes,added_at
+ *
  * 图书正文落盘约定：
  * - `textbooks/{书名}/content.md` — 整本正文（PDF → MinerU → 按页拼接）
  * - 书名即主键：书基本不会重名，所以目录名就是书名（textbook_id 也用书名）
@@ -17,18 +20,15 @@ export interface Textbook {
   textbookId: string
   title: string
   author: string
-  edition: string
-  pages: number
+  publisher: string
+  year: number
+  notes: string
   addedAt: number
-  scope: string
-  chapters: string
-  includedChapters: string
 }
 
 const TEXTBOOKS_PATH = 'textbooks/textbooks.csv'
 const TEXTBOOK_HEADERS = [
-  'textbook_id', 'title', 'author', 'edition', 'pages',
-  'added_at', 'scope', 'chapters', 'included_chapters',
+  'textbook_id', 'title', 'author', 'publisher', 'year', 'notes', 'added_at',
 ]
 
 export async function loadTextbooks(force = false): Promise<Textbook[]> {
@@ -40,12 +40,10 @@ export async function loadTextbooks(force = false): Promise<Textbook[]> {
         textbookId: r[0] || '',
         title: r[1] || '',
         author: r[2] || '',
-        edition: r[3] || '',
-        pages: parseInt(r[4] || '0', 10),
-        addedAt: parseInt(r[5] || '0', 10),
-        scope: r[6] || '',
-        chapters: r[7] || '',
-        includedChapters: r[8] || '',
+        publisher: r[3] || '',
+        year: parseInt(r[4] || '0', 10),
+        notes: r[5] || '',
+        addedAt: parseInt(r[6] || '0', 10),
       }))
     },
     force,
@@ -61,12 +59,10 @@ export async function saveTextbooks(textbooks: Textbook[]): Promise<void> {
       t.textbookId,
       t.title,
       t.author,
-      t.edition,
-      String(t.pages),
+      t.publisher,
+      String(t.year),
+      t.notes,
       String(t.addedAt),
-      t.scope,
-      t.chapters,
-      t.includedChapters,
     ],
   )
 }

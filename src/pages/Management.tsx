@@ -157,7 +157,8 @@ interface BookItem {
   title: string
   author: string
   publisher: string
-  pages: number
+  year: number
+  addedAt: number
   status: 'uploading' | 'converting' | 'done' | 'failed'
   coverImage?: string
   progress: number
@@ -252,8 +253,9 @@ function textbookToBookItem(tb: Textbook): BookItem {
     id: tb.textbookId,
     title: tb.title,
     author: tb.author,
-    publisher: '',
-    pages: tb.pages,
+    publisher: tb.publisher,
+    year: tb.year,
+    addedAt: tb.addedAt,
     status: 'done',
     progress: 100,
     isSplit: false,
@@ -266,12 +268,10 @@ function bookItemToTextbook(book: BookItem): Textbook {
     textbookId: book.id,
     title: book.title,
     author: book.author,
-    edition: '',
-    pages: book.pages,
-    addedAt: Date.now(),
-    scope: '',
-    chapters: '',
-    includedChapters: '',
+    publisher: book.publisher,
+    year: book.year,
+    notes: '',
+    addedAt: book.addedAt,
   }
 }
 
@@ -1718,7 +1718,8 @@ export default function ManagementPage() {
         title,
         author: '未知',
         publisher: '未知',
-        pages: 0,
+        year: new Date().getFullYear(),
+        addedAt: Date.now(),
         status: 'converting' as const,
         progress: 5,
         isSplit: false,
@@ -2807,7 +2808,9 @@ export default function ManagementPage() {
                     <div className="p-3">
                       <h3 className="font-medium text-slate-800 text-sm line-clamp-1 mb-0.5">{book.title}</h3>
                       <p className="text-xs text-slate-500 line-clamp-1 mb-1">{book.author}</p>
-                      <p className="text-xs text-slate-400 line-clamp-1">{book.publisher} · {book.pages} 页</p>
+                      <p className="text-xs text-slate-400 line-clamp-1">
+                        {[book.publisher, book.year ? `${book.year} 年` : ''].filter(Boolean).join(' · ')}
+                      </p>
                       {book.categoryIds.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2">
                           {book.categoryIds.slice(0, 2).map((cid) => {
@@ -3766,7 +3769,7 @@ export default function ManagementPage() {
               <div className="flex-1 space-y-1.5">
                 <p className="text-sm text-slate-600"><span className="text-slate-400">作者：</span>{showBookDetail.author}</p>
                 <p className="text-sm text-slate-600"><span className="text-slate-400">出版社：</span>{showBookDetail.publisher}</p>
-                <p className="text-sm text-slate-600"><span className="text-slate-400">页数：</span>{showBookDetail.pages} 页</p>
+                <p className="text-sm text-slate-600"><span className="text-slate-400">年份：</span>{showBookDetail.year || '—'}</p>
                 <p className="text-sm text-slate-600"><span className="text-slate-400">状态：</span>
                   <BookStatusBadge status={showBookDetail.status} />
                 </p>
