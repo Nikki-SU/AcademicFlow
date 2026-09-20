@@ -1168,19 +1168,46 @@ export default function WritingPage() {
     setTimeout(() => primaryEditor()?.scrollToHeading(index), 120)
   }
 
-  /** 在光标处插入引用标记 */
+  /**
+   * 取当前挂载的编辑区（左边优先，其次右边）—— 编辑区可以被放在任意一侧。
+   * 拿不到就说明正文编辑器根本没挂载（两侧面板被配对规则切成别的了），
+   * 这时候必须报出来 —— 早先这里用 `?.` 静默吞掉，用户看到的就是「点了没反应」。
+   */
+  const requireEditor = () => {
+    const ed = primaryEditor()
+    if (!ed) {
+      toast.error('正文编辑器当前没打开：请把左侧面板切到「编辑」，再插入')
+      return null
+    }
+    return ed
+  }
+
+  /**
+   * 引用标记只放 DOI。
+   * `[@doi:…]` 是转换链路的约定标记：extractCitationsFromMarkdown 认它，
+   * 生成 LaTeX 时 replaceCitationMarkers 会把它换成 \cite{key}。
+   * 具体排成上标还是作者年、用哪套样式，都属于排版阶段的事，这里不预设。
+   */
+  const citationMarker = (doi: string) => `[@doi:${normalizeDoi(doi).doi || doi}]`
+
+  /** 在正文光标处插入引用标记 */
   const insertCitation = (doi: string) => {
-    primaryEditor()?.insertValue(`<sup style="color:#4f46e5;font-weight:500;">[${doi}]</sup>`)
+    const ed = requireEditor()
+    if (!ed) return
+    // 用 insertAtCursor 而不是 insertValue：点按钮时焦点已经不在编辑器上了，
+    // insertValue 会插到文档开头（详见 VditorEditor 里 savedRangeRef 的说明）
+    ed.insertAtCursor(citationMarker(doi))
     setSaveStatus('unsaved')
     setShowCitationModal(false)
   }
 
   const insertSelectedCitations = () => {
     if (selectedCitations.length === 0) return
-    const cites = selectedCitations
-      .map((d) => `<sup style="color:#4f46e5;font-weight:500;">[${d}]</sup>`)
-      .join('')
-    primaryEditor()?.insertValue(cites)
+    const ed = requireEditor()
+    if (!ed) return
+    // 一条一个标记：extractCitationsFromMarkdown 是按单个 [@…] 整段取 DOI 的，
+    // 写成 [@doi:a, @doi:b] 会被当成一个非法 DOI 直接丢掉
+    ed.insertAtCursor(selectedCitations.map(citationMarker).join(''))
     setSaveStatus('unsaved')
     setSelectedCitations([])
     setShowCitationModal(false)
@@ -3264,6 +3291,14 @@ export default function WritingPage() {
                                       >
                                         <Copy className="w-3 h-3" />
                                         复制链接
+                                      </button>
+                                      <button
+                                        onClick={() => insertCitation(cit.doi)}
+                                        className="text-[0.6875rem] text-slate-400 hover:text-indigo-600 transition flex items-center gap-1"
+                                        title="把这条文献的 DOI 标记插到正文光标处"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        插入正文
                                       </button>
                                     </div>
                                   </div>

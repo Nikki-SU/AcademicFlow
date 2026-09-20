@@ -35,10 +35,25 @@ export interface VditorEditorHandle {
   setValue: (md: string) => void
   /** 在光标处插入 md 片段（图片 base64、公式模板等） */
   insertValue: (md: string) => void
+  /**
+   * 在「用户最后停留的正文位置」插入 md 片段。
+   * 与 insertValue 的区别：焦点被侧栏/模态框抢走之后（点按钮必然发生），
+   * insertValue 会把内容插到文档开头；这个不会。
+   */
+  insertAtCursor: (md: string) => void
   /** 滚动到第 index 个标题（序号与 extractOutline 解析出的顺序一致） */
   scrollToHeading: (index: number) => void
   /** 聚焦编辑器 */
   focus: () => void
+}
+
+/** 取当前模式下可编辑的 DOM 根节点（ir / wysiwyg / sv 各自的 element） */
+function editorElement(vditor: Vditor | null): HTMLElement | null {
+  if (!vditor) return null
+  const node = (vditor as unknown as Record<string, { element?: HTMLElement } | undefined>)[
+    vditor.getCurrentMode()
+  ]
+  return node?.element ?? null
 }
 
 interface VditorEditorProps {
@@ -154,6 +169,20 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const vditorRef = useRef<Vditor | null>(null)
+  /**
+   * 自己记住「用户最后停在编辑器里的选区」。
+   * ------------------------------------------------------------
+   * Vditor 只在 blur 的那一刻把 Range 缓存进 vditor[mode].range
+   * （node_modules/vditor/src/ts/util/editorCommonEvent.ts）。一旦那份缓存缺失或失效，
+   * getEditorRange() 会 focus() 编辑器、并把 Range 设成容器第 0 个子节点
+   * （src/ts/util/selection.ts）—— 于是插入跑到文档最开头，还可能触发整篇 IR 重排，
+   * 用户看到的就是「点插入没反应 / 插到别处」。
+   * 而点工具栏按钮、开引用模态框都会让编辑器 blur，这条路径必然踩到。
+   *
+   * 对策：在 selectionchange 时自己存一份克隆 Range，且只在「选区确实落在编辑器内部」时更新。
+   * 这样即使后来焦点被侧栏或模态框抢走，手里那份仍是用户最后在正文里的位置。
+   */
+  const savedRangeRef = useRef<Range | null>(null)
   /** 最近一次"双方达成一致"的值：用来判断外部 value 变化是不是我们自己 emit 出去的 */
   const lastValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
@@ -174,6 +203,33 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       },
       insertValue: (md: string) => {
         vditorRef.current?.insertValue(md)
+      },
+      insertAtCursor: (md: string) => {
+        const inst = vditorRef.current
+        if (!inst) return
+        const el = editorElement(inst)
+        const range = savedRangeRef.current
+
+        // 先聚焦回编辑器（焦点此时多半在侧栏/模态框上），再把我们记的 Range 还回去；
+        // Vditor 的 insertValue 内部走 getEditorRange()，此时拿到的就是这份位置。
+        inst.focus()
+        if (el && range && el.contains(range.startContainer)) {
+          const sel = window.getSelection()
+          if (sel) {
+            sel.removeAllRanges()
+            sel.addRange(range)
+          }
+        }
+        inst.insertValue(md)
+
+        // 插入后 DOM 已变，旧 Range 立刻失效；等一轮让 Vditor 落好光标再重新记一份，
+        // 这样连续插两条引用时第二条仍然落在正确位置。
+        setTimeout(() => {
+          const sel = window.getSelection()
+          if (el && sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer)) {
+            savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+          }
+        }, 0)
       },
       scrollToHeading: (index: number) => {
         // 直接查渲染后的标题 DOM：与 extractOutline(md) 的标题顺序一致（都按文档从上到下）
@@ -318,6 +374,24 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     ro.observe(el)
     return () => ro.disconnect()
   }, [height])
+
+  /**
+   * 持续记录「用户最后停在正文里的那个选区」（见 savedRangeRef 的说明）。
+   * 关键点：只在选区落在编辑器内部时才更新 —— 焦点被模态框/侧栏拿走时触发的
+   * selectionchange 一律忽略，否则那份宝贵的位置会被一指戳没。
+   */
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const el = editorElement(vditorRef.current)
+      const sel = window.getSelection()
+      if (!el || !sel || sel.rangeCount === 0) return
+      const range = sel.getRangeAt(0)
+      if (!el.contains(range.startContainer)) return
+      savedRangeRef.current = range.cloneRange()
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [])
 
   // 外部 value 变化（切换文献 / 重新加载）→ 灌进编辑器；同值不动，避免打断输入
   useEffect(() => {
