@@ -2160,7 +2160,16 @@ export default function WritingPage() {
       )
 
       // 轮询后端结果（3s × 200 = 10min，与其它 AI 任务一致）
-      let unpacked: { slug: string; name: string; asset_count: number; main_tex: string } | null = null
+      let unpacked: {
+        slug: string
+        name: string
+        asset_count: number
+        file_count?: number
+        main_tex: string
+        ai_review?: { passed: boolean; summary: string; issues: Array<{ area: string; problem: string; suggestion: string }> }
+        warnings?: string[]
+        cross_check?: { packages_only_in_ai: string[]; packages_only_in_regex: string[] }
+      } | null = null
       for (let i = 0; i < 200; i++) {
         await new Promise((r) => setTimeout(r, 3000))
         const raw = await readRepoTextFile(ctx.owner, ctx.repo, outputPath, ctx.token)
@@ -2180,9 +2189,25 @@ export default function WritingPage() {
       if (target) adoptNewTemplate(target)
       setShowNewTemplateForm(false)
       setNewTemplateName('')
+
+      // 解包结果按「好的坏的都说」呈现：整包保住了几个文件、AI-2 复核过没过、
+      // 有哪些需要注意的地方，一条都不藏。
+      const info = unpacked
+      const review = info.ai_review
+      const warnCount = info.warnings?.length || 0
       toast.success(
-        `已解包「${unpacked.name}」：主文件 ${unpacked.main_tex}，附属文件 ${unpacked.asset_count} 个`,
+        `已解包「${info.name}」：主模板 ${info.main_tex}，整包 ${info.file_count ?? info.asset_count} 个文件全部保留`,
+        { duration: 8000 },
       )
+      if (review && !review.passed) {
+        toast.warning(
+          `AI-2 复核「${info.name}」未通过：${review.summary || '见模板 meta.md 里的 issues'}`,
+          { duration: 12000 },
+        )
+      }
+      if (warnCount > 0) {
+        toast.warning(`该模板有 ${warnCount} 条注意事项，已写入模板的 meta.md`, { duration: 9000 })
+      }
     } catch (err) {
       toast.error(`解包失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
