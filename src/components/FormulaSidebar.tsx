@@ -339,10 +339,11 @@ export default function FormulaSidebar({
               className="w-full px-2 py-2 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
             >
               {ocrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-              {ocrLoading ? '识别中…' : '上传/截图插入（SimpleTex）'}
+              {ocrLoading ? '识别中…（走后端，稍等十几秒）' : '上传/截图插入（SimpleTex）'}
             </button>
             <p className="mt-1.5 text-[0.625rem] text-slate-400 leading-snug">
-              需先在「设置 → 公式识图」填 SimpleTex 令牌；识别结果务必在下面渲染看板里核对一遍。
+              需先在「设置 → 公式识图」填 SimpleTex 令牌；图片经私库转 GitHub Actions 调用 SimpleTex
+              （浏览器直连被对方 CORS 拦），识别结果务必在下面渲染看板里核对一遍。
             </p>
           </section>
 

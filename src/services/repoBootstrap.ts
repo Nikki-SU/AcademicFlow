@@ -15,7 +15,7 @@ import {
   AI_CONNECTIVITY_TEST_YML_B64, AI_CONNECTIVITY_TEST_MJS_B64,
   PIPELINE_FILES,
 } from '../constants/skeleton'
-import { githubFetch, writeRepoTextFile, deleteRepoFiles } from './github'
+import { githubFetch, writeRepoTextFile, deleteRepoFiles, base64ToUtf8 } from './github'
 
 const MAX_PIPELINE_FILE = 500 * 1024 // 500KB — 所有 pipeline 文件都远小于此
 
@@ -125,7 +125,9 @@ export async function writePipelineFiles(
     } else {
       const b64 = b64Map[f.b64Key]
       if (!b64) { details.push({ path: f.path, ok: false, error: `missing b64 constant: ${f.b64Key}` }); continue }
-      content = atob(b64)
+      // b64 是「UTF-8 文本的标准 base64」—— 必须按 UTF-8 解码。
+      // 用 atob 会得到 latin1 串，再被 writeRepoTextFile 的 utf8ToBase64 二次编码 → 中文变乱码。
+      content = base64ToUtf8(b64)
     }
     if (content.length > MAX_PIPELINE_FILE) {
       details.push({ path: f.path, ok: false, error: `file too large: ${content.length} bytes` })

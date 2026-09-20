@@ -475,7 +475,7 @@ function Settings() {
             />
           </div>
 
-          {/* SimpleTex 令牌 — 「识图输入公式」用（前端直连，不进 Secrets） */}
+          {/* SimpleTex 令牌 — 「识图输入公式」用（不走浏览器直连，随识图请求传给 runner） */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-700">SimpleTex 令牌（公式识图）</label>
             <p className="text-xs text-slate-500">
@@ -484,7 +484,8 @@ function Settings() {
                 SimpleTex 用户中心
               </a>{' '}
               创建「用户授权令牌（UAT）」填到第一栏即可；要用 APP 鉴权则填 APP ID + APP Secret。
-              令牌只存本机浏览器，不会同步到 GitHub。
+              浏览器直连 SimpleTex 会被对方 CORS 拦，所以识图改由 GitHub Actions 后端完成：
+              令牌只存在本机，识图时随该次请求传给 runner，用完即弃，不写进私库文件。
             </p>
             <input
               type="password"
