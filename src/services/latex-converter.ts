@@ -61,6 +61,12 @@ function buildAI1SystemPrompt(template: JournalTemplate): string {
     ? '双栏排版（twocolumn），注意图表位置和文字流动。'
     : '单栏排版。'
 
+  // 模板骨架（上传的期刊 sample .tex，或「保存回模板」存下来的那份）：
+  // 把正文区的命令骨架交给 AI 当范式，它才知道这个期刊的标题、作者、摘要、
+  // 章节、参考文献各自该怎么写 —— 只报几个参数（documentclass / 宏包）是不够的，
+  // AI 只能按通用的 article 写法硬套，出来当然不像那个期刊。
+  const skeleton = extractSkeletonOutline(template.template_tex)
+
   return [
     '你是一名专业的学术 LaTeX 排版助手。你的任务是将 Markdown 格式的学术论文',
     '转换为符合特定期刊要求的 LaTeX 正文代码。',
@@ -74,6 +80,15 @@ function buildAI1SystemPrompt(template: JournalTemplate): string {
     template.abstract_format_note ? `- 摘要格式要求：${template.abstract_format_note}` : '',
     template.reference_format_note ? `- 参考文献格式：${template.reference_format_note}` : '',
     template.custom_preamble ? `- 自定义前置代码：${template.custom_preamble}` : '',
+    ...(skeleton
+      ? [
+          '',
+          '【目标期刊模板的正文骨架】',
+          '下面是该模板正文的命令骨架，**请严格照这个结构写**（标题/作者/摘要/章节/参考文献的写法与顺序）。',
+          '它只是结构参考，其中的示例文字不要抄进正式稿。',
+          skeleton,
+        ]
+      : []),
     '',
     '【转换规则（严格遵守）】',
     '1. 只输出 LaTeX 正文部分（\\begin{document} 和 \\end{document} 之间的内容），',
@@ -176,6 +191,32 @@ function assembleFullLatex(
   template: JournalTemplate,
   bibFileName: string = 'references.bib',
 ): string {
+  const withBib = [
+    body,
+    '',
+    `\\bibliographystyle{${template.bibtex_style}}`,
+    `\\bibliography{${bibFileName}}`,
+  ].join('\n')
+
+  // 模板有完整骨架时就用它当外壳：导言区原样保留，只把 \begin{document} 与
+  // \end{document} 之间的正文换掉。
+  // 这比按字段重新拼更保真 —— 宏包选项（\usepackage[colorlinks]{hyperref}）、
+  // 宏包顺序、\newcommand 之类的自定义命令一个都不会丢。上传期刊官方
+  // sample .tex 当模板时，出的稿子才真的长得像那个期刊。
+  const shell = (template.template_tex || '').trim()
+  if (shell) {
+    const beginTag = '\\begin{document}'
+    const endTag = '\\end{document}'
+    const beginAt = shell.indexOf(beginTag)
+    const endAt = shell.lastIndexOf(endTag)
+    if (beginAt !== -1 && endAt > beginAt) {
+      return [shell.slice(0, beginAt + beginTag.length), '', withBib, '', shell.slice(endAt)].join(
+        '\n',
+      )
+    }
+    // 骨架不完整（只存了导言区、或文件被截断）→ 落到下面按字段拼
+  }
+
   const lines: string[] = []
 
   // documentclass
@@ -214,19 +255,11 @@ function assembleFullLatex(
     lines.push('')
   }
 
-  // 标题相关（从 body 中提取 \title 和 \author）
-  // 注意：AI 生成的 body 里已经包含 \title 和 \author，会在 document 环境中使用
-
   lines.push('\\begin{document}')
   lines.push('')
 
-  // 正文
-  lines.push(body)
-  lines.push('')
-
-  // 参考文献
-  lines.push('\\bibliographystyle{' + template.bibtex_style + '}')
-  lines.push('\\bibliography{' + bibFileName + '}')
+  // 正文 + 参考文献（\title / \author / \maketitle 由 AI 生成的 body 自带）
+  lines.push(withBib)
   lines.push('')
 
   lines.push('\\end{document}')
@@ -259,6 +292,134 @@ export function buildLatexSkeletonFromTemplate(template: JournalTemplate): strin
     '正文内容。',
   ]
   return assembleFullLatex(body.join('\n'), template)
+}
+
+// ============================================================
+// 解析上传的 .tex → 模板
+// ============================================================
+
+/** 从 .tex 里解析出的模板要素 */
+export interface ParsedLatexTemplate {
+  /** 文档类名；文档里没有 \documentclass 时为空串（此时别拿它去覆盖已有模板） */
+  documentClass: string
+  documentOptions: string
+  packages: string[]
+  /** 文档里没有 \bibliographystyle 时为空串 */
+  bibtexStyle: string
+  /** 仅当确有 \documentclass 时才有意义；没有 \documentclass 时恒为 false，不代表单栏 */
+  twoColumn: boolean
+  fontSize?: number
+  /** 导言区里除 \documentclass / \usepackage 之外的部分（\newcommand、\setlength…） */
+  preamble: string
+}
+
+/** 去掉行尾注释，但别把转义的 \% 当成注释起点 */
+function stripTexComment(line: string): string {
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '%' && line[i - 1] !== '\\') return line.slice(0, i)
+  }
+  return line
+}
+
+/**
+ * 解析一份 .tex，抽出可复用的模板要素。
+ *
+ * 用途：期刊官方给的 sample .tex、或自己中过的一篇的 tex，直接丢进来就变成模板 ——
+ * 比让 AI 从「投稿须知」的文字里猜 documentclass 和宏包靠谱得多（那是纯猜测）。
+ * 全程确定性正则，不调 AI：上传即得，也不会有幻觉。
+ *
+ * 注意 `packages` 只记名字，宏包选项（\usepackage[colorlinks]{hyperref} 里的
+ * colorlinks）不会保留 —— 但只要整份骨架存进 template_tex，最终拼装时会直接
+ * 复用它当外壳（见 assembleFullLatex），选项照样不丢。只有骨架不完整、
+ * 退回按字段拼装时才会丢掉选项。
+ */
+export function parseLatexTemplate(tex: string): ParsedLatexTemplate {
+  const lines = tex.split(/\r?\n/)
+  const bodyAt = lines.findIndex((l) => stripTexComment(l).includes('\\begin{document}'))
+  const head = bodyAt === -1 ? lines : lines.slice(0, bodyAt)
+
+  let documentClass = ''
+  let documentOptions = ''
+  const packages: string[] = []
+  const preambleLines: string[] = []
+
+  for (const line of head) {
+    const code = stripTexComment(line)
+
+    const dc = code.match(/\\documentclass\s*(\[[^\]]*\])?\s*\{([^}]+)\}/)
+    if (dc) {
+      documentClass = dc[2].trim()
+      documentOptions = (dc[1] || '').replace(/^\[|\]$/g, '').trim()
+      continue
+    }
+
+    const uses = [...code.matchAll(/\\usepackage\s*(\[[^\]]*\])?\s*\{([^}]+)\}/g)]
+    if (uses.length > 0) {
+      for (const m of uses) {
+        for (const name of m[2].split(',')) {
+          const n = name.trim()
+          if (n && !packages.includes(n)) packages.push(n)
+        }
+      }
+      // 一行里除了 \usepackage 还夹着别的东西时，把剩下的部分留在导言区
+      const rest = code.replace(/\\usepackage\s*(\[[^\]]*\])?\s*\{[^}]+\}/g, '').trim()
+      if (rest) preambleLines.push(rest)
+      continue
+    }
+
+    preambleLines.push(line)
+  }
+
+  // \bibliographystyle 一般在 \begin{document} 之后，所以全文找
+  const bib = tex.match(/\\bibliographystyle\s*\{([^}]+)\}/)
+
+  const opts = documentOptions
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const pt = opts.map((o) => o.match(/^(\d+)pt$/)?.[1]).find(Boolean)
+
+  return {
+    documentClass,
+    documentOptions,
+    packages,
+    bibtexStyle: bib ? bib[1].trim() : '',
+    twoColumn: opts.includes('twocolumn'),
+    fontSize: pt ? parseInt(pt, 10) : undefined,
+    preamble: preambleLines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+  }
+}
+
+/**
+ * 从模板骨架里抽出「结构」喂给 AI：正文区内以反斜杠开头的行
+ * （\title、\author、\maketitle、\begin{abstract}、\section、\bibliography…）。
+ *
+ * 只给命令骨架、丢掉示例正文 —— 既让 AI 知道该照什么结构写，
+ * 又不会把 sample 里的示例文字抄进正式稿。
+ */
+function extractSkeletonOutline(templateTex?: string): string {
+  const tex = (templateTex || '').trim()
+  if (!tex) return ''
+  const beginTag = '\\begin{document}'
+  const endTag = '\\end{document}'
+  const beginAt = tex.indexOf(beginTag)
+  const endAt = tex.lastIndexOf(endTag)
+  if (beginAt === -1 || endAt <= beginAt) return ''
+  const body = tex.slice(beginAt + beginTag.length, endAt)
+
+  const seen = new Set<string>()
+  const outline: string[] = []
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line.startsWith('\\')) continue
+    if (line.length > 200) continue
+    const key = line.slice(0, 60)
+    if (seen.has(key)) continue
+    seen.add(key)
+    outline.push(line)
+    if (outline.length >= 40) break
+  }
+  return outline.join('\n')
 }
 
 // ============================================================

@@ -52,6 +52,7 @@ import {
   convertMarkdownToLatex,
   refineLatexWithAI,
   buildLatexSkeletonFromTemplate,
+  parseLatexTemplate,
 } from '../services/latex-converter'
 import { compileLatex, getCompileErrorLog, createPdfObjectUrl } from '../services/xelatex-compiler'
 import {
@@ -799,6 +800,9 @@ export default function WritingPage() {
   const folderInputRef = useRef<HTMLInputElement>(null)
   const packageFileInputRef = useRef<HTMLInputElement>(null)
   const packageFolderInputRef = useRef<HTMLInputElement>(null)
+  /** 上传 journal sample .tex：同一个 input 服务两个入口（新建 / 覆盖当前模板） */
+  const texTemplateInputRef = useRef<HTMLInputElement>(null)
+  const texImportModeRef = useRef<'create' | 'overwrite'>('create')
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
   const dragStartRatio = useRef(70)
@@ -1894,6 +1898,71 @@ export default function WritingPage() {
       toast.success('已保存回期刊模板')
     } catch (err) {
       toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /**
+   * 上传期刊官方的 sample .tex，解析成模板。
+   * -------------------------------------------------
+   * 让 AI 从「投稿须知」的文字里猜 documentclass / 宏包只能是猜；期刊自己给的
+   * sample .tex 才是排版事实。解析走确定性正则（parseLatexTemplate），不调 AI，
+   * 上传即得、也不会幻觉。整份原文存进 template_tex —— 之后 md→tex 拼装直接拿它
+   * 当外壳（见 assembleFullLatex），宏包选项、宏包顺序、\newcommand 一个都不丢；
+   * 同时抽出的命令骨架会喂给 AI 当结构范式，出来的稿子才像那个期刊。
+   */
+  const handleImportTexTemplate = async (file: File | null | undefined) => {
+    if (!file) return
+    const tex = await file.text()
+    if (!tex.trim()) {
+      toast.error('文件是空的')
+      return
+    }
+    const parsed = parseLatexTemplate(tex)
+
+    // 只覆盖解析到的字段：一份只有正文、没有 \documentclass 的 .tex 不该把
+    // 已有模板的文档类/栏数冲成默认值。
+    const fields: Partial<JournalTemplate> = { template_tex: tex }
+    if (parsed.documentClass) {
+      fields.document_class = parsed.documentClass
+      fields.document_options = parsed.documentOptions
+      fields.two_column = parsed.twoColumn
+      if (parsed.fontSize) fields.font_size = parsed.fontSize
+    }
+    if (parsed.packages.length) fields.packages = parsed.packages
+    if (parsed.bibtexStyle) fields.bibtex_style = parsed.bibtexStyle
+    if (parsed.preamble) fields.custom_preamble = parsed.preamble
+
+    setIsCreatingTemplate(true)
+    setTemplateCreateStatus(`解析 ${file.name}...`)
+    try {
+      const overwrite = texImportModeRef.current === 'overwrite' && currentTemplate
+      let targetId: string
+      if (overwrite) {
+        targetId = currentTemplate!.id
+        await updateTemplate(targetId, fields)
+      } else {
+        const created = await createTemplate({
+          name: newTemplateName.trim() || file.name.replace(/\.tex$/i, ''),
+        })
+        await updateTemplate(created.id, fields)
+        targetId = created.id
+        setShowNewTemplateForm(false)
+        setNewTemplateName('')
+      }
+      const list = await getAllTemplates()
+      setTemplates(list)
+      const target = list.find((t) => t.id === targetId)
+      if (target) adoptNewTemplate(target)
+      toast.success(
+        overwrite
+          ? `已按 ${file.name} 更新模板`
+          : `已从 ${file.name} 解析并创建模板，原文已载入代码板`,
+      )
+    } catch (err) {
+      toast.error(`解析失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setIsCreatingTemplate(false)
+      setTemplateCreateStatus('')
     }
   }
 
@@ -3514,6 +3583,23 @@ export default function WritingPage() {
                           只建骨架
                         </button>
                       </div>
+                      <button
+                        onClick={() => {
+                          texImportModeRef.current = 'create'
+                          texTemplateInputRef.current?.click()
+                        }}
+                        disabled={isCreatingTemplate}
+                        className="w-full py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        title="上传期刊官方的 sample .tex，直接解析出 documentclass / 宏包 / 引用样式，比让 AI 从投稿须知里猜准"
+                      >
+                        <Upload className="w-3 h-3" />
+                        上传 .tex 解析建模板
+                      </button>
+                      {!newTemplateName.trim() && (
+                        <p className="text-[0.625rem] text-slate-400 leading-relaxed">
+                          不填期刊名就用文件名当模板名。
+                        </p>
+                      )}
                       {templateCreateStatus && (
                         <p className="text-[0.625rem] text-slate-400 leading-relaxed">
                           {templateCreateStatus}
@@ -3586,6 +3672,19 @@ export default function WritingPage() {
                     保存回模板
                   </button>
                 </div>
+
+                <button
+                  onClick={() => {
+                    texImportModeRef.current = 'overwrite'
+                    texTemplateInputRef.current?.click()
+                  }}
+                  disabled={!currentTemplate || isCreatingTemplate}
+                  className="w-full py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  title="用一份新的 .tex 覆盖当前模板：documentclass / 宏包 / 引用样式 / 正文骨架都按它重新解析，原文并存进模板"
+                >
+                  <Upload className="w-3 h-3" />
+                  上传 .tex 覆盖当前模板
+                </button>
 
                 {currentTemplate && (
                   <div className="p-2.5 bg-slate-50 rounded-lg text-[0.6875rem] text-slate-500 leading-relaxed">
@@ -4565,6 +4664,19 @@ export default function WritingPage() {
         directory=""
         multiple
         onChange={handleFolderSelect}
+        className="hidden"
+      />
+
+      {/* 上传期刊 sample .tex：解析成模板（与「宏包导入」是两回事，别混） */}
+      <input
+        ref={texTemplateInputRef}
+        type="file"
+        accept=".tex"
+        onChange={(e) => {
+          void handleImportTexTemplate(e.target.files?.[0])
+          // 清空 value，否则同一个文件再选一次不会触发 onChange
+          e.target.value = ''
+        }}
         className="hidden"
       />
 
