@@ -88,7 +88,7 @@ import {
   type QuickAction,
   type CitationRef as ServiceCitationRef,
 } from '../services/projectData'
-import { loadLiteratures, type Literature } from '../services/literatureData'
+import { loadLiteratures, loadTitleCns, type Literature } from '../services/literatureData'
 import { callAI } from '../services/ai/client'
 import { searchCrossref, normalizeDoi, type OnlineSearchResult } from '../services/citation'
 import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
@@ -252,6 +252,74 @@ async function toEnglishSearchQuery(topic: string): Promise<string> {
     ],
   })
   return resp.content.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, ' ')
+}
+
+/** 侧栏库内检索的一条命中：命中的字段名 + 该字段里关键词附近的片段 */
+interface LibraryHit {
+  field: string
+  snippet: string
+}
+
+/**
+ * 在一个字段里找关键词，命中就返回前后一小段上下文。
+ * 先压平空白再找 —— 摘要和作者列表里全是换行，不压平的话上下文会被切得很碎。
+ */
+function hitInField(field: string, value: string, query: string): LibraryHit | null {
+  const flat = (value || '').replace(/\s+/g, ' ').trim()
+  if (!flat) return null
+  const idx = flat.toLowerCase().indexOf(query)
+  if (idx === -1) return null
+  const start = Math.max(0, idx - 24)
+  const end = Math.min(flat.length, idx + query.length + 48)
+  return {
+    field,
+    snippet: `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`,
+  }
+}
+
+/**
+ * 库内检索：把一篇文献的每个字段都过一遍，返回全部命中。
+ * 顺序即展示优先级 —— 标题命中最说明问题，摘要命中放最后。
+ */
+function findLibraryHits(query: string, paper: Literature, titleCn: string): LibraryHit[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return []
+  const candidates: Array<[string, string]> = [
+    ['中文标题', titleCn],
+    ['英文标题', paper.title],
+    ['作者', paper.authors],
+    ['期刊', paper.journal],
+    ['关键词', paper.keywords],
+    ['中文摘要', paper.abstractCn],
+    ['英文摘要', paper.abstractEn],
+    ['DOI', paper.doi],
+  ]
+  const hits: LibraryHit[] = []
+  for (const [field, value] of candidates) {
+    const hit = hitInField(field, value, q)
+    if (hit) hits.push(hit)
+  }
+  return hits
+}
+
+/** 归一化后拼成完整的 DOI 链接（库里存的是裸 DOI） */
+function doiLinkOf(doi: string): string {
+  return `https://doi.org/${normalizeDoi(doi).doi ?? doi}`
+}
+
+/** 把命中片段里的关键词标出来。用切片拼节点，不走 dangerouslySetInnerHTML */
+function HighlightedSnippet({ text, query }: { text: string; query: string }) {
+  const i = query ? text.toLowerCase().indexOf(query.toLowerCase()) : -1
+  if (i === -1) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="bg-amber-100 text-amber-900 rounded-sm px-0.5">
+        {text.slice(i, i + query.length)}
+      </mark>
+      {text.slice(i + query.length)}
+    </>
+  )
 }
 
 const PANEL_RATIOS = [
@@ -604,8 +672,8 @@ export default function WritingPage() {
 
   const [navCollapsed, setNavCollapsed] = useState(false)
   /**
-   * 左侧栏是「堆叠面板」（仿 Obsidian）：项目、大纲各占一块，各自能收起成一行。
-   * 收起的那块只剩标题行，展开的那块吃掉剩余高度 —— 于是整栏要么全是项目，要么只显示大纲。
+   * 左侧栏是「堆叠面板」（仿 Obsidian）：项目、文献检索、大纲各占一块，各自能收起成一行。
+   * 收起的那块只剩标题行，展开的那块吃掉剩余高度 —— 于是整栏一次只突出展示一块。
    */
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   /** 大纲面板是否展开（收起时只剩「大纲」标题行） */
@@ -705,6 +773,13 @@ export default function WritingPage() {
   const [projectLitSelected, setProjectLitSelected] = useState<string[]>([])
   const [projectLitTargetId, setProjectLitTargetId] = useState<string | null>(null)
 
+  // ── 侧栏「文献检索」—— 只搜库内；库外检索是 AI 助手里「找文献」的活 ──
+  const [libSearchExpanded, setLibSearchExpanded] = useState(false)
+  const [libSearch, setLibSearch] = useState('')
+  /** doi → 中文标题。中文标题只长在对译 md 里，得读文件，所以缓存住 */
+  const [titleCnMap, setTitleCnMap] = useState<Record<string, string>>({})
+  const [isLoadingTitleCn, setIsLoadingTitleCn] = useState(false)
+
   // ── 插入引用：本地 / 在线（中英文）──
   const [citationSource, setCitationSource] = useState<'local' | 'online'>('local')
   const [onlineQuery, setOnlineQuery] = useState('')
@@ -778,6 +853,41 @@ export default function WritingPage() {
     if (!selectedBookForChapters) return null
     return bookReferences.find(b => b.doi === selectedBookForChapters) || null
   }, [selectedBookForChapters, bookReferences])
+
+  /**
+   * 展开检索面板时把库里所有文献的中文标题读出来。
+   * 中文标题不在 CSV 里，只长在对译 md 的标题块中 —— 不读文件就既搜不到中文，
+   * 也展示不出来。loadTitleCns 自带并发上限与会话缓存，反复展开不会重复读。
+   */
+  useEffect(() => {
+    if (!libSearchExpanded || availablePapers.length === 0) return
+    let cancelled = false
+    setIsLoadingTitleCn(true)
+    loadTitleCns(availablePapers.map((p) => p.doi))
+      .then((map) => {
+        if (!cancelled) setTitleCnMap((prev) => ({ ...prev, ...map }))
+      })
+      .catch((err) => console.warn('[Writing] 读取中文标题失败:', err))
+      .finally(() => {
+        if (!cancelled) setIsLoadingTitleCn(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [libSearchExpanded, availablePapers])
+
+  /** 库内检索结果：每条带上「命中在哪个字段」和那段上下文 */
+  const librarySearchResults = useMemo(() => {
+    const q = libSearch.trim()
+    if (!q) return []
+    const found: Array<{ paper: Literature; titleCn: string; hits: LibraryHit[] }> = []
+    for (const p of availablePapers) {
+      const titleCn = titleCnMap[p.doi] || ''
+      const hits = findLibraryHits(q, p, titleCn)
+      if (hits.length > 0) found.push({ paper: p, titleCn, hits })
+    }
+    return found.slice(0, 12)
+  }, [libSearch, availablePapers, titleCnMap])
 
   const outline = useMemo(() => {
     return extractOutline(renderMarkdown(mdContent))
@@ -1538,6 +1648,14 @@ export default function WritingPage() {
     navigator.clipboard?.writeText(content).catch(() => {})
   }
 
+  /** 侧栏检索结果的一键复制：复制的是完整 DOI 链接，不是裸 DOI */
+  const handleCopyDoiLink = (doi: string) => {
+    navigator.clipboard?.writeText(doiLinkOf(doi)).then(
+      () => toast.success('已复制 DOI 链接'),
+      () => toast.error('复制失败'),
+    )
+  }
+
   // ══════════════════════════════════════════════════════════
   // LaTeX 工作区：代码板 → 浏览器内真编译 → PDF
   // ══════════════════════════════════════════════════════════
@@ -2090,7 +2208,7 @@ export default function WritingPage() {
         }`}
       >
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* ── 堆叠面板 1/2：项目（收起后只剩标题行，标题显示当前项目） ── */}
+          {/* ── 堆叠面板 1/3：项目（收起后只剩标题行，标题显示当前项目） ── */}
           <div className={`flex flex-col min-h-0 ${projectsExpanded ? 'flex-1' : 'flex-none'}`}>
             <div className="flex items-center gap-0.5 pl-1 pr-2 py-1.5 border-b border-slate-200 flex-shrink-0">
               <button
@@ -2192,7 +2310,103 @@ export default function WritingPage() {
             )}
           </div>
 
-          {/* ── 堆叠面板 2/2：大纲（收起后只剩标题行） ── */}
+          {/* ── 堆叠面板 2/3：文献检索（只搜库内） ── */}
+          <div
+            className={`border-t border-slate-200 flex flex-col min-h-0 ${
+              libSearchExpanded ? 'flex-1' : 'flex-none'
+            }`}
+          >
+            <button
+              onClick={() => setLibSearchExpanded(!libSearchExpanded)}
+              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              title={libSearchExpanded ? '收起文献检索' : '展开文献检索'}
+            >
+              {libSearchExpanded ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <Search className="w-3.5 h-3.5 text-indigo-600" />
+              文献检索
+              <span className="ml-auto text-slate-400 font-normal">
+                {libSearch.trim() ? librarySearchResults.length : availablePapers.length}
+              </span>
+            </button>
+            {libSearchExpanded && (
+              <div className="flex-1 min-h-0 flex flex-col">
+                <div className="flex-shrink-0 px-2 pb-1.5">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={libSearch}
+                      onChange={(e) => setLibSearch(e.target.value)}
+                      placeholder="标题 / 作者 / 期刊 / 关键词 / 摘要"
+                      className="w-full pl-7 pr-6 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                    />
+                    {libSearch && (
+                      <button
+                        onClick={() => setLibSearch('')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        title="清空"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-1 text-[0.625rem] text-slate-400 leading-snug">
+                    只搜你的文献库。库外文献用 AI 助手的「找文献」。
+                    {isLoadingTitleCn && ' 正在读取中文标题…'}
+                  </div>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-1.5">
+                  {libSearch.trim() && librarySearchResults.length === 0 && (
+                    <div className="text-[0.6875rem] text-slate-400 text-center py-3">
+                      没找到匹配的文献
+                    </div>
+                  )}
+                  {librarySearchResults.map(({ paper, titleCn, hits }) => (
+                    <div
+                      key={paper.doi}
+                      className="rounded-md border border-slate-200 bg-white px-2 py-1.5 hover:border-indigo-200 transition"
+                    >
+                      {titleCn && (
+                        <div className="text-xs font-medium text-slate-700 leading-snug">
+                          {titleCn}
+                        </div>
+                      )}
+                      <div
+                        className={`text-[0.6875rem] leading-snug ${
+                          titleCn ? 'text-slate-500' : 'text-slate-700 font-medium'
+                        }`}
+                      >
+                        {paper.title}
+                      </div>
+                      <div className="mt-0.5 text-[0.625rem] text-slate-400 truncate">
+                        {[paper.authors, paper.year || '', paper.journal].filter(Boolean).join(' · ')}
+                      </div>
+                      {hits.map((h, i) => (
+                        <div key={i} className="mt-1 text-[0.625rem] text-slate-500 leading-snug">
+                          <span className="text-slate-400">{h.field}：</span>
+                          <HighlightedSnippet text={h.snippet} query={libSearch.trim()} />
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => handleCopyDoiLink(paper.doi)}
+                        className="mt-1 flex items-center gap-1 text-[0.625rem] text-indigo-600 hover:text-indigo-700"
+                        title={doiLinkOf(paper.doi)}
+                      >
+                        <Copy className="w-3 h-3" />
+                        复制 DOI 链接
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── 堆叠面板 3/3：大纲（收起后只剩标题行） ── */}
           <div
             className={`border-t border-slate-200 flex flex-col min-h-0 ${
               outlineExpanded ? 'flex-1' : 'flex-none'

@@ -355,6 +355,70 @@ export async function loadAlignedMd(doi: string): Promise<string> {
   return result?.content || ''
 }
 
+/**
+ * doi → 中文标题的会话级缓存。
+ * 中文标题只存在于对译 md 里，读一次要下一整个文件（几十 KB），所以必须缓存。
+ */
+const titleCnCache = new Map<string, string>()
+
+/**
+ * 从对译 md 里抠出中文标题。
+ *
+ * 库里**没有** title_cn 字段 —— 中文标题只长在标题块里：
+ *   ⟨⟨⟨文字·标题·1·1⟩⟩⟩# English title⟨⟨⟨/⟩⟩⟩⟨⟨⟨译文@1⟩⟩⟩
+ *   # 中文标题
+ *   ⟨⟨⟨/⟩⟩⟩
+ * 所以这里在文件开头找一个「含中文的 `#` 行」。标题块永远在最前面，不必扫全文。
+ * 找不到（比如老数据只有 MinerU 原文、没做过对译）就返回空串，不算错误。
+ */
+function extractTitleCn(content: string): string {
+  if (!content) return ''
+  const head = content.slice(0, 4000)
+  for (const line of head.split('\n')) {
+    const t = line.trim()
+    if (!t.startsWith('#')) continue
+    // 去掉 # 号和行内 HTML 标记（标题里常有 <sup>BIDEA</sup> 这类）
+    const text = t.replace(/^#+\s*/, '').replace(/<\/?[a-zA-Z][^>]*>/g, '').trim()
+    if (text && /[\u4e00-\u9fff]/.test(text)) return text
+  }
+  return ''
+}
+
+/** 取单篇的中文标题（带缓存） */
+export async function loadTitleCn(doi: string): Promise<string> {
+  const key = doi.trim().toLowerCase()
+  if (titleCnCache.has(key)) return titleCnCache.get(key) || ''
+  const content = await loadAlignedMd(doi).catch(() => '')
+  const title = extractTitleCn(content)
+  titleCnCache.set(key, title)
+  return title
+}
+
+/**
+ * 批量取中文标题，doi → 标题（取不到的为空串）。
+ * 并发上限 6：库大的时候别一口气打出几百个请求。
+ */
+export async function loadTitleCns(
+  dois: string[],
+  concurrency = 6,
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  const queue = dois.filter(Boolean)
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < queue.length) {
+      const doi = queue[cursor++]
+      try {
+        out[doi] = await loadTitleCn(doi)
+      } catch {
+        out[doi] = ''
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker))
+  return out
+}
+
 export async function saveAlignedMd(doi: string, content: string): Promise<void> {
   const slug = doiToSlug(doi)
   // 标准路径：literatures/{slug}/{slug}.md —— 进入知识库的唯一 md
