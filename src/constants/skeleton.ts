@@ -8,6 +8,9 @@
 // 写成 TS 模板串要么被当插值、要么得层层转义，而且 base64 之后完全没法 review ——
 // 这个文件是要跑在用户私库里的，必须能一眼看懂。
 import LATEX_COMPILE_YML from './workflows/latex_compile.yml?raw'
+// 图书转换 workflow（只走 MinerU）。同上，引原文件方便 review。
+import BOOK_CONVERT_YML from './workflows/book_convert.yml?raw'
+import BOOK_CONVERT_MJS from './workflows/book_convert.mjs?raw'
 
 export interface SkeletonFile {
   path: string
@@ -612,4 +615,6 @@ export const PIPELINE_FILES = [
   { path: '.github/workflows/ai_connectivity_test.yml', b64Key: 'AI_CONNECTIVITY_TEST_YML_B64' },
   { path: '.github/scripts/ai_connectivity_test.mjs', b64Key: 'AI_CONNECTIVITY_TEST_MJS_B64' },
   { path: '.github/workflows/latex_compile.yml', raw: LATEX_COMPILE_YML },
+  { path: '.github/workflows/book_convert.yml', raw: BOOK_CONVERT_YML },
+  { path: '.github/scripts/book_convert.mjs', raw: BOOK_CONVERT_MJS },
 ] as const

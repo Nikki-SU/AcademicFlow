@@ -1,0 +1,68 @@
+name: book_convert
+
+# 图书转换：PDF → Markdown（只走 MinerU，不做 AI 清理/打标/翻译）
+# 触发：repository_dispatch event_type=book_convert，payload { book_id, title, pdf_path }
+on:
+  repository_dispatch:
+    types: [book_convert]
+  workflow_dispatch:
+    inputs:
+      book_id:
+        description: '书名 / textbooks 下的目录名（手动调试用）'
+        required: false
+        default: ''
+      pdf_path:
+        description: 'PDF 路径（手动调试用，通常由 repository_dispatch 携带）'
+        required: false
+        default: ''
+
+# 与文献 pipeline 共用同一个写 main 的并发组，避免同时 push 打架
+concurrency:
+  group: "pipeline-write-main"
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    # 整本书比单篇慢：多分段 + 逐段下载，给足时间
+    timeout-minutes: 90
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo (full history for git push)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # 超过 200 页的 PDF 要按 180 页切段后再交给 MinerU（它单文件页数有上限）。
+      # 装不上也不致命：脚本读不到页数就按"单段"处理，整本直接交给 MinerU。
+      - name: Install qpdf
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qpdf
+          qpdf --version
+
+      - name: Configure git
+        run: |
+          git config user.name "AcademicFlow Bot"
+          git config user.email "academicflow@users.noreply.github.com"
+
+      - name: Run book pipeline
+        env:
+          MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO:  ${{ github.event.repository.name }}
+          # payload 经环境变量传入，避免书名含单引号时破坏 shell 引号结构
+          PIPELINE_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          echo "book_id: ${{ github.event.client_payload.book_id }}"
+          echo "pdf:     ${{ github.event.client_payload.pdf_path }}"
+          node .github/scripts/book_convert.mjs "$PIPELINE_PAYLOAD"

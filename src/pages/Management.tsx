@@ -7,9 +7,10 @@ import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch, deleteRepoFiles } from '../services/github'
-import { pollProgressJson, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
+import { pollProgressJson, pollBookProgressJson, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
+import { enqueueBookMineruConvert } from '../services/bookPipeline'
 import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
 import BackendMonitorPanel from '../components/BackendMonitorPanel'
 import {
@@ -483,6 +484,32 @@ export default function ManagementPage() {
   }, [taskQueue.tasks])
 
 
+  /** 图书卡片进度：taskQueue 里 book_convert 任务的状态/进度实时同步到对应 book（按书名匹配） */
+  useEffect(() => {
+    const bookTasks = taskQueue.tasks.filter((t) => t.type === 'book_convert')
+    if (bookTasks.length === 0) return
+
+    setBooks((prev) => {
+      let changed = false
+      const updated: BookItem[] = prev.map((b) => {
+        const task = bookTasks.find((t) => t.book_id === b.id)
+        if (!task) return b
+        const nextStatus: BookItem['status'] =
+          task.status === 'done'
+            ? 'done'
+            : task.status === 'failed' || task.status === 'aborted'
+              ? 'failed'
+              : 'converting'
+        const nextProgress = task.status === 'done' ? 100 : task.progress
+        if (b.status === nextStatus && b.progress === nextProgress) return b
+        changed = true
+        return { ...b, status: nextStatus, progress: nextProgress }
+      })
+      return changed ? updated : prev
+    })
+  }, [taskQueue.tasks])
+
+
   // ──── 核心：taskQueue 里 pending/running 的 paper_convert 任务 ↔ 后端 progress.json 同步 ────
   // 这是右侧 BackendMonitorPanel 的真实数据源：
   //   GitHub Actions 写 .progress.json → 前端每 5 秒拉一次 → 更新 taskQueue.stage/node_index/progress
@@ -502,20 +529,25 @@ export default function ManagementPage() {
       const activeTasks = tq.tasks.filter(
         (t: BackgroundTask) =>
           (t.status === 'pending' || t.status === 'running') &&
-          t.type === 'paper_convert',
+          (t.type === 'paper_convert' || t.type === 'book_convert'),
       )
       if (activeTasks.length === 0) return
 
       for (const task of activeTasks) {
         if (cancelled) break
-        // metadata?.slug 由 pipeline.mjs 在任务创建时注入；doi 是 fallback，但 task.doi 为 optional 必须判空
+        // metadata?.slug 由 pipeline 在任务创建时注入；doi 是文献的 fallback，
+        // 图书没有 doi，用 book_id（= 书名）当 slug。
         const meta = task.metadata as Record<string, unknown> | undefined
         const metaSlug = typeof meta?.slug === 'string' ? meta.slug : undefined
         const doiSlug = task.doi ? doiToSlug(task.doi) : undefined
-        const slug = metaSlug || doiSlug
+        const isBook = task.type === 'book_convert'
+        const slug = metaSlug || doiSlug || task.book_id
         if (!slug) continue
         try {
-          const prog = await pollProgressJson(slug, owner, repo.name, token)
+          // 文献进度在 literatures/{slug}/，图书在 textbooks/{书名}/
+          const prog = isBook
+            ? await pollBookProgressJson(slug, owner, repo.name, token)
+            : await pollProgressJson(slug, owner, repo.name, token)
 
           if (prog) {
             // 有 progress.json → 正常走后端 stage 驱动的进度更新
@@ -1669,42 +1701,6 @@ export default function ManagementPage() {
     }
   }
 
-  const startBookMineruConvert = async (
-    bookId: string,
-    file: File,
-    title: string,
-  ) => {
-    try {
-      const taskId = `book_${bookId}_${Date.now()}`
-      const now = Date.now()
-
-      await taskQueue.add_task({
-        id: taskId,
-        type: 'book_convert',
-        doi: undefined,
-        book_id: bookId,
-        title,
-        stage: 'queued',
-        node_index: STAGE_META.queued.node,
-        progress: 0,
-        status: 'pending',
-        message: '排队中...',
-        created_at: now,
-        updated_at: now,
-        error: undefined,
-        metadata: {
-          file_name: file.name,
-        },
-      }, file)
-
-      toast.success(`已加入后台队列：${title}`, {
-        description: '点击右上角任务图标查看进度',
-      })
-    } catch (err) {
-      toast.error(`创建后台任务失败：${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
   const handleBookUpload = (files: FileList | null) => {
     if (!files) return
     const fileArray = Array.from(files)
@@ -1733,11 +1729,9 @@ export default function ManagementPage() {
     setShowUploadBookModal(false)
     setUploadBookCategories([])
 
-    // fire-and-forget: 每个文件创建一个后台任务
+    // fire-and-forget: 每个文件上传 PDF + dispatch 后端 book_convert
     fileArray.forEach((file, i) => {
-      const bookId = newBooks[i].id
-      const title = newBooks[i].title
-      void startBookMineruConvert(bookId, file, title)
+      void enqueueBookMineruConvert(newBooks[i].id, file, newBooks[i].title)
     })
   }
 

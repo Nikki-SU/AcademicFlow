@@ -35,6 +35,7 @@ export interface RunStatus {
 
 export type WorkflowEvent =
   | 'paper_convert'
+  | 'book_convert'
   | 'ai_call'
   | 'mineru_connectivity_test'
   | 'ai_connectivity_test'
@@ -51,6 +52,17 @@ export async function dispatchPaperConvert(
   token: string,
 ): Promise<void> {
   await dispatchWorkflow('paper_convert', { doi, title, pdf_path }, owner, repo, token)
+}
+
+export async function dispatchBookConvert(
+  bookId: string,
+  title: string,
+  pdf_path: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<void> {
+  await dispatchWorkflow('book_convert', { book_id: bookId, title, pdf_path }, owner, repo, token)
 }
 
 export async function dispatchAiCall(
@@ -171,17 +183,34 @@ export async function getRun(
 
 // ===================== progress 轮询 =====================
 
+async function readProgressAt(
+  progressPath: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<PipelineProgress | null> {
+  const raw = await readRepoTextFile(owner, repo, progressPath, token).catch(() => null)
+  if (!raw) return null
+  try { return JSON.parse(raw.content) as PipelineProgress } catch { return null }
+}
+
 export async function pollProgressJson(
   slug: string,
   owner: string,
   repo: string,
   token: string,
 ): Promise<PipelineProgress | null> {
-  const raw = await readRepoTextFile(
-    owner, repo, `literatures/${slug}/.progress.json`, token,
-  ).catch(() => null)
-  if (!raw) return null
-  try { return JSON.parse(raw.content) as PipelineProgress } catch { return null }
+  return readProgressAt(`literatures/${slug}/.progress.json`, owner, repo, token)
+}
+
+/** 图书转换进度：textbooks/{bookId}/.progress.json（stage 名与文献 pipeline 一致） */
+export async function pollBookProgressJson(
+  bookId: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<PipelineProgress | null> {
+  return readProgressAt(`textbooks/${bookId}/.progress.json`, owner, repo, token)
 }
 
 export interface PollOptions {
