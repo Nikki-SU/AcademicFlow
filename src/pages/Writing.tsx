@@ -1376,10 +1376,19 @@ export default function WritingPage() {
       if (opts?.sourceMaterialProvider) {
         literatureContext = await opts.sourceMaterialProvider()
       } else if (trustedSearch) {
-        const sourceDois = scopedCitations
-          .filter((c) => c.type === 'paper' && c.doi)
-          .slice(0, 5)
-          .map((c) => c.doi)
+        // 同一篇文献在正文里常被引注多次 —— 按 DOI 去重后**再**截前 5 篇。
+        // 不去重的话同一篇文章会被读两遍、在【源材料】里出现两份：既白烧 token，
+        // 又让 AI 在同一段重复证据上反复引证。去重放在截断之前，才能真的凑满 5 篇。
+        const seenDoiKeys = new Set<string>()
+        const sourceDois: string[] = []
+        for (const c of scopedCitations) {
+          if (c.type !== 'paper' || !c.doi) continue
+          const key = c.doi.trim().toLowerCase()
+          if (!key || seenDoiKeys.has(key)) continue
+          seenDoiKeys.add(key)
+          sourceDois.push(c.doi)
+          if (sourceDois.length >= 5) break
+        }
         if (sourceDois.length > 0) {
           const loaded = await Promise.all(
             sourceDois.map(async (doi) => {
