@@ -52,6 +52,16 @@ body {
     max-width: min(100%, clamp(65ch, 26ch + 24vw, 95ch));
     margin-inline: auto;
   }
+
+  /*
+   * 全文检索在正文里的命中高亮。
+   * 用琥珀底色而不是批注的那几种颜色，且刻意不参与斑马纹（斑马纹画在块级背景上，
+   * 这里是行内 span 的前景底色，两者叠在一起仍然看得见）。
+   */
+  .search-hit {
+    background-color: rgba(251, 191, 36, 0.42);
+    border-radius: 0.125rem;
+  }
 }
 
 /* 隐藏滚动条但保持滚动功能 */

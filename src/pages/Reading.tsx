@@ -43,7 +43,14 @@ import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml } from '../services/markdown-renderer'
 import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
 import { readAnyDocument, blockId, type ReadBlockItem } from '../services/blocks.mjs'
-import { clearHighlights, highlightAnnotation } from '../services/text-highlight'
+import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits } from '../services/text-highlight'
+import {
+  searchLibrary,
+  getSearchIndex,
+  buildHighlightRegex,
+  KIND_LABEL,
+  type SearchHit,
+} from '../services/librarySearch'
 import VditorEditor, { type VditorEditorHandle } from '../components/VditorEditor'
 import ReadingAskPanel from '../components/ReadingAskPanel'
 import { toast } from 'sonner'
@@ -304,11 +311,28 @@ export default function ReadingPage() {
   const location = useLocation()
   /** 管理页的"眼睛"按钮带过来的目标对象：paper:<doi> / book:<书名> / document:<目录名> */
   const docParam = searchParams.get('doc')
+  /** ?q= 检索词：从别处（管理页检索结果）跳进来时，正文要滚到命中处并高亮 */
+  const qParam = searchParams.get('q')
   const [papers, setPapers] = useState<Paper[]>([])
   const [papersLoading, setPapersLoading] = useState(true)
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null)
   const [activeSideTab, setActiveSideTab] = useState<SideTab>('notes')
   const [searchQuery, setSearchQuery] = useState('')
+  // ── 全文检索（库内所有正文，不只是元数据） ──
+  /** 检索结果；null = 没在检索模式（左栏显示普通列表） */
+  const [ftResults, setFtResults] = useState<SearchHit[] | null>(null)
+  /** 已提交的检索词（输入框里改了但没按 Enter 时，结果面板仍显示上一次的） */
+  const [ftQuery, setFtQuery] = useState('')
+  const [ftLoading, setFtLoading] = useState(false)
+  const [ftProgress, setFtProgress] = useState({ done: 0, total: 0 })
+  /**
+   * 待定位到正文的检索请求。
+   * 带 key 是为了只在"结果对应的那篇文档"里高亮 —— 用户随后点别的文档时，
+   * key 对不上就自然不高亮，不用额外去清理。
+   */
+  const [findTarget, setFindTarget] = useState<{ key: string; q: string; n: number } | null>(null)
+  /** 同一个请求只自动滚一次，滚完用户自己翻页不会被拽回去 */
+  const findScrolledRef = useRef('')
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [fontSize, setFontSize] = useState(16)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
@@ -512,26 +536,34 @@ const [aligned_content, set_aligned_content] = useState('')
     const kind = docParam.slice(0, sep)
     const id = docParam.slice(sep + 1)
     if (!id) { docParamAppliedRef.current = location.key; return }
+    let resolvedId: string | null = null
     if (kind === 'paper') {
       if (papersLoading) return
       setDocType('paper')
       // 找不到就退回第一篇（可能是被删了 / DOI 变了），别留一个空壳在页面上
-      setSelectedPaperId(papers.some((p) => p.id === id) ? id : (papers[0]?.id ?? null))
+      resolvedId = papers.some((p) => p.id === id) ? id : (papers[0]?.id ?? null)
+      setSelectedPaperId(resolvedId)
     } else if (kind === 'book') {
       if (booksLoading) return
       setDocType('book')
-      setSelectedBookId(books.some((b) => b.id === id) ? id : (books[0]?.id ?? null))
+      resolvedId = books.some((b) => b.id === id) ? id : (books[0]?.id ?? null)
+      setSelectedBookId(resolvedId)
     } else if (kind === 'document') {
       if (documentsLoading) return
       setDocType('document')
-      setSelectedDocumentId(documents.some((d) => d.id === id) ? id : (documents[0]?.id ?? null))
+      resolvedId = documents.some((d) => d.id === id) ? id : (documents[0]?.id ?? null)
+      setSelectedDocumentId(resolvedId)
     } else {
       docParamAppliedRef.current = location.key
       return
     }
     docParamAppliedRef.current = location.key
+    // 带 ?q= 进来（管理页全文检索结果跳转）→ 交给正文高亮并滚动定位
+    if (qParam && resolvedId) {
+      setFindTarget((prev) => ({ key: `${kind}:${resolvedId}`, q: qParam, n: (prev?.n ?? 0) + 1 }))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docParam, location.key, papers, papersLoading, books, booksLoading, documents, documentsLoading])
+  }, [docParam, qParam, location.key, papers, papersLoading, books, booksLoading, documents, documentsLoading])
 
   /** 点漏斗开合筛选菜单；打开时把"已生效的筛选"播种成草稿，关掉就等于放弃这次选择 */
   const toggleFilterMenu = () => {
@@ -1025,6 +1057,57 @@ const [aligned_content, set_aligned_content] = useState('')
     ? ((isBook ? selectedBook?.title : selectedDocument?.title) ?? '')
     : (selectedPaper?.title ?? '')
 
+  /**
+   * 提交全文检索：把左栏切成结果面板。
+   * 库内容没变时走内存索引，只检索、不重新下载；首次会先建索引（有进度提示）。
+   */
+  const runFullTextSearch = async () => {
+    const q = searchQuery.trim()
+    if (!q) { setFtResults(null); return }
+    if (ftLoading) return
+    setFtQuery(q)
+    setFtLoading(true)
+    setFtResults([])
+    try {
+      const hits = await searchLibrary(q, (done, total) => setFtProgress({ done, total }))
+      setFtResults(hits)
+    } catch (err) {
+      toast.error(`全文检索失败：${err instanceof Error ? err.message : String(err)}`)
+      setFtResults(null)
+    } finally {
+      setFtLoading(false)
+    }
+  }
+
+  /** 点结果：切到对应阅读对象，并把检索词交给正文做高亮定位 */
+  const openSearchHit = (hit: SearchHit) => {
+    setDocType(hit.kind)
+    if (hit.kind === 'paper') {
+      setSelectedPaperId(hit.id)
+      setSelectedAnnotationId(null)
+      setEditingAnnotationId(null)
+    } else if (hit.kind === 'book') {
+      setSelectedBookId(hit.id)
+    } else {
+      setSelectedDocumentId(hit.id)
+    }
+    setFindTarget((prev) => ({ key: `${hit.kind}:${hit.id}`, q: ftQuery, n: (prev?.n ?? 0) + 1 }))
+    setLeftDrawer(false)
+  }
+
+  /** 片段里的检索词包成 <mark>：split 带捕获组时，奇数位就是命中的词 */
+  const renderSnippet = (text: string) => {
+    const re = buildHighlightRegex(ftQuery)
+    if (!re) return text
+    return text.split(re).map((part, i) =>
+      i % 2 === 1 ? (
+        <mark key={i} className="bg-amber-200/70 text-slate-800 rounded-sm px-0.5">{part}</mark>
+      ) : (
+        <span key={i}>{part}</span>
+      ),
+    )
+  }
+
   /** 单语言正文渲染 + 大纲（图书与其他文档同一条路）：标题注入 id 后按标题层级生成大纲 */
   const { html: bookRenderedHtml, outline: bookOutline } = useMemo(() => {
     if (!isPlain || !plainMarkdown.trim()) return { html: '', outline: [] as OutlineItem[] }
@@ -1245,6 +1328,9 @@ const [aligned_content, set_aligned_content] = useState('')
     if (!box || !root || !savedProgress) return
     // 用户已经自己滚了 → 让位，不再抢滚动条
     if (userScrolledRef.current) return
+    // 这次进来是为了看**检索命中处**（不是接着上次读）→ 进度回填必须让位，
+    // 否则 0/400/1200ms 那几次补滚会把检索定位顶掉
+    if (findTarget && findTarget.key === docKey) return
 
     const norm = (s: string) => s.replace(/\s+/g, '').trim()
     const want = norm(savedProgress.heading || '')
@@ -1267,7 +1353,7 @@ const [aligned_content, set_aligned_content] = useState('')
       level: item?.level ?? Number(target.tagName.slice(1)),
     }
     window.setTimeout(() => { restoringRef.current = false }, 120)
-  }, [savedProgress, outlineByAnchor])
+  }, [savedProgress, outlineByAnchor, findTarget, docKey])
 
   // 正文是异步来的、图片加载还会把版面撑高，所以头两秒补几次；用户一动滚动条就永久让位
   useEffect(() => {
@@ -1509,6 +1595,59 @@ const [aligned_content, set_aligned_content] = useState('')
   }, [paperAnnotations, selectedAnnotationId, paperRenderedHtml, bookRenderedHtml])
 
   /**
+   * 检索命中定位：正文渲染完之后，把检索词在正文里全部高亮，并滚到第一处。
+   *
+   * 只对"结果对应的那篇文档"生效（比对 docKey），所以用户随后点别的文档时
+   * 不需要额外清理。同一个请求只自动滚一次 —— 之后的重渲染（切模式、图片 hydrate）
+   * 只重挂高亮，不会把用户已经翻走的画面又拽回去。
+   */
+  useEffect(() => {
+    const root = readerRef.current
+    if (!root) return
+    clearSearchHits(root)
+    if (!findTarget || findTarget.key !== docKey) return
+
+    const first = highlightSearchHits(root, findTarget.q)
+    if (!first) return
+
+    const token = `${findTarget.key}|${findTarget.q}|${findTarget.n}`
+    const fresh = findScrolledRef.current !== token
+    if (fresh) findScrolledRef.current = token
+
+    /** 每次都重新查一遍：正文重渲染会把上一轮的 span 换掉，旧引用会失效 */
+    const scrollToHit = (behavior: ScrollBehavior) => {
+      readerRef.current?.querySelector<HTMLElement>('.search-hit')?.scrollIntoView({ behavior, block: 'center' })
+    }
+
+    scrollToHit(fresh ? 'smooth' : 'auto')
+
+    // 正文里的图是渲染完再 hydrate 的，版面还会被撑高 —— 只滚一次必然落偏。
+    // 所以盯着正文尺寸：只要它还在变就重新对齐；用户一动手（滚轮/触摸/按键）立刻撒手，
+    // 免得把人已经翻走的画面又拽回来。
+    const box = scrollRef.current
+    let alive = true
+    let firstRo = true
+    const giveUp = () => {
+      alive = false
+      ro.disconnect()
+      box?.removeEventListener('wheel', giveUp)
+      box?.removeEventListener('touchstart', giveUp)
+      window.removeEventListener('keydown', giveUp)
+    }
+    const ro = new ResizeObserver(() => {
+      // 首次回调是 observe 本身触发的，别拿它打断上面那次平滑滚动
+      if (firstRo) { firstRo = false; return }
+      if (alive) scrollToHit('auto')
+    })
+    ro.observe(root)
+    box?.addEventListener('wheel', giveUp, { passive: true })
+    box?.addEventListener('touchstart', giveUp, { passive: true })
+    window.addEventListener('keydown', giveUp)
+    const timeout = window.setTimeout(giveUp, 5000)
+    return () => { alive = false; ro.disconnect(); window.clearTimeout(timeout) }
+  }, [findTarget, docKey, paperRenderedHtml, bookRenderedHtml])
+
+  /**
    * 逐行交替底色（防看漏）。
    *
    * 粒度取「1 行有色 / 1 行无色」：这是唯一能保证**任意相邻两行都不同色**的粒度。
@@ -1738,15 +1877,31 @@ const [aligned_content, set_aligned_content] = useState('')
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // 输入法组词中的回车是"选词"，不是"提交"，不能吞
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  runFullTextSearch()
+                }
+                if (e.key === 'Escape' && ftResults !== null) setFtResults(null)
+              }}
               placeholder={
                 isBook
-                  ? '按书名搜索...'
+                  ? '书名…（Enter 全文检索）'
                   : isDoc
-                    ? '按标题搜索...'
-                    : '标题、作者、期刊、年份、关键词、DOI...'
+                    ? '标题…（Enter 全文检索）'
+                    : '标题、作者、期刊、DOI…（Enter 全文检索）'
               }
-              className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400"
+              className="w-full pl-7 pr-6 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400"
             />
+            {/* 点这里 = 按 Enter：检索库内所有正文（不只是当前列表的元数据） */}
+            <button
+              onClick={runFullTextSearch}
+              title="全文检索库内所有正文（Enter）"
+              className="absolute right-0.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600 rounded transition"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
           {/* 其他文档：就地导入，不用绕到管理页（写的是同一份 documents/ 数据） */}
           {isDoc && (
@@ -1858,7 +2013,68 @@ const [aligned_content, set_aligned_content] = useState('')
           </div>
           </div>
           <div className="flex-auto min-h-0 overflow-y-auto">
-          {isBook ? (
+          {ftResults !== null ? (
+            /* ── 全文检索结果：命中片段 + 点一下直达正文命中处 ── */
+            <div className="p-2 space-y-1.5">
+              <div className="flex items-center gap-1 px-1 pb-1">
+                <span className="text-xs font-semibold text-slate-600">全文检索</span>
+                <span className="text-xs text-slate-400 truncate" title={ftQuery}>「{ftQuery}」</span>
+                <button
+                  onClick={() => setFtResults(null)}
+                  className="ml-auto flex-shrink-0 p-0.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                  title="返回列表（Esc）"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {ftLoading ? (
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+                  {getSearchIndex()
+                    ? '正在检索…'
+                    : `首次检索，正在建立全文索引 ${ftProgress.done}/${ftProgress.total}`}
+                </div>
+              ) : ftResults.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-sm">
+                  <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p>全库正文里没有匹配的词</p>
+                  <p className="text-xs mt-1">检索范围：文献 / 图书 / 其他文档的正文</p>
+                </div>
+              ) : (
+                <>
+                  <div className="px-1 pb-1 text-[0.6875rem] text-slate-400">
+                    {ftResults.length} 篇命中，点结果直达正文命中处
+                  </div>
+                  {ftResults.map((hit) => (
+                    <button
+                      key={`${hit.kind}:${hit.id}`}
+                      onClick={() => openSearchHit(hit)}
+                      title="跳到正文命中处"
+                      className={`w-full text-left p-2 rounded-md border transition ${
+                        docKey === `${hit.kind}:${hit.id}`
+                          ? 'bg-indigo-50 border-indigo-200'
+                          : 'bg-white border-slate-200 hover:border-indigo-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="flex-shrink-0 px-1 py-0.5 rounded bg-slate-100 text-slate-500 text-[0.625rem]">
+                          {KIND_LABEL[hit.kind]}
+                        </span>
+                        <span className="text-xs font-medium text-slate-700 truncate">{hit.title}</span>
+                        <span className="ml-auto flex-shrink-0 text-[0.625rem] text-slate-400">{hit.total} 处</span>
+                      </div>
+                      {hit.snippets.map((sn, i) => (
+                        <div key={i} className="mt-1.5 text-[0.6875rem] leading-relaxed text-slate-500 line-clamp-3">
+                          {renderSnippet(sn.text)}
+                        </div>
+                      ))}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          ) : isBook ? (
             booksLoading ? (
               <div className="text-center py-8 text-slate-400 text-sm">
                 <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />

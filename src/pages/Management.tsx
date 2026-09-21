@@ -94,6 +94,13 @@ import {
 } from 'lucide-react'
 import { DoiLink } from '../components/DoiLink'
 import { toast } from 'sonner'
+import {
+  searchLibrary,
+  getSearchIndex,
+  buildHighlightRegex,
+  KIND_LABEL,
+  type SearchHit,
+} from '../services/librarySearch'
 
 type SubTabId = 'library' | 'templates' | 'knowledge' | 'documents' | 'import-export'
 
@@ -367,6 +374,12 @@ export default function ManagementPage() {
   const [pdfFilter, setPdfFilter] = useState<'all' | 'has' | 'missing'>('all')
   const [libraryPage, setLibraryPage] = useState(1)
   const [searchQuery, setSearchQuery] = useState('')
+  // ── 全文检索（库内正文，不只是元数据）：结果放独立弹窗，点结果直接去阅读页定位 ──
+  const [ftOpen, setFtOpen] = useState(false)
+  const [ftHits, setFtHits] = useState<SearchHit[]>([])
+  const [ftQuery, setFtQuery] = useState('')
+  const [ftLoading, setFtLoading] = useState(false)
+  const [ftProgress, setFtProgress] = useState({ done: 0, total: 0 })
   const [showAddPaperModal, setShowAddPaperModal] = useState(false)
   const [showEditPaperModal, setShowEditPaperModal] = useState(false)
   const [showImageLightbox, setShowImageLightbox] = useState<string | null>(null)
@@ -2105,6 +2118,47 @@ export default function ManagementPage() {
     })
   }
 
+  /**
+   * 提交全文检索（搜索框里按 Enter / 点放大镜）。
+   * 结果放独立弹窗：管理页本体的职责是"管理"，把结果面板塞进列表区会把两种语义搅在一起。
+   */
+  const runFullTextSearch = async (raw: string) => {
+    const q = raw.trim()
+    if (!q || ftLoading) return
+    setFtQuery(q)
+    setFtHits([])
+    setFtOpen(true)
+    setFtLoading(true)
+    try {
+      const hits = await searchLibrary(q, (done, total) => setFtProgress({ done, total }))
+      setFtHits(hits)
+    } catch (err) {
+      toast.error(`全文检索失败：${err instanceof Error ? err.message : String(err)}`)
+      setFtOpen(false)
+    } finally {
+      setFtLoading(false)
+    }
+  }
+
+  /** 点结果：去阅读页，检索词交给阅读页做滚动定位 + 高亮 */
+  const openHitInReader = (hit: SearchHit) => {
+    setFtOpen(false)
+    navigate(`/reading?doc=${hit.kind}:${encodeURIComponent(hit.id)}&q=${encodeURIComponent(ftQuery)}`)
+  }
+
+  /** 片段里的检索词包成 <mark>：split 带捕获组时，奇数位就是命中的词 */
+  const renderHitSnippet = (text: string) => {
+    const re = buildHighlightRegex(ftQuery)
+    if (!re) return text
+    return text.split(re).map((part, i) =>
+      i % 2 === 1 ? (
+        <mark key={i} className="bg-amber-200/70 text-slate-800 rounded-sm px-0.5">{part}</mark>
+      ) : (
+        <span key={i}>{part}</span>
+      ),
+    )
+  }
+
   return (
     <div className="page-container py-8 grid gap-6 items-start grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_clamp(18rem,24vw,26rem)]">
       {/* ──── 左侧主内容 ──── */}
@@ -2183,13 +2237,20 @@ export default function ManagementPage() {
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="搜索标题、作者、期刊、关键词..."
+                    placeholder="标题/作者/期刊/关键词…（Enter 全文检索）"
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value)
                       setLibraryPage(1)
                     }}
-                    className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg w-72 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white"
+                    onKeyDown={(e) => {
+                      // 输入法组词中的回车是"选词"，不是"提交"
+                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                        e.preventDefault()
+                        runFullTextSearch(searchQuery)
+                      }
+                    }}
+                    className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg w-[clamp(12rem,22vw,20rem)] focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white"
                   />
                 </div>
                 {/* 视图切换 */}
@@ -3131,10 +3192,16 @@ export default function ManagementPage() {
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="搜索标题、作者..."
+                  placeholder="标题、作者…（Enter 全文检索）"
                   value={documentSearch}
                   onChange={(e) => setDocumentSearch(e.target.value)}
-                  className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg w-64 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      runFullTextSearch(documentSearch)
+                    }
+                  }}
+                  className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg w-[clamp(11rem,20vw,18rem)] focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white"
                 />
               </div>
               <button
@@ -4467,6 +4534,53 @@ export default function ManagementPage() {
           <BackendMonitorPanel taskQueue={taskQueue} />
         </div>
       </aside>
+
+      {/* 全文检索结果：命中片段 + 点结果去阅读页滚动定位并高亮 */}
+      {ftOpen && (
+        <Modal title={`全文检索 · ${ftQuery}`} onClose={() => setFtOpen(false)} width="max-w-3xl">
+          {ftLoading ? (
+            <div className="text-center py-10 text-slate-400 text-sm">
+              <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+              {getSearchIndex()
+                ? '正在检索…'
+                : `首次检索，正在建立全文索引 ${ftProgress.done}/${ftProgress.total}`}
+            </div>
+          ) : ftHits.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 text-sm">
+              <Search className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p>全库正文里没有匹配的词</p>
+              <p className="text-xs mt-1">检索范围：文献 / 图书 / 其他文档的正文</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="text-xs text-slate-400">
+                {ftHits.length} 篇命中，点结果直达正文命中处
+              </div>
+              {ftHits.map((hit) => (
+                <button
+                  key={`${hit.kind}:${hit.id}`}
+                  onClick={() => openHitInReader(hit)}
+                  title="跳到正文命中处"
+                  className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="flex-shrink-0 px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[0.625rem]">
+                      {KIND_LABEL[hit.kind]}
+                    </span>
+                    <span className="text-sm font-medium text-slate-700 truncate">{hit.title}</span>
+                    <span className="ml-auto flex-shrink-0 text-[0.6875rem] text-slate-400">{hit.total} 处</span>
+                  </div>
+                  {hit.snippets.map((sn, i) => (
+                    <div key={i} className="mt-1.5 text-xs leading-relaxed text-slate-500 line-clamp-3">
+                      {renderHitSnippet(sn.text)}
+                    </div>
+                  ))}
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   )
 }

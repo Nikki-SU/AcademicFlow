@@ -219,3 +219,73 @@ export function highlightAnnotation(
   }
   return 'none'
 }
+
+// ============================================================
+// 全文检索命中高亮
+// ============================================================
+
+/** 检索命中的高亮 class（与批注高亮分开，互不干扰） */
+const SEARCH_HIT_CLASS = 'search-hit'
+
+/** 高亮上限：命中极多的词不该把整篇正文切成一地碎片 */
+const SEARCH_HIT_MAX = 300
+
+/** 清掉上一轮的检索高亮 */
+export function clearSearchHits(root: HTMLElement): void {
+  root.querySelectorAll(`.${SEARCH_HIT_CLASS}`).forEach((span) => {
+    const parent = span.parentNode
+    if (!parent) return
+    parent.replaceChild(document.createTextNode(span.textContent || ''), span)
+    parent.normalize()
+  })
+}
+
+/**
+ * 在正文里找出**所有** needle 并包高亮，返回最靠前的那一个元素（调用方拿它滚动定位）。
+ * 匹配口径是大小写不敏感的纯子串 —— 库里是 markdown 原文，和屏幕上渲染出来的
+ * 文本会有空白差异，但检索词本身通常是完整词，直接 indexOf 足够准且不会误伤。
+ */
+export function highlightSearchHits(root: HTMLElement, needle: string): HTMLElement | null {
+  const query = (needle || '').trim()
+  if (!query) return null
+
+  const { text, segs } = collectTextSegments(root)
+  if (!text) return null
+
+  const hay = text.toLowerCase()
+  const nd = query.toLowerCase()
+  const spans: { start: number; end: number }[] = []
+  let from = 0
+  while (spans.length < SEARCH_HIT_MAX) {
+    const at = hay.indexOf(nd, from)
+    if (at < 0) break
+    spans.push({ start: at, end: at + nd.length })
+    from = at + nd.length
+  }
+  if (spans.length === 0) return null
+
+  let first: HTMLElement | null = null
+  // 从后往前包：splitText 只会影响后面的节点，前面的偏移始终有效
+  for (let i = spans.length - 1; i >= 0; i--) {
+    const span = spans[i]
+    const pieces: { node: Text; from: number; to: number }[] = []
+    for (const seg of segs) {
+      const f = Math.max(span.start, seg.start)
+      const t = Math.min(span.end, seg.end)
+      if (t <= f) continue
+      pieces.push({ node: seg.node, from: f - seg.start, to: t - seg.start })
+    }
+    for (let j = pieces.length - 1; j >= 0; j--) {
+      const p = pieces[j]
+      const range = document.createRange()
+      range.setStart(p.node, p.from)
+      range.setEnd(p.node, p.to)
+      const mark = document.createElement('span')
+      mark.className = SEARCH_HIT_CLASS
+      range.surroundContents(mark)
+      // 最靠前那一段的最靠前一个节点 = 滚动目标
+      if (i === 0 && j === 0) first = mark
+    }
+  }
+  return first
+}
