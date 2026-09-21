@@ -50,7 +50,7 @@ function StageRow({ stage, index }: { stage: StageTrace; index: number }) {
           </span>
         )}
         {stage.aiModel && (
-          <span className="text-[10px] text-slate-500 font-mono max-w-[120px] truncate">
+          <span className="text-[0.625rem] text-slate-500 font-mono max-w-[7.5rem] truncate">
             {stage.aiModel}
           </span>
         )}

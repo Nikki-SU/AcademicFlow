@@ -25,6 +25,35 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * 全站统一页面容器
+ * -------------------------------------------------
+ * 之前各页各写一套上限（max-w-[100rem] / [1400px] / 7xl / 5xl / 4xl / 3xl），
+ * 宽屏上互相不对齐、还留出大片死白。
+ * 现在统一成「永远铺满可用宽度 + 内边距随视口伸缩」，页面之间左右边界自动对齐。
+ */
+@layer components {
+  .page-container {
+    width: 100%;
+    padding-inline: clamp(1rem, 2.5vw, 3rem);
+  }
+
+  /*
+   * 正文行宽护栏（流体）
+   * -------------------------------------------------
+   * 用字符数（ch）而不是像素限定阅读宽度：
+   *  - ch 随字号变化，用户调大字号时每行字符数不变，可读性恒定
+   *  - 65–75 字符是排版学公认舒适区（Bringhurst），80 是 WCAG 1.4.8 的上限
+   * 下限 65ch / 上限 95ch，中段跟着视口等比长：
+   *   1440 → 约 65ch（≈578px）   1920 → 约 78ch（≈690px）   2560 → 95ch 封顶（≈846px）
+   * 卡片本身铺满整栏，只有这一行文字被限宽居中。
+   */
+  .measure-reader {
+    max-width: min(100%, clamp(65ch, 26ch + 24vw, 95ch));
+    margin-inline: auto;
+  }
+}
+
 /* 隐藏滚动条但保持滚动功能 */
 .no-scrollbar {
   -ms-overflow-style: none;

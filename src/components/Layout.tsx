@@ -167,7 +167,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    /*
+     * 外壳用 h-screen + overflow-hidden 把「视口高度」变成确定值，
+     * 主内容区再自己滚动。这样页面里直接写 h-full 就能撑满，
+     * 不需要再各自算 calc(100vh - 3rem) —— 那个算法一旦多出 PAT 横幅就会算错。
+     */
+    <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
       {/* PAT 过期横幅 */}
       {showExpiryBanner && user && (
         <div className={`px-4 py-2 text-sm flex items-center justify-center gap-2 ${
@@ -189,8 +194,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* 顶部导航栏 */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-[100rem] mx-auto px-4">
+      <header className="bg-white border-b border-slate-200 z-50 flex-shrink-0">
+        <div className="page-container">
           <div className="flex items-center justify-between h-12">
             {/* Logo */}
             <Link to="/tracking" className="flex items-center gap-2 flex-shrink-0 mr-6">
@@ -262,8 +267,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      {/* 主内容区 */}
-      <main className="flex-1 overflow-auto">
+      {/* 主内容区：唯一的滚动容器；页面写 h-full 即可撑满 */}
+      <main className="flex-1 min-h-0 overflow-auto">
         {children}
       </main>
 

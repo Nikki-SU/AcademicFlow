@@ -519,7 +519,7 @@ export default function LearnPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="page-container py-8">
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -1087,7 +1087,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
         {/* 题目卡 */}
         <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <div className="text-center mb-6 min-h-[64px] flex items-center justify-center">
+          <div className="text-center mb-6 min-h-[4rem] flex items-center justify-center">
             {question.isSentence ? (
               <p className="text-lg text-slate-800 leading-relaxed text-left">
                 {question.question.split('_____').map((part, i, arr) => (

@@ -2680,7 +2680,7 @@ export default function WritingPage() {
   const RightPanelIcon = PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
 
   return (
-    <div ref={containerRef} className="h-[calc(100vh-3rem)] flex bg-slate-50 relative overflow-hidden">
+    <div ref={containerRef} className="h-full flex bg-slate-50 relative overflow-hidden">
       <aside
         className={`bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300 ${
           navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-64 opacity-100'
@@ -3635,7 +3635,7 @@ export default function WritingPage() {
                     }}
                     rows={2}
                     placeholder="给 AI 一个需求…（Enter 发送，Shift+Enter 换行）"
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y min-h-[38px] max-h-40"
+                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y min-h-[2.375rem] max-h-[10rem]"
                   />
                   <button
                     onClick={() => handleSendMessage()}

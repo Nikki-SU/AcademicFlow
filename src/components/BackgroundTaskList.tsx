@@ -88,7 +88,7 @@ function FourNodeProgress({ task }: { task: BackgroundTask }) {
     currentIdx >= 0 ? task.progress : states.every((s) => s === 'done') ? 100 : 0
 
   return (
-    <div className="flex items-center gap-0.5 min-w-[200px]">
+    <div className="flex items-center gap-0.5 min-w-[9rem]">
       {states.map((state, i) => (
         <div key={i} className="flex items-center flex-1 last:flex-none">
           <div className="relative">
@@ -186,7 +186,7 @@ function TaskRow({
   return (
     <div className="flex items-center gap-4 py-3 px-4 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition">
       {/* 左侧：标题 + 类型 */}
-      <div className="flex-1 min-w-0 max-w-[220px]">
+      <div className="flex-1 min-w-0 max-w-[13.75rem]">
         <div className="flex items-center gap-1.5 mb-1">
           <TypeBadge type={task.type} />
           <span className="font-medium text-slate-800 text-sm truncate" title={task.title}>
@@ -199,7 +199,7 @@ function TaskRow({
       </div>
 
       {/* 中间：四节点进度 */}
-      <div className="flex-shrink-0 w-[300px] pb-4">
+      <div className="flex-shrink-0 w-[clamp(9rem,26%,18rem)] pb-4">
         <FourNodeProgress task={task} />
       </div>
 
@@ -251,17 +251,17 @@ export function BackgroundTaskList({ tasks, on_abort, on_remove }: BackgroundTas
     <div className="space-y-2">
       {/* 节点标签行 */}
       <div className="flex items-center gap-4 px-4 pb-1">
-        <div className="flex-1 min-w-0 max-w-[220px]" />
-        <div className="flex-shrink-0 w-[300px]">
+        <div className="flex-1 min-w-0 max-w-[13.75rem]" />
+        <div className="flex-shrink-0 w-[clamp(9rem,26%,18rem)]">
           <div className="flex items-center justify-between text-[10px] text-slate-400 px-0">
             {NODE_LABELS.map((label, i) => (
-              <span key={i} className="text-center" style={{ width: '60px' }}>
+              <span key={i} className="text-center" style={{ width: '3.75rem' }}>
                 {label}
               </span>
             ))}
           </div>
         </div>
-        <div className="flex-shrink-0 w-[160px]" />
+        <div className="flex-shrink-0 w-[clamp(6rem,12%,10rem)]" />
       </div>
 
       {tasks.map((task) => (

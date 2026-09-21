@@ -616,7 +616,7 @@ function GitHubReportDetail({ report }: { report: FullConnectivityReport }) {
                 {ep.ok ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}
               </span>
               <span className="text-slate-700 w-40 shrink-0 truncate">{ep.label}</span>
-              <span className="text-slate-400 truncate flex-1 max-w-[180px]">
+              <span className="text-slate-400 truncate flex-1 max-w-[11.25rem]">
                 {ep.url.replace('https://', '')}
               </span>
               <span className={ep.ok ? 'text-slate-500' : 'text-red-500'}>

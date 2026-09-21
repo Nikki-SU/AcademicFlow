@@ -243,7 +243,7 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
   const menu = document.createElement('div')
   menu.id = 'af-formula-menu'
   menu.className =
-    'fixed z-[9999] bg-white border border-slate-200 rounded-lg shadow-xl py-1 text-sm min-w-[140px]'
+    'fixed z-[9999] bg-white border border-slate-200 rounded-lg shadow-xl py-1 text-sm min-w-[8.75rem]'
   const rect = anchor.getBoundingClientRect()
   menu.style.top = `${Math.round(rect.bottom + 6)}px`
   menu.style.left = `${Math.round(rect.left)}px`

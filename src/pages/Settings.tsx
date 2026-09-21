@@ -277,10 +277,10 @@ function Settings() {
   const slot2ChatIds = slot2Models.map((m) => m.id).filter(isChatModel)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
+    <div className="min-h-full bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
       {/* 顶栏 */}
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="page-container py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="p-1.5 bg-indigo-100 rounded-md">
               <BookOpen className="w-5 h-5 text-indigo-600" />
@@ -302,7 +302,7 @@ function Settings() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-5">
+      <main className="page-container py-8 grid gap-5 items-start grid-cols-[repeat(auto-fit,minmax(min(100%,40rem),1fr))]">
         {/* 高级模式 toggle */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
           <button
@@ -578,11 +578,11 @@ function Settings() {
                       <span className={`${color} w-4 text-center shrink-0`}>{icon}</span>
                       <span className="text-slate-700 w-40 shrink-0 truncate" title={it.name}>{it.name}</span>
                       {valPreview && (
-                        <span className="text-slate-400 truncate flex-1 max-w-[200px]" title={it.valueWanted}>
+                        <span className="text-slate-400 truncate flex-1 max-w-[12.5rem]" title={it.valueWanted}>
                           {valPreview}
                         </span>
                       )}
-                      <span className={`${color} ml-auto truncate max-w-[260px]`}>{label}</span>
+                      <span className={`${color} ml-auto truncate max-w-[16.25rem]`}>{label}</span>
                     </div>
                   )
                 })}

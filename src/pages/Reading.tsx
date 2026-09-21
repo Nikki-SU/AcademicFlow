@@ -363,6 +363,14 @@ const [aligned_content, set_aligned_content] = useState('')
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [listExpanded, setListExpanded] = useState(true)
 
+  /**
+   * 窄屏（<1100px）抽屉开合。
+   * 宽屏下三栏是并排的，这两个状态只是 `max-[1100px]:` 的类名开关，不参与宽屏布局；
+   * 宽屏时遮罩本身是 hidden，所以即使状态残留也不会挡住画面。
+   */
+  const [leftDrawer, setLeftDrawer] = useState(false)
+  const [rightDrawer, setRightDrawer] = useState(false)
+
   // ── 阅读页直接导入其他文档（不绕去管理页；写的是同一份 documents/ 数据） ──
   const [showImportDocModal, setShowImportDocModal] = useState(false)
   const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
@@ -1628,8 +1636,45 @@ const [aligned_content, set_aligned_content] = useState('')
   ) : null
 
   return (
-    <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
-      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 overflow-hidden">
+    /*
+     * 三栏用 Grid 而不是 flex + 固定宽度：
+     *  - 两侧栏用 clamp()：窄屏有下限保证可用，宽屏按视口比例长，最多到 20rem / 24rem
+     *  - 中栏 minmax(0, 1fr) 吃掉剩下的全部宽度 —— 不再有「灵活元素里塞绝对宽度组件」
+     *  - 高度 h-full：由 Layout 的 main（h-screen 外壳下的确定高度）撑，不自己算 calc(100vh-3rem)
+     *  - <1100px：栅格塌成单列，两侧栏变覆盖式抽屉，正文独占全宽
+     */
+    <div className="h-full overflow-hidden bg-slate-50 grid grid-cols-[clamp(15rem,16vw,20rem)_minmax(0,1fr)_clamp(17rem,18vw,24rem)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]">
+      {/* 窄屏专用：两个抽屉开关 */}
+      <div className="hidden max-[1100px]:flex items-center gap-2 px-2 py-1.5 bg-white border-b border-slate-200">
+        <button
+          onClick={() => setLeftDrawer(true)}
+          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition"
+          title="打开列表与大纲"
+        >
+          <ListTree className="w-4 h-4" />
+          列表 / 大纲
+        </button>
+        <button
+          onClick={() => setRightDrawer(true)}
+          className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition"
+          title="打开问 AI / 笔记 / 批注"
+        >
+          <StickyNote className="w-4 h-4" />
+          问 AI / 笔记 / 批注
+        </button>
+      </div>
+
+      {/* 窄屏抽屉的遮罩（宽屏恒 hidden） */}
+      {(leftDrawer || rightDrawer) && (
+        <div
+          className="hidden max-[1100px]:block fixed inset-0 z-30 bg-black/30"
+          onClick={() => { setLeftDrawer(false); setRightDrawer(false) }}
+        />
+      )}
+
+      <aside className={`bg-white border-r border-slate-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
+        leftDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:-translate-x-full'
+      }`}>
         {/* 固定：阅读对象切换（文献 / 图书 / 其他文档） */}
         <div className="p-2 border-b border-slate-200 flex-shrink-0">
           <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md">
@@ -1726,7 +1771,8 @@ const [aligned_content, set_aligned_content] = useState('')
             >
               <Filter className="w-3.5 h-3.5" />
               {activeFilterCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[0.9rem] h-[0.9rem] px-0.5 rounded-full bg-indigo-600 text-white text-[0.5625rem] leading-[0.9rem] text-center">
+                // 角标尺寸全部用 em：跟着按钮字号走，不写死尺寸
+                <span className="absolute -top-1.5 -right-1.5 min-w-[1.6em] h-[1.6em] px-[0.25em] rounded-full bg-indigo-600 text-white text-[0.75em] leading-[1.6em] text-center">
                   {activeFilterCount}
                 </span>
               )}
@@ -1842,7 +1888,7 @@ const [aligned_content, set_aligned_content] = useState('')
               filteredBooks.map((b) => (
                 <button
                   key={b.id}
-                  onClick={() => setSelectedBookId(b.id)}
+                  onClick={() => { setSelectedBookId(b.id); setLeftDrawer(false) }}
                   className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
                     selectedBookId === b.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
                   }`}
@@ -1900,6 +1946,7 @@ const [aligned_content, set_aligned_content] = useState('')
                     setSelectedDocumentId(d.id)
                     setSelectedAnnotationId(null)
                     setEditingAnnotationId(null)
+                    setLeftDrawer(false)
                   }}
                   className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
                     selectedDocumentId === d.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
@@ -1955,6 +2002,7 @@ const [aligned_content, set_aligned_content] = useState('')
                   setSelectedPaperId(p.id)
                   setSelectedAnnotationId(null)
                   setEditingAnnotationId(null)
+                  setLeftDrawer(false)
                 }}
                 className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
                   selectedPaperId === p.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
@@ -2020,7 +2068,7 @@ const [aligned_content, set_aligned_content] = useState('')
               {outline.map((item) => (
                 <button
                   key={item.anchor}
-                  onClick={() => jumpToAnchor(item.anchor)}
+                  onClick={() => { jumpToAnchor(item.anchor); setLeftDrawer(false) }}
                   className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
                     item.anchor === activeAnchor
                       ? 'bg-indigo-50 text-indigo-700 font-medium'
@@ -2041,7 +2089,7 @@ const [aligned_content, set_aligned_content] = useState('')
         </div>
       </aside>
 
-      <section className="flex-1 bg-slate-50 flex flex-col min-w-0">
+      <section className="bg-slate-50 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {isPlain ? (
           plainId ? (
             <>
@@ -2103,9 +2151,9 @@ const [aligned_content, set_aligned_content] = useState('')
                     </div>
                   </div>
                 ) : bookRenderedHtml ? (
-                  <div className="max-w-3xl mx-auto px-8 py-8">
+                  <div className="w-full px-[clamp(0.75rem,2vw,2.5rem)] py-[clamp(0.75rem,2vw,2rem)]">
                     <div
-                      className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 relative"
+                      className="bg-white rounded-xl shadow-sm border border-slate-200 p-[clamp(1rem,2.2vw,2.5rem)] relative"
                       style={{ fontSize: `${fontSize / 16}rem` }}
                     >
                       <div
@@ -2114,7 +2162,7 @@ const [aligned_content, set_aligned_content] = useState('')
                         onMouseDown={() => {
                           setShowToolbar(false)
                         }}
-                        className="relative prose-reader"
+                        className="relative prose-reader measure-reader"
                         dangerouslySetInnerHTML={{ __html: bookRenderedHtml }}
                       />
                       {selectionToolbar}
@@ -2292,9 +2340,9 @@ const [aligned_content, set_aligned_content] = useState('')
                     className="h-full"
                   />
                 ) : (
-                <div className="max-w-3xl mx-auto px-8 py-8">
+                <div className="w-full px-[clamp(0.75rem,2vw,2.5rem)] py-[clamp(0.75rem,2vw,2rem)]">
                   <div
-                    className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 relative"
+                    className="bg-white rounded-xl shadow-sm border border-slate-200 p-[clamp(1rem,2.2vw,2.5rem)] relative"
                     style={{ fontSize: `${fontSize / 16}rem` }}
                   >
                     <div
@@ -2303,7 +2351,7 @@ const [aligned_content, set_aligned_content] = useState('')
                       onMouseDown={() => {
                         setShowToolbar(false)
                       }}
-                      className="relative prose-reader"
+                      className="relative prose-reader measure-reader"
                       dangerouslySetInnerHTML={{ __html: paperRenderedHtml }}
                     />
                     {selectionToolbar}
@@ -2332,7 +2380,9 @@ const [aligned_content, set_aligned_content] = useState('')
       </section>
 
       {/* 右栏：问 AI / 笔记 / 批注 —— 文献与图书同一套 */}
-      <aside className="w-80 bg-white border-l border-slate-200 flex flex-col flex-shrink-0">
+      <aside className={`bg-white border-l border-slate-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-40 max-[1100px]:w-[min(24rem,90vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
+        rightDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:translate-x-full'
+      }`}>
         <div className="flex border-b border-slate-200 flex-shrink-0">
           <button
             onClick={() => setActiveSideTab('ask')}

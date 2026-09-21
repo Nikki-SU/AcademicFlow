@@ -2106,7 +2106,7 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 py-8 flex gap-6">
+    <div className="page-container py-8 grid gap-6 items-start grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_clamp(18rem,24vw,26rem)]">
       {/* ──── 左侧主内容 ──── */}
       <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between mb-6">
@@ -4462,8 +4462,8 @@ export default function ManagementPage() {
       </div>{/* ──── 左侧主内容 END ──── */}
 
       {/* ──── 右侧 sticky 后台监控面板（常驻、不弹窗） ──── */}
-      <aside className="hidden lg:block w-[360px] shrink-0">
-        <div className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
+      <aside className="hidden lg:block min-w-0">
+        <div className="sticky top-4 max-h-[calc(100dvh-6rem)] overflow-y-auto">
           <BackendMonitorPanel taskQueue={taskQueue} />
         </div>
       </aside>

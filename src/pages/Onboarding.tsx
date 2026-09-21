@@ -71,10 +71,10 @@ function Onboarding() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
+    <div className="min-h-full bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
       {/* 顶栏 */}
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm">
-        <div className="max-w-4xl mx-auto px-6 py-3 flex items-center gap-2">
+        <div className="page-container py-3 flex items-center gap-2">
           <div className="p-1.5 bg-indigo-100 rounded-md">
             <BookOpen className="w-5 h-5 text-indigo-600" />
           </div>
@@ -85,8 +85,8 @@ function Onboarding() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
-        <div className="bg-white rounded-2xl shadow-xl p-8 md:p-10 border border-slate-200">
+      <main className="page-container py-10 flex justify-center">
+        <div className="bg-white rounded-2xl shadow-xl p-8 md:p-10 border border-slate-200 w-full max-w-[min(100%,48rem)]">
           {/* 标题 */}
           <div className="text-center mb-8">
             <div className="inline-flex p-3 bg-indigo-100 rounded-full mb-4">
