@@ -29,7 +29,7 @@ import {
   Folder,
   Loader2,
 } from 'lucide-react'
-import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
+import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
 import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Category } from '../services/categoryData'
@@ -1145,6 +1145,20 @@ const [aligned_content, set_aligned_content] = useState('')
       return flat(items.map((it) => (it.t === 'block' ? `${it.content} ${it.cn ?? ''}` : it.content)).join(' '))
     }
     return flat(selectedPaper?.markdownContent ?? '')
+  }, [isPlain, plainMarkdown, aligned_content, selectedPaper])
+
+  /**
+   * 喂给右栏「问 AI」的正文。
+   *
+   * 原来直接把 aligned_content 原样丢过去 —— 那是**带块标记的**块文档，
+   * 模型读到的是一堆 `⟨⟨⟨文字·正文·0·12⟩⟩⟩` 噪声，而且译文块也混在里面，
+   * 同一段内容等于喂了两遍。走 blocksToAiText：只留原文、去标记、丢图块路径。
+   * （图书/其他文档本来就没有块语法，原样传。）
+   */
+  const askSourceText = useMemo(() => {
+    if (isPlain) return plainMarkdown
+    const md = aligned_content.trim() || selectedPaper?.markdownContent || ''
+    return md.trim() ? blocksToAiText(md) : ''
   }, [isPlain, plainMarkdown, aligned_content, selectedPaper])
 
   /**
@@ -2665,7 +2679,7 @@ const [aligned_content, set_aligned_content] = useState('')
             <ReadingAskPanel
               docRef={docRef}
               docTitle={docTitle}
-              docMarkdown={isPlain ? plainMarkdown : (aligned_content.trim() || selectedPaper?.markdownContent || '')}
+              docMarkdown={isPlain ? plainMarkdown : askSourceText}
               selectedText={selectedText}
             />
           ) : activeSideTab === 'notes' ? (

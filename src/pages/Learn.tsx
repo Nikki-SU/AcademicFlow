@@ -24,7 +24,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import type { WordData, SentenceData, TranslationData } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
 import { runDualEngine } from '../services/ai/dual-engine'
-import { loadLiteratures, loadFulltext, type Literature } from '../services/literatureData'
+import { loadLiteratures, loadAiSourceText, type Literature } from '../services/literatureData'
 
 type TabId = 'words' | 'sentences' | 'translation'
 
@@ -390,12 +390,14 @@ export default function LearnPage() {
       const { getDualEngineConfig } = useSettingsStore.getState()
       const { ai1, ai2 } = getDualEngineConfig()
 
-      // 2. 加载文献全文作为源材料（唯一 ground truth）
+      // 2. 加载文献正文作为源材料（唯一 ground truth）。
+      //    取清洗后的原文块，不用 MinerU 的脏 full.md —— 例句是从这里逐字抽的，
+      //    脏原文里的页眉页脚/断段会直接变成学习材料。详见 loadAiSourceText。
       let fulltext = ''
       try {
-        fulltext = await loadFulltext(selectedPaper)
+        fulltext = await loadAiSourceText(selectedPaper)
       } catch (err) {
-        console.warn('[Learn] 加载文献全文失败:', err)
+        console.warn('[Learn] 加载文献正文失败:', err)
       }
       if (!fulltext.trim()) {
         // 兜底：用摘要作为源材料
@@ -671,7 +673,10 @@ const DEFAULT_WORD_SETTINGS: WordStudySettings = {
 /**
  * 学习会话状态（移植自 CAT StudySession）
  * - queue：本组单词 id，跨所有题型轮次固定
- * - wrongIds：本轮答错队列，优先重做（is_retry）
+ * - wrongIds：本轮**顺延队列**。答错就排到队尾；第一遍把这组词走完之后，再按出错先后
+ *             把它们做完（答错一次就再排到队尾一次），答对才出队。
+ *             注意这**不是**"答错立刻重做"。
+ * - askedOnce：本会话已经出过题的词。learn 模式下第一次出题的词，答完要把卡片亮出来。
  * - correctTypes：每个词已答对的题型，全部适用题型答对 → learned
  */
 interface StudySession {
@@ -681,7 +686,7 @@ interface StudySession {
   wordIdx: number
   wrongIds: string[]
   correctTypes: Record<string, string[]>
-  shownCards: string[]
+  askedOnce: string[]
   correctCount: number
   wrongCount: number
   masteredCount: number
@@ -699,6 +704,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const [selected, setSelected] = useState<string | null>(null)
   const [answered, setAnswered] = useState(false)
   const [showCard, setShowCard] = useState(false)
+  /** 当前这道题是不是"本会话第一次遇到这个词" —— 是的话答完要亮卡片（先测后看） */
+  const [firstAsk, setFirstAsk] = useState(false)
   const [finished, setFinished] = useState<StudySession | null>(null)
   const [nowTick, setNowTick] = useState(Date.now())
   /** 答对后自动跳下一题的定时器（退出会话/卸载时清理） */
@@ -767,13 +774,20 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   // ── 出题 / 会话推进 ──
 
-  /** 根据会话当前指针出题（wrongIds 优先），并重置答题 UI */
+  /**
+   * 根据会话当前指针出题，并重置答题 UI。
+   *
+   * 一轮（一个题型轮）的顺序 = 先把这组词按顺序各出一题，答错的**顺延到本轮末尾**
+   * （按出错先后排队），本轮全部清空才换下一个题型。所以取词分两段：
+   *   - 第一遍：按 wordIdx 走 eligible
+   *   - 顺延段：wordIdx 已顶到队尾，改从 wrongIds 队首取
+   * 卡片改为"答完才亮"：不再有开头的预展卡（先测后看），见 submitAnswer。
+   */
   const presentQuestion = useCallback((s: StudySession) => {
     const type = settings.questionTypes[s.typeIdx]
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
     const eligible = pool.filter((w) => isWordEligible(w, type, s.mode))
-    let wid = s.wrongIds[0]
-    if (!wid) wid = eligible[s.wordIdx]?.id
+    const wid = s.wordIdx < eligible.length ? eligible[s.wordIdx]?.id : s.wrongIds[0]
     if (!wid) {
       // 理论上不该发生：安全收尾
       setFinished(s)
@@ -789,34 +803,35 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       setQuestion(null)
       return
     }
-    // CAT 式预展卡：learn 模式下每个词在本会话第一次出题，先展示单词卡
-    // （先学再测）；错题重做/复习模式不预展。
-    const isFirstEncounter =
-      s.mode === 'learn' &&
-      !s.shownCards.includes(wid) &&
-      !(s.wrongIds[0] === wid)
-    if (isFirstEncounter) s = { ...s, shownCards: [...s.shownCards, wid] }
+    // 本会话第一次见这个词（仅 learn 模式）→ 答完之后要把卡片亮出来给用户看
+    const isFirst = s.mode === 'learn' && !s.askedOnce.includes(wid)
+    if (isFirst) s = { ...s, askedOnce: [...s.askedOnce, wid] }
     setSession(s)
     setQuestion(q)
     setSelected(null)
     setAnswered(false)
-    setShowCard(isFirstEncounter)
+    setFirstAsk(isFirst)
+    setShowCard(false)
   }, [byId, settings.questionTypes])
 
-  /** 推进到下一题；错题未清先重做题，否则同题型下一词，再否则切下一题型 */
+  /** 推进到下一题：第一遍走完 → 消化顺延的错题 → 本轮清空则切下一题型 */
   const advance = useCallback((s: StudySession) => {
     const types = settings.questionTypes
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-
-    if (s.wrongIds.length > 0) {
-      presentQuestion(s)
-      return
-    }
     const eligibleNow = pool.filter((w) => isWordEligible(w, types[s.typeIdx], s.mode))
+
+    // 第一遍还没走完 → 下一词。错题先攒着，本轮走完才回头消化
     if (s.wordIdx < eligibleNow.length - 1) {
       presentQuestion({ ...s, wordIdx: s.wordIdx + 1 })
       return
     }
+    // 顺延段：刚做完的这一题，答对的已在 submitAnswer 里出队、答错的已挪到队尾。
+    // 把 wordIdx 顶到队尾，presentQuestion 才会从 wrongIds 取词（否则会重复出最后一题）
+    if (s.wrongIds.length > 0) {
+      presentQuestion({ ...s, wordIdx: eligibleNow.length })
+      return
+    }
+    // 本轮清空 → 切下一个"有题可出"的题型
     for (let ni = s.typeIdx + 1; ni < types.length; ni++) {
       const eligibleNext = pool.filter((w) => isWordEligible(w, types[ni], s.mode))
       if (eligibleNext.length > 0) {
@@ -869,7 +884,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       wordIdx: 0,
       wrongIds: [],
       correctTypes: {},
-      shownCards: [],
+      askedOnce: [],
       correctCount: 0,
       wrongCount: 0,
       masteredCount: 0,
@@ -942,15 +957,20 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         masteredCount: session.masteredCount + (masteredNow ? 1 : 0),
       }
       setSession(nextSession)
-      // 答对：绿色反馈 800ms 后自动下一题（无需点击）
-      if (autoTimer.current) clearTimeout(autoTimer.current)
-      autoTimer.current = setTimeout(() => {
-        autoTimer.current = null
-        advance(nextSession)
-      }, 800)
+      if (firstAsk) {
+        // 本会话第一次遇到这个词：答完把卡片亮出来（先测后看），点一下再继续
+        setShowCard(true)
+      } else {
+        // 答对：绿色反馈 800ms 后自动下一题（无需点击）
+        if (autoTimer.current) clearTimeout(autoTimer.current)
+        autoTimer.current = setTimeout(() => {
+          autoTimer.current = null
+          advance(nextSession)
+        }, 800)
+      }
     } else {
-      // 答错：streak 清零、wrong_count+1、进错题队列；弹单词卡（每次答错都展）
-      const wrongIds = session.wrongIds.includes(wid) ? session.wrongIds : [...session.wrongIds, wid]
+      // 答错：streak 清零、wrong_count+1，本题顺延到本轮末尾（按出错先后排队）
+      const wrongIds = [...session.wrongIds.filter((id) => id !== wid), wid]
 
       setWords((prev) => prev.map((w) =>
         w.id === wid
@@ -964,9 +984,9 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         wrongCount: session.wrongCount + 1,
       })
     }
-  }, [session, question, answered, settings.masterCount, settings.questionTypes, setWords, onStudied, byId, advance])
+  }, [session, question, answered, firstAsk, settings.masterCount, settings.questionTypes, setWords, onStudied, byId, advance])
 
-  /** 看完卡片或点"下一题"后继续（错题优先重做） */
+  /** 看完卡片后继续（顺延的错题排在后面，点一下接着做） */
   const handleNext = useCallback(() => {
     if (session) advance(session)
   }, [session, advance])
@@ -1179,7 +1199,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           </div>
         </div>
 
-        {/* 单词卡弹层：learn 首次出题预展（先学再测） / 答错展卡。
+        {/* 单词卡弹层：只在"答完之后"出现 —— 先测后看。
+            首次遇到这个词时对错都亮卡（第一次要认词），之后就只在答错时亮。
             借鉴快速刷题流：点击屏幕任意位置即可继续（大热区），滚动后 250ms 内防误触 */}
         {showCard && currentWord && (
           <div
@@ -1187,21 +1208,26 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             onClick={() => {
               if (Date.now() - cardScrollAtRef.current < 250) return
               setShowCard(false)
-              // 答错卡：点击任意位置 → 进入下一题（错题优先重做）；预览卡：直接开始本题
-              if (answered) handleNext()
+              handleNext()
             }}
           >
             <div
               className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto"
               onScroll={() => { cardScrollAtRef.current = Date.now() }}
             >
-              {answered && (
-                <div className="mb-3 text-center">
-                  <span className="inline-block px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs font-medium">
-                    答错了 · 正确答案：{question.answer}
-                  </span>
-                </div>
-              )}
+              <div className="mb-3 text-center">
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                    selected === question.answer
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : 'bg-red-50 text-red-600'
+                  }`}
+                >
+                  {selected === question.answer
+                    ? '答对了 · 看一眼这个词'
+                    : `答错了 · 正确答案：${question.answer}`}
+                </span>
+              </div>
               <div className="text-center mb-4">
                 <h2 className="text-3xl font-bold text-slate-800">{currentWord.word}</h2>
                 <div className="flex items-center justify-center gap-3 mt-1">
@@ -1246,10 +1272,10 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 type="button"
                 className="mt-5 w-full py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
               >
-                {answered ? '继续下一题' : '开始答题'}
+                继续下一题
               </button>
               <p className="mt-2.5 text-center text-xs text-slate-400">
-                👆 点击屏幕任意位置{answered ? '继续' : '开始'}
+                👆 点击屏幕任意位置继续
               </p>
             </div>
           </div>
@@ -1310,7 +1336,10 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         {showSettings && (
           <div className="mt-4 space-y-5">
             <div>
-              <label className="block text-sm text-slate-600 mb-2">每组词数</label>
+              <label className="block text-sm text-slate-600 mb-1">每组词数</label>
+              <p className="text-xs text-slate-400 mb-2">
+                一次学一组，不是每日上限。组内按下面的题型顺序分轮过完，才会换下一组（A-D 全部过完，才轮到 E-H）。
+              </p>
               <div className="flex gap-2">
                 {[5, 7, 9].map((n) => (
                   <button
@@ -1327,7 +1356,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             </div>
 
             <div>
-              <label className="block text-sm text-slate-600 mb-2">题型选择（按勾选顺序分轮出题，答错立即重做）</label>
+              <label className="block text-sm text-slate-600 mb-2">题型选择（按勾选顺序分轮出题，答错顺延到本轮最后）</label>
               <div className="flex flex-wrap gap-2">
                 {WORD_QUESTION_TYPES.map((t) => {
                   const Icon = t.icon
