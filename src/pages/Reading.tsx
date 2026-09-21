@@ -1108,23 +1108,56 @@ const [aligned_content, set_aligned_content] = useState('')
   }, [paperAnnotations, selectedAnnotationId, paperRenderedHtml, bookRenderedHtml])
 
   /**
-   * 长文本隔块底色 —— 段落块交替的极浅淡绿，像荧光笔一样帮眼睛锚住当前行，
-   * 不改字号也不改字色。
+   * 逐行交替底色（防串行）。
    *
-   * 为什么按"块"而不是按"视觉行"：按行交替会被换行切断，一段文字里半行绿半行白，
-   * 比不加还乱。段落是一眼可辨的完整单位，交替起来边界干净。
-   * 用背景色，和批注的色块（也是背景）可能重叠，所以批注的"整段标记"用的是 outline。
+   * 为什么必须落在"行"上：读长段落最容易出的是**段内**串行（跳行、重读同一行），
+   * 段级底色对段内毫无帮助 —— 一个长段落整块同色，眼睛照样丢行。
+   *
+   * 粒度取「1 行有色 / 1 行无色」：这是唯一能保证**任意相邻两行都不同色**的粒度。
+   * 周期一放大（2/2、3/3），同一色带内部的行又变回同一个底色，带内串行照旧发生。
+   * 与实体阅读尺（reading strip）框住单行的粒度一致。
+   *
+   * 实现：读每个文本块自己的 line-height（px），用 repeating-linear-gradient 按
+   * 2×行高为周期铺条纹；background-origin/clip 设成 content-box，让条纹从内容盒
+   * 顶端（= 第一个行盒顶端）起算 —— 这样条纹与行盒严格对齐，且对带 padding、
+   * border 的元素（td、h2 等）同样成立。对比刻意压到 10% 左右：条纹密度高，
+   * 对比一大就成了视觉噪点。
    */
   useEffect(() => {
     const root = readerRef.current
     if (!root) return
-    const kids = Array.from(root.children) as HTMLElement[]
-    kids.forEach((el, i) => {
+
+    // 先彻底清掉上一轮的条纹与残留的段级底色
+    root.querySelectorAll<HTMLElement>('*').forEach((el) => {
       el.classList.remove('bg-lime-50')
-      if (!zebraBands) return
-      if (el.tagName === 'HR') return
-      if (i % 2 === 1) el.classList.add('bg-lime-50')
+      el.style.backgroundImage = ''
+      el.style.backgroundOrigin = ''
+      el.style.backgroundClip = ''
     })
+    if (!zebraBands) return
+
+    /** 只给"直接含正文文字"的块级元素铺条纹，避免套在纯容器上白算一遍 */
+    const hasDirectText = (el: Element) => {
+      for (const n of Array.from(el.childNodes)) {
+        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) return true
+      }
+      return false
+    }
+
+    for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+      if (!hasDirectText(el)) continue
+      // 公式、代码块里的文本不能动（行高/布局自成一套）
+      if (el.closest('code, pre, .katex, math, svg')) continue
+      const cs = getComputedStyle(el)
+      if (!/^(block|list-item|table-cell|table-caption)$/.test(cs.display)) continue
+      const lh = parseFloat(cs.lineHeight)
+      if (!Number.isFinite(lh) || lh <= 0) continue
+      el.style.backgroundImage =
+        `repeating-linear-gradient(to bottom, rgba(132, 204, 22, 0.10) 0 ${lh}px,` +
+        ` transparent ${lh}px ${lh * 2}px)`
+      el.style.backgroundOrigin = 'content-box'
+      el.style.backgroundClip = 'content-box'
+    }
   }, [zebraBands, paperRenderedHtml, bookRenderedHtml])
 
   useEffect(() => {
@@ -1582,10 +1615,10 @@ const [aligned_content, set_aligned_content] = useState('')
                   className={`px-2.5 py-1.5 text-xs rounded transition flex items-center gap-1 ${
                     zebraBands ? 'bg-lime-100 text-lime-800' : 'text-slate-600 hover:bg-slate-100'
                   }`}
-                  title="长文隔块底色：段落交替淡绿，帮眼睛锚住当前行（不改字号字色）"
+                  title="逐行交替底色：正文每一行交替极浅淡绿（1 行有色 / 1 行无色），按行高精确对齐，帮你锚住当前行、防段内串行（不改字号字色）"
                 >
                   <Highlighter className="w-3.5 h-3.5" />
-                  隔块底色
+                  隔行底色
                 </button>
                 <div className="w-px h-5 bg-slate-200 mx-1" />
                 {editMode ? (
