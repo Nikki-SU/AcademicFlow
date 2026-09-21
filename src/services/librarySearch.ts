@@ -75,9 +75,28 @@ async function readFirstAvailable(paths: string[]): Promise<string> {
   return ''
 }
 
-/** 把一段 Markdown 变成本文检索用的纯文本：去掉块标记 + 收拢空白 */
+/**
+ * Markdown 里"看得见的字"与"图床路径"要分开。
+ *
+ * 检索是给正文用的，命中数也应当只数正文里出现的次数，所以建索引前先把资源地址剔掉：
+ *   1) 链接 / 图片的目标地址 `](...)` 整段删掉，只留方括号里的标签 —— 那才是渲染成文字的部分
+ *   2) 裸的资源路径（图块的 content 就是一条路径）按图片/压缩包后缀识别后删掉
+ *   3) 原始 HTML 标签删掉（渲染成的是结构，不是文字）
+ * 否则一个叫 toluene-1.png 的插图会让"toluene"在正文里凭空多出一次命中，
+ * 计数与实际能高亮出来的处数对不上。
+ */
+const MD_LINK_TARGET_RE = /(!?\[[^\]]*\])\([^)]*\)/g
+const RAW_HTML_TAG_RE = /<\/?[a-zA-Z][^>]*>/g
+const ASSET_PATH_RE =
+  /(?:https?:\/\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:png|jpe?g|gif|webp|bmp|svg|tiff?|pdf|zip|mp4|mov)\b/gi
+
+/** 把一段 Markdown 变成本文检索用的纯文本：去掉块标记与资源路径 + 收拢空白 */
 export function toSearchText(md: string): string {
-  return stripMarkers(md).replace(/\r\n?/g, '\n')
+  return stripMarkers(String(md ?? ''))
+    .replace(/\r\n?/g, '\n')
+    .replace(MD_LINK_TARGET_RE, '$1')
+    .replace(ASSET_PATH_RE, ' ')
+    .replace(RAW_HTML_TAG_RE, ' ')
 }
 
 /** 并发上限，避免一次打几百个请求把 GitHub 触发二级限流 */
