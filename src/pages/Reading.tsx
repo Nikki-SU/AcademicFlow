@@ -22,10 +22,12 @@ import {
   Plus,
   Languages,
   ListTree,
+  Sparkles,
 } from 'lucide-react'
-import { loadLiteratures, loadFulltext, loadNotes, saveNotes, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
+import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
+import { loadNotes, saveNotes, type DocRef } from '../services/readingDocData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
@@ -35,9 +37,11 @@ import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, render
 import { readAnyDocument, blockId, type ReadBlockItem } from '../services/blocks.mjs'
 import { clearHighlights, highlightAnnotation } from '../services/text-highlight'
 import VditorEditor, { type VditorEditorHandle } from '../components/VditorEditor'
+import ReadingAskPanel from '../components/ReadingAskPanel'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
-type SideTab = 'notes' | 'annotations'
+/** 右栏页签：问 AI / 笔记 / 批注（文献与图书同一套） */
+type SideTab = 'ask' | 'notes' | 'annotations'
 type FilterType = 'all' | 'has-md' | 'no-md'
 /** 阅读对象：文献（按 doi）或图书（按书名） */
 type DocType = 'paper' | 'book'
@@ -263,7 +267,8 @@ const [aligned_content, set_aligned_content] = useState('')
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
   const [bookMarkdown, setBookMarkdown] = useState('')
   const [bookLoading, setBookLoading] = useState(false)
-  const [bookOutlineOpen, setBookOutlineOpen] = useState(true)
+  /** 左栏大纲面板展开态（文献 / 图书共用） */
+  const [outlineOpen, setOutlineOpen] = useState(true)
   const [listExpanded, setListExpanded] = useState(true)
 
   const readerRef = useRef<HTMLDivElement>(null)
@@ -272,6 +277,18 @@ const [aligned_content, set_aligned_content] = useState('')
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
+
+  const isBook = docType === 'book'
+
+  /**
+   * 当前阅读对象的统一标识：文献按 DOI、图书按书名。
+   * 两者除了 pipeline 之外完全对称，笔记 / 批注 / 问 AI 的存储路径都由它决定。
+   */
+  const docRef: DocRef | null = useMemo(() => {
+    if (isBook) return selectedBookId ? { kind: 'book', id: selectedBookId } : null
+    return selectedPaperId ? { kind: 'paper', id: selectedPaperId } : null
+  }, [isBook, selectedBookId, selectedPaperId])
+  const docKey = docRef ? `${docRef.kind}:${docRef.id}` : ''
 
   useEffect(() => {
     if (!repo) return
@@ -293,8 +310,8 @@ const [aligned_content, set_aligned_content] = useState('')
       }
     }
     loadPapers()
-    return () => { cancelled = true }
-  }, [repo])
+      return () => { cancelled = true }
+    }, [repo])
 
   // 图书列表：textbooks/ 下的一级目录即书名
   useEffect(() => {
@@ -328,8 +345,6 @@ const [aligned_content, set_aligned_content] = useState('')
 
   useEffect(() => {
     if (!selectedPaperId) {
-      setAnnotations([])
-      setCurrentNoteMd('')
       setSelectedAnnotationId(null)
       setEditingAnnotationId(null)
       set_translation_content('')
@@ -373,39 +388,54 @@ const [aligned_content, set_aligned_content] = useState('')
         console.error('[Reading] 加载翻译失败:', err)
         if (!cancelled) set_translation_content('')
       }
-
-      try {
-        const annData = await loadAnnotations(doi)
-        if (!cancelled) {
-          const mapped: Annotation[] = annData.map(a => ({
-            id: a.id,
-            text: a.text,
-            color: a.color as HighlightColor,
-            note: a.note,
-            createdAt: a.createdAt,
-          }))
-          setAnnotations(mapped)
-        }
-      } catch (err) {
-        console.error('[Reading] 加载批注失败:', err)
-        if (!cancelled) setAnnotations([])
-      }
-
-      try {
-        const noteContent = await loadNotes(doi)
-        if (!cancelled) setCurrentNoteMd(noteContent || '')
-      } catch (err) {
-        console.error('[Reading] 加载笔记失败:', err)
-        if (!cancelled) setCurrentNoteMd('')
-      }
     }
 
     loadPaperData()
     return () => { cancelled = true }
   }, [selectedPaperId])
 
+  /**
+   * 笔记 / 批注：按阅读对象（文献 or 图书）加载。
+   * 两者的存储结构完全对称，只是根目录不同 —— 路径交给 docRef 决定。
+   */
+  useEffect(() => {
+    if (!docRef) {
+      setAnnotations([])
+      setCurrentNoteMd('')
+      return
+    }
+    let cancelled = false
+
+    loadAnnotations(docRef)
+      .then((annData) => {
+        if (cancelled) return
+        setAnnotations(annData.map((a) => ({
+          id: a.id,
+          text: a.text,
+          color: a.color as HighlightColor,
+          note: a.note,
+          createdAt: a.createdAt,
+        })))
+      })
+      .catch((err) => {
+        console.error('[Reading] 加载批注失败:', err)
+        if (!cancelled) setAnnotations([])
+      })
+
+    loadNotes(docRef)
+      .then((noteContent) => { if (!cancelled) setCurrentNoteMd(noteContent || '') })
+      .catch((err) => {
+        console.error('[Reading] 加载笔记失败:', err)
+        if (!cancelled) setCurrentNoteMd('')
+      })
+
+    return () => { cancelled = true }
+    // docKey 唯一标识对象；docRef 每次渲染都是新对象，不能进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docKey])
+
   const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
-    if (!selectedPaperId) return
+    if (!docRef) return
     if (annotationSaveTimerRef.current) {
       clearTimeout(annotationSaveTimerRef.current)
     }
@@ -420,29 +450,29 @@ const [aligned_content, set_aligned_content] = useState('')
         createdAt: a.createdAt,
         updatedAt: Date.now(),
       }))
-      saveAnnotations(selectedPaperId, data).catch(err => console.error('[Reading] 保存批注到 GitHub 失败:', err))
+      saveAnnotations(docRef, data).catch(err => console.error('[Reading] 保存批注到 GitHub 失败:', err))
       setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setAnnotationSaveState((prev) => ({ ...prev, status: 'idle' }))
       }, 2000)
     }, 500)
-  }, [selectedPaperId])
+  }, [docRef])
 
   const saveNoteToStorage = useCallback((md: string) => {
-    if (!selectedPaperId) return
+    if (!docRef) return
     if (noteSaveTimerRef.current) {
       clearTimeout(noteSaveTimerRef.current)
     }
     setNoteSaveState({ status: 'saving', lastSaved: null })
     noteSaveTimerRef.current = setTimeout(() => {
       // 笔记本来就以 md 落盘：md 进 md 出，不再走 html↔md 的有损往返
-      saveNotes(selectedPaperId, md).catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
+      saveNotes(docRef, md).catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
       setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
       setTimeout(() => {
         setNoteSaveState((prev) => ({ ...prev, status: 'idle' }))
       }, 2000)
     }, 800)
-  }, [selectedPaperId])
+  }, [docRef])
 
   const handleTextSelection = useCallback(() => {
     const selection = window.getSelection()
@@ -477,7 +507,7 @@ const [aligned_content, set_aligned_content] = useState('')
   }, [])
 
   const handleHighlight = (color: HighlightColor) => {
-    if (!selectedPaperId || !selectedText) return
+    if (!docRef || !selectedText) return
 
     const newAnnotation: Annotation = {
       id: `anno-${Date.now()}`,
@@ -542,12 +572,13 @@ const [aligned_content, set_aligned_content] = useState('')
   const selectedPaper = papers.find((p) => p.id === selectedPaperId)
   const paperAnnotations = annotations
 
-  const isBook = docType === 'book'
   const selectedBook = books.find((b) => b.id === selectedBookId) || null
-
   const filteredBooks = books.filter(
     (b) => !searchQuery.trim() || b.title.toLowerCase().includes(searchQuery.trim().toLowerCase()),
   )
+
+  /** 当前阅读对象的标题（导出文件名、问 AI 面板都用它） */
+  const docTitle = isBook ? (selectedBook?.title ?? '') : (selectedPaper?.title ?? '')
 
   /** 图书正文渲染 + 大纲：标题注入 id 后按标题层级生成大纲 */
   const { html: bookRenderedHtml, outline: bookOutline } = useMemo(() => {
@@ -578,12 +609,13 @@ const [aligned_content, set_aligned_content] = useState('')
         .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
         .replace(/[#*_`>|]/g, '')
         .replace(/\s+/g, '')
+    if (isBook) return flat(bookMarkdown)
     if (aligned_content.trim()) {
       const { items } = readAnyDocument(aligned_content)
       return flat(items.map((it) => (it.t === 'block' ? `${it.content} ${it.cn ?? ''}` : it.content)).join(' '))
     }
     return flat(selectedPaper?.markdownContent ?? '')
-  }, [aligned_content, selectedPaper])
+  }, [isBook, bookMarkdown, aligned_content, selectedPaper])
 
   /**
    * 批注按**在正文中出现的先后**排序，而不是按录入先后 ——
@@ -668,9 +700,24 @@ const [aligned_content, set_aligned_content] = useState('')
     return renderAlignedHtml(aligned, translation_mode, opts)
   }, [selectedPaper, selectedPaperId, aligned_content, translation_content, translation_mode])
 
+  /**
+   * 文献正文注入锚点 + 大纲。
+   * 基于 rendered_html（= 当前显示模式渲染出来的内容）：切到「全中文」时大纲也是中文标题，
+   * 保证点大纲一定跳得到当前看到的那个位置。
+   */
+  const { html: paperRenderedHtml, outline: paperOutline } = useMemo(() => {
+    if (isBook || !rendered_html.trim()) {
+      return { html: rendered_html, outline: [] as OutlineItem[] }
+    }
+    return buildOutlineAndAnchors(rendered_html)
+  }, [isBook, rendered_html])
+
+  /** 左栏大纲：文献 / 图书共用同一个面板，内容按当前阅读对象取 */
+  const outline = isBook ? bookOutline : paperOutline
+
   // 图片预加载：渲染后把 api.github.com/contents URL 换成 blob URL（绕过 GFW 对 raw.githubusercontent.com 的封锁）
   useEffect(() => {
-    if (!rendered_html || !readerRef.current) return
+    if (!paperRenderedHtml || !readerRef.current) return
     const auth = useAuthStore.getState()
     const token = auth.token
     if (!token) return
@@ -682,7 +729,7 @@ const [aligned_content, set_aligned_content] = useState('')
       }
     }, 50)
     return () => clearTimeout(t)
-  }, [rendered_html])
+  }, [paperRenderedHtml])
 
   // 图书正文的图片预加载（与文献同一套 blob URL 方案）
   useEffect(() => {
@@ -705,8 +752,8 @@ const [aligned_content, set_aligned_content] = useState('')
   }
 
   const exportNote = () => {
-    if (!selectedPaper || !currentNoteMd.trim()) return
-    exportMarkdown(currentNoteMd, `${selectedPaper.title}-笔记.md`)
+    if (!docTitle || !currentNoteMd.trim()) return
+    exportMarkdown(currentNoteMd, `${docTitle}-笔记.md`)
   }
 
   /**
@@ -750,9 +797,9 @@ const [aligned_content, set_aligned_content] = useState('')
   }
 
   const exportAllAnnotations = () => {
-    if (!selectedPaper || paperAnnotations.length === 0) return
+    if (!docTitle || paperAnnotations.length === 0) return
 
-    let content = `# ${selectedPaper.title} - 批注导出\n\n`
+    let content = `# ${docTitle} - 批注导出\n\n`
     content += `导出时间：${formatDate(Date.now())}\n\n`
     content += `批注总数：${paperAnnotations.length}\n\n---\n\n`
 
@@ -764,7 +811,7 @@ const [aligned_content, set_aligned_content] = useState('')
         content += `**批注内容**：\n\n${anno.note || '（无）'}\n\n---\n\n`
       })
 
-    exportMarkdown(content, `${selectedPaper.title}-全部批注.md`)
+    exportMarkdown(content, `${docTitle}-全部批注.md`)
   }
 
   /**
@@ -815,7 +862,7 @@ const [aligned_content, set_aligned_content] = useState('')
 
     root.addEventListener('click', handleClick)
     return () => root.removeEventListener('click', handleClick)
-  }, [paperAnnotations, selectedAnnotationId, rendered_html])
+  }, [paperAnnotations, selectedAnnotationId, paperRenderedHtml, bookRenderedHtml])
 
   useEffect(() => {
     if (selectedAnnotationId && activeSideTab === 'annotations') {
@@ -832,6 +879,27 @@ const [aligned_content, set_aligned_content] = useState('')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/[#>*`_~\-|[\]()]/g, '')
     .replace(/\s+/g, '').length
+
+  /** 划词浮层：文献和图书的正文容器共用同一份 */
+  const selectionToolbar = showToolbar ? (
+    <div
+      className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 px-2 py-1.5 flex items-center gap-1"
+      style={{
+        top: toolbarPosition.top,
+        left: toolbarPosition.left,
+      }}
+    >
+      <span className="text-xs text-slate-400 px-1.5 font-medium">高亮颜色</span>
+      {HIGHLIGHT_COLORS.map((c) => (
+        <button
+          key={c.value}
+          onClick={() => handleHighlight(c.value)}
+          className={`w-6 h-6 rounded-full ${c.dot} hover:scale-110 transition-transform border-2 border-white shadow-sm hover:shadow-md`}
+          title={`${c.label}高亮并添加批注`}
+        />
+      ))}
+    </div>
+  ) : null
 
   return (
     <div className="h-[calc(100vh-3rem)] flex bg-slate-50">
@@ -1055,49 +1123,49 @@ const [aligned_content, set_aligned_content] = useState('')
           )}
         </div>
 
-        {/* 堆叠面板 2/2：图书大纲（按正文标题层级生成，点击跳转） */}
-        {isBook && (
-          <div className={`flex flex-col border-t border-slate-200 ${bookOutlineOpen ? 'min-h-0' : 'flex-none'}`}>
-            <button
-              onClick={() => setBookOutlineOpen(!bookOutlineOpen)}
-              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
-              title={bookOutlineOpen ? '收起大纲' : '展开大纲'}
-            >
-              {bookOutlineOpen ? (
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-              )}
-              <ListTree className="w-3.5 h-3.5 text-indigo-600" />
-              大纲
-              <span className="ml-auto text-slate-400 font-normal">{bookOutline.length}</span>
-            </button>
-            {bookOutlineOpen && (
-              <div className="flex-auto min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
-                {bookOutline.length === 0 && (
-                  <div className="text-xs text-slate-400 text-center py-3">暂无大纲</div>
-                )}
-                {bookOutline.map((item) => (
-                  <button
-                    key={item.anchor}
-                    onClick={() => jumpToAnchor(item.anchor)}
-                    className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
-                      item.level === 1
-                        ? 'font-semibold text-slate-700'
-                        : item.level === 2
-                          ? 'font-medium text-slate-600'
-                          : 'text-slate-500'
-                    }`}
-                    style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
-                    title={item.text}
-                  >
-                    {item.text}
-                  </button>
-                ))}
-              </div>
+        {/* 堆叠面板 2/2：大纲（文献按当前显示模式的内容生成，图书按 content.md） */}
+        <div className={`flex flex-col border-t border-slate-200 ${outlineOpen ? 'min-h-0' : 'flex-none'}`}>
+          <button
+            onClick={() => setOutlineOpen(!outlineOpen)}
+            className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+            title={outlineOpen ? '收起大纲' : '展开大纲'}
+          >
+            {outlineOpen ? (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             )}
-          </div>
-        )}
+            <ListTree className="w-3.5 h-3.5 text-indigo-600" />
+            大纲
+            <span className="ml-auto text-slate-400 font-normal">{outline.length}</span>
+          </button>
+          {outlineOpen && (
+            <div className="flex-auto min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
+              {outline.length === 0 && (
+                <div className="text-xs text-slate-400 text-center py-3">
+                  {docRef ? '暂无大纲' : '选择阅读对象后显示大纲'}
+                </div>
+              )}
+              {outline.map((item) => (
+                <button
+                  key={item.anchor}
+                  onClick={() => jumpToAnchor(item.anchor)}
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
+                    item.level === 1
+                      ? 'font-semibold text-slate-700'
+                      : item.level === 2
+                        ? 'font-medium text-slate-600'
+                        : 'text-slate-500'
+                  }`}
+                  style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
+                  title={item.text}
+                >
+                  {item.text}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </aside>
 
       <section className="flex-1 bg-slate-50 flex flex-col min-w-0">
@@ -1157,9 +1225,14 @@ const [aligned_content, set_aligned_content] = useState('')
                     >
                       <div
                         ref={readerRef}
+                        onMouseUp={handleTextSelection}
+                        onMouseDown={() => {
+                          setShowToolbar(false)
+                        }}
                         className="relative prose-reader"
                         dangerouslySetInnerHTML={{ __html: bookRenderedHtml }}
                       />
+                      {selectionToolbar}
                     </div>
                   </div>
                 ) : (
@@ -1319,27 +1392,9 @@ const [aligned_content, set_aligned_content] = useState('')
                         setShowToolbar(false)
                       }}
                       className="relative prose-reader"
-                      dangerouslySetInnerHTML={{ __html: rendered_html }}
+                      dangerouslySetInnerHTML={{ __html: paperRenderedHtml }}
                     />
-                    {showToolbar && (
-                      <div
-                        className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 px-2 py-1.5 flex items-center gap-1"
-                        style={{
-                          top: toolbarPosition.top,
-                          left: toolbarPosition.left,
-                        }}
-                      >
-                        <span className="text-xs text-slate-400 px-1.5 font-medium">高亮颜色</span>
-                        {HIGHLIGHT_COLORS.map((c) => (
-                          <button
-                            key={c.value}
-                            onClick={() => handleHighlight(c.value)}
-                            className={`w-6 h-6 rounded-full ${c.dot} hover:scale-110 transition-transform border-2 border-white shadow-sm hover:shadow-md`}
-                            title={`${c.label}高亮并添加批注`}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    {selectionToolbar}
                   </div>
                 </div>
                 )
@@ -1364,12 +1419,23 @@ const [aligned_content, set_aligned_content] = useState('')
         )}
       </section>
 
-      {!isBook && (
+      {/* 右栏：问 AI / 笔记 / 批注 —— 文献与图书同一套 */}
       <aside className="w-80 bg-white border-l border-slate-200 flex flex-col flex-shrink-0">
         <div className="flex border-b border-slate-200 flex-shrink-0">
           <button
+            onClick={() => setActiveSideTab('ask')}
+            className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
+              activeSideTab === 'ask'
+                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            问 AI
+          </button>
+          <button
             onClick={() => setActiveSideTab('notes')}
-            className={`flex-1 px-3 py-2.5 text-sm font-medium transition flex items-center justify-center gap-1.5 ${
+            className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'notes'
                 ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
@@ -1380,7 +1446,7 @@ const [aligned_content, set_aligned_content] = useState('')
           </button>
           <button
             onClick={() => setActiveSideTab('annotations')}
-            className={`flex-1 px-3 py-2.5 text-sm font-medium transition flex items-center justify-center gap-1.5 ${
+            className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'annotations'
                 ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
@@ -1397,12 +1463,19 @@ const [aligned_content, set_aligned_content] = useState('')
         </div>
 
         <div className="flex-1 overflow-hidden flex flex-col">
-          {activeSideTab === 'notes' ? (
+          {activeSideTab === 'ask' ? (
+            <ReadingAskPanel
+              docRef={docRef}
+              docTitle={docTitle}
+              docMarkdown={isBook ? bookMarkdown : (aligned_content.trim() || selectedPaper?.markdownContent || '')}
+              selectedText={selectedText}
+            />
+          ) : activeSideTab === 'notes' ? (
             <div className="flex-1 flex flex-col min-h-0">
               <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-end flex-shrink-0 bg-slate-50/50">
                 <button
                   onClick={exportNote}
-                  disabled={!selectedPaper || !currentNoteMd.trim()}
+                  disabled={!docRef || !currentNoteMd.trim()}
                   className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -1411,19 +1484,19 @@ const [aligned_content, set_aligned_content] = useState('')
               </div>
 
               <div className="flex-1 min-h-0">
-                {selectedPaper ? (
+                {docRef ? (
                   <VditorEditor
                     ref={noteVditorRef}
                     value={currentNoteMd}
                     onChange={handleNoteChange}
                     height="100%"
-                    placeholder="记录这篇文献的笔记…"
+                    placeholder={isBook ? '记录这本书的笔记…' : '记录这篇文献的笔记…'}
                     className="h-full"
                   />
                 ) : (
                   <div className="text-center text-slate-400 py-8">
                     <StickyNote className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">选择文献后开始记笔记</p>
+                    <p className="text-sm">选择文献或图书后开始记笔记</p>
                   </div>
                 )}
               </div>
@@ -1628,7 +1701,6 @@ const [aligned_content, set_aligned_content] = useState('')
           )}
         </div>
       </aside>
-      )}
 
       <style>{`
         .prose-reader h1 {

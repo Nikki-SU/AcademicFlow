@@ -464,16 +464,8 @@ export async function saveFulltext(doi: string, content: string): Promise<void> 
   await writeMdFile(`literatures/${slug}/full.md`, content, 'Update full.md')
 }
 
-export async function loadNotes(doi: string): Promise<string> {
-  const slug = doiToSlug(doi)
-  const result = await readMdFile(`literatures/${slug}/notes.md`)
-  return result?.content || ''
-}
-
-export async function saveNotes(doi: string, content: string): Promise<void> {
-  const slug = doiToSlug(doi)
-  await writeMdFile(`literatures/${slug}/notes.md`, content, 'Update reading notes')
-}
+// 笔记读写已迁到 readingDocData.ts（loadNotes / saveNotes，改收 DocRef），
+// 因为图书阅读页也要用同一套笔记，路径不能写死 literatures/{slug}/notes.md。
 
 /**
  * 便捷 helper：根据 DOI 直接更新 CSV 里某篇 paper 的 mdStatus

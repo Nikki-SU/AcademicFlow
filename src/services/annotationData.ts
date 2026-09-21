@@ -1,14 +1,15 @@
 /**
  * 批注服务
  * -------------------------------------------------
- * SPEC §5.4：每篇文献的批注存储在
- *   literatures/{doi-slug}/annotations/annotations.csv
+ * SPEC §5.4：每条批注一条记录，支持高亮文字、笔记、颜色标签。
  *
- * 每条批注一条记录，支持高亮文字、笔记、颜色标签。
+ * 存储路径按阅读对象类型分流（见 readingDocData.ts）：
+ *   文献 → literatures/{doi-slug}/annotations/annotations.csv
+ *   图书 → textbooks/{书名}/annotations/annotations.csv
  */
 
 import { readCsvFile, writeCsvFile } from './userData'
-import { doiToSlug } from './literatureData'
+import { docBasePath, type DocRef } from './readingDocData'
 
 export interface Annotation {
   id: string
@@ -24,14 +25,13 @@ const ANNOTATION_HEADERS = [
   'id', 'type', 'color', 'text', 'note', 'created_at', 'updated_at',
 ]
 
-export function annotationPath(doi: string): string {
-  const slug = doiToSlug(doi)
-  return `literatures/${slug}/annotations/annotations.csv`
+export function annotationPath(ref: DocRef): string {
+  return `${docBasePath(ref)}/annotations/annotations.csv`
 }
 
-export async function loadAnnotations(doi: string): Promise<Annotation[]> {
+export async function loadAnnotations(ref: DocRef): Promise<Annotation[]> {
   return readCsvFile(
-    annotationPath(doi),
+    annotationPath(ref),
     (rows) => {
       if (rows.length <= 1) return []
       return rows.slice(1).map((r) => ({
@@ -47,9 +47,9 @@ export async function loadAnnotations(doi: string): Promise<Annotation[]> {
   )
 }
 
-export async function saveAnnotations(doi: string, annotations: Annotation[]): Promise<void> {
+export async function saveAnnotations(ref: DocRef, annotations: Annotation[]): Promise<void> {
   await writeCsvFile(
-    annotationPath(doi),
+    annotationPath(ref),
     annotations,
     ANNOTATION_HEADERS,
     (a) => [
