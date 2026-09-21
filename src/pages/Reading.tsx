@@ -25,10 +25,13 @@ import {
   ListTree,
   Sparkles,
   AlertTriangle,
+  Upload,
+  Folder,
+  Loader2,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
-import { listDocuments, loadDocumentContent, type DocumentSummary } from '../services/documentData'
+import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
 import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Category } from '../services/categoryData'
 import { loadCategories as loadPaperCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
@@ -277,6 +280,23 @@ function getColorInfo(color: HighlightColor) {
   return HIGHLIGHT_COLORS.find((c) => c.value === color) || HIGHLIGHT_COLORS[0]
 }
 
+/** 简易弹窗：阅读页只用它承载「导入文档」（和管理页那个是同一套视觉） */
+function Modal({ title, onClose, children, width = 'max-w-2xl' }: { title: string; onClose: () => void; children: React.ReactNode; width?: string }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className={`bg-white rounded-2xl shadow-xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-800">{title}</h3>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="px-6 py-5 overflow-y-auto flex-1">{children}</div>
+      </div>
+    </div>
+  )
+}
+
 export default function ReadingPage() {
   const { repo } = useWorkspaceStore()
   const navigate = useNavigate()
@@ -330,9 +350,24 @@ const [aligned_content, set_aligned_content] = useState('')
   /** 'all' 或分类 id；切换阅读对象时重置，否则会拿上一类的分类去筛这一类 */
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
+  /**
+   * 筛选菜单：菜单里先选"草稿"，点「确定」才作用到列表上并折叠。
+   * 草稿每次打开时从已生效的值重新播种，所以关掉菜单 = 放弃这次的选择。
+   */
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [draftCategory, setDraftCategory] = useState('all')
+  const [draftMd, setDraftMd] = useState<FilterType>('all')
+  const [draftTier, setDraftTier] = useState<TierFilter>('all')
+  const filterMenuRef = useRef<HTMLDivElement>(null)
   /** 左栏大纲面板展开态（文献 / 图书共用） */
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [listExpanded, setListExpanded] = useState(true)
+
+  // ── 阅读页直接导入其他文档（不绕去管理页；写的是同一份 documents/ 数据） ──
+  const [showImportDocModal, setShowImportDocModal] = useState(false)
+  const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
+  const [pasteDoc, setPasteDoc] = useState({ title: '', content: '' })
+  const [importing, setImporting] = useState(false)
 
   const readerRef = useRef<HTMLDivElement>(null)
   const noteVditorRef = useRef<VditorEditorHandle>(null)
@@ -489,6 +524,128 @@ const [aligned_content, set_aligned_content] = useState('')
     docParamAppliedRef.current = location.key
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docParam, location.key, papers, papersLoading, books, booksLoading, documents, documentsLoading])
+
+  /** 点漏斗开合筛选菜单；打开时把"已生效的筛选"播种成草稿，关掉就等于放弃这次选择 */
+  const toggleFilterMenu = () => {
+    if (filterOpen) {
+      setFilterOpen(false)
+      return
+    }
+    setDraftCategory(categoryFilter)
+    setDraftMd(filterType)
+    setDraftTier(tierFilter)
+    setFilterOpen(true)
+  }
+
+  /** 点菜单外面 / 按 Esc 收起（不应用） */
+  useEffect(() => {
+    if (!filterOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) setFilterOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [filterOpen])
+
+  /** 确定：草稿转正 + 折叠 */
+  const applyFilterDraft = () => {
+    setCategoryFilter(draftCategory)
+    setFilterType(draftMd)
+    setTierFilter(draftTier)
+    setFilterOpen(false)
+  }
+
+  /** 重置（只清草稿，点确定才生效） */
+  const resetFilterDraft = () => {
+    setDraftCategory('all')
+    setDraftMd('all')
+    setDraftTier('all')
+  }
+
+  /** 漏斗上的角标：已生效的维度个数（文档没有"有无 md"这一维） */
+  const activeFilterCount =
+    (categoryFilter !== 'all' ? 1 : 0) +
+    (!isDoc && filterType !== 'all' ? 1 : 0) +
+    (!isPlain && tierFilter !== 'all' ? 1 : 0)
+
+  const chipCls = (active: boolean) =>
+    `px-2 py-1 text-xs rounded-md border transition ${
+      active
+        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-medium'
+        : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
+    }`
+
+  // ── 阅读页内直接导入其他文档：走的是和管理页同一套服务，数据落在同一处 ──
+  /** 导入后重新拉列表（写 CSV 时已刷缓存，不必 force） */
+  const refreshDocuments = useCallback(async () => {
+    try {
+      setDocuments(await listDocuments())
+    } catch (err) {
+      console.error('[Reading] 刷新其他文档失败:', err)
+    }
+  }, [])
+
+  /** 三种导入方式的公共出口：写仓库 → 刷新列表 → 直接打开刚导入的那份 */
+  const runImport = async (items: ImportItem[]) => {
+    if (importing) return
+    const usable = items.filter((it) => it.content.trim())
+    if (usable.length === 0) {
+      toast.error('没有可导入的内容')
+      return
+    }
+    setImporting(true)
+    try {
+      const added = await importMarkdownDocs(usable)
+      toast.success(`已导入 ${added.length} 个文档`)
+      await refreshDocuments()
+      setShowImportDocModal(false)
+      setPasteDoc({ title: '', content: '' })
+      if (added[0]) setSelectedDocumentId(added[0].id)
+    } catch (err) {
+      toast.error(`导入失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  /** 上传本地 .md / .markdown / .txt（可多选，标题取文件名） */
+  const handleImportFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const items: ImportItem[] = []
+    for (const file of Array.from(files)) {
+      items.push({ title: titleFromFileName(file.name), source: file.name, content: await file.text() })
+    }
+    await runImport(items)
+  }
+
+  /** 上传 zip 批量导入 */
+  const handleImportZip = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      const entries = await readMarkdownZip(file)
+      await runImport(
+        entries.map((e) => ({ title: titleFromFileName(e.name), source: file.name, content: e.content })),
+      )
+    } catch (err) {
+      toast.error(`解析 zip 失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /** 粘贴 markdown 文本 */
+  const handlePasteImport = async () => {
+    if (!pasteDoc.title.trim() || !pasteDoc.content.trim()) {
+      toast.error('请填写标题和 markdown 内容')
+      return
+    }
+    await runImport([{ title: pasteDoc.title, source: '粘贴', content: pasteDoc.content }])
+  }
 
   // 图书分类 / 其他文档分类（各自一份表）
   useEffect(() => {
@@ -1528,8 +1685,9 @@ const [aligned_content, set_aligned_content] = useState('')
           </button>
           {listExpanded && (
           <div className="flex-auto min-h-0 flex flex-col">
-          <div className="flex-shrink-0 px-2 pb-2 space-y-2">
-          <div className="relative">
+          <div className="flex-shrink-0 px-2 pb-2">
+          <div className="flex items-center gap-1">
+          <div className="relative flex-1 min-w-0">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -1545,88 +1703,112 @@ const [aligned_content, set_aligned_content] = useState('')
               className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400"
             />
           </div>
-          <div className="mt-2 space-y-1.5">
-            {/* 分类筛选：三类交互一致，选项来自各自的分类表 */}
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-md text-slate-600 bg-white focus:outline-none focus:border-indigo-400"
+          {/* 其他文档：就地导入，不用绕到管理页（写的是同一份 documents/ 数据） */}
+          {isDoc && (
+            <button
+              onClick={() => setShowImportDocModal(true)}
+              title="导入 .md 文件 / 粘贴 markdown / 上传 zip"
+              className="flex-shrink-0 p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 rounded-md transition"
             >
-              <option value="all">全部分类</option>
-              {(isBook ? bookCategories : isDoc ? documentCategories : paperCategories).map(
-                (c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ),
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {/* 漏斗：点开是一块一个维度的筛选菜单，选完点「确定」折叠回去 */}
+          <div className="relative flex-shrink-0" ref={filterMenuRef}>
+            <button
+              onClick={toggleFilterMenu}
+              title="筛选"
+              className={`p-1.5 border rounded-md transition relative ${
+                filterOpen || activeFilterCount > 0
+                  ? 'border-indigo-300 text-indigo-600 bg-indigo-50'
+                  : 'border-slate-200 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+              }`}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[0.9rem] h-[0.9rem] px-0.5 rounded-full bg-indigo-600 text-white text-[0.5625rem] leading-[0.9rem] text-center">
+                  {activeFilterCount}
+                </span>
               )}
-            </select>
-
-            <div className="flex flex-wrap gap-1">
-              {/* 有无 md：其他文档导入的必然有 md，不给它这个按钮 */}
-              {!isDoc && (
-                <>
-                  <button
-                    onClick={() => setFilterType('all')}
-                    className={`px-2 py-1 text-xs rounded transition flex items-center gap-1 ${
-                      filterType === 'all'
-                        ? 'bg-indigo-100 text-indigo-700 font-medium'
-                        : 'text-slate-500 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Filter className="w-3 h-3" />
+            </button>
+            {filterOpen && (
+              <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-3">
+                {/* 维度 1：分类 */}
+                <div className="text-[0.6875rem] font-semibold text-slate-500 mb-1.5">分类</div>
+                <div className="flex flex-wrap gap-1">
+                  <button onClick={() => setDraftCategory('all')} className={chipCls(draftCategory === 'all')}>
                     全部
                   </button>
+                  {(isBook ? bookCategories : isDoc ? documentCategories : paperCategories).map((c) => (
+                    <button key={c.id} onClick={() => setDraftCategory(c.id)} className={chipCls(draftCategory === c.id)}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 维度 2：有无 md（其他文档导入的必然有 md，不给这一维） */}
+                {!isDoc && (
+                  <>
+                    <div className="text-[0.6875rem] font-semibold text-slate-500 mt-3 mb-1.5">
+                      {isBook ? '有无正文' : '有无 Markdown'}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <button onClick={() => setDraftMd('all')} className={chipCls(draftMd === 'all')}>
+                        全部
+                      </button>
+                      <button onClick={() => setDraftMd('has-md')} className={chipCls(draftMd === 'has-md')}>
+                        {isBook ? '有正文' : '有 Markdown'}
+                      </button>
+                      <button onClick={() => setDraftMd('no-md')} className={chipCls(draftMd === 'no-md')}>
+                        {isBook ? '无正文' : '无 Markdown'}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* 维度 3：文献级别（只有文献有） */}
+                {!isPlain && (
+                  <>
+                    <div className="text-[0.6875rem] font-semibold text-slate-500 mt-3 mb-1.5">文献级别</div>
+                    <div className="flex flex-wrap gap-1">
+                      <button onClick={() => setDraftTier('all')} className={chipCls(draftTier === 'all')}>
+                        全部
+                      </button>
+                      <button
+                        onClick={() => setDraftTier(1)}
+                        className={chipCls(draftTier === 1)}
+                        title="一级文献（原创研究论文）"
+                      >
+                        一级
+                      </button>
+                      <button
+                        onClick={() => setDraftTier(2)}
+                        className={chipCls(draftTier === 2)}
+                        title="二级文献（综述 / meta 分析等二手文献）"
+                      >
+                        二级
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-100">
                   <button
-                    onClick={() => setFilterType('has-md')}
-                    className={`px-2 py-1 text-xs rounded transition ${
-                      filterType === 'has-md'
-                        ? 'bg-green-100 text-green-700 font-medium'
-                        : 'text-slate-500 hover:bg-slate-100'
-                    }`}
+                    onClick={resetFilterDraft}
+                    className="px-2 py-1 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
                   >
-                    {isBook ? '有正文' : '有Markdown'}
+                    重置
                   </button>
                   <button
-                    onClick={() => setFilterType('no-md')}
-                    className={`px-2 py-1 text-xs rounded transition ${
-                      filterType === 'no-md'
-                        ? 'bg-amber-100 text-amber-700 font-medium'
-                        : 'text-slate-500 hover:bg-slate-100'
-                    }`}
+                    onClick={applyFilterDraft}
+                    className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
                   >
-                    {isBook ? '无正文' : '无Markdown'}
+                    确定
                   </button>
-                </>
-              )}
-              {/* 一级 / 二级文献：只有文献有这个维度 */}
-              {!isPlain && (
-                <>
-                  <button
-                    onClick={() => setTierFilter(tierFilter === 1 ? 'all' : 1)}
-                    className={`px-2 py-1 text-xs rounded transition ${
-                      tierFilter === 1
-                        ? 'bg-blue-100 text-blue-700 font-medium'
-                        : 'text-slate-500 hover:bg-slate-100'
-                    }`}
-                    title="一级文献（原创研究论文）"
-                  >
-                    一级
-                  </button>
-                  <button
-                    onClick={() => setTierFilter(tierFilter === 2 ? 'all' : 2)}
-                    className={`px-2 py-1 text-xs rounded transition ${
-                      tierFilter === 2
-                        ? 'bg-purple-100 text-purple-700 font-medium'
-                        : 'text-slate-500 hover:bg-slate-100'
-                    }`}
-                    title="二级文献（综述 / meta 分析等二手文献）"
-                  >
-                    二级
-                  </button>
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
+          </div>
           </div>
           </div>
           <div className="flex-auto min-h-0 overflow-y-auto">
@@ -1694,15 +1876,15 @@ const [aligned_content, set_aligned_content] = useState('')
                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-slate-500 font-medium mb-1">还没有其他文档</p>
                 <p className="text-xs text-slate-400 mb-3">
-                  到管理页导入 .md 文件、粘贴 markdown 或上传 zip，
+                  导入 .md 文件、粘贴 markdown 或上传 zip，
                   正文会落到 documents/&lt;目录名&gt;/content.md
                 </p>
                 <button
-                  onClick={() => navigate('/management')}
+                  onClick={() => setShowImportDocModal(true)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  去导入文档
+                  导入文档
                 </button>
               </div>
             ) : filteredDocuments.length === 0 ? (
@@ -2564,6 +2746,124 @@ const [aligned_content, set_aligned_content] = useState('')
           margin: 1rem 0;
         }
       `}</style>
+
+      {/* 导入其他文档：和管理页是同一套入口（.md 多选 / 粘贴 / zip），落到同一处 documents/ */}
+      {showImportDocModal && (
+        <Modal title="导入文档" onClose={() => { if (!importing) setShowImportDocModal(false) }}>
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg mb-5 w-fit">
+            {([
+              { id: 'file', label: '上传 .md 文件' },
+              { id: 'paste', label: '粘贴文本' },
+              { id: 'zip', label: '上传 zip' },
+            ] as const).map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setImportMode(m.id)}
+                disabled={importing}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition disabled:opacity-60 ${
+                  importMode === m.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {importMode === 'file' && (
+            <label
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+                importing
+                  ? 'opacity-60 pointer-events-none'
+                  : 'border-slate-200 bg-slate-50 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer'
+              }`}
+            >
+              {importing ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /> : <Upload className="w-10 h-10 text-slate-400" />}
+              <p className="text-sm text-slate-600 font-medium">
+                {importing ? '导入中...' : '点击选择 .md / .markdown / .txt 文件'}
+              </p>
+              <p className="text-xs text-slate-400">支持多选，标题取文件名</p>
+              <input
+                type="file"
+                multiple
+                accept=".md,.markdown,.txt"
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => { void handleImportFiles(e.target.files); e.target.value = '' }}
+              />
+            </label>
+          )}
+
+          {importMode === 'paste' && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">标题 *</label>
+                <input
+                  type="text"
+                  value={pasteDoc.title}
+                  onChange={(e) => setPasteDoc({ ...pasteDoc, title: e.target.value })}
+                  placeholder="文档标题"
+                  disabled={importing}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Markdown 内容 *</label>
+                <textarea
+                  value={pasteDoc.content}
+                  onChange={(e) => setPasteDoc({ ...pasteDoc, content: e.target.value })}
+                  placeholder="在此粘贴 markdown 正文..."
+                  rows={10}
+                  disabled={importing}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:border-indigo-400 resize-y"
+                />
+              </div>
+            </div>
+          )}
+
+          {importMode === 'zip' && (
+            <label
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+                importing
+                  ? 'opacity-60 pointer-events-none'
+                  : 'border-slate-200 bg-slate-50 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer'
+              }`}
+            >
+              {importing ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /> : <Folder className="w-10 h-10 text-slate-400" />}
+              <p className="text-sm text-slate-600 font-medium">
+                {importing ? '导入中...' : '点击选择 .zip 压缩包'}
+              </p>
+              <p className="text-xs text-slate-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
+              <input
+                type="file"
+                accept=".zip"
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => { void handleImportZip(e.target.files?.[0]); e.target.value = '' }}
+              />
+            </label>
+          )}
+
+          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+            {importMode === 'paste' && (
+              <button
+                onClick={handlePasteImport}
+                disabled={importing}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {importing ? '导入中...' : '导入'}
+              </button>
+            )}
+            <button
+              onClick={() => { if (!importing) setShowImportDocModal(false) }}
+              disabled={importing}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-60"
+            >
+              取消
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

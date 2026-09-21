@@ -220,6 +220,33 @@ export async function updateDocumentEntry(
   await saveDocuments(entries.map((e) => (e.documentId === documentId ? { ...e, ...patch } : e)))
 }
 
+/**
+ * 列出某个文档目录下**真实存在**的文件。
+ *
+ * 必须列真实的：Tree API 删除用的是 `sha: null`，路径在 base tree 里不存在时
+ * GitHub 直接回 422 `GitRPC::BadObjectState`，整个删除都会失败
+ * （之前硬编码 content.md/full.md/notes.md…7 个候选路径，文档通常只有 content.md，
+ *  于是「删除」永远删不掉，还会把写队列卡在 5 分钟重试里）。
+ */
+async function listDocumentFiles(id: string): Promise<string[]> {
+  const ctx = getRepoContext()
+  if (!ctx) return []
+  const dirPath = `${DOCS_DIR}/${id}`
+  const res = await githubFetch(
+    `/repos/${ctx.owner}/${ctx.repo}/git/trees/main?recursive=1`,
+    ctx.token,
+  )
+  if (!res.ok) return []
+  try {
+    const data = (await res.json()) as { tree?: Array<{ path: string; type: string }> }
+    return (data.tree ?? [])
+      .filter((e) => e.type === 'blob' && e.path.startsWith(`${dirPath}/`))
+      .map((e) => e.path)
+  } catch {
+    return []
+  }
+}
+
 /** 删除：连同目录一起删（正文 + 笔记 + 批注 + 对话 + 进度） */
 export async function deleteDocuments(documentIds: string[]): Promise<void> {
   const ctx = getRepoContext()
@@ -230,17 +257,8 @@ export async function deleteDocuments(documentIds: string[]): Promise<void> {
   if (keep.length !== entries.length) await saveDocuments(keep)
 
   const paths: string[] = []
-  for (const id of documentIds) {
-    paths.push(
-      `${DOCS_DIR}/${id}/content.md`,
-      `${DOCS_DIR}/${id}/full.md`,
-      `${DOCS_DIR}/${id}/index.md`,
-      `${DOCS_DIR}/${id}/notes.md`,
-      `${DOCS_DIR}/${id}/ai-chat.md`,
-      `${DOCS_DIR}/${id}/reading-progress.json`,
-      `${DOCS_DIR}/${id}/annotations/annotations.csv`,
-    )
-  }
+  for (const id of documentIds) paths.push(...(await listDocumentFiles(id)))
+  if (paths.length === 0) return
   await deleteRepoFiles(paths, `Delete documents (${documentIds.length})`, ctx.owner, ctx.repo, ctx.token)
 }
 
