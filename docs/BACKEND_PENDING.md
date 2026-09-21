@@ -166,16 +166,40 @@ Settings 页配的「推理强度」对 chat handler 就会静默失效。
 
 ---
 
-## 7. 正确姿势：怎么把改动装进后端
+## 7. 坑 ⑥：长难句的「自动提取」还差后端那一半
 
-### 7.1 改 runner（在私库里改）
+学习页的长难句/摘要翻译**练习闭环前端已经做完了**（作答、踩分点判分、双方向、
+历史批量补提）。但用户原本的设想是「长难句在 pipeline 里单词后面顺手提取」，
+这一半必须动后端。
+
+现状：`paper_convert.mjs` 在节点 3 跑完 `runWordsExtraction`（提词 → `vocabulary.csv`）
+之后就没有学习相关的动作了，长难句一条都不产生。前端只能靠"批量补提"事后追。
+
+要做：
+- [ ] 在 `runWordsExtraction` 之后加一个 `runSentencesExtraction`：
+      输入 = 清洗后的原文块 + 官方译文块，输出 = `sentences/sentences.csv`
+      的增量行，字段照前端新结构来（`scoring_points` / `difficulty_note` /
+      `latest_user_translation` / `latest_ai_feedback` / `latest_error_words` /
+      `practice_count` / `last_practice`，新列在末尾，旧行留空）
+- [ ] 条数从 `settings/global.md` 读（前端已经写进去 `sentence_gen_count`，范围 3-30，默认 8）
+- [ ] 抽题范围、去重口径（同一句不要重复入库）由用户拍板后照做，别自己定
+- [ ] 摘要翻译**不需要后端**：题面与参考答案就是 `literatures.csv` 里的
+      `abstractEn` / `abstractCn`，前端已经能直接出两个方向的题
+
+⚠️ 改这个文件的同时**必须**按第 4 节把那处续跑修复一起带上，别用旧副本覆盖。
+
+---
+
+## 8. 正确姿势：怎么把改动装进后端
+
+### 8.1 改 runner（在私库里改）
 
 1. 直接改 `Nikki-SU/academicflow-workspace` 里的 `.github/scripts/*.mjs`
 2. commit + push 到 `main`（**必须是 main**，workflow 从 main 取脚本）
 3. 去 Actions 手动跑一次 `ai_connectivity_test`，确认 secret / 端点没被改坏
 4. 回到前端仓库，把同一份文件的 base64 重新嵌进 `src/constants/skeleton.ts`
 
-### 7.2 改前端嵌入副本（把线上版本拉下来重新编码）
+### 8.2 改前端嵌入副本（把线上版本拉下来重新编码）
 
 没有现成的生成脚本，用这个（需要 `gh` 已登录）：
 
@@ -199,7 +223,7 @@ for(const n of ['AI_CALL_MJS_B64','PAPER_CONVERT_MJS_B64','DUAL_ENGINE_RUNNER_MJ
 }"
 ```
 
-### 7.3 绝对不要做的事
+### 8.3 绝对不要做的事
 
 - ❌ **不要在副本落后时点「重装后端」** —— 会把线上新版本覆盖回旧版
 - ❌ 不要用 `git push --force` 推私库
@@ -208,7 +232,7 @@ for(const n of ['AI_CALL_MJS_B64','PAPER_CONVERT_MJS_B64','DUAL_ENGINE_RUNNER_MJ
 
 ---
 
-## 8. 大任务清单（收口用）
+## 9. 大任务清单（收口用）
 
 - [ ] `paper_convert.mjs`：把本地的续跑修复推上私库（第 4 节）
 - [ ] `dual_engine_runner.mjs`：加单次调用超时 / 截断检测（第 5 节）
@@ -216,4 +240,5 @@ for(const n of ['AI_CALL_MJS_B64','PAPER_CONVERT_MJS_B64','DUAL_ENGINE_RUNNER_MJ
 - [ ] 前端轮询上限与 job `timeout-minutes` 对齐（第 5 节）
 - [ ] 源材料收敛策略按用户拍板执行（第 6 节）
 - [ ] 端到端回归：新库安装后端 → 写作页可信检索 → 学习页 AI 补例句 → 阅读页问 AI
+- [ ] 长难句在 pipeline 里预提取（第 7 节）
 - [ ] 清掉 `.tmp_paper_convert.edit.mjs` 这类明文冗余副本
