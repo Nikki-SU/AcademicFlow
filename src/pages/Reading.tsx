@@ -1108,20 +1108,23 @@ const [aligned_content, set_aligned_content] = useState('')
   }, [paperAnnotations, selectedAnnotationId, paperRenderedHtml, bookRenderedHtml])
 
   /**
-   * 逐行交替底色（防串行）。
-   *
-   * 为什么必须落在"行"上：读长段落最容易出的是**段内**串行（跳行、重读同一行），
-   * 段级底色对段内毫无帮助 —— 一个长段落整块同色，眼睛照样丢行。
+   * 逐行交替底色（防看漏）。
    *
    * 粒度取「1 行有色 / 1 行无色」：这是唯一能保证**任意相邻两行都不同色**的粒度。
-   * 周期一放大（2/2、3/3），同一色带内部的行又变回同一个底色，带内串行照旧发生。
+   * 周期一放大（2/2、3/3），同一色带内部的行又变回同一个底色，带内漏行照旧发生。
    * 与实体阅读尺（reading strip）框住单行的粒度一致。
    *
-   * 实现：读每个文本块自己的 line-height（px），用 repeating-linear-gradient 按
-   * 2×行高为周期铺条纹；background-origin/clip 设成 content-box，让条纹从内容盒
-   * 顶端（= 第一个行盒顶端）起算 —— 这样条纹与行盒严格对齐，且对带 padding、
-   * border 的元素（td、h2 等）同样成立。对比刻意压到 10% 左右：条纹密度高，
-   * 对比一大就成了视觉噪点。
+   * 相位是**整篇连续**的，不是每块从头开始：每块先数出自己占几行，累加到全文行号上；
+   * 若上一块结束时停在"有色行"，这一块首行就必须从无色开始。否则每个段落都从有色
+   * 开头 —— 段落短的时候会连出一片同色，接缝处断掉，等于白涂。
+   *
+   * 图表不上色：块里出现 img / svg / canvas / table / 公式容器就整块跳过，并且不
+   * 计入行号（它们不参与交替，否则会把相位推歪）。
+   *
+   * 实现：读每个文本块自己的 computed line-height，用 repeating-linear-gradient 按
+   * 2×行高铺条纹；background-origin/clip 设成 content-box，让条纹从内容盒顶端
+   * （= 第一个行盒顶端）起算 —— 这样条纹与行盒严格对齐，且对带 padding、border 的
+   * 元素同样成立。对比刻意压到 10% 左右：条纹密度高，对比一大就成了视觉噪点。
    */
   useEffect(() => {
     const root = readerRef.current
@@ -1144,19 +1147,33 @@ const [aligned_content, set_aligned_content] = useState('')
       return false
     }
 
+    const INK = 'rgba(132, 204, 22, 0.10)'
+    /** 全文已累计的行数：决定下一块首行是有色还是无色 */
+    let lineIndex = 0
+
     for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
       if (!hasDirectText(el)) continue
-      // 公式、代码块里的文本不能动（行高/布局自成一套）
-      if (el.closest('code, pre, .katex, math, svg')) continue
+      // 代码块、公式、表格里的文本不参与（行高/布局自成一套，表格整体不上色）
+      if (el.closest('code, pre, .katex, math, svg, table')) continue
+      // 图表块：整块不上色，也不计入行号
+      if (el.querySelector('img, svg, canvas, table, .katex, math')) continue
       const cs = getComputedStyle(el)
       if (!/^(block|list-item|table-cell|table-caption)$/.test(cs.display)) continue
       const lh = parseFloat(cs.lineHeight)
       if (!Number.isFinite(lh) || lh <= 0) continue
+
+      const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+      const lines = Math.max(1, Math.round((el.clientHeight - padY) / lh))
+
+      // 首行该不该有色，由"全文行号"的奇偶决定 —— 这样块与块之间的条纹才是连着的
       el.style.backgroundImage =
-        `repeating-linear-gradient(to bottom, rgba(132, 204, 22, 0.10) 0 ${lh}px,` +
-        ` transparent ${lh}px ${lh * 2}px)`
+        lineIndex % 2 === 0
+          ? `repeating-linear-gradient(to bottom, ${INK} 0 ${lh}px, transparent ${lh}px ${lh * 2}px)`
+          : `repeating-linear-gradient(to bottom, transparent 0 ${lh}px, ${INK} ${lh}px ${lh * 2}px)`
       el.style.backgroundOrigin = 'content-box'
       el.style.backgroundClip = 'content-box'
+
+      lineIndex += lines
     }
   }, [zebraBands, paperRenderedHtml, bookRenderedHtml])
 
