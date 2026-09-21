@@ -93,6 +93,13 @@ interface EditUnit {
 }
 
 /**
+ * 拖拽换位时「挪一格」对应的像素数。
+ * 拖拽用**位移量**决定挪几位，而不是"指针落在哪个块的上半区"——
+ * 块的高度能差十几倍，一个超长正文块占满整屏时，要求指针挪到它上半区等于挪不动。
+ */
+const EDIT_DRAG_STEP_PX = 30
+
+/**
  * 把块文档拆成"单元"。译文块不单独出现 —— 它按 `ref`（无编号的按紧邻上一个块）
  * 归到对应源块的 `cn` 里；块外文本不渲染，但原样留在 `items` 里，保存时一并写回。
  *
@@ -217,11 +224,12 @@ const EditBlockCard = memo(function EditBlockCard({
   unit,
   dragging,
   dropEdge,
+  isFirst,
+  isLast,
   onChange,
   onRemove,
+  onMoveUnit,
   onDragStartUnit,
-  onDragOverUnit,
-  onDropUnit,
   onDragEndUnit,
 }: {
   unit: EditUnit
@@ -229,19 +237,20 @@ const EditBlockCard = memo(function EditBlockCard({
   dragging: boolean
   /** 拖着的块会插到这一块的上面 / 下面（null = 这一块不是当前落点） */
   dropEdge: 'before' | 'after' | null
+  /** 已经在最前 / 最后，对应的箭头置灰 */
+  isFirst: boolean
+  isLast: boolean
   onChange: (srcIdx: number, field: 'en' | 'cn', value: string) => void
   onRemove: (srcIdx: number) => void
-  onDragStartUnit: (srcIdx: number) => void
-  onDragOverUnit: (srcIdx: number, e: DragEvent<HTMLDivElement>) => void
-  onDropUnit: (srcIdx: number, e: DragEvent<HTMLDivElement>) => void
+  /** 上移 / 下移一位（dir = -1 / +1）—— 不想拖的时候用这个 */
+  onMoveUnit: (srcIdx: number, dir: -1 | 1) => void
+  onDragStartUnit: (srcIdx: number, clientY: number) => void
   onDragEndUnit: () => void
 }) {
   const rowsFor = (s: string) => Math.min(24, Math.max(2, Math.ceil(s.length / 56)))
   return (
     <div
       data-unit-card
-      onDragOver={(e) => onDragOverUnit(unit.srcIdx, e)}
-      onDrop={(e) => onDropUnit(unit.srcIdx, e)}
       className={`relative bg-white rounded-xl shadow-sm border p-3 transition ${
         dragging ? 'opacity-40 border-indigo-300' : 'border-slate-200'
       }`}
@@ -254,35 +263,58 @@ const EditBlockCard = memo(function EditBlockCard({
         <span className="absolute -bottom-[3px] left-2 right-2 h-[3px] rounded-full bg-indigo-500 pointer-events-none" />
       )}
 
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.effectAllowed = 'move'
-              // Firefox 不 setData 就当成拖拽没发生
-              e.dataTransfer.setData('text/plain', String(unit.srcIdx))
-              // 整个卡片当拖影（默认只有那个小手柄，太小看不清在拖什么）
-              const card = (e.currentTarget as HTMLElement).closest('[data-unit-card]')
-              if (card) e.dataTransfer.setDragImage(card as HTMLElement, 24, 14)
-              onDragStartUnit(unit.srcIdx)
-            }}
-            onDragEnd={onDragEndUnit}
-            className="cursor-grab active:cursor-grabbing select-none text-slate-300 hover:text-slate-500 transition leading-none px-0.5 text-base"
-            title="按住拖动，换这一块的位置（图注被排到图的上面了，就拖到下面）"
-          >
-            ⠿
-          </span>
+      <div className="flex items-center justify-between mb-2 gap-2">
+        {/* 拖拽把手 = 图标 + 块名，整段都能按（以前只有那个小点能按，太难点中） */}
+        <div
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = 'move'
+            // Firefox 不 setData 就当成拖拽没发生
+            e.dataTransfer.setData('text/plain', String(unit.srcIdx))
+            // 整个卡片当拖影（默认只有那个小手柄，太小看不清在拖什么）
+            const card = (e.currentTarget as HTMLElement).closest('[data-unit-card]')
+            if (card) e.dataTransfer.setDragImage(card as HTMLElement, 24, 14)
+            onDragStartUnit(unit.srcIdx, e.clientY)
+          }}
+          onDragEnd={onDragEndUnit}
+          className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing select-none
+                     rounded-md -m-1 p-1 hover:bg-slate-100 transition"
+          title="按住这里上下拖：拖多远就挪几位（不用拖到目标块的一半）"
+        >
+          <span className="text-slate-400 text-base leading-none px-0.5">⠿</span>
           <span className="text-xs font-medium text-slate-400 tabular-nums truncate">{unit.label}</span>
         </div>
-        <button
-          type="button"
-          onClick={() => onRemove(unit.srcIdx)}
-          className="text-xs text-slate-400 hover:text-red-600 transition"
-          title="删掉这一块（中英一起删，保存后生效）"
-        >
-          删除该块
-        </button>
+
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => onMoveUnit(unit.srcIdx, -1)}
+            disabled={isFirst}
+            className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-500
+                       hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition"
+            title="上移一位"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={() => onMoveUnit(unit.srcIdx, 1)}
+            disabled={isLast}
+            className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-500
+                       hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition"
+            title="下移一位"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemove(unit.srcIdx)}
+            className="ml-1 text-xs text-slate-400 hover:text-red-600 transition"
+            title="删掉这一块（中英一起删，保存后生效）"
+          >
+            删除该块
+          </button>
+        </div>
       </div>
 
       <textarea
@@ -608,8 +640,17 @@ const [aligned_content, set_aligned_content] = useState('')
    * state 只管画：哪块变淡、插入横杠画在谁身上。
    */
   const editDragSrcRef = useRef<number | null>(null)
+  /** 拖起来那一刻的快照：数组下标 / 起始指针 Y / 当时的顺序（拖拽期间列表不会变） */
+  const editDragFromRef = useRef<number | null>(null)
+  const editDragStartYRef = useRef(0)
+  const editDragOrderRef = useRef<number[]>([])
+  /** 当前预览的位移（±N 位），松手时照它落位 */
+  const editDropStepsRef = useRef(0)
   const [editDragSrcIdx, setEditDragSrcIdx] = useState<number | null>(null)
   const [editDropHint, setEditDropHint] = useState<{ srcIdx: number; edge: 'before' | 'after' } | null>(null)
+  /** 给「身份必须稳定」的回调读当前单元列表用（直接闭包 editUnits 会让回调每次重建） */
+  const editUnitsRef = useRef<EditUnit[]>([])
+  useEffect(() => { editUnitsRef.current = editUnits }, [editUnits])
 
   // 图书阅读（按书名；正文取自 textbooks/{书名}/content.md）
   const [docType, setDocType] = useState<DocType>('paper')
@@ -1796,51 +1837,87 @@ const [aligned_content, set_aligned_content] = useState('')
   }, [])
 
   /**
-   * 拖拽换位：把块按拖出来的顺序重排。
+   * 拖拽换位：拖多远就挪几位（每 EDIT_DRAG_STEP_PX 一格），松手时一次性落位。
    * 只动 `editUnits` 的顺序，`editItems` 一个字不动 —— 保存时 buildEditedMd 按新顺序重建，
    * 编号交给 renumber 重算，块外文本按它原来的槽位落回。
    */
-  const beginEditDrag = useCallback((srcIdx: number) => {
+  const editStepsFor = useCallback((clientY: number) => {
+    const from = editDragFromRef.current
+    if (from == null) return 0
+    const raw = Math.round((clientY - editDragStartYRef.current) / EDIT_DRAG_STEP_PX)
+    const last = editDragOrderRef.current.length - 1
+    return Math.max(-from, Math.min(last - from, raw)) // 夹在列表范围内，拖过头也不会飞出去
+  }, [])
+
+  const beginEditDrag = useCallback((srcIdx: number, clientY: number) => {
+    const units = editUnitsRef.current
+    const arrIdx = units.findIndex((u) => u.srcIdx === srcIdx)
+    if (arrIdx < 0) return
     editDragSrcRef.current = srcIdx
+    editDragFromRef.current = arrIdx
+    editDragStartYRef.current = clientY
+    editDragOrderRef.current = units.map((u) => u.srcIdx)
+    editDropStepsRef.current = 0
     setEditDragSrcIdx(srcIdx)
   }, [])
 
   const clearEditDrag = useCallback(() => {
     editDragSrcRef.current = null
+    editDragFromRef.current = null
+    editDragOrderRef.current = []
+    editDropStepsRef.current = 0
     setEditDragSrcIdx(null)
     setEditDropHint(null)
   }, [])
 
-  const dragOverEditUnit = useCallback((srcIdx: number, e: DragEvent<HTMLDivElement>) => {
+  /** 拖动中：算出当前位移，把横杠画在落点那个块的上下 */
+  const dragOverEditUnits = useCallback((e: DragEvent<HTMLDivElement>) => {
     // 不是从编辑区里拖起来的（比如从外面拖进一个文件）就别接管
     if (editDragSrcRef.current == null) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    const rect = e.currentTarget.getBoundingClientRect()
-    const edge: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    const steps = editStepsFor(e.clientY)
+    editDropStepsRef.current = steps
     // dragover 每帧都来一发；值没变就回同一个对象，React 会直接跳过这次重渲染
-    setEditDropHint((prev) => (prev && prev.srcIdx === srcIdx && prev.edge === edge ? prev : { srcIdx, edge }))
-  }, [])
+    setEditDropHint((prev) => {
+      const from = editDragFromRef.current
+      if (from == null || steps === 0) return prev === null ? prev : null
+      const target = editDragOrderRef.current[from + steps]
+      if (target === undefined) return prev
+      const edge: 'before' | 'after' = steps < 0 ? 'before' : 'after'
+      return prev && prev.srcIdx === target && prev.edge === edge ? prev : { srcIdx: target, edge }
+    })
+  }, [editStepsFor])
 
-  const dropEditUnit = useCallback((targetSrcIdx: number, e: DragEvent<HTMLDivElement>) => {
-    const from = editDragSrcRef.current
+  const dropEditUnits = useCallback((e: DragEvent<HTMLDivElement>) => {
+    const from = editDragFromRef.current
     if (from == null) return
     e.preventDefault()
-    const rect = e.currentTarget.getBoundingClientRect()
-    const edge: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    const steps = editStepsFor(e.clientY) // 以松手时的位置为准，不依赖最后一帧 dragover
+    if (steps !== 0) {
+      setEditUnits((prev) => {
+        const to = from + steps
+        if (to < 0 || to >= prev.length || to === from) return prev
+        const next = prev.slice()
+        const [moved] = next.splice(from, 1)
+        next.splice(to, 0, moved)
+        return next
+      })
+    }
+    clearEditDrag()
+  }, [clearEditDrag, editStepsFor])
+
+  /** ↑ / ↓ 按钮：与拖拽同一套"换位"语义，只是固定挪一位 */
+  const moveEditUnit = useCallback((srcIdx: number, dir: -1 | 1) => {
     setEditUnits((prev) => {
-      const fromIdx = prev.findIndex((u) => u.srcIdx === from)
-      const toIdx = prev.findIndex((u) => u.srcIdx === targetSrcIdx)
-      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev
-      let insertAt = edge === 'before' ? toIdx : toIdx + 1
-      if (fromIdx < insertAt) insertAt-- // 先把自己抽走，它后面的下标要往前挪一格
+      const i = prev.findIndex((u) => u.srcIdx === srcIdx)
+      const j = i + dir
+      if (i < 0 || j < 0 || j >= prev.length) return prev
       const next = prev.slice()
-      const [moved] = next.splice(fromIdx, 1)
-      next.splice(insertAt, 0, moved)
+      ;[next[i], next[j]] = [next[j], next[i]]
       return next
     })
-    clearEditDrag()
-  }, [clearEditDrag])
+  }, [])
 
   const saveArticle = async () => {
     if (!selectedPaperId) return
@@ -2989,7 +3066,13 @@ const [aligned_content, set_aligned_content] = useState('')
             >
               {selectedPaper.hasMarkdown && selectedPaper.markdownContent ? (
                 editMode ? (
-                  <div className="h-full overflow-y-auto" style={{ fontSize: `${fontSize / 16}rem` }}>
+                  /* 整段编辑区都是落点：拖拽按位移算，不挑指针落在哪一块上 */
+                  <div
+                    className="h-full overflow-y-auto"
+                    style={{ fontSize: `${fontSize / 16}rem` }}
+                    onDragOver={dragOverEditUnits}
+                    onDrop={dropEditUnits}
+                  >
                     <div className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)] space-y-3">
                       {editUnits.length === 0 ? (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-[var(--reader-cardpad)]">
@@ -3009,20 +3092,24 @@ const [aligned_content, set_aligned_content] = useState('')
                         <>
                           <p className="text-xs text-slate-400 px-1">
                             共 {editUnits.length} 个块，英文一个框、中文一个框，块标记由系统持有（不显示，也就删不掉）。
-                            删掉某一整块 = 中英一起删；按住块左上角的 ⠿ 可上下拖动换位；保存时会自动核对块数并重排编号。
+                            删掉某一整块 = 中英一起删。换位两种办法：按住块名那一行
+                            <span className="text-slate-500">上下拖</span>
+                            （拖多远就挪几位，不用拖到目标块的一半），或者直接点右侧的 ↑ ↓ 一位一位挪。
+                            保存时会自动核对块数并重排编号。
                             {editModeTextCount > 0 && `另有 ${editModeTextCount} 处块外文本会原样保留。`}
                           </p>
-                          {editUnits.map((u) => (
+                          {editUnits.map((u, i) => (
                             <EditBlockCard
                               key={u.key}
                               unit={u}
                               dragging={editDragSrcIdx === u.srcIdx}
                               dropEdge={editDropHint?.srcIdx === u.srcIdx ? editDropHint.edge : null}
+                              isFirst={i === 0}
+                              isLast={i === editUnits.length - 1}
                               onChange={updateEditUnit}
                               onRemove={removeEditUnit}
+                              onMoveUnit={moveEditUnit}
                               onDragStartUnit={beginEditDrag}
-                              onDragOverUnit={dragOverEditUnit}
-                              onDropUnit={dropEditUnit}
                               onDragEndUnit={clearEditDrag}
                             />
                           ))}
