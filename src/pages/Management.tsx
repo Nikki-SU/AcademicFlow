@@ -3,6 +3,25 @@ import { useNavigate } from 'react-router-dom'
 import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, inferMdStatusByDoi, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
 import { loadCategories, saveCategories, type LiteratureCategory } from '../services/literatureCategoryData'
+import {
+  loadBookCategories,
+  saveBookCategories,
+  loadDocumentCategories,
+  saveDocumentCategories,
+  categoriesOfMember,
+  setMemberCategories,
+  type Category,
+} from '../services/categoryData'
+import {
+  listDocuments,
+  importMarkdownDocs,
+  updateDocumentEntry,
+  deleteDocuments,
+  readMarkdownZip,
+  titleFromFileName,
+  type DocumentSummary,
+  type ImportItem,
+} from '../services/documentData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
@@ -76,7 +95,7 @@ import {
 import { DoiLink } from '../components/DoiLink'
 import { toast } from 'sonner'
 
-type SubTabId = 'library' | 'templates' | 'knowledge' | 'import-export'
+type SubTabId = 'library' | 'templates' | 'knowledge' | 'documents' | 'import-export'
 
 interface PaperCategory {
   id: string
@@ -140,11 +159,6 @@ function toTemplateItem(t: BackendJournalTemplate): JournalTemplateItem {
   }
 }
 
-interface BookCategory {
-  id: string
-  name: string
-}
-
 interface BookVolume {
   id: string
   volume: number
@@ -171,12 +185,14 @@ interface BookItem {
 const subTabs: { id: SubTabId; label: string; icon: typeof BookMarked }[] = [
   { id: 'library', label: '文献库', icon: BookMarked },
   { id: 'knowledge', label: '图书库', icon: BookCopy },
+  { id: 'documents', label: '其他文档', icon: FileText },
   { id: 'templates', label: '期刊模板', icon: BookOpen },
   { id: 'import-export', label: '导入导出', icon: ArrowLeftRight },
 ]
 
-const DEFAULT_BOOK_CATEGORIES: BookCategory[] = [
-  { id: 'all', name: '全部图书' },
+// 'all' 是伪分类（不落盘），只用来表示"全部图书"
+const DEFAULT_BOOK_CATEGORIES: Category[] = [
+  { id: 'all', name: '全部图书', members: [] },
 ]
 
 const PAGE_SIZE = 10
@@ -249,7 +265,7 @@ function buildCategoryPayload(cats: PaperCategory[], papers: Paper[]): Literatur
   }))
 }
 
-function textbookToBookItem(tb: Textbook): BookItem {
+function textbookToBookItem(tb: Textbook, categories: Category[]): BookItem {
   return {
     id: tb.textbookId,
     title: tb.title,
@@ -260,7 +276,8 @@ function textbookToBookItem(tb: Textbook): BookItem {
     status: 'done',
     progress: 100,
     isSplit: false,
-    categoryIds: [],
+    // 分类关系存在 textbooks/categories.csv，主键是书名（= textbook_id）
+    categoryIds: categoriesOfMember(categories, tb.textbookId),
   }
 }
 
@@ -383,12 +400,28 @@ export default function ManagementPage() {
   const [books, setBooks] = useState<BookItem[]>([])
   const [showBookDetail, setShowBookDetail] = useState<BookItem | null>(null)
   const [isDragOverBook, setIsDragOverBook] = useState(false)
-  const [bookCategories, setBookCategories] = useState<BookCategory[]>(DEFAULT_BOOK_CATEGORIES)
+  const [bookCategories, setBookCategories] = useState<Category[]>(DEFAULT_BOOK_CATEGORIES)
   const [activeBookCategory, setActiveBookCategory] = useState<string>('all')
   const [editingBookCategory, setEditingBookCategory] = useState<{ id?: string; name: string } | null>(null)
   const [showBookCategoryModal, setShowBookCategoryModal] = useState(false)
   const [showUploadBookModal, setShowUploadBookModal] = useState(false)
   const [uploadBookCategories, setUploadBookCategories] = useState<string[]>([])
+  /** 图书详情弹窗里正在编辑的所属分类（与已落盘内容分开，保存时才写回） */
+  const [bookDetailCategoryIds, setBookDetailCategoryIds] = useState<string[]>([])
+
+  // 其他文档状态
+  const [documents, setDocuments] = useState<DocumentSummary[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [documentSearch, setDocumentSearch] = useState('')
+  const [documentCategories, setDocumentCategories] = useState<Category[]>([])
+  const [showImportDocModal, setShowImportDocModal] = useState(false)
+  /** 导入弹窗的三种方式：上传 .md / 粘贴文本 / 上传 zip */
+  const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
+  const [pasteDoc, setPasteDoc] = useState({ title: '', content: '' })
+  const [importing, setImporting] = useState(false)
+  const [editingDocument, setEditingDocument] = useState<DocumentSummary | null>(null)
+  const [editDocForm, setEditDocForm] = useState({ title: '', author: '', categoryIds: [] as string[] })
+  const [savingDocument, setSavingDocument] = useState(false)
 
   // 后台任务状态
   const taskQueue = useTaskQueueStore()
@@ -429,10 +462,30 @@ export default function ManagementPage() {
     if (!repo) return
     const loadData = async () => {
       try {
-        const tbs = await loadTextbooks()
-        setBooks(tbs.map(textbookToBookItem))
+        // 图书分类从 textbooks/categories.csv 读，成员关系由主键（书名）反查
+        const [tbs, cats] = await Promise.all([loadTextbooks(), loadBookCategories()])
+        setBookCategories([...DEFAULT_BOOK_CATEGORIES, ...cats])
+        setBooks(tbs.map((tb) => textbookToBookItem(tb, cats)))
       } catch (err) {
         console.error('加载教材失败:', err)
+      }
+    }
+    loadData()
+  }, [repo])
+
+  // 加载其他文档 + 文档分类（分类成员存在 documents/categories.csv）
+  useEffect(() => {
+    if (!repo) return
+    const loadData = async () => {
+      setDocumentsLoading(true)
+      try {
+        const [docs, cats] = await Promise.all([listDocuments(), loadDocumentCategories()])
+        setDocuments(docs)
+        setDocumentCategories(cats)
+      } catch (err) {
+        console.error('加载其他文档失败:', err)
+      } finally {
+        setDocumentsLoading(false)
       }
     }
     loadData()
@@ -773,6 +826,15 @@ export default function ManagementPage() {
     }
     return counts
   }, [books])
+
+  // 其他文档搜索
+  const filteredDocuments = useMemo(() => {
+    const q = documentSearch.trim().toLowerCase()
+    if (!q) return documents
+    return documents.filter(
+      (d) => d.title.toLowerCase().includes(q) || d.author.toLowerCase().includes(q),
+    )
+  }, [documents, documentSearch])
 
   // 文献操作
   // Crossref DOI 自动填充
@@ -1701,7 +1763,7 @@ export default function ManagementPage() {
     }
   }
 
-  const handleBookUpload = (files: FileList | null) => {
+  const handleBookUpload = async (files: FileList | null) => {
     if (!files) return
     const fileArray = Array.from(files)
 
@@ -1725,7 +1787,19 @@ export default function ManagementPage() {
     })
     const updated = [...newBooks, ...books]
     setBooks(updated)
-    saveBooks(updated)
+    await saveBooks(updated)
+
+    // 分类成员单独落盘：textbooks/ 只存元数据，分类关系在 textbooks/categories.csv
+    if (uploadBookCategories.length > 0) {
+      let nextCats = bookCategories
+      for (const b of newBooks) nextCats = setMemberCategories(nextCats, b.id, uploadBookCategories)
+      setBookCategories(nextCats)
+      try {
+        await persistBookCategories(nextCats)
+      } catch (err) {
+        toast.error(`图书分类保存失败：${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
     setShowUploadBookModal(false)
     setUploadBookCategories([])
 
@@ -1735,10 +1809,46 @@ export default function ManagementPage() {
     })
   }
 
-  const handleDeleteBook = (id: string) => {
+  const handleDeleteBook = async (id: string) => {
     const updated = books.filter((b) => b.id !== id)
     setBooks(updated)
-    saveBooks(updated)
+    await saveBooks(updated)
+    // 删书也要摘掉它在分类里的成员身份，否则 categories.csv 会留下幽灵
+    if (bookCategories.some((c) => c.members.includes(id))) {
+      const nextCats = setMemberCategories(bookCategories, id, [])
+      setBookCategories(nextCats)
+      try {
+        await persistBookCategories(nextCats)
+      } catch (err) {
+        toast.error(`图书分类更新失败：${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+
+  /** 图书分类落盘：伪分类 'all' 不入库（与文献分类保持一致） */
+  const persistBookCategories = async (cats: Category[]) => {
+    await saveBookCategories(cats.filter((c) => c.id !== 'all'))
+  }
+
+  /** 打开图书详情：顺带把已落盘的分类填进编辑态 */
+  const openBookDetail = (book: BookItem) => {
+    setBookDetailCategoryIds(categoriesOfMember(bookCategories, book.id))
+    setShowBookDetail(book)
+  }
+
+  /** 图书详情弹窗里保存所属分类 */
+  const handleSaveBookDetailCategories = async () => {
+    if (!showBookDetail) return
+    const nextCats = setMemberCategories(bookCategories, showBookDetail.id, bookDetailCategoryIds)
+    setBookCategories(nextCats)
+    setBooks((prev) => prev.map((b) => (b.id === showBookDetail.id ? { ...b, categoryIds: bookDetailCategoryIds } : b)))
+    setShowBookDetail({ ...showBookDetail, categoryIds: bookDetailCategoryIds })
+    try {
+      await persistBookCategories(nextCats)
+      toast.success('分类已保存')
+    } catch (err) {
+      toast.error(`分类保存失败：${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   // 图书分类管理
@@ -1752,28 +1862,156 @@ export default function ManagementPage() {
     setShowBookCategoryModal(true)
   }
 
-  const handleDeleteBookCategory = (id: string) => {
+  const handleDeleteBookCategory = async (id: string) => {
     const updatedCats = bookCategories.filter((c) => c.id !== id)
-    const updatedBooks = books.map((b) => ({ ...b, categoryIds: b.categoryIds.filter((cid) => cid !== id) }))
     setBookCategories(updatedCats)
-    setBooks(updatedBooks)
-    saveBooks(updatedBooks)
+    setBooks((prev) => prev.map((b) => ({ ...b, categoryIds: b.categoryIds.filter((cid) => cid !== id) })))
     if (activeBookCategory === id) setActiveBookCategory('all')
+    try {
+      await persistBookCategories(updatedCats)
+      toast.success('分类已删除')
+    } catch (err) {
+      toast.error(`删除分类失败：${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
-  const handleSaveBookCategory = () => {
+  const handleSaveBookCategory = async () => {
     if (!editingBookCategory || !editingBookCategory.name.trim()) return
-    let updatedCats: BookCategory[]
-    if (editingBookCategory.id) {
-      updatedCats = bookCategories.map((c) =>
-        c.id === editingBookCategory.id ? { ...c, name: editingBookCategory.name } : c
-      )
-    } else {
-      updatedCats = [...bookCategories, { id: String(Date.now()), name: editingBookCategory.name }]
-    }
+    const editingId = editingBookCategory.id
+    const name = editingBookCategory.name.trim()
+    const updatedCats = editingId
+      ? bookCategories.map((c) => (c.id === editingId ? { ...c, name } : c))
+      : [...bookCategories, { id: String(Date.now()), name, members: [] }]
     setBookCategories(updatedCats)
     setEditingBookCategory(null)
     setShowBookCategoryModal(false)
+    try {
+      await persistBookCategories(updatedCats)
+      toast.success(editingId ? '分类已更新' : '分类已添加')
+    } catch (err) {
+      toast.error(`保存分类失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // ── 其他文档 ──
+  /** 重新拉列表：导入 / 编辑 / 删除后调用（写 CSV 已刷新缓存，不必 force） */
+  const refreshDocuments = useCallback(async () => {
+    try {
+      setDocuments(await listDocuments())
+    } catch (err) {
+      console.error('刷新其他文档失败:', err)
+    }
+  }, [])
+
+  /** 三种导入方式的公共出口：统一写仓库 → 提示 → 刷新 → 关弹窗 */
+  const runImport = async (items: ImportItem[]) => {
+    if (importing) return
+    const usable = items.filter((it) => it.content.trim())
+    if (usable.length === 0) {
+      toast.error('没有可导入的内容')
+      return
+    }
+    setImporting(true)
+    try {
+      const added = await importMarkdownDocs(usable)
+      toast.success(`已导入 ${added.length} 个文档`)
+      await refreshDocuments()
+      setShowImportDocModal(false)
+      setPasteDoc({ title: '', content: '' })
+    } catch (err) {
+      // zip 里可能几十个文件，失败原因（仓库未就绪 / 写冲突）要原样带出来
+      toast.error(`导入失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  /** 上传本地 .md / .markdown / .txt */
+  const handleImportFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const items: ImportItem[] = []
+    for (const file of Array.from(files)) {
+      items.push({ title: titleFromFileName(file.name), source: file.name, content: await file.text() })
+    }
+    await runImport(items)
+  }
+
+  /** 上传 zip 批量导入 */
+  const handleImportZip = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      const entries = await readMarkdownZip(file)
+      await runImport(
+        entries.map((e) => ({ title: titleFromFileName(e.name), source: file.name, content: e.content })),
+      )
+    } catch (err) {
+      toast.error(`解析 zip 失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /** 粘贴 markdown 文本 */
+  const handlePasteImport = async () => {
+    if (!pasteDoc.title.trim() || !pasteDoc.content.trim()) {
+      toast.error('请填写标题和 markdown 内容')
+      return
+    }
+    await runImport([{ title: pasteDoc.title, source: '粘贴', content: pasteDoc.content }])
+  }
+
+  const handleEditDocument = (doc: DocumentSummary) => {
+    setEditingDocument(doc)
+    setEditDocForm({
+      title: doc.title,
+      author: doc.author,
+      categoryIds: categoriesOfMember(documentCategories, doc.id),
+    })
+  }
+
+  const handleSaveDocument = async () => {
+    if (!editingDocument) return
+    if (!editDocForm.title.trim()) {
+      toast.error('标题不能为空')
+      return
+    }
+    setSavingDocument(true)
+    try {
+      await updateDocumentEntry(editingDocument.id, {
+        title: editDocForm.title.trim(),
+        author: editDocForm.author.trim(),
+      })
+      const nextCats = setMemberCategories(documentCategories, editingDocument.id, editDocForm.categoryIds)
+      await saveDocumentCategories(nextCats)
+      setDocumentCategories(nextCats)
+      toast.success('已保存')
+      setEditingDocument(null)
+      await refreshDocuments()
+    } catch (err) {
+      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSavingDocument(false)
+    }
+  }
+
+  const handleDeleteDocument = async (doc: DocumentSummary) => {
+    if (!confirm(`确定删除「${doc.title}」吗？会连同正文、笔记、批注一起删除，且不可恢复。`)) return
+    try {
+      await deleteDocuments([doc.id])
+      // 顺带把它从文档分类里摘掉，避免留下幽灵成员
+      if (documentCategories.some((c) => c.members.includes(doc.id))) {
+        const nextCats = setMemberCategories(documentCategories, doc.id, [])
+        await saveDocumentCategories(nextCats)
+        setDocumentCategories(nextCats)
+      }
+      toast.success('已删除')
+      await refreshDocuments()
+    } catch (err) {
+      toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /** 阅读页目前不支持用参数指定选中文档，这里只负责把用户带到阅读页 */
+  const handleOpenDocumentReading = () => {
+    navigate('/reading')
   }
 
   // 渲染文献分类树
@@ -2766,7 +3004,7 @@ export default function ManagementPage() {
                   <div
                     key={book.id}
                     className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden group cursor-pointer"
-                    onClick={() => setShowBookDetail(book)}
+                    onClick={() => openBookDetail(book)}
                   >
                     <div className="aspect-[3/4] bg-slate-100 relative overflow-hidden">
                       {book.coverImage ? (
@@ -2821,7 +3059,7 @@ export default function ManagementPage() {
                     <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => setShowBookDetail(book)}
+                          onClick={() => openBookDetail(book)}
                           className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
                           title="详情"
                         >
@@ -2829,7 +3067,7 @@ export default function ManagementPage() {
                         </button>
                         {(book.status === 'converting' || book.status === 'uploading') && (
                           <button
-                            onClick={() => setShowBookDetail(book)}
+                            onClick={() => openBookDetail(book)}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
                             title="查看转换进度"
                           >
@@ -2868,6 +3106,131 @@ export default function ManagementPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ============ 其他文档 Tab ============ */}
+      {activeTab === 'documents' && (
+        <div className="space-y-4">
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-slate-800 flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-indigo-600" />
+                其他文档
+              </h3>
+              <p className="text-sm text-slate-500 mt-0.5">
+                导入自己的 markdown（.md 文件 / 粘贴文本 / zip），直接阅读，不经过转换
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="搜索标题、作者..."
+                  value={documentSearch}
+                  onChange={(e) => setDocumentSearch(e.target.value)}
+                  className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg w-64 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white"
+                />
+              </div>
+              <button
+                onClick={() => setShowImportDocModal(true)}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition shadow-md shadow-indigo-200"
+              >
+                <Upload className="w-4 h-4" />
+                导入文档
+              </button>
+            </div>
+          </div>
+
+          {documentsLoading ? (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center text-slate-400 text-sm">
+              <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+              <p>加载中...</p>
+            </div>
+          ) : documents.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+              <div className="text-slate-400 mb-3">
+                <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">还没有其他文档</p>
+                <p className="text-xs mt-1">去导入 .md 文件、粘贴 markdown，或上传 zip 批量导入</p>
+              </div>
+              <button
+                onClick={() => setShowImportDocModal(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition"
+              >
+                <Upload className="w-4 h-4" />
+                导入第一个文档
+              </button>
+            </div>
+          ) : filteredDocuments.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center text-slate-400 text-sm">
+              <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p>没有找到匹配的文档</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100 overflow-hidden">
+              {filteredDocuments.map((doc) => {
+                const catNames = documentCategories
+                  .filter((c) => c.members.includes(doc.id))
+                  .map((c) => c.name)
+                return (
+                  <div key={doc.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
+                    <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center bg-indigo-50 text-indigo-600 rounded-lg">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-slate-800 truncate">{doc.title}</p>
+                        {doc.hasContent ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium shrink-0">
+                            <CheckCircle2 className="w-3 h-3" />
+                            已导入
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[0.625rem] shrink-0">
+                            无正文
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                        <span className="truncate">{doc.author || '未知作者'}</span>
+                        {catNames.length > 0 && (
+                          <span className="flex items-center gap-1 truncate">
+                            <Tag className="w-3 h-3 text-slate-400" />
+                            {catNames.join('、')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={handleOpenDocumentReading}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
+                        title="打开阅读（到阅读页的『其他文档』里选）"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleEditDocument(doc)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
+                        title="编辑"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDocument(doc)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -3767,22 +4130,52 @@ export default function ManagementPage() {
                 <p className="text-sm text-slate-600"><span className="text-slate-400">状态：</span>
                   <BookStatusBadge status={showBookDetail.status} />
                 </p>
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {showBookDetail.categoryIds.length > 0 ? (
-                    showBookDetail.categoryIds.map((cid) => {
-                      const cat = bookCategories.find((c) => c.id === cid)
-                      return cat ? (
-                        <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-xs rounded">
-                          <Tag className="w-3 h-3 inline mr-0.5" />
-                          {cat.name}
-                        </span>
-                      ) : null
-                    })
-                  ) : (
-                    <span className="text-xs text-slate-400">未分类</span>
-                  )}
-                </div>
               </div>
+            </div>
+
+            {/* 给这本图书设置所属分类（主键 = 书名） */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <Tag className="w-4 h-4 text-indigo-600" />
+                  所属分类
+                </label>
+                <button
+                  onClick={handleSaveBookDetailCategories}
+                  className="text-xs px-2.5 py-1 text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition"
+                >
+                  保存分类
+                </button>
+              </div>
+              {bookCategories.filter((c) => c.id !== 'all').length === 0 ? (
+                <p className="text-xs text-slate-400">还没有图书分类，可在左侧「图书分类」里新建后再回来设置</p>
+              ) : (
+                <div className="flex flex-wrap gap-2 p-3 border border-slate-200 rounded-lg bg-slate-50/50">
+                  {bookCategories.filter((c) => c.id !== 'all').map((cat) => {
+                    const checked = bookDetailCategoryIds.includes(cat.id)
+                    return (
+                      <label
+                        key={cat.id}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                          checked ? 'bg-indigo-100 text-indigo-700' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => setBookDetailCategoryIds(
+                            e.target.checked
+                              ? [...bookDetailCategoryIds, cat.id]
+                              : bookDetailCategoryIds.filter((id) => id !== cat.id),
+                          )}
+                          className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500 rounded"
+                        />
+                        {cat.name}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {showBookDetail.isSplit && (
@@ -3858,6 +4251,202 @@ export default function ManagementPage() {
                 </button>
               )}
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 导入其他文档弹窗（三种方式：上传 .md / 粘贴 / zip） */}
+      {showImportDocModal && (
+        <Modal
+          title="导入文档"
+          onClose={() => { if (!importing) setShowImportDocModal(false) }}
+          width="max-w-2xl"
+        >
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg mb-5 w-fit">
+            {([
+              { id: 'file', label: '上传 .md 文件' },
+              { id: 'paste', label: '粘贴文本' },
+              { id: 'zip', label: '上传 zip' },
+            ] as const).map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setImportMode(m.id)}
+                disabled={importing}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition disabled:opacity-60 ${
+                  importMode === m.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {importMode === 'file' && (
+            <label
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+                importing ? 'opacity-60 pointer-events-none' : 'border-slate-200 bg-slate-50 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer'
+              }`}
+            >
+              {importing
+                ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+                : <Upload className="w-10 h-10 text-slate-400" />}
+              <p className="text-sm text-slate-600 font-medium">{importing ? '导入中...' : '点击选择 .md / .markdown / .txt 文件'}</p>
+              <p className="text-xs text-slate-400">支持多选，标题取文件名</p>
+              <input
+                type="file"
+                multiple
+                accept=".md,.markdown,.txt"
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => { void handleImportFiles(e.target.files); e.target.value = '' }}
+              />
+            </label>
+          )}
+
+          {importMode === 'paste' && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">标题 *</label>
+                <input
+                  type="text"
+                  value={pasteDoc.title}
+                  onChange={(e) => setPasteDoc({ ...pasteDoc, title: e.target.value })}
+                  placeholder="文档标题"
+                  disabled={importing}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Markdown 内容 *</label>
+                <textarea
+                  value={pasteDoc.content}
+                  onChange={(e) => setPasteDoc({ ...pasteDoc, content: e.target.value })}
+                  placeholder="在此粘贴 markdown 正文..."
+                  rows={10}
+                  disabled={importing}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 resize-y"
+                />
+              </div>
+            </div>
+          )}
+
+          {importMode === 'zip' && (
+            <label
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+                importing ? 'opacity-60 pointer-events-none' : 'border-slate-200 bg-slate-50 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer'
+              }`}
+            >
+              {importing
+                ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+                : <Folder className="w-10 h-10 text-slate-400" />}
+              <p className="text-sm text-slate-600 font-medium">{importing ? '导入中...' : '点击选择 .zip 压缩包'}</p>
+              <p className="text-xs text-slate-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
+              <input
+                type="file"
+                accept=".zip"
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => { void handleImportZip(e.target.files?.[0]); e.target.value = '' }}
+              />
+            </label>
+          )}
+
+          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+            {importMode === 'paste' && (
+              <button
+                onClick={handlePasteImport}
+                disabled={importing}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {importing ? '导入中...' : '导入'}
+              </button>
+            )}
+            <button
+              onClick={() => { if (!importing) setShowImportDocModal(false) }}
+              disabled={importing}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-60"
+            >
+              取消
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 编辑其他文档弹窗 */}
+      {editingDocument && (
+        <Modal title="编辑文档" onClose={() => { if (!savingDocument) setEditingDocument(null) }}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">标题 *</label>
+              <input
+                type="text"
+                value={editDocForm.title}
+                onChange={(e) => setEditDocForm({ ...editDocForm, title: e.target.value })}
+                placeholder="文档标题"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">作者</label>
+              <input
+                type="text"
+                value={editDocForm.author}
+                onChange={(e) => setEditDocForm({ ...editDocForm, author: e.target.value })}
+                placeholder="作者（可留空）"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">所属分类（可多选）</label>
+              {documentCategories.length === 0 ? (
+                <p className="text-xs text-slate-400">还没有文档分类</p>
+              ) : (
+                <div className="flex flex-wrap gap-2 p-3 border border-slate-200 rounded-lg bg-slate-50/50">
+                  {documentCategories.map((cat) => {
+                    const checked = editDocForm.categoryIds.includes(cat.id)
+                    return (
+                      <label
+                        key={cat.id}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                          checked ? 'bg-indigo-100 text-indigo-700' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => setEditDocForm({
+                            ...editDocForm,
+                            categoryIds: e.target.checked
+                              ? [...editDocForm.categoryIds, cat.id]
+                              : editDocForm.categoryIds.filter((id) => id !== cat.id),
+                          })}
+                          className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500 rounded"
+                        />
+                        {cat.name}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+            <button
+              onClick={() => { if (!savingDocument) setEditingDocument(null) }}
+              disabled={savingDocument}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-60"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSaveDocument}
+              disabled={savingDocument || !editDocForm.title.trim()}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {savingDocument ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              保存
+            </button>
           </div>
         </Modal>
       )}

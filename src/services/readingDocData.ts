@@ -1,9 +1,10 @@
 /**
- * 阅读对象（文献 / 图书）的统一标识与存储路径
+ * 阅读对象（文献 / 图书 / 其他文档）的统一标识与存储路径
  * -------------------------------------------------
- * 阅读页同时支持两种对象，它们只在 pipeline 上有区别，阅读侧的数据结构完全对称：
- *   文献 paper → literatures/{doi-slug}/
- *   图书 book  → textbooks/{书名}/
+ * 阅读页同时支持三种对象，它们只在 pipeline 上有区别，阅读侧的数据结构完全对称：
+ *   文献 paper    → literatures/{doi-slug}/
+ *   图书 book     → textbooks/{书名}/
+ *   其他文档 document → documents/{目录名}/
  *
  * 每个对象目录下：
  *   notes.md                        笔记
@@ -18,19 +19,19 @@
 import { readMdFile, writeMdFile } from './userData'
 import { doiToSlug } from './literatureData'
 
-export type DocKind = 'paper' | 'book'
+export type DocKind = 'paper' | 'book' | 'document'
 
 export interface DocRef {
   kind: DocKind
-  /** paper = DOI；book = 书名（同时也是 textbooks/ 下的目录名） */
+  /** paper = DOI；book = 书名；document = documents/ 下的目录名 */
   id: string
 }
 
 /** 对象在仓库里的根目录（不带尾斜杠） */
 export function docBasePath(ref: DocRef): string {
-  return ref.kind === 'book'
-    ? `textbooks/${ref.id}`
-    : `literatures/${doiToSlug(ref.id)}`
+  if (ref.kind === 'book') return `textbooks/${ref.id}`
+  if (ref.kind === 'document') return `documents/${ref.id}`
+  return `literatures/${doiToSlug(ref.id)}`
 }
 
 export function notesPath(ref: DocRef): string {
