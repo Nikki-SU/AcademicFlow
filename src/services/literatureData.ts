@@ -14,6 +14,7 @@ import { readCsvFile, writeCsvFile, readMdFile, writeMdFile } from './userData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch } from './github'
+import { readDocument } from './blocks.mjs'
 
 export type MdStatus = 'none' | 'converting' | 'done' | 'failed'
 
@@ -353,6 +354,47 @@ export async function loadAlignedMd(doi: string): Promise<string> {
   // 兼容：最旧的 index.md
   result = await readMdFile(`literatures/${slug}/index.md`)
   return result?.content || ''
+}
+
+/**
+ * 块文档 → 供 AI 阅读的纯文本。
+ *
+ * 取的是**原文块**（readDocument 会把译文并进源块的 cn 字段，这里压根不读 cn），
+ * 于是天然满足三条：
+ *   - 无块标记（⟨⟨⟨文字·正文·0·12⟩⟩⟩ 这类元信息是给程序看的，喂给模型只是噪声）
+ *   - 无机器译文（事实核查的 ground truth 必须是原文；译文进去会让 prompt 体积翻倍，
+ *     还会让"引用是否来自原文"的核对拿译文去比）
+ *   - 图块丢掉（它的 content 是一条资源路径，对理解正文没有任何价值）
+ */
+export function blocksToAiText(md: string): string {
+  const { items } = readDocument(md)
+  const out: string[] = []
+  for (const it of items) {
+    if (it.t === 'text') {
+      const s = it.content.trim()
+      if (s) out.push(s)
+      continue
+    }
+    if (it.node.kind === 'float' && it.node.type === '图') continue
+    const body = (it.content || '').trim()
+    if (body) out.push(body)
+  }
+  return out.join('\n\n')
+}
+
+/**
+ * 取「喂给 AI 的正文」。
+ *
+ * 为什么不直接用 full.md：full.md 是 MinerU 的原始产物，页眉页脚、页码、被 OCR 切碎的
+ * 段落全在里面；而知识库里真正被读的那一份是 {slug}.md —— 它经过清洗、并且带译文。
+ * 内容相同，但一份是脏的、一份是干净的；没有理由让 AI 读脏的那份。
+ * （loadAlignedMd 自带回退：老数据只有 full.md 时也能取到，这时它没有块标记，
+ *   readDocument 会把全文当普通文本原样返回。）
+ */
+export async function loadAiSourceText(doi: string): Promise<string> {
+  const md = await loadAlignedMd(doi)
+  if (!md.trim()) return ''
+  return blocksToAiText(md)
 }
 
 /**

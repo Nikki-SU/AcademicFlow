@@ -73,7 +73,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import type { JournalTemplate } from '../types'
 import { DoiLink } from '../components/DoiLink'
 import { runDualEngine } from '../services/ai/dual-engine'
-import { loadFulltext } from '../services/literatureData'
+import { loadAiSourceText } from '../services/literatureData'
 import {
   loadProjects,
   saveProjects,
@@ -677,6 +677,24 @@ export default function WritingPage() {
   const [inputValue, setInputValue] = useState('')
   const [isAiGenerating, setIsAiGenerating] = useState(false)
   const [isAiReviewing, setIsAiReviewing] = useState(false)
+  /**
+   * 双引擎跑起来是分钟级的（后端要排队 + 冷启动 + 多次大模型调用），
+   * 只给一句静态的「AI-1 生成中...」用户会以为卡死了。这里数已等秒数。
+   */
+  const [aiElapsed, setAiElapsed] = useState(0)
+  /**
+   * 依赖取的是「是否在忙」这一个布尔值，而不是两个状态各自的变化 ——
+   * 否则 AI-1 交棒给 AI-2 的那一刻计时会归零，"已等"就骗人了。
+   */
+  const aiBusy = isAiGenerating || isAiReviewing
+  useEffect(() => {
+    if (!aiBusy) {
+      setAiElapsed(0)
+      return
+    }
+    const timer = window.setInterval(() => setAiElapsed((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [aiBusy])
   const [isLoading, setIsLoading] = useState(true)
 
   const [navCollapsed, setNavCollapsed] = useState(false)
@@ -1334,7 +1352,11 @@ export default function WritingPage() {
       id: genMsgId,
       createdAt: Date.now() + 1,
       role: 'assistant',
-      content: opts?.sourceMaterialProvider ? '正在检索文献…' : '正在调用 AI-1 生成内容…',
+      content: opts?.sourceMaterialProvider
+        ? '正在检索文献…'
+        : trustedSearch
+          ? '正在读取文献正文…'
+          : '正在调用 AI-1 生成内容…',
       citations: undefined,
       reviewStatus: 'pending',
     }
@@ -1349,39 +1371,47 @@ export default function WritingPage() {
       //    安全红线：用户手稿属于未发表内容，不可作为 AI 的知识库 / ground truth。
       //    可信检索模式下，sourceMaterial 只包含引用文献原文，AI 仅基于文献生成。
       let literatureContext = ''
+      /** 正文没读到的文献 DOI —— 不静默：最后要告诉用户这次结论少了几篇依据 */
+      let sourceMissing: string[] = []
       if (opts?.sourceMaterialProvider) {
         literatureContext = await opts.sourceMaterialProvider()
-        // 检索完了，接下来是 AI 的活 —— 把占位文案换回来
-        setMessages((prev) =>
-          prev.map((m) => (m.id === genMsgId ? { ...m, content: '正在调用 AI-1 生成内容…' } : m)),
-        )
       } else if (trustedSearch) {
         const sourceDois = scopedCitations
           .filter((c) => c.type === 'paper' && c.doi)
           .slice(0, 5)
           .map((c) => c.doi)
         if (sourceDois.length > 0) {
-          try {
-            const fulltexts = await Promise.all(
-              sourceDois.map(async (doi) => {
-                try {
-                  const t = await loadFulltext(doi)
-                  return t ? `--- ${doi} ---\n${t}` : ''
-                } catch {
-                  return ''
-                }
-              }),
-            )
-            literatureContext = fulltexts.filter(Boolean).join('\n\n')
-          } catch (err) {
-            console.warn('[Writing] 加载文献全文失败:', err)
-          }
+          const loaded = await Promise.all(
+            sourceDois.map(async (doi) => {
+              try {
+                // 取「清洗后的原文块」，不是 MinerU 的脏 full.md —— 详见 loadAiSourceText 的注释
+                return { doi, text: (await loadAiSourceText(doi)).trim() }
+              } catch (err) {
+                // 以前这里是 catch { return '' }：单篇失败无声无息，AI 拿着残缺依据照答，
+                // 用户只觉得"结论怪怪的"。现在记下来，最后一并交代哪几篇没读到。
+                console.warn(`[Writing] 读取 ${doi} 正文失败:`, err)
+                return { doi, text: '' }
+              }
+            }),
+          )
+          literatureContext = loaded
+            .filter((x) => x.text)
+            .map((x) => `--- ${x.doi} ---\n${x.text}`)
+            .join('\n\n')
+          sourceMissing = loaded.filter((x) => !x.text).map((x) => x.doi)
         }
       }
 
+      // 正文取完了，接下来是 AI 的活 —— 把占位文案换回来
+      setMessages((prev) =>
+        prev.map((m) => (m.id === genMsgId ? { ...m, content: '正在调用 AI-1 生成内容…' } : m)),
+      )
+
       if (!literatureContext) {
         throw new Error(
-          '可信检索模式需要至少一篇引用文献的全文。请在引用范围中选择文献，或确保文献已通过 MinerU 提取全文。',
+          sourceMissing.length > 0
+            ? `可信检索需要文献正文，但这几篇一条都没读到：${sourceMissing.join('、')}。请确认它们已经转换完成（库里有 {slug}.md 或 full.md）。`
+            : '可信检索模式需要至少一篇引用文献的正文。请在引用范围中选择文献，或确保文献已通过 MinerU 提取全文。',
         )
       }
 
@@ -1400,6 +1430,9 @@ export default function WritingPage() {
         ai1Instruction: `${memoryContext}${text}`,
         ai1,
         ai2,
+        // 后端默认 5 轮（= 最多 10 次大模型调用，每次都要把整份源材料再传一遍）。
+        // 这只是"AI-2 打回后自动重写"的机会数，通过就停；降到 2 轮，最坏 4 次调用。
+        maxAttempts: 2,
         onProgress: (event) => {
           // AI-1 完成后立即把生成内容回填到消息（提升体感速度）
           if (event.stage === 'ai1_done' && event.ai1Output) {
@@ -1428,9 +1461,23 @@ export default function WritingPage() {
       setIsAiReviewing(false)
 
       const passed = result.finalPassed
+      const lastAttempt = result.attempts[result.attempts.length - 1]
+      /*
+       * 「AI-2 一个字都没输出」和「AI-2 判定内容不忠实」是两码事，不能都报成"审阅未通过"。
+       * 前者的实情是：输出预算（max_tokens）被推理过程烧完了，正文一个字没吐，JSON 当然解析不出来，
+       * 后端只能返回 passed=false —— 界面上却显示成"未通过核查"，等于骗人。
+       */
+      const ai2Silent = !(lastAttempt?.ai2RawOutput || '').trim()
       const reviewNote = passed
         ? ''
-        : `\n\n---\n*AI-2 审阅未通过（${result.attempts.length} 轮）：${result.ai2Feedback.summary || '存在忠实性问题，请人工核对'}*`
+        : ai2Silent
+          ? `\n\n---\n*AI-2 这一轮**没有任何输出**（第 ${result.attempts.length} 轮）—— 这不是"内容不忠实"，而是后台输出预算被推理占满了。这个结论不可信，请重试；源材料越长越容易触发。*`
+          : `\n\n---\n*AI-2 审阅未通过（${result.attempts.length} 轮）：${result.ai2Feedback?.summary || '存在忠实性问题，请人工核对'}*`
+
+      const missingNote =
+        sourceMissing.length > 0
+          ? `\n\n---\n*这次有 ${sourceMissing.length} 篇文献的正文没读到（${sourceMissing.join('、')}），结论只基于其余文献。*`
+          : ''
 
       const attached = opts?.attachCitations?.() ?? []
 
@@ -1439,7 +1486,7 @@ export default function WritingPage() {
           m.id === genMsgId
             ? {
                 ...m,
-                content: (result.ai1Output || '（AI-1 未返回内容）') + reviewNote,
+                content: (result.ai1Output || '（AI-1 未返回内容）') + missingNote + reviewNote,
                 citations: attached.length > 0 ? attached : undefined,
                 reviewStatus: passed ? ('pass' as const) : ('fail' as const),
               }
@@ -1603,10 +1650,10 @@ export default function WritingPage() {
       }
       handleSendMessage(prompt, {
         sourceMaterialProvider: async () => {
-          const fulltext = await loadFulltext(doi)
+          const fulltext = await loadAiSourceText(doi)
           if (!fulltext.trim()) {
             throw new Error(
-              `文献库里有 ${doi} 这条记录，但没有它的全文（full.md 为空或缺失），无法核验。先让它走一遍 MinerU 转换。`,
+              `文献库里有 ${doi} 这条记录，但没有它的正文（{slug}.md / full.md 都读不到内容），无法核验。先让它走一遍 MinerU 转换。`,
             )
           }
           return `--- ${doi} ---\n${fulltext}`
@@ -3575,7 +3622,7 @@ export default function WritingPage() {
                   </div>
                 ))}
 
-                {(isAiGenerating || isAiReviewing) && (
+                {aiBusy && (
                   <div className="flex justify-start">
                     <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 border border-slate-200 shadow-sm">
                       <div className="flex items-center gap-2">
@@ -3599,6 +3646,13 @@ export default function WritingPage() {
                           <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                           <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                         </div>
+                        {/* 后端要排队跑 Actions + 多轮大模型调用，分钟级属正常；给个计时免得以为卡死 */}
+                        <span
+                          className="ml-1 text-[0.625rem] text-slate-400 tabular-nums"
+                          title="后端要排队跑 GitHub Actions + 多轮大模型调用，等几分钟是正常的"
+                        >
+                          已等 {Math.floor(aiElapsed / 60)} 分 {String(aiElapsed % 60).padStart(2, '0')} 秒
+                        </span>
                       </div>
                     </div>
                   </div>
