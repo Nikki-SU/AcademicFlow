@@ -6,7 +6,7 @@
  * 两种回答路径，由「可信检索」开关决定：
  *   开 → runDualEngine：把当前文档正文作为唯一 ground truth 喂给 AI-1，
  *        AI-2 逐条核查有没有编造（回答带 pass/fail 审阅结论）
- *   关 → callAI：单模型 AI-1 直接回答，不喂原文、不做审阅（自由问答）
+ *   关 → callWebSearch：不喂原文，让 DeepSeek 联网检索后自由回答（附来源列表）
  *
  * 对话记录按「一篇文献 / 一本书一个大对话」持久化到
  *   literatures/{slug}/ai-chat.md 或 textbooks/{书名}/ai-chat.md
@@ -29,7 +29,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { callAI } from '../services/ai/client'
+import { callWebSearch, type WebSearchSource } from '../services/ai/web-search'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { useSettingsStore } from '../stores/settings'
 import { loadReadingChat, saveReadingChat, type DocRef } from '../services/readingDocData'
@@ -136,6 +136,25 @@ function buildSourceMaterial(docMarkdown: string, focusText: string): string {
   return parts.join('\n\n')
 }
 
+/** 来源列表最多展示几条（DeepSeek 一次检索能返回十几条，全列出来会淹掉答案本身） */
+const MAX_SOURCES = 8
+
+/**
+ * 联网检索的来源以 Markdown 链接追加到答案末尾。
+ * 直接拼进 content 而不是单独存字段 —— 这样对话落盘成 md 之后再读回来，
+ * 来源跟着正文一起回来，不需要额外解析。
+ */
+function appendSources(content: string, sources: WebSearchSource[]): string {
+  if (sources.length === 0) return content
+  const clean = (s: string) => s.replace(/[\[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
+  const items = sources
+    .slice(0, MAX_SOURCES)
+    .map((s, i) => `${i + 1}. [${clean(s.title) || s.url}](${s.url})`)
+  const more =
+    sources.length > MAX_SOURCES ? `\n\n（另有 ${sources.length - MAX_SOURCES} 条来源未列出）` : ''
+  return `${content}\n\n---\n\n**参考来源**\n\n${items.join('\n')}${more}`
+}
+
 export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selectedText }: Props) {
   const [messages, setMessages] = useState<ReadingChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -224,7 +243,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       setMessages((prev) => [...prev, userMsg])
       setInput('')
       setBusy(true)
-      setStage(useTrusted ? 'AI-1 生成中…' : '思考中…')
+      setStage(useTrusted ? 'AI-1 生成中…' : '联网检索中…')
 
       try {
         if (useTrusted) {
@@ -266,11 +285,12 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             },
           ])
         } else {
-          const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+          // 联网问答：后端用 AI1_* 直连 DeepSeek 的 Anthropic 兼容端点 + 内置
+          // web_search 工具，所以这条路径不需要本地 API Key，也就不经过 settings。
           const sys =
             '你是学术阅读助手。用户在读一篇文献或一本书，会就其中某个词或某段文字提问。' +
-            '直接回答问题，必要时补充该概念在学术界的通行含义、学科背景和典型用法。' +
-            '不确定的地方要明确说不确定，不要编造文献、作者或出处。用中文回答。'
+            '需要外部知识时先联网检索再回答，说明该概念在学术界的通行含义、学科背景和典型用法。' +
+            '引用检索到的说法要给出处；不确定的地方明确说不确定，不要编造文献、作者或出处。用中文回答。'
           const userContent = [
             historyContext ? `【此前的对话】\n${historyContext}` : '',
             `【正在读】${docTitle}`,
@@ -278,22 +298,14 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             `【问题】\n${q}`,
           ].filter(Boolean).join('\n\n')
 
-          const resp = await callAI({
-            baseUrl: ai1.baseUrl,
-            apiKey: ai1.apiKey,
-            model: ai1.model,
-            messages: [
-              { role: 'system', content: sys },
-              { role: 'user', content: userContent },
-            ],
-          })
+          const resp = await callWebSearch({ system: sys, user: userContent })
 
           setMessages((prev) => [
             ...prev,
             {
               id: `a_${Date.now()}`,
               role: 'assistant',
-              content: resp.content || '（AI 没有返回内容）',
+              content: appendSources(resp.content || '（AI 没有返回内容）', resp.sources),
               createdAt: Date.now(),
             },
           ])
@@ -319,7 +331,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
     [busy, docRef, docMarkdown, docTitle, historyContext],
   )
 
-  /** 预设问法 1：查这个词的学术含义 —— 需要外部知识，走单模型直答（可信检索关） */
+  /** 预设问法 1：查这个词的学术含义 —— 需要外部知识，走联网检索（可信检索关） */
   const askAcademicMeaning = () => {
     const word = selectedText.trim() || input.trim()
     if (!word) {
@@ -377,12 +389,12 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
           title={
             trusted
               ? '可信检索：回答只依据当前正文，AI-2 逐条核查是否编造'
-              : '自由问答：不喂原文，AI 直接回答，不做审阅（适合查外部知识）'
+              : '自由问答：不喂原文，DeepSeek 联网检索后回答，不做审阅（适合查外部知识）'
           }
         >
           {trusted ? <ShieldCheck className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
           <span className="font-medium">可信检索</span>
-          <span className="ml-auto">{trusted ? '开 · 双引擎审阅' : '关 · 单模型直答'}</span>
+          <span className="ml-auto">{trusted ? '开 · 双引擎审阅' : '关 · 联网检索'}</span>
         </button>
         <div className="mt-1.5 flex items-center justify-between text-[0.625rem] text-slate-400">
           <span className="truncate">{docTitle}</span>
@@ -468,7 +480,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
               onClick={askAcademicMeaning}
               disabled={busy}
               className="flex-1 px-2 py-1.5 text-[0.6875rem] bg-white border border-slate-200 rounded-md hover:border-indigo-400 hover:text-indigo-600 transition disabled:opacity-40 text-left"
-              title="关闭可信检索，让 AI 用自身知识解释该词的学术含义"
+              title="关闭可信检索，让 AI 联网检索该词的学术含义"
             >
               查学术含义
             </button>
@@ -512,7 +524,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
         <div className="mt-1 text-[0.625rem] text-slate-400">
           {trusted
             ? '可信检索开：回答只依据正文，AI-2 会核查是否编造'
-            : '可信检索关：AI 自由回答，不核查是否超出原文'}
+            : '可信检索关：DeepSeek 联网检索后回答并附来源，不核查是否超出原文'}
         </div>
       </div>
     </div>
