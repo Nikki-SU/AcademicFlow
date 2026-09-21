@@ -1777,14 +1777,27 @@ const [aligned_content, set_aligned_content] = useState('')
   return (
     /*
      * 三栏用 Grid 而不是 flex + 固定宽度：
-     *  - 两侧栏用 clamp()：窄屏有下限保证可用，宽屏按视口比例长，最多到 20rem / 24rem
-     *  - 中栏 minmax(0, 1fr) 吃掉剩下的全部宽度 —— 不再有「灵活元素里塞绝对宽度组件」
+     *  - 中栏宽度**由正文决定**（--reader-column = 正文 + 卡片内边距 + 中栏内边距）：
+     *    正文正好铺满卡片内容区，不再"白卡铺满一栏、文字居中、两侧挂白带"
+     *  - 两侧栏吃掉剩下的全部宽度（minmax(x, N fr)）：三栏合起来仍然填满视口，
+     *    而且屏幕越宽侧栏越宽，不会把富余宽度变成中栏里的留白
      *  - 高度 h-full：由 Layout 的 main（h-screen 外壳下的确定高度）撑，不自己算 calc(100vh-3rem)
      *  - <1100px：栅格塌成单列，两侧栏变覆盖式抽屉，正文独占全宽
+     *
+     * 字号挂在**栅格容器**上：--reader-column 里的 ch 必须和 .measure-reader 用同一个
+     * ch，中栏宽度才会随字号一起变（否则调小字号时中栏不变、正文缩了，两侧又露出白带）。
+     * 代价是三个子块的字号会被继承下来，所以下面逐个把两侧栏和中栏工具条重置回 1rem
+     * （正文卡片本来就有自己的字号，不受影响）。
      */
-    <div className="h-full overflow-hidden bg-slate-50 grid grid-cols-[clamp(15rem,16vw,20rem)_minmax(0,1fr)_clamp(17rem,18vw,24rem)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]">
+    <div
+      className="h-full overflow-hidden bg-slate-50 grid grid-cols-[minmax(15rem,16fr)_minmax(0,var(--reader-column))_minmax(17rem,18fr)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
+      style={{ fontSize: `${fontSize / 16}rem` }}
+    >
       {/* 窄屏专用：两个抽屉开关 */}
-      <div className="hidden max-[1100px]:flex items-center gap-2 px-2 py-1.5 bg-white border-b border-slate-200">
+      <div
+        className="hidden max-[1100px]:flex items-center gap-2 px-2 py-1.5 bg-white border-b border-slate-200"
+        style={{ fontSize: '1rem' }}
+      >
         <button
           onClick={() => setLeftDrawer(true)}
           className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition"
@@ -1813,7 +1826,9 @@ const [aligned_content, set_aligned_content] = useState('')
 
       <aside className={`bg-white border-r border-slate-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
         leftDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:-translate-x-full'
-      }`}>
+      }`}
+        style={{ fontSize: '1rem' }}
+      >
         {/* 固定：阅读对象切换（文献 / 图书 / 其他文档） */}
         <div className="p-2 border-b border-slate-200 flex-shrink-0">
           <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md">
@@ -2305,7 +2320,10 @@ const [aligned_content, set_aligned_content] = useState('')
         </div>
       </aside>
 
-      <section className="bg-slate-50 flex flex-col min-w-0 min-h-0 overflow-hidden">
+      <section
+        className="bg-slate-50 flex flex-col min-w-0 min-h-0 overflow-hidden"
+        style={{ fontSize: '1rem' }}
+      >
         {isPlain ? (
           plainId ? (
             <>
@@ -2367,11 +2385,11 @@ const [aligned_content, set_aligned_content] = useState('')
                     </div>
                   </div>
                 ) : bookRenderedHtml ? (
-                  <div className="w-full px-[clamp(0.75rem,2vw,2.5rem)] py-[clamp(0.75rem,2vw,2rem)]">
-                    <div
-                      className="bg-white rounded-xl shadow-sm border border-slate-200 p-[clamp(1rem,2.2vw,2.5rem)] relative"
-                      style={{ fontSize: `${fontSize / 16}rem` }}
-                    >
+                  <div
+                    className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)]"
+                    style={{ fontSize: `${fontSize / 16}rem` }}
+                  >
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-[var(--reader-cardpad)] relative">
                       <div
                         ref={readerRef}
                         onMouseUp={handleTextSelection}
@@ -2556,11 +2574,11 @@ const [aligned_content, set_aligned_content] = useState('')
                     className="h-full"
                   />
                 ) : (
-                <div className="w-full px-[clamp(0.75rem,2vw,2.5rem)] py-[clamp(0.75rem,2vw,2rem)]">
-                  <div
-                    className="bg-white rounded-xl shadow-sm border border-slate-200 p-[clamp(1rem,2.2vw,2.5rem)] relative"
-                    style={{ fontSize: `${fontSize / 16}rem` }}
-                  >
+                <div
+                  className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)]"
+                  style={{ fontSize: `${fontSize / 16}rem` }}
+                >
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-[var(--reader-cardpad)] relative">
                     <div
                       ref={readerRef}
                       onMouseUp={handleTextSelection}
@@ -2598,7 +2616,9 @@ const [aligned_content, set_aligned_content] = useState('')
       {/* 右栏：问 AI / 笔记 / 批注 —— 文献与图书同一套 */}
       <aside className={`bg-white border-l border-slate-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-40 max-[1100px]:w-[min(24rem,90vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
         rightDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:translate-x-full'
-      }`}>
+      }`}
+        style={{ fontSize: '1rem' }}
+      >
         <div className="flex border-b border-slate-200 flex-shrink-0">
           <button
             onClick={() => setActiveSideTab('ask')}
