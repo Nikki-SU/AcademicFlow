@@ -83,28 +83,41 @@ export function stripSpaces(s: string): { stripped: string; idx: number[] } {
   return { stripped, idx }
 }
 
-/** 在扁平串里定位 needle，返回原文下标区间 [start, end)；找不到返回 null */
+/**
+ * 在扁平串里定位 needle，返回原文下标区间 [start, end)；找不到返回 null。
+ *
+ * 两档匹配各有**最低长度**门槛，这不是洁癖：匹配口径越宽，短 needle 越容易在
+ * 无关正文里命中。历史那份损坏的 CSV 里有一批 text 只剩 "3" / "Cs " 的碎片，
+ * 配上"去掉所有空白"的兜底，能在任何一篇文章里匹配到第一个 "3" —— 表现就是
+ * 批注跨文章乱串。宁可少匹配（退化成整块标记），也不能乱匹配。
+ */
 export function findSpan(text: string, needle: string): { start: number; end: number } | null {
-  const foldedHay = foldSpaces(text)
-  const foldedNeedle = foldSpaces(needle).folded.trim()
-  if (foldedNeedle) {
-    const at = foldedHay.folded.indexOf(foldedNeedle)
-    if (at >= 0) {
-      return { start: foldedHay.idx[at], end: foldedHay.idx[at + foldedNeedle.length - 1] + 1 }
+  // 折叠空白口径：容忍换行/连续空格差异，门槛低一些
+  if (needle.trim().length >= 2) {
+    const foldedHay = foldSpaces(text)
+    const foldedNeedle = foldSpaces(needle).folded.trim()
+    if (foldedNeedle) {
+      const at = foldedHay.folded.indexOf(foldedNeedle)
+      if (at >= 0) {
+        return { start: foldedHay.idx[at], end: foldedHay.idx[at + foldedNeedle.length - 1] + 1 }
+      }
     }
   }
-  const strippedHay = stripSpaces(text)
-  const strippedNeedle = stripSpaces(needle).stripped
-  if (strippedNeedle) {
-    const at = strippedHay.stripped.indexOf(strippedNeedle)
-    if (at >= 0) {
-      return { start: strippedHay.idx[at], end: strippedHay.idx[at + strippedNeedle.length - 1] + 1 }
+  // 去空白口径：只用于"跨行断词"这类极端排法差异，必须够长才允许
+  if (needle.trim().length >= 8) {
+    const strippedHay = stripSpaces(text)
+    const strippedNeedle = stripSpaces(needle).stripped
+    if (strippedNeedle) {
+      const at = strippedHay.stripped.indexOf(strippedNeedle)
+      if (at >= 0) {
+        return { start: strippedHay.idx[at], end: strippedHay.idx[at + strippedNeedle.length - 1] + 1 }
+      }
     }
   }
   return null
 }
 
-/** 清掉 root 里上一轮挂的所有高亮，并把文本节点重新连成一片 */
+/** 清掉 root 里上一轮挂的所有高亮（含整块标记），并把文本节点重新连成一片 */
 export function clearHighlights(root: HTMLElement): void {
   root.querySelectorAll('.annotation-highlight').forEach((span) => {
     const parent = span.parentNode
@@ -112,24 +125,30 @@ export function clearHighlights(root: HTMLElement): void {
     parent.replaceChild(document.createTextNode(span.textContent || ''), span)
     parent.normalize()
   })
+  root.querySelectorAll('[data-annotation-block]').forEach((el) => {
+    el.classList.remove('outline', 'outline-2', 'outline-amber-400', 'outline-amber-500', 'outline-offset-[-2px]')
+    el.removeAttribute('data-annotation-block')
+  })
 }
 
-/**
- * 给一条批注挂高亮。返回是否挂上
- * （false = 当前显示模式下正文里没有这段文字，例如英文批注 + 全中文模式，
- *   这时调用方可以退化成"滚到它所属的块"）。
- */
-export function highlightAnnotation(
-  root: HTMLElement,
+/** 一条批注的高亮结果 */
+export type HighlightOutcome =
+  /** 在正文里按文本精确高亮了 */
+  | 'exact'
+  /** 文字没找到（例如切到了另一种语言），但锚点段落还在 → 整段做了标记 */
+  | 'block'
+  /** 连锚点段落都找不到（换文章了 / 重新转换过）→ 什么都没画 */
+  | 'none'
+
+/** 在某个容器里按文本找并包高亮；找到返回 true */
+function wrapInside(
+  scope: HTMLElement,
   annotationId: string,
-  annotationText: string,
+  needle: string,
   selected: boolean,
   color: HighlightStyle,
 ): boolean {
-  const needle = (annotationText || '').trim()
-  if (!needle) return false
-
-  const { text, segs } = collectTextSegments(root)
+  const { text, segs } = collectTextSegments(scope)
   if (!text) return false
 
   const span = findSpan(text, needle)
@@ -158,4 +177,45 @@ export function highlightAnnotation(
     range.surroundContents(mark)
   }
   return true
+}
+
+/**
+ * 给一条批注挂高亮。
+ *
+ * 定位顺序：
+ *   1. 先在这条批注**自己的块**里找（anchor = en-12 / cn-12）。这是准确的那一步 ——
+ *      锚点已经限定到具体语言的某一段，不会跑到别的段落或别的文章上去。
+ *   2. 块里没有（或没有 anchor 的老数据）→ 退回全文找一次。
+ *   3. 文字全篇都找不到 → **给锚点段落整段做个淡色标记**。
+ *      这一步是必须的：切到另一种语言时，英文批注的原文文字在中文模式下本来就不存在，
+ *      如果没有块级标记，用户会以为批注丢了，然后重复批注同一处。
+ */
+export function highlightAnnotation(
+  root: HTMLElement,
+  annotationId: string,
+  annotationText: string,
+  selected: boolean,
+  color: HighlightStyle,
+  /** 块锚点（en-12 / cn-12）。老数据为空 → 退化成以前的全篇文本匹配 */
+  anchor?: string,
+): HighlightOutcome {
+  const needle = (annotationText || '').trim()
+  const scope = anchor
+    ? root.querySelector<HTMLElement>(`[data-block-id="${anchor}"]`)
+    : null
+
+  // 单字符 needle 不能当定位依据（历史脏数据里有 "3"、"Cs "），一律只做块级标记
+  if (needle.length >= 2) {
+    if (scope && wrapInside(scope, annotationId, needle, selected, color)) return 'exact'
+    if (wrapInside(root, annotationId, needle, selected, color)) return 'exact'
+  }
+
+  if (scope) {
+    // 用 outline 而不是背景色：斑马纹（隔块底色）也用背景，两者叠在一起会互相盖住。
+    // outline 不占布局、不跟背景打架，用户同时开斑马纹也能看见"这段有批注"。
+    scope.setAttribute('data-annotation-block', annotationId)
+    scope.classList.add('outline', 'outline-2', 'outline-offset-[-2px]', selected ? 'outline-amber-500' : 'outline-amber-400')
+    return 'block'
+  }
+  return 'none'
 }

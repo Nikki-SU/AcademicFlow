@@ -23,6 +23,7 @@ import {
   Languages,
   ListTree,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
@@ -38,6 +39,7 @@ import { readAnyDocument, blockId, type ReadBlockItem } from '../services/blocks
 import { clearHighlights, highlightAnnotation } from '../services/text-highlight'
 import VditorEditor, { type VditorEditorHandle } from '../components/VditorEditor'
 import ReadingAskPanel from '../components/ReadingAskPanel'
+import { toast } from 'sonner'
 
 type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 /** 右栏页签：问 AI / 笔记 / 批注（文献与图书同一套） */
@@ -52,6 +54,12 @@ interface Annotation {
   color: HighlightColor
   note: string
   createdAt: number
+  /**
+   * 块锚点：语言-段号（en-12 / cn-12）。
+   * 中文和英文是两个独立的块（只是段号相同），所以批注必须分别锚在具体语言上。
+   * 历史数据为空 → 退化成"全篇按文本匹配"，但仍能正常显示。
+   */
+  anchor: string
 }
 
 interface Paper {
@@ -67,7 +75,7 @@ interface Paper {
 }
 
 interface SaveState {
-  status: 'saved' | 'saving' | 'idle'
+  status: 'saved' | 'saving' | 'idle' | 'error'
   lastSaved: number | null
 }
 
@@ -83,6 +91,25 @@ function literatureToPaper(lit: Literature): Paper {
     hasMarkdown: false,
     markdownContent: undefined,
   }
+}
+
+/**
+ * 图书正文：给**顶层块**编号（b-1 / b-2 …），让批注能锚到具体段落。
+ *
+ * 图书是单一语言，不需要 en/cn 前缀，但同样要"一处一条、不跨书串"——
+ * 只靠文本匹配的话，短句子在别的书里也会命中。
+ * 只编顶层元素：那是 markdown 渲染出的段落 / 标题 / 图表，正好是阅读时的自然单位。
+ */
+function withBookBlockIds(html: string): string {
+  // 用 DOMParser 而不是临时 div：DOMParser 不会顺手去加载里面的图片
+  const parsed = new DOMParser().parseFromString(html, 'text/html')
+  const box = parsed.body
+  let seq = 0
+  for (const el of Array.from(box.children)) {
+    if (el.tagName === 'HR') continue
+    el.setAttribute('data-block-id', `b-${++seq}`)
+  }
+  return box.innerHTML
 }
 
 /** 图书大纲项：level 决定缩进，anchor 指向正文里对应标题的 id */
@@ -277,6 +304,12 @@ const [aligned_content, set_aligned_content] = useState('')
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
+  /** 当前选区落在哪个块上（en-12 / cn-12）—— 划词时记下，加批注时用 */
+  const pendingAnchorRef = useRef('')
+  /** 批注面板的批量选择态 */
+  const [checkedAnnotationIds, setCheckedAnnotationIds] = useState<string[]>([])
+  /** 长文本隔块底色（荧光笔式交替底色，防串行） */
+  const [zebraBands, setZebraBands] = useState(true)
 
   // ── 阅读进度：读到哪个标题，下次打开跳回去 ──
   /** 正文的滚动容器（文献 / 图书各一处，共用同一个 ref） */
@@ -412,6 +445,11 @@ const [aligned_content, set_aligned_content] = useState('')
    * 两者的存储结构完全对称，只是根目录不同 —— 路径交给 docRef 决定。
    */
   useEffect(() => {
+    // 换阅读对象 = 清掉上一份的选中态，批注绝不能跨对象带过去
+    setCheckedAnnotationIds([])
+    setSelectedAnnotationId(null)
+    setEditingAnnotationId(null)
+
     if (!docRef) {
       setAnnotations([])
       setCurrentNoteMd('')
@@ -428,6 +466,7 @@ const [aligned_content, set_aligned_content] = useState('')
           color: a.color as HighlightColor,
           note: a.note,
           createdAt: a.createdAt,
+          anchor: a.anchor,
         })))
       })
       .catch((err) => {
@@ -462,12 +501,23 @@ const [aligned_content, set_aligned_content] = useState('')
         note: a.note,
         createdAt: a.createdAt,
         updatedAt: Date.now(),
+        anchor: a.anchor,
       }))
-      saveAnnotations(docRef, data).catch(err => console.error('[Reading] 保存批注到 GitHub 失败:', err))
-      setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
-      setTimeout(() => {
-        setAnnotationSaveState((prev) => ({ ...prev, status: 'idle' }))
-      }, 2000)
+      // 必须等写入真的成功了才显示"已自动保存"。
+      // 以前是先写状态、再发请求，失败只 console.error —— 界面说存好了，
+      // 远端其实一个字没动，切走再回来批注就"冒出来"了。
+      saveAnnotations(docRef, data)
+        .then(() => {
+          setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
+          setTimeout(() => {
+            setAnnotationSaveState((prev) => (prev.status === 'saved' ? { ...prev, status: 'idle' } : prev))
+          }, 2000)
+        })
+        .catch((err) => {
+          console.error('[Reading] 保存批注到 GitHub 失败:', err)
+          setAnnotationSaveState({ status: 'error', lastSaved: null })
+          toast.error(`批注保存失败：${err?.message || err}`)
+        })
     }, 500)
   }, [docRef])
 
@@ -504,6 +554,15 @@ const [aligned_content, set_aligned_content] = useState('')
     const readerRect = readerRef.current.getBoundingClientRect()
     const rect = range.getBoundingClientRect()
 
+    // 记下选区落在哪个块上 —— 批注锚点是「语言-段号」，不是那串选中的字。
+    // 锚到块上以后，同一处批注在原文/中英对照/全中文之间切换都还是同一条。
+    const startEl =
+      range.startContainer.nodeType === 1
+        ? (range.startContainer as HTMLElement)
+        : (range.startContainer.parentElement as HTMLElement | null)
+    pendingAnchorRef.current =
+      startEl?.closest('[data-block-id]')?.getAttribute('data-block-id') || ''
+
     setSelectedText(text)
     
     const toolbarWidth = 200
@@ -522,20 +581,48 @@ const [aligned_content, set_aligned_content] = useState('')
   const handleHighlight = (color: HighlightColor) => {
     if (!docRef || !selectedText) return
 
+    const anchor = pendingAnchorRef.current
+    setShowToolbar(false)
+    setSelectedText('')
+    window.getSelection()?.removeAllRanges()
+
+    // 同一处再批一次 = 改那一条，不新增。
+    // 判定口径：同一个块 + 文本互为包含（含完全相同）。这样"我在这句话上又点了一次"
+    // 不会变成第二条；但同一段里标另一句仍然是独立的一条 —— 段内可以随处批注。
+    // 只在这个批注确实锚到了块上时才做合并（老数据/图书没有块锚点，无法判断"同一处"）。
+    const norm = (s: string) => s.replace(/\s+/g, '')
+    const dup = anchor
+      ? annotations.find(
+          (a) =>
+            a.anchor === anchor &&
+            (a.text === selectedText ||
+              norm(a.text).includes(norm(selectedText)) ||
+              norm(selectedText).includes(norm(a.text))),
+        )
+      : undefined
+
+    if (dup) {
+      const updated = annotations.map((a) => (a.id === dup.id ? { ...a, text: selectedText, color } : a))
+      setAnnotations(updated)
+      saveAnnotationsToStorage(updated)
+      setActiveSideTab('annotations')
+      setSelectedAnnotationId(dup.id)
+      setEditingAnnotationId(dup.id)
+      return
+    }
+
     const newAnnotation: Annotation = {
       id: `anno-${Date.now()}`,
       text: selectedText,
       color,
       note: '',
       createdAt: Date.now(),
+      anchor,
     }
 
     const newAnnotations = [...annotations, newAnnotation]
     setAnnotations(newAnnotations)
     saveAnnotationsToStorage(newAnnotations)
-    setShowToolbar(false)
-    setSelectedText('')
-    window.getSelection()?.removeAllRanges()
     setActiveSideTab('annotations')
     setSelectedAnnotationId(newAnnotation.id)
     setEditingAnnotationId(newAnnotation.id)
@@ -545,12 +632,26 @@ const [aligned_content, set_aligned_content] = useState('')
     const newAnnotations = annotations.filter((a) => a.id !== id)
     setAnnotations(newAnnotations)
     saveAnnotationsToStorage(newAnnotations)
+    setCheckedAnnotationIds((prev) => prev.filter((x) => x !== id))
     if (selectedAnnotationId === id) {
       setSelectedAnnotationId(null)
     }
     if (editingAnnotationId === id) {
       setEditingAnnotationId(null)
     }
+  }
+
+  /** 批量删除（含"清空"）：一次写盘，避免逐条写互相覆盖 */
+  const deleteAnnotations = (ids: string[]) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    const newAnnotations = annotations.filter((a) => !idSet.has(a.id))
+    setAnnotations(newAnnotations)
+    saveAnnotationsToStorage(newAnnotations)
+    setCheckedAnnotationIds((prev) => prev.filter((x) => !idSet.has(x)))
+    if (selectedAnnotationId && idSet.has(selectedAnnotationId)) setSelectedAnnotationId(null)
+    if (editingAnnotationId && idSet.has(editingAnnotationId)) setEditingAnnotationId(null)
+    toast.success(`已删除 ${ids.length} 条批注`)
   }
 
   const updateAnnotationNote = (id: string, note: string) => {
@@ -599,7 +700,7 @@ const [aligned_content, set_aligned_content] = useState('')
     const raw = renderMarkdownToHtml(bookMarkdown, {
       imageBaseUrl: getBookImageBaseUrl(selectedBookId ?? ''),
     })
-    return buildOutlineAndAnchors(raw)
+    return buildOutlineAndAnchors(withBookBlockIds(raw))
   }, [isBook, bookMarkdown, selectedBookId])
 
   /** 点大纲跳到正文对应标题 */
@@ -639,43 +740,63 @@ const [aligned_content, set_aligned_content] = useState('')
    */
   const orderedAnnotations = useMemo(() => {
     const flat = (s: string) => s.replace(/[#*_`>|]/g, '').replace(/\s+/g, '')
-    const pos = new Map<string, number>()
-    for (const a of paperAnnotations) {
-      const needle = flat(a.text || '')
-      pos.set(a.id, needle ? articleFlatText.indexOf(needle) : -1)
+    /** 排序键：段号 → 语言（英文在前）→ 段内偏移。没锚点的老批注按全文位置排。 */
+    const key = (a: Annotation): [number, number, number] => {
+      const off = flat(a.text || '').length ? articleFlatText.indexOf(flat(a.text || '')) : -1
+      const m = /^(en|cn)-(.+)$/.exec(a.anchor || '')
+      if (!m) return [off < 0 ? 1e9 : 5e8 + off, 0, 0]
+      const n = parseInt(m[2].replace(/\D/g, ''), 10)
+      return [isNaN(n) ? 1e9 : n, m[1] === 'en' ? 0 : 1, off < 0 ? 1e9 : off]
     }
     return paperAnnotations.slice().sort((a, b) => {
-      const pa = pos.get(a.id) ?? -1
-      const pb = pos.get(b.id) ?? -1
-      if (pa === -1 || pb === -1) {
-        if (pa !== pb) return pa === -1 ? 1 : -1
-        return a.createdAt - b.createdAt
-      }
-      return pa - pb || a.createdAt - b.createdAt
+      const ka = key(a)
+      const kb = key(b)
+      return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || a.createdAt - b.createdAt
     })
   }, [paperAnnotations, articleFlatText])
 
   /**
-   * 批注 → 它所属的块号。
-   * 锚点可能是英文原文，也可能是中文译文，两者都认（按块找包含它的那一块）。
-   * 用途：当前显示模式下正文里没有这段文字时，"点批注"仍能跳到正确的段落。
+   * 批注 → 它所属的块锚点（en-12 / cn-12）。
+   * 优先用批注自己记下的锚点（准确）；老数据没有锚点 → 退回按文本在块里找一次，
+   * 只为了"点批注能跳到对应段落"。
    */
   const annotationBlockIds = useMemo(() => {
     const map = new Map<string, string>()
-    if (!aligned_content.trim()) return map
-    const norm = (s: string) => String(s ?? '').replace(/[#*_`>|]/g, '').replace(/\s+/g, '')
-    const { items } = readAnyDocument(aligned_content)
-    const blocks = items.filter((it): it is ReadBlockItem => it.t === 'block')
+    const needFallback = paperAnnotations.filter((a) => !a.anchor)
+    if (needFallback.length > 0 && aligned_content.trim()) {
+      const norm = (s: string) => String(s ?? '').replace(/[#*_`>|]/g, '').replace(/\s+/g, '')
+      const { items } = readAnyDocument(aligned_content)
+      const blocks = items.filter((it): it is ReadBlockItem => it.t === 'block')
+      for (const a of needFallback) {
+        const needle = norm(a.text || '')
+        if (!needle) continue
+        const hit = blocks.find((b) => norm(b.content).includes(needle) || norm(b.cn ?? '').includes(needle))
+        if (!hit) continue
+        const id = blockId(hit.node)
+        if (!id) continue
+        const lang = norm(hit.content).includes(needle) ? 'en' : 'cn'
+        map.set(a.id, `${lang}-${id}`)
+      }
+    }
     for (const a of paperAnnotations) {
-      const needle = norm(a.text || '')
-      if (!needle) continue
-      const hit = blocks.find((b) => norm(b.content).includes(needle) || norm(b.cn ?? '').includes(needle))
-      if (!hit) continue
-      const id = blockId(hit.node)
-      if (id) map.set(a.id, id)
+      if (a.anchor) map.set(a.id, a.anchor)
     }
     return map
   }, [aligned_content, paperAnnotations])
+
+  /**
+   * 已带批注的块锚点集合。
+   * 传给渲染器：当前显示模式不展示的那种语言，只要有批注就把那块一起显示出来，
+   * 这样切模式不会让批注失去落点（用户也就不会以为丢了、又批一次）。
+   */
+  const annotatedAnchorKey = useMemo(
+    () => Array.from(new Set(annotations.map((a) => a.anchor).filter(Boolean))).sort().join(','),
+    [annotations],
+  )
+  const annotatedAnchorSet = useMemo<ReadonlySet<string>>(
+    () => new Set(annotatedAnchorKey ? annotatedAnchorKey.split(',') : []),
+    [annotatedAnchorKey],
+  )
 
   /**
    * 译文到底有没有 —— 以结构化块文档里"带译文的可翻译块数 > 0"为准。
@@ -695,7 +816,7 @@ const [aligned_content, set_aligned_content] = useState('')
 
     // 新路径：有 aligned.md → 确定性 idx 对齐渲染
     if (aligned_content.trim()) {
-      const result = renderAlignedMdHtml(aligned_content, translation_mode, opts)
+      const result = renderAlignedMdHtml(aligned_content, translation_mode, opts, annotatedAnchorSet)
       if (result.html.trim()) return result.html
     }
 
@@ -713,7 +834,7 @@ const [aligned_content, set_aligned_content] = useState('')
     const trans_paras = splitMarkdownIntoParagraphs(translation_content)
     const aligned = alignParagraphs(orig_paras, trans_paras)
     return renderAlignedHtml(aligned, translation_mode, opts)
-  }, [selectedPaper, selectedPaperId, aligned_content, translation_content, translation_mode])
+  }, [selectedPaper, selectedPaperId, aligned_content, translation_content, translation_mode, annotatedAnchorSet])
 
   /**
    * 文献正文注入锚点 + 大纲。
@@ -958,7 +1079,14 @@ const [aligned_content, set_aligned_content] = useState('')
     clearHighlights(root)
 
     paperAnnotations.forEach((annotation) => {
-      highlightAnnotation(root, annotation.id, annotation.text, selectedAnnotationId === annotation.id, getColorInfo(annotation.color))
+      highlightAnnotation(
+        root,
+        annotation.id,
+        annotation.text,
+        selectedAnnotationId === annotation.id,
+        getColorInfo(annotation.color),
+        annotation.anchor,
+      )
     })
 
     const handleClick = (e: Event) => {
@@ -971,12 +1099,41 @@ const [aligned_content, set_aligned_content] = useState('')
           setActiveSideTab('annotations')
           setEditingAnnotationId(null)
         }
+        return
+      }
+      // 整段标记（切到另一种语言、原文文字不在当前模式里时画的）也点得动
+      const blockMark = target.closest('[data-annotation-block]')
+      const blockId = blockMark?.getAttribute('data-annotation-block')
+      if (blockId) {
+        setSelectedAnnotationId(blockId)
+        setActiveSideTab('annotations')
+        setEditingAnnotationId(null)
       }
     }
 
     root.addEventListener('click', handleClick)
     return () => root.removeEventListener('click', handleClick)
   }, [paperAnnotations, selectedAnnotationId, paperRenderedHtml, bookRenderedHtml])
+
+  /**
+   * 长文本隔块底色 —— 段落块交替的极浅淡绿，像荧光笔一样帮眼睛锚住当前行，
+   * 不改字号也不改字色。
+   *
+   * 为什么按"块"而不是按"视觉行"：按行交替会被换行切断，一段文字里半行绿半行白，
+   * 比不加还乱。段落是一眼可辨的完整单位，交替起来边界干净。
+   * 用背景色，和批注的色块（也是背景）可能重叠，所以批注的"整段标记"用的是 outline。
+   */
+  useEffect(() => {
+    const root = readerRef.current
+    if (!root) return
+    const kids = Array.from(root.children) as HTMLElement[]
+    kids.forEach((el, i) => {
+      el.classList.remove('bg-lime-50')
+      if (!zebraBands) return
+      if (el.tagName === 'HR') return
+      if (i % 2 === 1) el.classList.add('bg-lime-50')
+    })
+  }, [zebraBands, paperRenderedHtml, bookRenderedHtml])
 
   useEffect(() => {
     if (selectedAnnotationId && activeSideTab === 'annotations') {
@@ -1428,6 +1585,17 @@ const [aligned_content, set_aligned_content] = useState('')
                   导出笔记
                 </button>
                 <div className="w-px h-5 bg-slate-200 mx-1" />
+                <button
+                  onClick={() => setZebraBands((v) => !v)}
+                  className={`px-2.5 py-1.5 text-xs rounded transition flex items-center gap-1 ${
+                    zebraBands ? 'bg-lime-100 text-lime-800' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="长文隔块底色：段落交替淡绿，帮眼睛锚住当前行（不改字号字色）"
+                >
+                  <Highlighter className="w-3.5 h-3.5" />
+                  隔块底色
+                </button>
+                <div className="w-px h-5 bg-slate-200 mx-1" />
                 {editMode ? (
                   <>
                     <span className="text-xs text-slate-400 px-1">编辑中 · {articleSourceLabel}</span>
@@ -1652,18 +1820,68 @@ const [aligned_content, set_aligned_content] = useState('')
             </div>
           ) : (
             <div className="flex-1 flex flex-col">
-              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-                <span className="text-xs text-slate-500">
-                  共 <span className="font-medium text-slate-700">{paperAnnotations.length}</span> 条批注
-                </span>
-                <button
-                  onClick={exportAllAnnotations}
-                  disabled={paperAnnotations.length === 0}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  导出全部
-                </button>
+              <div className="px-3 py-2 border-b border-slate-100 flex-shrink-0 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500">
+                    共 <span className="font-medium text-slate-700">{paperAnnotations.length}</span> 条批注
+                  </span>
+                  <button
+                    onClick={exportAllAnnotations}
+                    disabled={paperAnnotations.length === 0}
+                    className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    导出全部
+                  </button>
+                </div>
+                {/* 批量操作条 —— 批注一多，逐条点 × 删太折磨 */}
+                {paperAnnotations.length > 0 && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 select-none">
+                      <input
+                        type="checkbox"
+                        className="w-3.5 h-3.5 accent-indigo-600"
+                        checked={
+                          checkedAnnotationIds.length > 0 &&
+                          checkedAnnotationIds.length === paperAnnotations.length
+                        }
+                        onChange={(e) =>
+                          setCheckedAnnotationIds(
+                            e.target.checked ? paperAnnotations.map((a) => a.id) : [],
+                          )
+                        }
+                      />
+                      全选
+                    </label>
+                    {checkedAnnotationIds.length > 0 && (
+                      <span className="text-slate-400">已选 {checkedAnnotationIds.length} 条</span>
+                    )}
+                    <div className="ml-auto flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          if (checkedAnnotationIds.length === 0) return
+                          if (confirm(`确定删除选中的 ${checkedAnnotationIds.length} 条批注吗？`)) {
+                            deleteAnnotations(checkedAnnotationIds)
+                          }
+                        }}
+                        disabled={checkedAnnotationIds.length === 0}
+                        className="px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                      >
+                        删除选中
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`确定清空全部 ${paperAnnotations.length} 条批注吗？此操作不可撤销。`)) {
+                            deleteAnnotations(paperAnnotations.map((a) => a.id))
+                          }
+                        }}
+                        className="px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition"
+                      >
+                        清空
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto">
@@ -1697,10 +1915,30 @@ const [aligned_content, set_aligned_content] = useState('')
                           >
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  className="w-3.5 h-3.5 accent-indigo-600 flex-shrink-0"
+                                  title="选中后可批量删除"
+                                  checked={checkedAnnotationIds.includes(anno.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) =>
+                                    setCheckedAnnotationIds((prev) =>
+                                      e.target.checked
+                                        ? [...prev, anno.id]
+                                        : prev.filter((x) => x !== anno.id),
+                                    )
+                                  }
+                                />
                                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colorInfo.dot}`} />
                                 <span className={`text-xs font-medium ${colorInfo.text}`}>
                                   {colorInfo.label}批注
                                 </span>
+                                {/* 锚点标签：让人一眼看出这条挂在英文段还是中文段上 */}
+                                {anno.anchor && (
+                                  <span className="text-[10px] px-1 py-0.5 rounded bg-slate-100 text-slate-500 font-mono whitespace-nowrap">
+                                    {anno.anchor.startsWith('cn-') ? '中文' : '英文'} {anno.anchor.slice(3)}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-0.5">
                                 <button
@@ -1807,6 +2045,12 @@ const [aligned_content, set_aligned_content] = useState('')
                         已自动保存
                         {annotationSaveState.lastSaved && ` ${formatTime(annotationSaveState.lastSaved)}`}
                       </span>
+                    </>
+                  )}
+                  {annotationSaveState.status === 'error' && (
+                    <>
+                      <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                      <span className="text-red-600 font-medium">保存失败，改动没写进仓库</span>
                     </>
                   )}
                   {annotationSaveState.status === 'idle' && (

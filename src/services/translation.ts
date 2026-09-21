@@ -138,6 +138,12 @@ export function renderAlignedMdHtml(
   alignedMdContent: string,
   mode: TranslationMode,
   options: RenderMarkdownOptions = {},
+  /**
+   * 已带批注的块锚点集合（en-12 / cn-12）。
+   * 传入后，当前模式不展示的那种语言若带批注，会连同原文一起渲染出来 ——
+   * 保证切模式不会让批注失去落点。不传则行为与以前完全一致。
+   */
+  annotatedAnchors?: ReadonlySet<string>,
 ): { html: string; hasTranslation: boolean; cnCoverage: number } {
   const { items, warnings } = readAnyDocument(alignedMdContent)
   if (warnings.length) console.warn('[blocks] 解析告警：', warnings.join(' | '))
@@ -171,12 +177,39 @@ export function renderAlignedMdHtml(
     render(cn) + '</div>'
 
   /**
-   * 给该块的 HTML 打上 data-block-id（只往第一个元素标签里加属性，不改 DOM 结构）。
-   * 用途：阅读页"点批注跳回位置"——当前显示模式下找不到批注原文时，
-   * 仍能靠块号定位到对应段落（中英锚点互通）。
+   * 给该块的 HTML 打上 data-block-id，格式是「语言-块号」，例如 en-12 / cn-12。
+   *
+   * 为什么必须带语言前缀：中文和英文在文件里是**两个独立的块**（原文块 + 译文块），
+   * 只是共用同一个段号。批注锚的是「某一语言的某一段」，如果把两者压成同一个
+   * data-block-id，中文模式下的批注就会错落到英文段上（或者相反）。
+   * 这不是"中英对齐"——两段本来就是各自独立的，谁也映射不到谁。
    */
-  const withBlockId = (html: string, id: string | null): string =>
-    id ? html.replace(/^\s*<([a-zA-Z][\w-]*)/, `<$1 data-block-id="${id}"`) : html
+  const withBlockId = (html: string, id: string | null, lang: 'en' | 'cn'): string =>
+    id ? html.replace(/^\s*<([a-zA-Z][\w-]*)/, `<$1 data-block-id="${lang}-${id}"`) : html
+
+  /**
+   * 已带批注的块锚点（形如 en-12 / cn-12），按语言拆开。
+   * 作用：当前显示模式不展示这种语言时，仍然把这一块渲染出来 ——
+   * 否则批注在正文里就没有落点了（切一次模式就像批注丢了）。
+   */
+  const pinnedEn = new Set<string>()
+  const pinnedCn = new Set<string>()
+  for (const a of annotatedAnchors ?? []) {
+    const i = a.indexOf('-')
+    if (i <= 0) continue
+    const lang = a.slice(0, i)
+    const n = a.slice(i + 1)
+    if (lang === 'en') pinnedEn.add(n)
+    else if (lang === 'cn') pinnedCn.add(n)
+  }
+  const showOriginal = mode === 'original' || mode === 'english' || mode === 'bilingual'
+
+  /** 跨模式补显示的容器：带上"为什么这里突然出现另一种语言"的说明 */
+  const pinnedBox = (label: string, inner: string) =>
+    '<div class="annotation-pinned bg-amber-50/60 border-l-2 border-amber-400 pl-3 my-2">' +
+    `<div class="text-xs text-amber-700 mb-1 not-italic">${label}</div>` +
+    inner +
+    '</div>'
 
   for (const it of items) {
     // 块外裸文本：原样渲染，绝不吞掉
@@ -188,18 +221,19 @@ export function renderAlignedMdHtml(
     const { node, content, cn } = it
     const body = content.trim()
     const bid = blockId(node)
-    const wrap = (html: string) => withBlockId(html, bid)
+    const wrapEn = (html: string) => withBlockId(html, bid, 'en')
+    const wrapCn = (html: string) => withBlockId(html, bid, 'cn')
 
     // 图 / 公式：不翻译，原样显示
     if (node.kind === 'float' && (node.type === '图' || node.type === '公式')) {
-      if (body) chunks.push(wrap(render(body)))
+      if (body) chunks.push(wrapEn(render(body)))
       continue
     }
 
     // 表：中文/对照模式优先显示译表
     if (node.kind === 'float' && node.type === '表') {
-      if (showCn && !blank(cn)) chunks.push(wrap(render(cn!.trim())))
-      else if (body) chunks.push(wrap(render(body)))
+      if ((showCn || (!!bid && pinnedCn.has(bid))) && !blank(cn)) chunks.push(wrapCn(render(cn!.trim())))
+      else if (body) chunks.push(wrapEn(render(body)))
       if (showCn && blank(cn)) chunks.push(pendingNote)
       continue
     }
@@ -211,18 +245,30 @@ export function renderAlignedMdHtml(
       if (mode === 'chinese') {
         chunks.push('<div class="text-xs text-slate-400 italic mb-2">（参考文献不参与翻译）</div>')
       }
-      if (body) chunks.push(wrap(render(body)))
+      if (body) chunks.push(wrapEn(render(body)))
       continue
     }
 
     // 标题 / 正文 / 列表 / 图注 / 引文：需要翻译
-    if (mode === 'original' || mode === 'english') {
-      if (body) chunks.push(wrap(render(body)))
-    } else if (mode === 'chinese') {
-      chunks.push(wrap(!blank(cn) ? render(cn!.trim()) : fallback(body)))
-    } else {
-      if (body) chunks.push(wrap(render(body)))
-      chunks.push(!blank(cn) ? cnBox(cn!.trim()) : pendingNote)
+    if (showOriginal) {
+      if (body) chunks.push(wrapEn(render(body)))
+    }
+    if (mode === 'chinese') {
+      // 没有译文时 fallback 显示的是**英文原文**，所以锚点要用 en，不能跟着模式写成 cn
+      if (!blank(cn)) chunks.push(wrapCn(render(cn!.trim())))
+      else chunks.push(wrapEn(fallback(body)))
+    }
+    if (mode === 'bilingual') {
+      chunks.push(withBlockId(!blank(cn) ? cnBox(cn!.trim()) : pendingNote, bid, 'cn'))
+    }
+
+    // 跨模式补显示：当前模式不展示的那种语言，这一段有批注 → 一并显示，
+    // 让批注始终有一个看得见的落点。（双语模式两边都在，无需补）
+    if (mode === 'chinese' && bid && pinnedEn.has(bid) && body) {
+      chunks.push(pinnedBox('英文原文（此处有一条批注）', wrapEn(render(body))))
+    }
+    if ((mode === 'original' || mode === 'english') && bid && pinnedCn.has(bid) && !blank(cn)) {
+      chunks.push(pinnedBox('中文译文（此处有一条批注）', wrapCn(cnBox(cn!.trim()))))
     }
   }
 
