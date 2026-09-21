@@ -188,32 +188,66 @@ export async function writeMdFile(
   }
 }
 
-/** 简易 CSV 解析 */
+/**
+ * CSV 解析（RFC4180 状态机，**跨行**）。
+ *
+ * 早期版本是 `content.split('\n')` 逐行解析 —— 那是错的，而且错得很隐蔽：
+ * 带换行的字段写出去时被 csvEscape 正确包成了 "a\nb"，但读回来时 split('\n')
+ * 把这一条记录劈成两行，引号状态在行与行之间不延续，于是后面的列全部错位。
+ * 实测（批注 text 里带一个换行）：
+ *   写：  anno-1,highlight,yellow,"first line\nsecond line",...
+ *   读：  ["anno-1","highlight","yellow","first line"]
+ *         ["second line,my note"]
+ *         ["line2,111,222"]
+ * 一条记录裂成三条垃圾行。私库里那份 annotations.csv 就是这么烂掉的
+ * （text 只剩 "3" / "Cs " / " CO " 碎片，created_at 全 0），而且每读写一轮
+ * 就再掉一次行 —— 因为前端又把错位后的数据当真相写回去了。
+ *
+ * 所以这里必须按字符流解析：引号内的换行是字段内容，不是行分隔符。
+ */
 function parseCsv(content: string): string[][] {
-  const lines = content.trim().split('\n')
-  return lines.map((line) => {
-    const result: string[] = []
-    let current = ''
-    let inQuotes = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
+  const rows: string[][] = []
+  let row: string[] = []
+  let cur = ''
+  let inQuotes = false
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i]
+    if (inQuotes) {
       if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"'
+        if (content[i + 1] === '"') {
+          cur += '"'
           i++
         } else {
-          inQuotes = !inQuotes
+          inQuotes = false
         }
-      } else if (ch === ',' && !inQuotes) {
-        result.push(current)
-        current = ''
       } else {
-        current += ch
+        cur += ch
       }
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      row.push(cur)
+      cur = ''
+    } else if (ch === '\n') {
+      row.push(cur)
+      cur = ''
+      rows.push(row)
+      row = []
+    } else if (ch !== '\r') {
+      cur += ch
     }
-    result.push(current)
-    return result
-  })
+  }
+  row.push(cur)
+  rows.push(row)
+
+  // 文件末尾的换行会多产出一个空行，丢掉
+  while (rows.length > 0) {
+    const last = rows[rows.length - 1]
+    if (last.length === 1 && last[0].trim() === '') rows.pop()
+    else break
+  }
+  return rows
 }
 
 function csvEscape(val: string | number | boolean | null | undefined): string {
