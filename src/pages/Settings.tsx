@@ -741,6 +741,8 @@ function AISlotSection(props: {
     ? (verifiedRecs[0]?.id ?? fetchedModels[0])
     : (defaultModel || model)
   const shownModel = displayIds.has(model) ? model : fallbackModel
+  /** 当前选中模型的官方价目（只有预置 provider 的推荐模型带 pricing，自定义端点没有） */
+  const selectedPricing = recs.find((m) => m.id === shownModel)?.pricing
 
   // 已拉取且存储的模型被证实不存在 → 自动纠正（防止 secrets 同步把死模型带给 runner）
   useEffect(() => {
@@ -898,6 +900,47 @@ function AISlotSection(props: {
                 : '选「拉取」验证后，只显示真实存在的模型'}
             </p>
           </div>
+
+          {/* 官方价目：当前选中模型的价格（空闲 / 高峰双价 + 缓存命中价）。
+              很多人以为"重试就是又花一遍钱"，其实同一篇文章在重试/复核时会命中前缀缓存，
+              输入按「缓存命中」那一列计 —— 这一列通常只有未命中的 1/50。 */}
+          {selectedPricing && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-xs font-medium text-slate-600">官方价目</span>
+                <span className="text-[11px] font-mono text-slate-400 truncate">{shownModel}</span>
+              </div>
+              <table className="w-full text-[11px] tabular-nums">
+                <thead>
+                  <tr className="text-slate-400">
+                    <th className="text-left font-normal">时段</th>
+                    <th className="text-right font-normal">输入 · 缓存命中</th>
+                    <th className="text-right font-normal">输入 · 未命中</th>
+                    <th className="text-right font-normal">输出</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-600">
+                  <tr>
+                    <td>空闲</td>
+                    <td className="text-right">{selectedPricing.offPeak.cacheHit}</td>
+                    <td className="text-right">{selectedPricing.offPeak.cacheMiss}</td>
+                    <td className="text-right">{selectedPricing.offPeak.output}</td>
+                  </tr>
+                  <tr>
+                    <td>高峰</td>
+                    <td className="text-right">{selectedPricing.peak.cacheHit}</td>
+                    <td className="text-right">{selectedPricing.peak.cacheMiss}</td>
+                    <td className="text-right">{selectedPricing.peak.output}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                单位：元 / 百万 tokens。高峰时段 = 北京时间周一至周五 9:00–12:00、14:00–18:00
+                （法定节假日按空闲计），单价翻倍。同一篇文献在重写 / 复核时会命中同一条前缀缓存，
+                输入按「缓存命中」计。
+              </p>
+            </div>
+          )}
         </>
       )}
 

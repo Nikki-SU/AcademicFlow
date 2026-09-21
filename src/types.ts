@@ -149,7 +149,21 @@ export type AIProviderConfig = {
    * 用户在"测试连接"时 Runner 会真调一次 chat/completions，
    * 模型 ID 对不对当场就能验证。
    */
-  recommendedModels: { id: string; desc: string }[]
+  recommendedModels: {
+    id: string
+    desc: string
+    /**
+     * 官方价格（元 / 百万 tokens）。只有预置 provider 会填 ——
+     * 自定义端点（自建 vLLM / Ollama 等）没有公开价目，一律不显示价格块。
+     * 数字取自 DeepSeek 官方「模型 & 价格」页（2026-09 核对）。
+     */
+    pricing?: {
+      /** 空闲时段单价 */
+      offPeak: { cacheHit: number; cacheMiss: number; output: number }
+      /** 高峰时段单价（= 空闲 × 2） */
+      peak: { cacheHit: number; cacheMiss: number; output: number }
+    }
+  }[]
 }
 
 export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
@@ -159,12 +173,28 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
     // 2026-09 实测 /v1/models：官方只剩 deepseek-flash / deepseek-v4-pro 两个模型，
     // deepseek-chat / reasoner / r1 已下线，不能再推荐
     defaultModel1: 'deepseek-flash',
-    defaultModel2: 'deepseek-v4-pro',
+    // AI-2（审阅位）也用 flash：核查忠实性属于"读一遍、挑毛病"，
+    // 不需要 v4-pro 那点额外推理能力，而单价差 3-5 倍。想换回强一点的随时可在设置页改。
+    defaultModel2: 'deepseek-flash',
     apiKeyUrl: 'https://platform.deepseek.com/api_keys',
     note: 'runner 跨太平洋最稳；flash 快，v4-pro 更强',
     recommendedModels: [
-      { id: 'deepseek-flash', desc: '默认，速度最快' },
-      { id: 'deepseek-v4-pro', desc: '更强推理（贵 5x）' },
+      {
+        id: 'deepseek-flash',
+        desc: '默认，速度最快',
+        pricing: {
+          offPeak: { cacheHit: 0.02, cacheMiss: 1, output: 4 },
+          peak: { cacheHit: 0.04, cacheMiss: 2, output: 8 },
+        },
+      },
+      {
+        id: 'deepseek-v4-pro',
+        desc: '更强推理（贵 5x）',
+        pricing: {
+          offPeak: { cacheHit: 0.15, cacheMiss: 4.5, output: 13.5 },
+          peak: { cacheHit: 0.3, cacheMiss: 9, output: 27 },
+        },
+      },
     ],
   },
   custom: {
