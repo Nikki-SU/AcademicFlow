@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, memo, type DragEvent } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   BookOpen,
@@ -93,23 +93,188 @@ interface EditUnit {
 }
 
 /**
+ * 把块文档拆成"单元"。译文块不单独出现 —— 它按 `ref`（无编号的按紧邻上一个块）
+ * 归到对应源块的 `cn` 里；块外文本不渲染，但原样留在 `items` 里，保存时一并写回。
+ *
+ * 与 rebuildDocFromUnits 一样是模块级纯函数（可单测）。
+ */
+function buildEditUnits(items: Array<Record<string, any>>): EditUnit[] {
+  const srcIdxById = new Map<string, number>()
+  items.forEach((it, i) => {
+    if (it.t !== 'block' || it.node.kind === 'translation') return
+    const id = blockId(it.node)
+    if (id) srcIdxById.set(id, i)
+  })
+
+  const transBySrc = new Map<number, number>()
+  items.forEach((it, i) => {
+    if (it.t !== 'block' || it.node.kind !== 'translation') return
+    let target: number | null = null
+    if (it.node.ref && srcIdxById.has(it.node.ref)) {
+      target = srcIdxById.get(it.node.ref) ?? null
+    } else if (!it.node.ref) {
+      // 无编号译文（引文的译文）：挂到紧邻的上一个源块，与 blocks.mjs 的读法一致
+      for (let j = i - 1; j >= 0; j--) {
+        if (items[j].t !== 'block') continue
+        if (items[j].node.kind !== 'translation') target = j
+        break
+      }
+    }
+    if (target != null && !transBySrc.has(target)) transBySrc.set(target, i)
+  })
+
+  const units: EditUnit[] = []
+  items.forEach((it, i) => {
+    if (it.t !== 'block' || it.node.kind === 'translation') return
+    const transIdx = transBySrc.get(i) ?? null
+    units.push({
+      key: `blk${i}_${blockId(it.node) ?? it.node.type}`,
+      srcIdx: i,
+      transIdx,
+      label: labelOf(it.node),
+      translatable: isTranslatable(it.node),
+      en: it.content ?? '',
+      cn: transIdx != null ? (items[transIdx].content ?? '') : '',
+    })
+  })
+  return units
+}
+
+/**
+ * 把「原始块文档条目 + 编辑单元」重建成整份文档。
+ *
+ * 特意提在组件外面、写成纯函数（不碰任何 React 状态）：这条路径一旦有错就是**写坏用户的文献**，
+ * 所以它必须能被直接拿去跑真文档做往返验证（见 rebuild-from-units 测试）。
+ *
+ * 重建规则：
+ *   - 顺序取「用户拖出来的 `units` 顺序」（拖图注、拖段落都靠它）
+ *   - 源块取 `en`；该有译文的块且 `cn` 非空 → 紧跟一条译文块（保留它原来的 ref）
+ *   - 用户清空译文 → 连译文块一起不要（不是留一条空译文）
+ *   - 单元被删 → 中文一起走（用户说的：没人会只删一种语言）
+ *   - 块外文本按原槽位塞回，一个字不动（见下面 textSlots）
+ * 最后过 `renumber`：编号连续、浮动块重新锚定、译文引用同步重定向。
+ * 它只改元信息不碰内容，所以"重排"不会吃掉任何一个字。
+ */
+function rebuildDocFromUnits(
+  items: Array<Record<string, any>>,
+  units: EditUnit[],
+): { md: string; droppedLabels: string[] } {
+  // 原文里所有「块」的位置（译文块不算 —— 它跟着自己的源块走）
+  const originalUnitIdxs = items
+    .map((it, i) => ({ it, i }))
+    .filter(({ it }) => it.t === 'block' && it.node.kind !== 'translation')
+  const aliveIdxs = new Set(units.map((u) => u.srcIdx))
+
+  /**
+   * 块外文本按「第几个块之后」分槽（槽 0 = 第一个块之前）。
+   *
+   * 重排后依然按槽位落回，而不是跟着被拖的块跑 —— 这样两个好处：
+   *   1. 不重排时重建结果与原文**逐字节相同**（槽位与原文一一对应）；
+   *   2. 重排时文件骨架（尤其是那几串换行）不会被搅乱，也不会把文本挤成一坨。
+   * 槽位按**原文**的块数开，所以删块不会把后面的文本挤到文件末尾。
+   */
+  const textSlots: string[][] = Array.from({ length: originalUnitIdxs.length + 1 }, () => [])
+  {
+    let seen = 0
+    for (const it of items) {
+      if (it.t === 'text') { textSlots[seen].push(it.content); continue }
+      if (it.node.kind !== 'translation') seen++
+    }
+  }
+
+  const droppedLabels = originalUnitIdxs
+    .filter(({ i }) => !aliveIdxs.has(i))
+    .map(({ it }) => labelOf(it.node))
+
+  const out: Array<Record<string, any>> = []
+  const pushSlot = (k: number) => {
+    for (const content of textSlots[k] ?? []) out.push({ t: 'text', content })
+  }
+
+  pushSlot(0)
+  units.forEach((u, k) => {
+    const src = items[u.srcIdx]
+    if (!src || src.t !== 'block') return
+    out.push({ t: 'block', node: src.node, content: u.en })
+    if (u.translatable && u.cn.trim()) {
+      const trans = u.transIdx != null ? items[u.transIdx] : null
+      const node = trans && trans.t === 'block' ? trans.node : { kind: 'translation', ref: blockId(src.node) }
+      out.push({ t: 'block', node, content: u.cn })
+    }
+    pushSlot(k + 1)
+  })
+  // 删过块 → 末尾还剩下几个槽的文本，一律兜到最后，绝不丢字
+  for (let g = units.length + 1; g < textSlots.length; g++) pushSlot(g)
+
+  return { md: serializeBlocks(renumber(out as any)) as string, droppedLabels }
+}
+
+/**
  * 编辑态的一块。单独抽出来 + memo，是为了改一个字只重渲染这一块 ——
  * 一篇文献动辄一两百个块，整列表跟着每次按键重渲染会明显发顿。
  */
 const EditBlockCard = memo(function EditBlockCard({
   unit,
+  dragging,
+  dropEdge,
   onChange,
   onRemove,
+  onDragStartUnit,
+  onDragOverUnit,
+  onDropUnit,
+  onDragEndUnit,
 }: {
   unit: EditUnit
+  /** 正在被拖走的就是这一块 */
+  dragging: boolean
+  /** 拖着的块会插到这一块的上面 / 下面（null = 这一块不是当前落点） */
+  dropEdge: 'before' | 'after' | null
   onChange: (srcIdx: number, field: 'en' | 'cn', value: string) => void
   onRemove: (srcIdx: number) => void
+  onDragStartUnit: (srcIdx: number) => void
+  onDragOverUnit: (srcIdx: number, e: DragEvent<HTMLDivElement>) => void
+  onDropUnit: (srcIdx: number, e: DragEvent<HTMLDivElement>) => void
+  onDragEndUnit: () => void
 }) {
   const rowsFor = (s: string) => Math.min(24, Math.max(2, Math.ceil(s.length / 56)))
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+    <div
+      data-unit-card
+      onDragOver={(e) => onDragOverUnit(unit.srcIdx, e)}
+      onDrop={(e) => onDropUnit(unit.srcIdx, e)}
+      className={`relative bg-white rounded-xl shadow-sm border p-3 transition ${
+        dragging ? 'opacity-40 border-indigo-300' : 'border-slate-200'
+      }`}
+    >
+      {/* 落点提示：一条 3px 的横杠，插在上面还是下面看得清清楚楚 */}
+      {dropEdge === 'before' && (
+        <span className="absolute -top-[3px] left-2 right-2 h-[3px] rounded-full bg-indigo-500 pointer-events-none" />
+      )}
+      {dropEdge === 'after' && (
+        <span className="absolute -bottom-[3px] left-2 right-2 h-[3px] rounded-full bg-indigo-500 pointer-events-none" />
+      )}
+
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-slate-400 tabular-nums">{unit.label}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'move'
+              // Firefox 不 setData 就当成拖拽没发生
+              e.dataTransfer.setData('text/plain', String(unit.srcIdx))
+              // 整个卡片当拖影（默认只有那个小手柄，太小看不清在拖什么）
+              const card = (e.currentTarget as HTMLElement).closest('[data-unit-card]')
+              if (card) e.dataTransfer.setDragImage(card as HTMLElement, 24, 14)
+              onDragStartUnit(unit.srcIdx)
+            }}
+            onDragEnd={onDragEndUnit}
+            className="cursor-grab active:cursor-grabbing select-none text-slate-300 hover:text-slate-500 transition leading-none px-0.5 text-base"
+            title="按住拖动，换这一块的位置（图注被排到图的上面了，就拖到下面）"
+          >
+            ⠿
+          </span>
+          <span className="text-xs font-medium text-slate-400 tabular-nums truncate">{unit.label}</span>
+        </div>
         <button
           type="button"
           onClick={() => onRemove(unit.srcIdx)}
@@ -437,6 +602,14 @@ const [aligned_content, set_aligned_content] = useState('')
   const [articleSaving, setArticleSaving] = useState(false)
   /** 保存后的核对结论（块数变化 / 编号重排 / 哪些块丢了译文），可手动关掉 */
   const [editReport, setEditReport] = useState<string | null>(null)
+  /**
+   * 编辑态拖拽换位。正在拖哪一块用 ref 记 —— 事件回调要读到最新值，
+   * 又不能让回调跟着重新生成（一生成，一两百张卡片就全体重渲染）；
+   * state 只管画：哪块变淡、插入横杠画在谁身上。
+   */
+  const editDragSrcRef = useRef<number | null>(null)
+  const [editDragSrcIdx, setEditDragSrcIdx] = useState<number | null>(null)
+  const [editDropHint, setEditDropHint] = useState<{ srcIdx: number; edge: 'before' | 'after' } | null>(null)
 
   // 图书阅读（按书名；正文取自 textbooks/{书名}/content.md）
   const [docType, setDocType] = useState<DocType>('paper')
@@ -1622,6 +1795,53 @@ const [aligned_content, set_aligned_content] = useState('')
     setEditUnits((prev) => prev.filter((u) => u.srcIdx !== srcIdx))
   }, [])
 
+  /**
+   * 拖拽换位：把块按拖出来的顺序重排。
+   * 只动 `editUnits` 的顺序，`editItems` 一个字不动 —— 保存时 buildEditedMd 按新顺序重建，
+   * 编号交给 renumber 重算，块外文本按它原来的槽位落回。
+   */
+  const beginEditDrag = useCallback((srcIdx: number) => {
+    editDragSrcRef.current = srcIdx
+    setEditDragSrcIdx(srcIdx)
+  }, [])
+
+  const clearEditDrag = useCallback(() => {
+    editDragSrcRef.current = null
+    setEditDragSrcIdx(null)
+    setEditDropHint(null)
+  }, [])
+
+  const dragOverEditUnit = useCallback((srcIdx: number, e: DragEvent<HTMLDivElement>) => {
+    // 不是从编辑区里拖起来的（比如从外面拖进一个文件）就别接管
+    if (editDragSrcRef.current == null) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const rect = e.currentTarget.getBoundingClientRect()
+    const edge: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    // dragover 每帧都来一发；值没变就回同一个对象，React 会直接跳过这次重渲染
+    setEditDropHint((prev) => (prev && prev.srcIdx === srcIdx && prev.edge === edge ? prev : { srcIdx, edge }))
+  }, [])
+
+  const dropEditUnit = useCallback((targetSrcIdx: number, e: DragEvent<HTMLDivElement>) => {
+    const from = editDragSrcRef.current
+    if (from == null) return
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const edge: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    setEditUnits((prev) => {
+      const fromIdx = prev.findIndex((u) => u.srcIdx === from)
+      const toIdx = prev.findIndex((u) => u.srcIdx === targetSrcIdx)
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev
+      let insertAt = edge === 'before' ? toIdx : toIdx + 1
+      if (fromIdx < insertAt) insertAt-- // 先把自己抽走，它后面的下标要往前挪一格
+      const next = prev.slice()
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(insertAt, 0, moved)
+      return next
+    })
+    clearEditDrag()
+  }, [clearEditDrag])
+
   const saveArticle = async () => {
     if (!selectedPaperId) return
     const built = editUnits.length > 0 ? buildEditedMd() : null
@@ -1660,84 +1880,13 @@ const [aligned_content, set_aligned_content] = useState('')
   }
 
   /**
-   * 把块文档拆成"单元"。译文块不单独出现 —— 它按 `ref`（无编号的按紧邻上一个块）
-   * 归到对应源块的 `cn` 里；块外文本不渲染，但原样留在 `editItems` 里，保存时一并写回。
-   */
-  function buildEditUnits(items: Array<Record<string, any>>): EditUnit[] {
-    const srcIdxById = new Map<string, number>()
-    items.forEach((it, i) => {
-      if (it.t !== 'block' || it.node.kind === 'translation') return
-      const id = blockId(it.node)
-      if (id) srcIdxById.set(id, i)
-    })
-
-    const transBySrc = new Map<number, number>()
-    items.forEach((it, i) => {
-      if (it.t !== 'block' || it.node.kind !== 'translation') return
-      let target: number | null = null
-      if (it.node.ref && srcIdxById.has(it.node.ref)) {
-        target = srcIdxById.get(it.node.ref) ?? null
-      } else if (!it.node.ref) {
-        // 无编号译文（引文的译文）：挂到紧邻的上一个源块，与 blocks.mjs 的读法一致
-        for (let j = i - 1; j >= 0; j--) {
-          if (items[j].t !== 'block') continue
-          if (items[j].node.kind !== 'translation') target = j
-          break
-        }
-      }
-      if (target != null && !transBySrc.has(target)) transBySrc.set(target, i)
-    })
-
-    const units: EditUnit[] = []
-    items.forEach((it, i) => {
-      if (it.t !== 'block' || it.node.kind === 'translation') return
-      const transIdx = transBySrc.get(i) ?? null
-      units.push({
-        key: `blk${i}_${blockId(it.node) ?? it.node.type}`,
-        srcIdx: i,
-        transIdx,
-        label: labelOf(it.node),
-        translatable: isTranslatable(it.node),
-        en: it.content ?? '',
-        cn: transIdx != null ? (items[transIdx].content ?? '') : '',
-      })
-    })
-    return units
-  }
-
-  /**
    * 用编辑态的内容重建整份文档，并回一份"改了什么"的核对结论。
-   *
-   * 重建规则：
-   *   - 源块取 `en`；该有译文的块且 `cn` 非空 → 紧跟一条译文块（保留它原来的 ref）
-   *   - 用户清空译文 → 连译文块一起不要（不是留一条空译文）
-   *   - 单元被删 → 中文一起走（用户说的：没人会只删一种语言）
-   *   - 块外文本按原位置原样写回，一个字不动
-   * 最后过 `renumber`：编号连续、浮动块重新锚定、译文引用同步重定向。
-   * 它只改元信息不碰内容，所以"重排"不会吃掉任何一个字。
+   * 重建规则与顺序都在 `rebuildDocFromUnits` 里（模块级纯函数，可单测）。
    */
   function buildEditedMd(): { md: string; report: string } {
     const beforeUnits = editUnits.length
     const beforeWithCn = editUnits.filter((u) => u.translatable && u.cn.trim()).length
-    const bySrc = new Map(editUnits.map((u) => [u.srcIdx, u]))
-
-    const out: Array<Record<string, any>> = []
-    const droppedLabels: string[] = []
-    editItems.forEach((it, i) => {
-      if (it.t === 'text') { out.push(it); return }
-      if (it.node.kind === 'translation') return
-      const u = bySrc.get(i)
-      if (!u) { droppedLabels.push(labelOf(it.node)); return }
-      out.push({ t: 'block', node: it.node, content: u.en })
-      if (u.translatable && u.cn.trim()) {
-        const node = u.transIdx != null
-          ? editItems[u.transIdx].node
-          : { kind: 'translation', ref: blockId(it.node) }
-        out.push({ t: 'block', node, content: u.cn })
-      }
-    })
-
-    const md = serializeBlocks(renumber(out as any)) as string
+    const { md, droppedLabels } = rebuildDocFromUnits(editItems, editUnits)
 
     // 核对：块数有没有少、编号是不是被重排、哪些该有译文的块现在没有
     const after = readAnyDocument(md).items
@@ -2860,15 +3009,21 @@ const [aligned_content, set_aligned_content] = useState('')
                         <>
                           <p className="text-xs text-slate-400 px-1">
                             共 {editUnits.length} 个块，英文一个框、中文一个框，块标记由系统持有（不显示，也就删不掉）。
-                            删掉某一整块 = 中英一起删；保存时会自动核对块数并重排编号。
+                            删掉某一整块 = 中英一起删；按住块左上角的 ⠿ 可上下拖动换位；保存时会自动核对块数并重排编号。
                             {editModeTextCount > 0 && `另有 ${editModeTextCount} 处块外文本会原样保留。`}
                           </p>
                           {editUnits.map((u) => (
                             <EditBlockCard
                               key={u.key}
                               unit={u}
+                              dragging={editDragSrcIdx === u.srcIdx}
+                              dropEdge={editDropHint?.srcIdx === u.srcIdx ? editDropHint.edge : null}
                               onChange={updateEditUnit}
                               onRemove={removeEditUnit}
+                              onDragStartUnit={beginEditDrag}
+                              onDragOverUnit={dragOverEditUnit}
+                              onDropUnit={dropEditUnit}
+                              onDragEndUnit={clearEditDrag}
                             />
                           ))}
                         </>
