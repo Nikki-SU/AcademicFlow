@@ -4,9 +4,11 @@
  * 图书和文献共用（两者只在 pipeline 上有区别，阅读侧完全对称）。
  *
  * 两种回答路径，由「可信检索」开关决定：
- *   开 → runDualEngine：把当前文档正文作为唯一 ground truth 喂给 AI-1，
+ *   开 → 先联网检索一轮，把「正文 + 检索结果」一起作为 ground truth 喂给 AI-1，
  *        AI-2 逐条核查有没有编造（回答带 pass/fail 审阅结论）
- *   关 → callWebSearch：不喂原文，让 DeepSeek 联网检索后自由回答（附来源列表）
+ *   关 → 不喂原文，让 DeepSeek 联网检索后自由回答（附来源列表）
+ *
+ * 两条路都会联网 —— 区别在于回答受不受「依据」约束、有没有 AI-2 审阅。
  *
  * 对话记录按「一篇文献 / 一本书一个大对话」持久化到
  *   literatures/{slug}/ai-chat.md 或 textbooks/{书名}/ai-chat.md
@@ -59,6 +61,22 @@ const SOURCE_WINDOW = 4000
 const SOURCE_MAX = 12000
 /** 多轮上下文最多回带多少字符 */
 const HISTORY_MAX = 3000
+
+/** 联网检索用的系统提示（两条路径共用） */
+const SEARCH_SYSTEM =
+  '你是学术阅读助手。用户在读一篇文献或一本书，会就其中某个词或某段文字提问。' +
+  '先联网检索再回答，说明该概念在学术界的通行含义、学科背景和典型用法。' +
+  '引用检索到的说法要给出处；不确定的地方明确说不确定，不要编造文献、作者或出处。用中文回答。'
+
+/**
+ * 注入「依据」的检索来源条数上限。
+ *
+ * 注意：检索正文**不截断** —— 双引擎的 AI-2 是靠 `sourceMaterial.includes(span)`
+ * 做字面引证核对的，正文一旦从中间截断，AI-2 引用的片段就会跨过断点、匹配不上，
+ * 于是明明判定 supported 也被算成核验失败（实测踩过）。控制体量要靠 AI-2 的
+ * 输出预算（后端已从 16000 提到 32000），不是靠截断依据。
+ */
+const SEARCH_MATERIAL_SOURCES = 8
 
 function formatMinute(ts: number): string {
   const d = new Date(ts)
@@ -243,21 +261,56 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       setMessages((prev) => [...prev, userMsg])
       setInput('')
       setBusy(true)
-      setStage(useTrusted ? 'AI-1 生成中…' : '联网检索中…')
+      setStage('联网检索中…')
 
       try {
         if (useTrusted) {
           const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
-          const sourceMaterial = buildSourceMaterial(docMarkdown, focusText)
-          if (!sourceMaterial.trim()) {
+          const docMaterial = buildSourceMaterial(docMarkdown, focusText)
+          if (!docMaterial.trim()) {
             throw new Error('这篇文章还没有正文，可信检索没有可锚定的原文')
           }
+
+          // 可信检索也要能查外部资料：先联网检索一轮，把结果并进「依据」再交给双引擎。
+          // 这样 AI-2 判的是「原文或检索结果有没有支持」，双引擎的判定语义没变，只是依据变宽了。
+          setStage('联网检索中…')
+          let webMaterial = ''
+          let webSources: WebSearchSource[] = []
+          try {
+            const search = await callWebSearch({
+              system: SEARCH_SYSTEM,
+              user: [
+                docTitle ? `【正在读】${docTitle}` : '',
+                focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
+                `【问题】\n${q}`,
+              ].filter(Boolean).join('\n\n'),
+              maxUses: 3,
+            })
+            webSources = search.sources
+            if (search.content.trim()) {
+              webMaterial = [
+                '【联网检索结果（与正文同为可信依据）】',
+                search.content.trim(),
+                webSources.length
+                  ? `【检索来源】\n${webSources.slice(0, SEARCH_MATERIAL_SOURCES).map((s, i) => `${i + 1}. ${s.title || s.url}`).join('\n')}`
+                  : '',
+              ].filter(Boolean).join('\n\n')
+            }
+          } catch (err) {
+            // 检索失败不该让整个提问失败 —— 退回「只依据正文」的可信检索
+            console.warn('[ReadingAsk] 可信检索的联网检索失败，退回只依据正文:', err)
+            toast.warning('联网检索失败，本次只依据正文做可信检索')
+          }
+
+          const sourceMaterial = [docMaterial, webMaterial].filter(Boolean).join('\n\n')
+
           const instruction = [
             historyContext ? `【此前的对话】\n${historyContext}` : '',
             `【当前问题】\n${q}`,
             focusText.trim() ? `【需要解释的文字】\n${focusText.trim()}` : '',
           ].filter(Boolean).join('\n\n')
 
+          setStage('AI-1 生成中…')
           const result = await runDualEngine({
             taskType: 'faithfulness_check',
             sourceMaterial,
@@ -279,7 +332,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             {
               id: `a_${Date.now()}`,
               role: 'assistant',
-              content: result.ai1Output || '（AI 没有返回内容）',
+              content: appendSources(result.ai1Output || '（AI 没有返回内容）', webSources),
               createdAt: Date.now(),
               reviewStatus: result.finalPassed ? 'pass' : 'fail',
             },
@@ -287,10 +340,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
         } else {
           // 联网问答：后端用 AI1_* 直连 DeepSeek 的 Anthropic 兼容端点 + 内置
           // web_search 工具，所以这条路径不需要本地 API Key，也就不经过 settings。
-          const sys =
-            '你是学术阅读助手。用户在读一篇文献或一本书，会就其中某个词或某段文字提问。' +
-            '需要外部知识时先联网检索再回答，说明该概念在学术界的通行含义、学科背景和典型用法。' +
-            '引用检索到的说法要给出处；不确定的地方明确说不确定，不要编造文献、作者或出处。用中文回答。'
+          const sys = SEARCH_SYSTEM
           const userContent = [
             historyContext ? `【此前的对话】\n${historyContext}` : '',
             `【正在读】${docTitle}`,
@@ -388,7 +438,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
           }`}
           title={
             trusted
-              ? '可信检索：回答只依据当前正文，AI-2 逐条核查是否编造'
+              ? '可信检索：先联网检索，回答依据「正文 + 检索结果」，AI-2 逐条核查是否编造'
               : '自由问答：不喂原文，DeepSeek 联网检索后回答，不做审阅（适合查外部知识）'
           }
         >
@@ -488,7 +538,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
               onClick={askExplainInContext}
               disabled={busy}
               className="flex-1 px-2 py-1.5 text-[0.6875rem] bg-white border border-slate-200 rounded-md hover:border-indigo-400 hover:text-indigo-600 transition disabled:opacity-40 text-left"
-              title="开启可信检索，只依据本文原文解释这段文字"
+              title="开启可信检索，结合本文原文与联网检索解释这段文字"
             >
               结合本文解释
             </button>
@@ -523,7 +573,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
         </div>
         <div className="mt-1 text-[0.625rem] text-slate-400">
           {trusted
-            ? '可信检索开：回答只依据正文，AI-2 会核查是否编造'
+            ? '可信检索开：先联网检索，回答受「正文 + 检索结果」约束，AI-2 会核查是否编造'
             : '可信检索关：DeepSeek 联网检索后回答并附来源，不核查是否超出原文'}
         </div>
       </div>

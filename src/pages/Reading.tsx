@@ -27,7 +27,7 @@ import {
 import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
-import { loadNotes, saveNotes, type DocRef } from '../services/readingDocData'
+import { loadNotes, saveNotes, loadProgress, saveProgress, type DocRef, type ReadingProgress } from '../services/readingDocData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
@@ -277,6 +277,19 @@ const [aligned_content, set_aligned_content] = useState('')
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
+
+  // ── 阅读进度：读到哪个标题，下次打开跳回去 ──
+  /** 正文的滚动容器（文献 / 图书各一处，共用同一个 ref） */
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 回填进度时是我们自己在滚，不能被当成用户滚动 */
+  const restoringRef = useRef(false)
+  /** 用户一旦手动滚过，就不再自动回填（否则图片加载完会被拽回去） */
+  const userScrolledRef = useRef(false)
+  const scrollRafRef = useRef(0)
+  const [savedProgress, setSavedProgress] = useState<ReadingProgress | null>(null)
+  /** 当前视口顶部所在的标题锚点 —— 用来在大纲里标出读到哪了 */
+  const [activeAnchor, setActiveAnchor] = useState('')
 
   const isBook = docType === 'book'
 
@@ -592,7 +605,9 @@ const [aligned_content, set_aligned_content] = useState('')
   /** 点大纲跳到正文对应标题 */
   const jumpToAnchor = useCallback((anchor: string) => {
     const el = readerRef.current?.querySelector<HTMLElement>(`[id="${anchor}"]`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setActiveAnchor(anchor)
   }, [])
 
   /**
@@ -714,6 +729,105 @@ const [aligned_content, set_aligned_content] = useState('')
 
   /** 左栏大纲：文献 / 图书共用同一个面板，内容按当前阅读对象取 */
   const outline = isBook ? bookOutline : paperOutline
+
+  // ── 阅读进度 ──
+  // 换对象 → 取出上次读到哪个标题（清掉上一本的定时器，别把进度写到新对象上）
+  useEffect(() => {
+    if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
+    restoringRef.current = false
+    userScrolledRef.current = false
+    setSavedProgress(null)
+    setActiveAnchor('')
+    if (!docRef) return
+    let cancelled = false
+    loadProgress(docRef)
+      .then((p) => { if (!cancelled) setSavedProgress(p) })
+      .catch((err) => console.error('[Reading] 加载阅读进度失败:', err))
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docKey])
+
+  const outlineByAnchor = useMemo(() => {
+    const m = new Map<string, OutlineItem>()
+    outline.forEach((it) => m.set(it.anchor, it))
+    return m
+  }, [outline])
+
+  /**
+   * 当前读到的标题 = 视口顶部往上最近的那个标题。
+   * 这天然就是「最低一级标题」：读到某个 H3 段落时，取到的是 H3 而不是它的 H2 父标题。
+   */
+  const pickCurrentHeading = useCallback((): HTMLElement | null => {
+    const box = scrollRef.current
+    const root = readerRef.current
+    if (!box || !root) return null
+    const boxTop = box.getBoundingClientRect().top
+    let current: HTMLElement | null = null
+    for (const h of Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))) {
+      if (h.getBoundingClientRect().top - boxTop <= 12) current = h
+      else break
+    }
+    return current
+  }, [])
+
+  /** 把上次的进度滚回视野 */
+  const restoreProgress = useCallback(() => {
+    const box = scrollRef.current
+    const root = readerRef.current
+    if (!box || !root || !savedProgress) return
+    // 用户已经自己滚了 → 让位，不再抢滚动条
+    if (userScrolledRef.current) return
+
+    const norm = (s: string) => s.replace(/\s+/g, '').trim()
+    const want = norm(savedProgress.heading || '')
+    const headings = Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
+    // 优先按标题文本找：锚点 id 是渲染时按顺序编的（book-h-N），切显示模式就会变
+    let target = want ? headings.find((h) => norm(h.textContent ?? '') === want) : undefined
+    if (!target && savedProgress.anchor) {
+      target = root.querySelector<HTMLElement>(`[id="${savedProgress.anchor}"]`) ?? undefined
+    }
+    if (!target) return
+
+    restoringRef.current = true
+    box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top - 8
+    setActiveAnchor(target.id)
+    window.setTimeout(() => { restoringRef.current = false }, 120)
+  }, [savedProgress])
+
+  // 正文是异步来的、图片加载还会把版面撑高，所以头两秒补几次；用户一动滚动条就永久让位
+  useEffect(() => {
+    if (!savedProgress) return
+    if (!(isBook ? bookRenderedHtml : paperRenderedHtml)) return
+    const timers = [0, 400, 1200].map((ms) => window.setTimeout(restoreProgress, ms))
+    return () => timers.forEach((t) => window.clearTimeout(t))
+  }, [savedProgress, restoreProgress, isBook, bookRenderedHtml, paperRenderedHtml])
+
+  /** 滚动：rAF 节流更新大纲高亮，停稳 1.2s 后落盘 */
+  const handleReaderScroll = useCallback(() => {
+    if (restoringRef.current) return
+    userScrolledRef.current = true
+    if (scrollRafRef.current) return
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0
+      const el = pickCurrentHeading()
+      if (!el) return
+      const anchor = el.id
+      setActiveAnchor(anchor)
+      if (!docRef) return
+      if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
+      progressSaveTimerRef.current = setTimeout(() => {
+        const item = outlineByAnchor.get(anchor)
+        saveProgress(docRef, {
+          anchor,
+          heading: item?.text ?? (el.textContent ?? '').trim(),
+          level: item?.level ?? Number(el.tagName.slice(1)),
+          updated_at: new Date().toISOString(),
+        }).catch((err) => console.error('[Reading] 保存阅读进度失败:', err))
+      }, 1200)
+    })
+    // docRef 每次渲染都是新对象，但它只有 kind/id 有意义 —— 这里用 docKey 兜住
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickCurrentHeading, outlineByAnchor, docKey])
 
   // 图片预加载：渲染后把 api.github.com/contents URL 换成 blob URL（绕过 GFW 对 raw.githubusercontent.com 的封锁）
   useEffect(() => {
@@ -1151,11 +1265,13 @@ const [aligned_content, set_aligned_content] = useState('')
                   key={item.anchor}
                   onClick={() => jumpToAnchor(item.anchor)}
                   className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
-                    item.level === 1
-                      ? 'font-semibold text-slate-700'
-                      : item.level === 2
-                        ? 'font-medium text-slate-600'
-                        : 'text-slate-500'
+                    item.anchor === activeAnchor
+                      ? 'bg-indigo-50 text-indigo-700 font-medium'
+                      : item.level === 1
+                        ? 'font-semibold text-slate-700'
+                        : item.level === 2
+                          ? 'font-medium text-slate-600'
+                          : 'text-slate-500'
                   }`}
                   style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
                   title={item.text}
@@ -1209,7 +1325,7 @@ const [aligned_content, set_aligned_content] = useState('')
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto" ref={scrollRef} onScroll={handleReaderScroll}>
                 {bookLoading ? (
                   <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
                     <div className="text-center">
@@ -1368,7 +1484,11 @@ const [aligned_content, set_aligned_content] = useState('')
               </div>
             </div>
 
-            <div className={editMode ? 'flex-1 min-h-0' : 'flex-1 overflow-y-auto'}>
+            <div
+              className={editMode ? 'flex-1 min-h-0' : 'flex-1 overflow-y-auto'}
+              ref={scrollRef}
+              onScroll={handleReaderScroll}
+            >
               {selectedPaper.hasMarkdown && selectedPaper.markdownContent ? (
                 editMode ? (
                   <VditorEditor

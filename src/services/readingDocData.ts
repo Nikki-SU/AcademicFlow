@@ -9,6 +9,7 @@
  *   notes.md                        笔记
  *   annotations/annotations.csv     批注
  *   ai-chat.md                      问 AI 的对话记录（一本书 / 一篇文献一个大对话）
+ *   reading-progress.json           阅读进度（读到哪个标题）
  *
  * 所有阅读侧服务都通过 DocRef + 本模块的 path helper 定位文件，
  * 不再各自硬编码 literatures/ 前缀。
@@ -40,6 +41,10 @@ export function chatPath(ref: DocRef): string {
   return `${docBasePath(ref)}/ai-chat.md`
 }
 
+export function progressPath(ref: DocRef): string {
+  return `${docBasePath(ref)}/reading-progress.json`
+}
+
 // ============================================================
 // 笔记
 // ============================================================
@@ -64,4 +69,34 @@ export async function loadReadingChat(ref: DocRef): Promise<string> {
 
 export async function saveReadingChat(ref: DocRef, content: string): Promise<void> {
   await writeMdFile(chatPath(ref), content, 'Update reading AI chat')
+}
+
+// ============================================================
+// 阅读进度（读到哪个标题，下次打开跳回去）
+// ============================================================
+
+export interface ReadingProgress {
+  /** 正文里对应标题的锚点 id（如 book-h-42）；换显示模式会变，只当兜底 */
+  anchor: string
+  /** 标题文本 —— 锚点 id 每次渲染按顺序生成，文本更耐用，优先按它定位 */
+  heading: string
+  level: number
+  /** ISO 时间，落盘后可直接看懂是什么时候读的 */
+  updated_at: string
+}
+
+export async function loadProgress(ref: DocRef): Promise<ReadingProgress | null> {
+  // 强制读远端：进度可能是在另一台机器上更新的，本地缓存会把它盖掉
+  const result = await readMdFile(progressPath(ref), true)
+  if (!result?.content) return null
+  try {
+    const parsed = JSON.parse(result.content) as ReadingProgress
+    return parsed?.heading || parsed?.anchor ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+export async function saveProgress(ref: DocRef, progress: ReadingProgress): Promise<void> {
+  await writeMdFile(progressPath(ref), JSON.stringify(progress, null, 2), 'Update reading progress')
 }
