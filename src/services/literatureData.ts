@@ -473,31 +473,44 @@ export async function saveAlignedMd(doi: string, content: string): Promise<void>
  * 清理旧版遗留的 md 文件。aligned.md 写入后，这些中间产物不再需要。
  * 保留：{slug}.md（主文件）、full.md / fulltext.md / index.md（MinerU 原始产物，永不删）、
  *       images/ 文件夹、vocabulary.csv、annotations.csv
+ *
+ * 先列一次目录再删：这两个文件绝大多数文献早就没有了，
+ * 每次保存都盲删一轮 = 每次保存白跑两个请求（删除本身还带一次 commit 尝试）。
  */
 export async function cleanupLegacyMd(doi: string): Promise<void> {
   const slug = doiToSlug(doi)
   // ⚠️ 不要在这里加 full.md / fulltext.md / index.md：
   // 它们是 MinerU 的原始产物（阅读页图片与英文原文的来源），删除会导致重跑 MinerU。
   // 也不要加 images/（阅读页图片一直需要正常显示）。
-  const paths = [
-    `literatures/${slug}/translation.md`,
-    `literatures/${slug}/aligned.md`,
-  ]
+  const names = ['translation.md', 'aligned.md']
   const ws = useWorkspaceStore.getState()
   const token = useAuthStore.getState().token
   if (!ws.repo || !token) return
 
-  // 逐个尝试删除，404 跳过（文件本来就不存在），其他错误警告
-  const { deleteRepoFiles } = await import('./github')
-  for (const p of paths) {
-    try {
-      await deleteRepoFiles([p], `chore: cleanup legacy ${p}`, ws.repo.owner.login, ws.repo.name, token)
-      console.log(`[cleanupLegacyMd] 已删除 ${p}`)
-    } catch (e: any) {
-      // 404 = 文件不存在，正常跳过；其他错误才警告
-      if (e?.message?.includes('404') || e?.status === 404) continue
-      console.warn(`[cleanupLegacyMd] 删除 ${p} 失败（非关键）:`, e?.message ?? e)
-    }
+  const { githubFetch, deleteRepoFiles } = await import('./github')
+
+  let present: string[] = []
+  try {
+    const res = await githubFetch(
+      `/repos/${ws.repo.owner.login}/${ws.repo.name}/contents/${encodeURI(`literatures/${slug}`)}`,
+      token,
+    )
+    if (!res.ok) return
+    const listing = (await res.json()) as { name?: string }[]
+    if (!Array.isArray(listing)) return
+    present = names
+      .filter((n) => listing.some((f) => f?.name === n))
+      .map((n) => `literatures/${slug}/${n}`)
+  } catch {
+    return // 列目录失败就什么都不做，别拿删除去试探
+  }
+  if (present.length === 0) return
+
+  try {
+    await deleteRepoFiles(present, `chore: cleanup legacy ${slug}`, ws.repo.owner.login, ws.repo.name, token)
+    console.log(`[cleanupLegacyMd] 已删除 ${present.join('、')}`)
+  } catch (e: any) {
+    console.warn('[cleanupLegacyMd] 清理旧文件失败（非关键）:', e?.message ?? e)
   }
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   BookOpen,
@@ -42,7 +42,7 @@ import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml } from '../services/markdown-renderer'
 import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
-import { readAnyDocument, blockId, type ReadBlockItem } from '../services/blocks.mjs'
+import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem } from '../services/blocks.mjs'
 import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits } from '../services/text-highlight'
 import {
   searchLibrary,
@@ -66,6 +66,83 @@ type DocType = 'paper' | 'book' | 'document'
 
 /** 文献的显示模式全集 —— 只用来校验从进度文件里读回来的 mode 是不是合法值 */
 const TRANSLATION_MODES: TranslationMode[] = ['original', 'bilingual', 'chinese', 'english']
+
+/**
+ * 编辑态的一个"单元" = 一个源块 + 它配对的那条译文块。
+ *
+ * 为什么按"块"编辑而不是整篇富文本：用户改的只是文字，整篇编辑器里
+ * `⟨⟨⟨文字·正文·0·12⟩⟩⟩` 这些标记会直接糊在眼前（而且很容易被误删，
+ * 一删整份文档的编号就全乱）。按块切开后，标记由代码持有，人只碰正文；
+ * 中英两块各自一个框，谁也不会串行。
+ */
+interface EditUnit {
+  /** 稳定 key，给 React 用 */
+  key: string
+  /** 源块在 `editItems` 里的下标 */
+  srcIdx: number
+  /** 配对的译文块下标（原文里没有译文则为 null） */
+  transIdx: number | null
+  /** 展示名，如「正文 12」「图 12·1」「引文」 */
+  label: string
+  /** 按块语法，这一块是否"该有译文"（图 / 公式 / 文献 不翻） */
+  translatable: boolean
+  /** 英文（源语言）内容 */
+  en: string
+  /** 中文（译文）内容 */
+  cn: string
+}
+
+/**
+ * 编辑态的一块。单独抽出来 + memo，是为了改一个字只重渲染这一块 ——
+ * 一篇文献动辄一两百个块，整列表跟着每次按键重渲染会明显发顿。
+ */
+const EditBlockCard = memo(function EditBlockCard({
+  unit,
+  onChange,
+  onRemove,
+}: {
+  unit: EditUnit
+  onChange: (srcIdx: number, field: 'en' | 'cn', value: string) => void
+  onRemove: (srcIdx: number) => void
+}) {
+  const rowsFor = (s: string) => Math.min(24, Math.max(2, Math.ceil(s.length / 56)))
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-slate-400 tabular-nums">{unit.label}</span>
+        <button
+          type="button"
+          onClick={() => onRemove(unit.srcIdx)}
+          className="text-xs text-slate-400 hover:text-red-600 transition"
+          title="删掉这一块（中英一起删，保存后生效）"
+        >
+          删除该块
+        </button>
+      </div>
+
+      <textarea
+        value={unit.en}
+        onChange={(e) => onChange(unit.srcIdx, 'en', e.target.value)}
+        rows={rowsFor(unit.en)}
+        spellCheck={false}
+        className="w-full px-3 py-2 text-sm leading-relaxed border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-y"
+      />
+
+      {unit.translatable ? (
+        <textarea
+          value={unit.cn}
+          onChange={(e) => onChange(unit.srcIdx, 'cn', e.target.value)}
+          rows={rowsFor(unit.cn)}
+          spellCheck={false}
+          placeholder="（这块还没有译文，留空即视为没有译文）"
+          className="mt-2 w-full px-3 py-2 text-sm leading-relaxed border border-slate-200 rounded-lg bg-slate-50/60 focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-y"
+        />
+      ) : (
+        <p className="mt-2 text-xs text-slate-400">这一块按语法不翻译（图 / 公式 / 文献）。</p>
+      )}
+    </div>
+  )
+})
 
 interface Annotation {
   id: string
@@ -349,8 +426,17 @@ export default function ReadingPage() {
 const [aligned_content, set_aligned_content] = useState('')
   /** 编辑模式开关：开启后才允许改文献正文 */
   const [editMode, setEditMode] = useState(false)
-  const [articleDraft, setArticleDraft] = useState('')
+  /** 编辑态：原始条目（含译文块与块外文本），保存时按它还原结构 */
+  const [editItems, setEditItems] = useState<Array<Record<string, any>>>([])
+  /** 编辑态：按块切好的单元列表（界面就渲染这个） */
+  const [editUnits, setEditUnits] = useState<EditUnit[]>([])
+  /** 编辑态兜底：这份文件一个块都没有（还没转出 {slug}.md，只有 MinerU 的 full.md）时，按整篇改 */
+  const [editPlainDraft, setEditPlainDraft] = useState('')
+  /** 保存不同阶段的文案（写盘 / 清理旧文件），省得用户以为卡死了 */
+  const [articleSavingMsg, setArticleSavingMsg] = useState('')
   const [articleSaving, setArticleSaving] = useState(false)
+  /** 保存后的核对结论（块数变化 / 编号重排 / 哪些块丢了译文），可手动关掉 */
+  const [editReport, setEditReport] = useState<string | null>(null)
 
   // 图书阅读（按书名；正文取自 textbooks/{书名}/content.md）
   const [docType, setDocType] = useState<DocType>('paper')
@@ -403,7 +489,6 @@ const [aligned_content, set_aligned_content] = useState('')
 
   const readerRef = useRef<HTMLDivElement>(null)
   const noteVditorRef = useRef<VditorEditorHandle>(null)
-  const articleVditorRef = useRef<VditorEditorHandle>(null)
   const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
@@ -750,7 +835,9 @@ const [aligned_content, set_aligned_content] = useState('')
 
     // 换文献 = 退出编辑模式，避免把上一篇的草稿写到这一篇
     setEditMode(false)
-    setArticleDraft('')
+    setEditItems([])
+    setEditUnits([])
+    setEditPlainDraft('')
 
     async function loadPaperData() {
       try {
@@ -1495,33 +1582,189 @@ const [aligned_content, set_aligned_content] = useState('')
     ? aligned_content
     : (selectedPaper?.markdownContent ?? '')
 
+  /** 编辑态里被删掉的块数 —— 显示在工具栏上，免得手一滑删多了自己不知道 */
+  const editModeRemoved =
+    editItems.filter((it) => it.t === 'block' && it.node.kind !== 'translation').length - editUnits.length
+  /** 块外文本有几处（不渲染，保存时按原位置原样写回） */
+  const editModeTextCount = editItems.filter((it) => it.t === 'text' && String(it.content).trim()).length
+
   const enterEditMode = () => {
     if (!selectedPaper?.hasMarkdown) return
-    setArticleDraft(articleSourceMd)
+    const { items } = parseBlocks(articleSourceMd) as any as { items: Array<Record<string, any>> }
+    setEditItems(items)
+    setEditUnits(buildEditUnits(items))
+    setEditPlainDraft(articleSourceMd)
+    setEditReport(null)
+    setArticleSavingMsg('')
     setEditMode(true)
     setShowToolbar(false)
   }
 
+  /** 退出编辑态（取消或保存完）—— 草稿一律丢掉，避免下次进来还挂着上次的中间态 */
+  const exitEditMode = () => {
+    setEditMode(false)
+    setEditItems([])
+    setEditUnits([])
+    setEditPlainDraft('')
+  }
+
+  /** 编辑态里改某一块的正文（en）或译文（cn） */
+  const updateEditUnit = useCallback((srcIdx: number, field: 'en' | 'cn', value: string) => {
+    setEditUnits((prev) => prev.map((u) => (u.srcIdx === srcIdx ? { ...u, [field]: value } : u)))
+  }, [])
+
+  /**
+   * 删掉一整块（中英一起走）。只从单元列表里移除，不动物件本身 ——
+   * 重建文档时按"单元还在不在"决定要不要写回去，所以顺序、块外文本都不会乱。
+   * 后悔了直接"取消"，不会写仓库。
+   */
+  const removeEditUnit = useCallback((srcIdx: number) => {
+    setEditUnits((prev) => prev.filter((u) => u.srcIdx !== srcIdx))
+  }, [])
+
   const saveArticle = async () => {
     if (!selectedPaperId) return
+    const built = editUnits.length > 0 ? buildEditedMd() : null
+    const nextMd = built ? built.md : editPlainDraft
+
+    // 一个字没改就不要写盘 —— GitHub 一次写入是 GET sha + PUT 两个来回，
+    // 大文献上足够让人怀疑"卡死了"
+    if (nextMd === articleSourceMd) {
+      exitEditMode()
+      setEditReport('没有检测到改动，未写入仓库。')
+      return
+    }
+
     setArticleSaving(true)
     try {
+      setArticleSavingMsg('正在写入仓库…')
       if (aligned_content.trim()) {
-        await saveAlignedMd(selectedPaperId, articleDraft)
-        set_aligned_content(articleDraft)
+        await saveAlignedMd(selectedPaperId, nextMd)
+        set_aligned_content(nextMd)
       } else {
-        await saveFulltext(selectedPaperId, articleDraft)
+        await saveFulltext(selectedPaperId, nextMd)
         setPapers(prev => prev.map(p =>
-          p.id === selectedPaperId ? { ...p, markdownContent: articleDraft } : p
+          p.id === selectedPaperId ? { ...p, markdownContent: nextMd } : p
         ))
       }
-      setEditMode(false)
+      exitEditMode()
+      setEditReport(built ? built.report : '已保存（这份文件没有块结构，按整篇写入）。')
+      toast.success('已保存到仓库')
     } catch (err) {
       console.error('[Reading] 保存文献失败:', err)
-      alert('保存失败，请检查网络或仓库权限后重试')
+      alert(`保存失败：${(err as any)?.message || err}\n\n可以先别关编辑态，重试一次。`)
     } finally {
       setArticleSaving(false)
+      setArticleSavingMsg('')
     }
+  }
+
+  /**
+   * 把块文档拆成"单元"。译文块不单独出现 —— 它按 `ref`（无编号的按紧邻上一个块）
+   * 归到对应源块的 `cn` 里；块外文本不渲染，但原样留在 `editItems` 里，保存时一并写回。
+   */
+  function buildEditUnits(items: Array<Record<string, any>>): EditUnit[] {
+    const srcIdxById = new Map<string, number>()
+    items.forEach((it, i) => {
+      if (it.t !== 'block' || it.node.kind === 'translation') return
+      const id = blockId(it.node)
+      if (id) srcIdxById.set(id, i)
+    })
+
+    const transBySrc = new Map<number, number>()
+    items.forEach((it, i) => {
+      if (it.t !== 'block' || it.node.kind !== 'translation') return
+      let target: number | null = null
+      if (it.node.ref && srcIdxById.has(it.node.ref)) {
+        target = srcIdxById.get(it.node.ref) ?? null
+      } else if (!it.node.ref) {
+        // 无编号译文（引文的译文）：挂到紧邻的上一个源块，与 blocks.mjs 的读法一致
+        for (let j = i - 1; j >= 0; j--) {
+          if (items[j].t !== 'block') continue
+          if (items[j].node.kind !== 'translation') target = j
+          break
+        }
+      }
+      if (target != null && !transBySrc.has(target)) transBySrc.set(target, i)
+    })
+
+    const units: EditUnit[] = []
+    items.forEach((it, i) => {
+      if (it.t !== 'block' || it.node.kind === 'translation') return
+      const transIdx = transBySrc.get(i) ?? null
+      units.push({
+        key: `blk${i}_${blockId(it.node) ?? it.node.type}`,
+        srcIdx: i,
+        transIdx,
+        label: labelOf(it.node),
+        translatable: isTranslatable(it.node),
+        en: it.content ?? '',
+        cn: transIdx != null ? (items[transIdx].content ?? '') : '',
+      })
+    })
+    return units
+  }
+
+  /**
+   * 用编辑态的内容重建整份文档，并回一份"改了什么"的核对结论。
+   *
+   * 重建规则：
+   *   - 源块取 `en`；该有译文的块且 `cn` 非空 → 紧跟一条译文块（保留它原来的 ref）
+   *   - 用户清空译文 → 连译文块一起不要（不是留一条空译文）
+   *   - 单元被删 → 中文一起走（用户说的：没人会只删一种语言）
+   *   - 块外文本按原位置原样写回，一个字不动
+   * 最后过 `renumber`：编号连续、浮动块重新锚定、译文引用同步重定向。
+   * 它只改元信息不碰内容，所以"重排"不会吃掉任何一个字。
+   */
+  function buildEditedMd(): { md: string; report: string } {
+    const beforeUnits = editUnits.length
+    const beforeWithCn = editUnits.filter((u) => u.translatable && u.cn.trim()).length
+    const bySrc = new Map(editUnits.map((u) => [u.srcIdx, u]))
+
+    const out: Array<Record<string, any>> = []
+    const droppedLabels: string[] = []
+    editItems.forEach((it, i) => {
+      if (it.t === 'text') { out.push(it); return }
+      if (it.node.kind === 'translation') return
+      const u = bySrc.get(i)
+      if (!u) { droppedLabels.push(labelOf(it.node)); return }
+      out.push({ t: 'block', node: it.node, content: u.en })
+      if (u.translatable && u.cn.trim()) {
+        const node = u.transIdx != null
+          ? editItems[u.transIdx].node
+          : { kind: 'translation', ref: blockId(it.node) }
+        out.push({ t: 'block', node, content: u.cn })
+      }
+    })
+
+    const md = serializeBlocks(renumber(out as any)) as string
+
+    // 核对：块数有没有少、编号是不是被重排、哪些该有译文的块现在没有
+    const after = readAnyDocument(md).items
+    const afterBlocks = after.filter((it) => it.t === 'block') as ReadBlockItem[]
+    const needTrans = afterBlocks.filter((it) => isTranslatable(it.node))
+    const missing = needTrans.filter((it) => !(it.cn || '').trim())
+    const afterWithCn = needTrans.length - missing.length
+
+    const bits: string[] = [`块数 ${beforeUnits} → ${afterBlocks.length}`]
+    if (droppedLabels.length > 0) {
+      const shown = droppedLabels.slice(0, 8).join('、')
+      bits.push(`删掉了 ${droppedLabels.length} 个块（${shown}${droppedLabels.length > 8 ? ' 等' : ''}）`)
+    } else if (afterBlocks.length < beforeUnits) {
+      bits.push(`少了 ${beforeUnits - afterBlocks.length} 个块`)
+    } else if (afterBlocks.length > beforeUnits) {
+      bits.push(`多了 ${afterBlocks.length - beforeUnits} 个块`)
+    }
+    if (afterWithCn !== beforeWithCn) {
+      bits.push(`带译文的块 ${beforeWithCn} → ${afterWithCn}`)
+    }
+    if (missing.length > 0) {
+      const shown = missing.slice(0, 8).map((it) => labelOf(it.node)).join('、')
+      bits.push(`有 ${missing.length} 个块没有译文（${shown}${missing.length > 8 ? ' 等' : ''}）`)
+    }
+    bits.push('编号已按顺序重排')
+
+    return { md, report: bits.join('；') + '。' }
   }
 
   const exportAllAnnotations = () => {
@@ -2518,18 +2761,22 @@ const [aligned_content, set_aligned_content] = useState('')
                 <div className="w-px h-5 bg-slate-200 mx-1" />
                 {editMode ? (
                   <>
-                    <span className="text-xs text-slate-400 px-1">编辑中 · {articleSourceLabel}</span>
+                    <span className="text-xs text-slate-400 px-1 tabular-nums">
+                      {editModeRemoved > 0
+                        ? `编辑中 · ${articleSourceLabel} · 已删 ${editModeRemoved} 块`
+                        : `编辑中 · ${articleSourceLabel} · ${editUnits.length || 0} 块`}
+                    </span>
                     <button
                       onClick={saveArticle}
                       disabled={articleSaving}
                       className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-50 flex items-center gap-1"
-                      title="保存到仓库"
+                      title="保存到仓库：会自动核对块数、重排编号后再写"
                     >
                       <Save className="w-3.5 h-3.5" />
-                      {articleSaving ? '保存中…' : '保存'}
+                      {articleSaving ? (articleSavingMsg || '保存中…') : '保存'}
                     </button>
                     <button
-                      onClick={() => { setEditMode(false); setArticleDraft('') }}
+                      onClick={exitEditMode}
                       disabled={articleSaving}
                       className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition disabled:opacity-50"
                       title="放弃修改"
@@ -2572,6 +2819,20 @@ const [aligned_content, set_aligned_content] = useState('')
               </div>
             </div>
 
+            {/* 保存后的核对结论：块数变了 / 编号重排了 / 哪些块丢了译文。看一眼就能确认没丢东西 */}
+            {editReport && !editMode && (
+              <div className="flex items-start gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800 flex-shrink-0">
+                <span className="flex-1 min-w-0 break-words">{editReport}</span>
+                <button
+                  onClick={() => setEditReport(null)}
+                  className="text-amber-600 hover:text-amber-900 transition flex-shrink-0"
+                  title="知道了"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             <div
               className={editMode ? 'flex-1 min-h-0' : 'flex-1 overflow-y-auto'}
               ref={scrollRef}
@@ -2579,14 +2840,41 @@ const [aligned_content, set_aligned_content] = useState('')
             >
               {selectedPaper.hasMarkdown && selectedPaper.markdownContent ? (
                 editMode ? (
-                  <VditorEditor
-                    ref={articleVditorRef}
-                    value={articleDraft}
-                    onChange={setArticleDraft}
-                    height="100%"
-                    placeholder="编辑文献 Markdown（⟨⟨⟨…⟩⟩⟩ 为块元信息，改动正文即可）"
-                    className="h-full"
-                  />
+                  <div className="h-full overflow-y-auto" style={{ fontSize: `${fontSize / 16}rem` }}>
+                    <div className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)] space-y-3">
+                      {editUnits.length === 0 ? (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-[var(--reader-cardpad)]">
+                          <p className="text-sm text-slate-500 mb-3">
+                            这份文件还没有块结构（多半是 MinerU 的 <code className="px-1 bg-slate-100 rounded">full.md</code>），
+                            只能按整篇改。转成 <code className="px-1 bg-slate-100 rounded">{articleSourceLabel}</code> 之后
+                            就会按「块」分开编辑，中英各一个框。
+                          </p>
+                          <textarea
+                            value={editPlainDraft}
+                            onChange={(e) => setEditPlainDraft(e.target.value)}
+                            spellCheck={false}
+                            className="w-full h-[60vh] p-3 font-mono text-xs leading-relaxed border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                          />
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-xs text-slate-400 px-1">
+                            共 {editUnits.length} 个块，英文一个框、中文一个框，块标记由系统持有（不显示，也就删不掉）。
+                            删掉某一整块 = 中英一起删；保存时会自动核对块数并重排编号。
+                            {editModeTextCount > 0 && `另有 ${editModeTextCount} 处块外文本会原样保留。`}
+                          </p>
+                          {editUnits.map((u) => (
+                            <EditBlockCard
+                              key={u.key}
+                              unit={u}
+                              onChange={updateEditUnit}
+                              onRemove={removeEditUnit}
+                            />
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                 <div
                   className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)]"
