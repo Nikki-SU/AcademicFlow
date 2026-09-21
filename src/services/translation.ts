@@ -204,13 +204,8 @@ export function renderAlignedMdHtml(
   }
   const showOriginal = mode === 'original' || mode === 'english' || mode === 'bilingual'
 
-  /** 跨模式补显示的容器：带上"为什么这里突然出现另一种语言"的说明 */
-  const pinnedBox = (label: string, inner: string) =>
-    '<div class="annotation-pinned bg-amber-50/60 border-l-2 border-amber-400 pl-3 my-2">' +
-    `<div class="text-xs text-amber-700 mb-1 not-italic">${label}</div>` +
-    inner +
-    '</div>'
-
+  /** 跨模式补显示：当前模式不展示的那种语言，这一段有批注 → 原样补出来，
+   *  不加任何说明文字/边框（用户要求版面干净，去掉说明小字）。 */
   for (const it of items) {
     // 块外裸文本：原样渲染，绝不吞掉
     if (it.t === 'text') {
@@ -265,10 +260,10 @@ export function renderAlignedMdHtml(
     // 跨模式补显示：当前模式不展示的那种语言，这一段有批注 → 一并显示，
     // 让批注始终有一个看得见的落点。（双语模式两边都在，无需补）
     if (mode === 'chinese' && bid && pinnedEn.has(bid) && body) {
-      chunks.push(pinnedBox('英文原文（此处有一条批注）', wrapEn(render(body))))
+      chunks.push(wrapEn(render(body)))
     }
     if ((mode === 'original' || mode === 'english') && bid && pinnedCn.has(bid) && !blank(cn)) {
-      chunks.push(pinnedBox('中文译文（此处有一条批注）', wrapCn(cnBox(cn!.trim()))))
+      chunks.push(wrapCn(cnBox(cn!.trim())))
     }
   }
 

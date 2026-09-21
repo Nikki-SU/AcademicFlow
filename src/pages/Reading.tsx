@@ -587,18 +587,10 @@ const [aligned_content, set_aligned_content] = useState('')
     window.getSelection()?.removeAllRanges()
 
     // 同一处再批一次 = 改那一条，不新增。
-    // 判定口径：同一个块 + 文本互为包含（含完全相同）。这样"我在这句话上又点了一次"
-    // 不会变成第二条；但同一段里标另一句仍然是独立的一条 —— 段内可以随处批注。
-    // 只在这个批注确实锚到了块上时才做合并（老数据/图书没有块锚点，无法判断"同一处"）。
-    const norm = (s: string) => s.replace(/\s+/g, '')
+    // 判定口径（用户定）：锚点相同 **且选中文字一字不差相同** 才算同一条。
+    // 同段里选另一句 —— 哪怕文字互相包含 —— 都是独立的一条，段内可随处批注。
     const dup = anchor
-      ? annotations.find(
-          (a) =>
-            a.anchor === anchor &&
-            (a.text === selectedText ||
-              norm(a.text).includes(norm(selectedText)) ||
-              norm(selectedText).includes(norm(a.text))),
-        )
+      ? annotations.find((a) => a.anchor === anchor && a.text === selectedText)
       : undefined
 
     if (dup) {
