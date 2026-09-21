@@ -2,15 +2,20 @@
  * 后端 workflow 安装/检测 —— 前端通过 GitHub Contents API 把 workflow 文件写入用户私库
  *
  * 为什么不内嵌在 WORKSPACE_SKELETON：
- *   - 4 个 workflow yml + 4 个 runner 脚本 (paper_convert / ai_call /
- *     mineru_connectivity_test / ai_connectivity_test) 合计 ~75KB base64
+ *   - workflow yml + runner 脚本合计 ~470KB base64
  *   - 如果初始骨架生成时就塞进去，骨架初始化包膨胀、且老用户升级没有路径
  *   - 这里做成可检测 + 可手动触发写入，老用户也能一键升级
+ *
+ * ⚠️ 写入是**无条件覆盖**（见 writePipelineFiles）：本地嵌入的副本必须与
+ *    academicflow-workspace@main 上正在运行的版本保持一致。任何一边先行改动而
+ *    另一边没跟上，重装一次就会造成「前端把后端打回旧版」或「装了别人不认识的版本」。
+ *    同步方法见 docs/BACKEND_PENDING.md。
  */
 
 import {
   PAPER_CONVERT_YML_B64, AI_CALL_YML_B64,
   PAPER_CONVERT_MJS_B64, AI_CALL_MJS_B64, BLOCKS_MJS_B64,
+  DUAL_ENGINE_RUNNER_MJS_B64,
   MINERU_CONNECTIVITY_TEST_YML_B64, MINERU_CONNECTIVITY_TEST_MJS_B64,
   AI_CONNECTIVITY_TEST_YML_B64, AI_CONNECTIVITY_TEST_MJS_B64,
   PIPELINE_FILES,
@@ -65,7 +70,7 @@ export async function detectLegacyPipelineFiles(
 
 /**
  * 检测用户私库是否已经安装了后端 workflow
- * 逐个试读 PIPELINE_FILES 里的 8 个文件 (4 yml + 4 mjs), 全部存在 → 已安装
+ * 逐个试读 PIPELINE_FILES 里的文件（yml + mjs），全部存在 → 已安装
  */
 export async function checkPipelineInstalled(
   owner: string,
@@ -109,6 +114,7 @@ export async function writePipelineFiles(
     PAPER_CONVERT_MJS_B64,
     AI_CALL_MJS_B64,
     BLOCKS_MJS_B64,
+    DUAL_ENGINE_RUNNER_MJS_B64,
     MINERU_CONNECTIVITY_TEST_YML_B64,
     MINERU_CONNECTIVITY_TEST_MJS_B64,
     AI_CONNECTIVITY_TEST_YML_B64,
