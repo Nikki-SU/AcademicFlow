@@ -1118,8 +1118,9 @@ const [aligned_content, set_aligned_content] = useState('')
    * 若上一块结束时停在"有色行"，这一块首行就必须从无色开始。否则每个段落都从有色
    * 开头 —— 段落短的时候会连出一片同色，接缝处断掉，等于白涂。
    *
-   * 图表不上色：块里出现 img / svg / canvas / table / 公式容器就整块跳过，并且不
-   * 计入行号（它们不参与交替，否则会把相位推歪）。
+   * 不上色但**照常计行数**的：表格、纯图片块（Scheme / Figure 这种）。它们占着版面
+   * 高度，跳过不计数会把后面所有文字的相位推歪；计进去才连得上。
+   * 公式不在此列 —— 行内公式本来就是正文的一行，正常上色、正常计数。
    *
    * 实现：读每个文本块自己的 computed line-height，用 repeating-linear-gradient 按
    * 2×行高铺条纹；background-origin/clip 设成 content-box，让条纹从内容盒顶端
@@ -1139,40 +1140,59 @@ const [aligned_content, set_aligned_content] = useState('')
     })
     if (!zebraBands) return
 
-    /** 只给"直接含正文文字"的块级元素铺条纹，避免套在纯容器上白算一遍 */
-    const hasDirectText = (el: Element) => {
-      for (const n of Array.from(el.childNodes)) {
-        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) return true
-      }
-      return false
-    }
-
     const INK = 'rgba(132, 204, 22, 0.10)'
     /** 全文已累计的行数：决定下一块首行是有色还是无色 */
     let lineIndex = 0
+    /** 块级标签：用来判断"叶子块"（里面没有别的块，高度不会被重复计） */
+    const NESTED = 'p,div,h1,h2,h3,h4,h5,h6,ul,ol,li,table,blockquote,pre,figure,figcaption,dl,dd,dt'
+    /** 已经计过行数的元素：祖先计过就不许再计，否则高度被算两遍、相位推歪 */
+    const counted = new Set<Element>()
 
     for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
-      if (!hasDirectText(el)) continue
-      // 代码块、公式、表格里的文本不参与（行高/布局自成一套，表格整体不上色）
-      if (el.closest('code, pre, .katex, math, svg, table')) continue
-      // 图表块：整块不上色，也不计入行号
-      if (el.querySelector('img, svg, canvas, table, .katex, math')) continue
+      // 表格整体在这里算一次，表内元素不单独处理
+      const isTable = el.tagName === 'TABLE'
+      if (!isTable && el.closest('table')) continue
+
       const cs = getComputedStyle(el)
-      if (!/^(block|list-item|table-cell|table-caption)$/.test(cs.display)) continue
+      if (!/^(block|list-item|table|table-row|table-cell|table-caption)$/.test(cs.display)) continue
+      // 只处理叶子块：父容器会把子块的高度重复算一遍
+      if (el.querySelector(NESTED)) continue
+
+      // NESTED 只认标签，抓不住"行内元素但 display:block"的东西（KaTeX 的 .katex-display
+      // 就是这种）。所以再兜一层：祖先已经计过行，这个元素一律跳过。
+      let anc = el.parentElement
+      let alreadyCounted = false
+      while (anc && anc !== root) {
+        if (counted.has(anc)) {
+          alreadyCounted = true
+          break
+        }
+        anc = anc.parentElement
+      }
+      if (alreadyCounted) continue
+
       const lh = parseFloat(cs.lineHeight)
       if (!Number.isFinite(lh) || lh <= 0) continue
+
+      const hasText = (el.textContent ?? '').trim().length > 0
+      const isFigure = !hasText && !!el.querySelector('img, svg, canvas')
+      // hr / 空容器：既没字也没图，不占文字行，直接跳过（否则会平白推进相位）
+      if (!hasText && !isFigure && !isTable) continue
 
       const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
       const lines = Math.max(1, Math.round((el.clientHeight - padY) / lh))
 
-      // 首行该不该有色，由"全文行号"的奇偶决定 —— 这样块与块之间的条纹才是连着的
-      el.style.backgroundImage =
-        lineIndex % 2 === 0
-          ? `repeating-linear-gradient(to bottom, ${INK} 0 ${lh}px, transparent ${lh}px ${lh * 2}px)`
-          : `repeating-linear-gradient(to bottom, transparent 0 ${lh}px, ${INK} ${lh}px ${lh * 2}px)`
-      el.style.backgroundOrigin = 'content-box'
-      el.style.backgroundClip = 'content-box'
+      if (hasText && !isTable) {
+        // 首行该不该有色，由"全文行号"的奇偶决定 —— 块与块之间的条纹才是连着的
+        el.style.backgroundImage =
+          lineIndex % 2 === 0
+            ? `repeating-linear-gradient(to bottom, ${INK} 0 ${lh}px, transparent ${lh}px ${lh * 2}px)`
+            : `repeating-linear-gradient(to bottom, transparent 0 ${lh}px, ${INK} ${lh}px ${lh * 2}px)`
+        el.style.backgroundOrigin = 'content-box'
+        el.style.backgroundClip = 'content-box'
+      }
 
+      counted.add(el)
       lineIndex += lines
     }
   }, [zebraBands, paperRenderedHtml, bookRenderedHtml])
