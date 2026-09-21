@@ -151,10 +151,19 @@ function findFirstMd(dir) {
 }
 
 /**
+ * 扫描件没有文字层，MinerU 必须开 OCR 才能出文字；有文字层的 PDF 走原生抽取
+ * 又快又准，不该开。
+ * 判据：有文字层的 PDF 一定带 /Font 资源，纯扫描件一个都没有（只有整页图片）。
+ */
+function needsOcr(pdfBuf) {
+  return !pdfBuf.includes('/Font')
+}
+
+/**
  * 把若干段 PDF 一次性交给 MinerU 转换，返回每段的 markdown + 合并后的图片。
  * chunks: [{ name, buf }]，顺序即最终拼接顺序。
  */
-async function mineruConvertBatch(chunks, onProgress) {
+async function mineruConvertBatch(chunks, isOcr, onProgress) {
   for (const c of chunks) {
     if (c.buf.length > MAX_BLOB_SIZE) {
       throw new Error(`分段 ${c.name} 体积 ${c.buf.length} 超过 100MB blob 硬限`)
@@ -164,7 +173,7 @@ async function mineruConvertBatch(chunks, onProgress) {
   // 1. 一次 batch 申请所有段的上传 URL
   onProgress({ stage: 'mineru_apply', message: `申请上传 URL（共 ${chunks.length} 段）...`, pct: 5 })
   const applyResp = await mineruRequest('POST', '/file-urls/batch', {
-    files: chunks.map((c) => ({ name: c.name, is_ocr: false })),
+    files: chunks.map((c) => ({ name: c.name, is_ocr: isOcr })),
     model_version: 'pipeline',
     enable_formula: true,
     enable_table: true,
@@ -193,11 +202,12 @@ async function mineruConvertBatch(chunks, onProgress) {
   }
 
   // 3. 轮询，等所有段 done
-  //    整本书比单篇慢得多：5s × 120 轮 = 最长 10 分钟
-  const MAX_ROUNDS = 120
+  //    整本书比单篇慢得多，扫描件还要逐页 OCR：10s × 240 轮 = 最长 40 分钟
+  const MAX_ROUNDS = 240
+  const POLL_INTERVAL_MS = 10_000
   const results = new Array(chunks.length).fill(null)
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    await sleep(5000)
+    await sleep(POLL_INTERVAL_MS)
     const pollResp = await mineruRequest('GET', `/extract-results/batch/${batchId}`)
     const list = pollResp.data?.extract_result || []
     for (const r of list) {
@@ -404,6 +414,10 @@ async function main() {
     const { buf: pdfBuf } = await readSourcePdf(pdf_path)
     console.log(`  ✓ PDF ${pdfBuf.length} bytes`)
 
+    // 扫描件（无文字层）必须显式开 OCR，否则 MinerU 返回空正文
+    const isOcr = needsOcr(pdfBuf)
+    console.log(`  ✓ 文字层检测：${isOcr ? '未检测到 → is_ocr=true' : '正常 → is_ocr=false'}`)
+
     // 2. 按页切分（不超过阈值就是单段）
     const baseName = path.basename(pdf_path)
     const tmpPdf = path.join(bookDirLocal, `.tmp_${baseName}`)
@@ -417,7 +431,7 @@ async function main() {
     console.log(`  ✓ 待转换 ${chunks.length} 段`)
 
     // 3. MinerU（唯一的重活）
-    const { markdowns, images } = await mineruConvertBatch(chunks, (p) => {
+    const { markdowns, images } = await mineruConvertBatch(chunks, isOcr, (p) => {
       writeProgress(book_id, { ...p, node: 0 }).catch(() => {})
     })
 
