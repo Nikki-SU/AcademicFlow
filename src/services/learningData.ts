@@ -14,6 +14,10 @@ import { readCsvFile, writeCsvFile } from './userData'
 export type WordStatus = 'new' | 'learning' | 'learned' | 'mastered' | 'error_book'
 export type SentenceStatus = 'new' | 'learning' | 'mastered'
 export type TranslationStatus = 'pending' | 'completed'
+/** 翻译方向：en2cn = 英译中；cn2en = 中译英 */
+export type TranslationDirection = 'en2cn' | 'cn2en'
+/** 题面来源：abstract = 文献摘要；text = 正文/任意文本 */
+export type TranslationSourceKind = 'abstract' | 'text'
 
 export interface WordData {
   id: string
@@ -58,12 +62,32 @@ export interface SentenceData {
   reviewCount: number
   sm2Interval: number
   sm2Ease: number
+  /** 踩分点（判分标准，主要是逻辑关系与词汇）；AI 提取时生成，用户可事后编辑 */
+  scoringPoints: string[]
+  /** AI 说明这句"难"在哪（可选，仅用于展示） */
+  difficultyNote?: string
+  /** 以下练习记录字段与 TranslationData 对称：让长难句也能作答 + 判分 */
+  latestUserTranslation: string
+  latestAiFeedback: string
+  latestErrorWords: string
+  practiceCount: number
+  lastPractice: number
 }
 
 export interface TranslationData {
   id: string
+  /** 题面原文：按方向是英文（en2cn）或中文（cn2en） */
   originalText: string
+  /** 翻译方向（必须落库） */
+  direction: TranslationDirection
+  /** 预置参考答案 */
+  referenceTranslation: string
+  /** 踩分点（判分标准） */
+  scoringPoints: string[]
+  /** 题面来自摘要还是正文 */
+  sourceKind: TranslationSourceKind
   sourceDoi: string
+  /** 用户最近一次作答（语义已从"人工参考译文"拆出来） */
   latestUserTranslation: string
   latestAiFeedback: string
   latestErrorWords: string
@@ -88,13 +112,43 @@ const VALID_WORD_STATUS = new Set(['new', 'learning', 'learned', 'mastered', 'er
 const SENTENCE_HEADERS = [
   'id', 'sentence_en', 'sentence_cn', 'ai_reference_cn', 'source_doi',
   'status', 'added_at', 'last_review', 'review_count', 'sm2_interval', 'sm2_ease',
+  // 以下为新增列，一律追加在末尾，保证旧行按列索引读取不错位（缺列给安全默认）
+  'scoring_points', 'difficulty_note',
+  'latest_user_translation', 'latest_ai_feedback', 'latest_error_words',
+  'practice_count', 'last_practice',
 ]
 
 const TRANSLATION_HEADERS = [
   'id', 'original_text', 'source_doi', 'latest_user_translation',
   'latest_ai_feedback', 'latest_error_words', 'status', 'added_at',
   'last_practice', 'practice_count',
+  // 新增列一律追加在末尾：direction / reference_translation / scoring_points / source_kind
+  'direction', 'reference_translation', 'scoring_points', 'source_kind',
 ]
+
+/**
+ * 解析踩分点列（CSV 里是 JSON 数组字符串）。
+ * 容错：空值 / 坏 JSON / 非数组一律返回 []，绝不抛错（旧行没有该列）。
+ */
+function parseScoringPoints(raw: string | undefined): string[] {
+  const t = (raw || '').trim()
+  if (!t) return []
+  try {
+    const arr = JSON.parse(t)
+    if (Array.isArray(arr)) {
+      return arr.map((x) => String(x).trim()).filter(Boolean)
+    }
+  } catch {
+    // 坏 JSON：当作没有踩分点
+  }
+  return []
+}
+
+/** 序列化踩分点 → JSON 数组字符串（保证与 parseScoringPoints 往返一致） */
+function serializeScoringPoints(points: string[] | undefined): string {
+  const list = (points || []).map((s) => String(s)).filter((s) => s.trim())
+  return JSON.stringify(list)
+}
 
 /**
  * SM-2 间隔重复算法（简化版）
@@ -308,6 +362,7 @@ export async function loadSentences(force = false): Promise<SentenceData[]> {
     SENTENCES_PATH,
     (rows) => {
       if (rows.length <= 1) return []
+      // 表头感知：旧格式无 scoring_points 列，新列一律在末尾，缺列时 r[n] 为 undefined → 安全默认
       return rows.slice(1).map((r) => ({
         id: r[0] || '',
         sentenceEn: r[1] || '',
@@ -315,11 +370,18 @@ export async function loadSentences(force = false): Promise<SentenceData[]> {
         aiReferenceCn: r[3] || '',
         sourceDoi: r[4] || '',
         status: (r[5] as SentenceStatus) || 'new',
-        addedAt: parseInt(r[6] || '0', 10),
-        lastReview: parseInt(r[7] || '0', 10),
-        reviewCount: parseInt(r[8] || '0', 10),
-        sm2Interval: parseFloat(r[9] || '0'),
-        sm2Ease: parseFloat(r[10] || '2.5'),
+        addedAt: parseInt(r[6] || '0', 10) || 0,
+        lastReview: parseInt(r[7] || '0', 10) || 0,
+        reviewCount: parseInt(r[8] || '0', 10) || 0,
+        sm2Interval: parseFloat(r[9] || '0') || 0,
+        sm2Ease: parseFloat(r[10] || '2.5') || 2.5,
+        scoringPoints: parseScoringPoints(r[11]),
+        difficultyNote: (r[12] || '').trim() || undefined,
+        latestUserTranslation: r[13] || '',
+        latestAiFeedback: r[14] || '',
+        latestErrorWords: r[15] || '',
+        practiceCount: parseInt(r[16] || '0', 10) || 0,
+        lastPractice: parseInt(r[17] || '0', 10) || 0,
       }))
     },
     force,
@@ -343,6 +405,13 @@ export async function saveSentences(sentences: SentenceData[]): Promise<void> {
       String(s.reviewCount),
       String(s.sm2Interval),
       String(s.sm2Ease),
+      serializeScoringPoints(s.scoringPoints),
+      s.difficultyNote || '',
+      s.latestUserTranslation || '',
+      s.latestAiFeedback || '',
+      s.latestErrorWords || '',
+      String(s.practiceCount || 0),
+      String(s.lastPractice || 0),
     ],
   )
 }
@@ -356,18 +425,42 @@ export async function loadTranslations(force = false): Promise<TranslationData[]
     TRANSLATION_PATH,
     (rows) => {
       if (rows.length <= 1) return []
-      return rows.slice(1).map((r) => ({
-        id: r[0] || '',
-        originalText: r[1] || '',
-        sourceDoi: r[2] || '',
-        latestUserTranslation: r[3] || '',
-        latestAiFeedback: r[4] || '',
-        latestErrorWords: r[5] || '',
-        status: (r[6] as TranslationStatus) || 'pending',
-        addedAt: parseInt(r[7] || '0', 10),
-        lastPractice: parseInt(r[8] || '0', 10),
-        practiceCount: parseInt(r[9] || '0', 10),
-      }))
+      const header = rows[0].map((h) => (h || '').trim())
+      // 表头感知：新格式已含 reference_translation 列；旧格式没有（新列在末尾，缺列 r[n]=undefined）
+      const hasNewCols = header.includes('reference_translation')
+      return rows.slice(1).map((r) => {
+        let latestUserTranslation = r[3] || ''
+        let referenceTranslation = r[11] || ''
+
+        // 历史包袱迁移：旧版 AddTranslationModal 把用户手填的"参考译文"直接写进了
+        // latest_user_translation（当时既没有 reference_translation 列，也没有"用户作答"语义）。
+        // 遇旧行（无新增列）且 reference_translation 为空而 latest_user_translation 非空时，
+        // 把这份人工答案搬回 referenceTranslation 并清空 latestUserTranslation；
+        // 下次保存会把迁移结果写回新列，从而完成一次性迁移。
+        if (!hasNewCols && !referenceTranslation.trim() && latestUserTranslation.trim()) {
+          referenceTranslation = latestUserTranslation
+          latestUserTranslation = ''
+        }
+
+        const rawDir = (r[10] || '').trim()
+        const rawKind = (r[13] || '').trim()
+        return {
+          id: r[0] || '',
+          originalText: r[1] || '',
+          sourceDoi: r[2] || '',
+          latestUserTranslation,
+          latestAiFeedback: r[4] || '',
+          latestErrorWords: r[5] || '',
+          status: (r[6] as TranslationStatus) || 'pending',
+          addedAt: parseInt(r[7] || '0', 10) || 0,
+          lastPractice: parseInt(r[8] || '0', 10) || 0,
+          practiceCount: parseInt(r[9] || '0', 10) || 0,
+          direction: (rawDir === 'cn2en' ? 'cn2en' : 'en2cn') as TranslationDirection,
+          referenceTranslation,
+          scoringPoints: parseScoringPoints(r[12]),
+          sourceKind: (rawKind === 'text' ? 'text' : 'abstract') as TranslationSourceKind,
+        }
+      })
     },
     force,
   )
@@ -382,13 +475,17 @@ export async function saveTranslations(translations: TranslationData[]): Promise
       t.id,
       t.originalText,
       t.sourceDoi,
-      t.latestUserTranslation,
-      t.latestAiFeedback,
-      t.latestErrorWords,
+      t.latestUserTranslation || '',
+      t.latestAiFeedback || '',
+      t.latestErrorWords || '',
       t.status,
       String(t.addedAt),
       String(t.lastPractice),
       String(t.practiceCount),
+      t.direction,
+      t.referenceTranslation || '',
+      serializeScoringPoints(t.scoringPoints),
+      t.sourceKind,
     ],
   )
 }

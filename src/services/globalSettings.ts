@@ -25,6 +25,8 @@ export interface GlobalSettingsData {
   autoExtractWords: boolean
   mineruDebugMode: boolean
   wordGenCount: number
+  /** 长难句提取数量（学习页 AI 提取，范围 3-30） */
+  sentenceGenCount: number
   /** 各阶段思考模式（runner 直接读这个文件，拼进请求体）—— off | low | high | max */
   thinkingClean: string
   thinkingTag: string
@@ -107,6 +109,11 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
         if (!isNaN(n)) result.wordGenCount = Math.min(50, Math.max(10, n))
         break
       }
+      case 'sentence_gen_count': {
+        const n = parseInt(value, 10)
+        if (!isNaN(n)) result.sentenceGenCount = Math.min(30, Math.max(3, n))
+        break
+      }
       case 'ai_thinking_clean':
         result.thinkingClean = value
         break
@@ -168,6 +175,7 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - auto_extract_words: ${s.autoExtractWords}
 - mineru_debug_mode: ${s.mineruDebugMode}
 - word_gen_count: ${s.wordGenCount}
+- sentence_gen_count: ${s.sentenceGenCount}
 
 ## 追踪
 - daily_push_time: 08:00

@@ -114,6 +114,22 @@ function parseProgressMd(md: string): LearningProgress {
       case 'word_enabled_types':
         result.wordEnabledTypes = value ? value.split(',').filter(Boolean) : []
         break
+      // 新版 CAT 式单词学习设置 —— 以前只写不读回，导致刷新后用户设置丢失，这里补齐解析
+      case 'word_queue_length':
+        result.wordQueueLength = parseInt(value, 10) || 0
+        break
+      case 'word_master_count':
+        result.wordMasterCount = parseInt(value, 10) || 0
+        break
+      case 'word_question_types':
+        result.wordQuestionTypes = value ? value.split(',').filter(Boolean) : []
+        break
+      case 'word_allow_zhan':
+        result.wordAllowZhan = value === 'true'
+        break
+      case 'word_voice_enabled':
+        result.wordVoiceEnabled = value === 'true'
+        break
       case 'sentence_current_index':
         result.sentenceCurrentIndex = parseInt(value, 10) || 0
         break
@@ -142,6 +158,12 @@ function serializeProgressMd(p: LearningProgress): string {
   if (p.wordCurrentType !== undefined) lines.push(`- word_current_type: ${p.wordCurrentType}`)
   if (p.wordRandomMode !== undefined) lines.push(`- word_random_mode: ${p.wordRandomMode}`)
   if (p.wordEnabledTypes !== undefined) lines.push(`- word_enabled_types: ${p.wordEnabledTypes.join(',')}`)
+  // 新版 CAT 式单词学习设置 —— 之前漏写，导致刷新后 WordSection 的设置在重新加载时丢失
+  if (p.wordQueueLength !== undefined) lines.push(`- word_queue_length: ${p.wordQueueLength}`)
+  if (p.wordMasterCount !== undefined) lines.push(`- word_master_count: ${p.wordMasterCount}`)
+  if (p.wordQuestionTypes !== undefined) lines.push(`- word_question_types: ${p.wordQuestionTypes.join(',')}`)
+  if (p.wordAllowZhan !== undefined) lines.push(`- word_allow_zhan: ${p.wordAllowZhan}`)
+  if (p.wordVoiceEnabled !== undefined) lines.push(`- word_voice_enabled: ${p.wordVoiceEnabled}`)
   if (p.sentenceCurrentIndex !== undefined) lines.push(`- sentence_current_index: ${p.sentenceCurrentIndex}`)
   if (p.translationCurrentIndex !== undefined) lines.push(`- translation_current_index: ${p.translationCurrentIndex}`)
   if (p.todayLearned !== undefined) lines.push(`- today_learned: ${p.todayLearned.join(',')}`)

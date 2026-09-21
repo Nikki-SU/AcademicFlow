@@ -242,6 +242,8 @@ export interface SettingsData {
   mineruDebugMode: boolean
   /** 单词生成数量（后置任务 AI-1 每篇文献提取的核心单词数，范围 10-50） */
   wordGenCount: number
+  /** 长难句提取数量（学习页 AI 提取每篇文献的长难句条数，范围 3-30，默认 8） */
+  sentenceGenCount: number
   /**
    * 各阶段思考模式（runner 从 settings/global.md 读取后拼进请求体）
    * 按阶段分开设置：清理/打标/翻译是机械任务，关掉思考可让输出预算全部留给正文；

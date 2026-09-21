@@ -7,6 +7,8 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Check,
   X,
   BookOpen,
@@ -16,14 +18,20 @@ import {
   PenTool,
   MessageSquare,
   FileText,
+  Loader2,
+  Square,
+  Pencil,
+  History,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
-import type { WordData, SentenceData, TranslationData } from '../services/learningData'
+import type { WordData, SentenceData, TranslationData, TranslationDirection } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
 import { runDualEngine } from '../services/ai/dual-engine'
+import { callAI } from '../services/ai/client'
 import { loadLiteratures, loadAiSourceText, type Literature } from '../services/literatureData'
 
 type TabId = 'words' | 'sentences' | 'translation'
@@ -202,8 +210,14 @@ function speakEnglish(text: string) {
 /** 解析 AI-1 输出的学习内容 JSON（容错：去掉代码块包裹 / 提取首尾花括号） */
 interface ParsedLearningJSON {
   words: Array<{ word?: string; phonetic?: string; meaning?: string; exampleEn?: string; exampleZh?: string }>
-  sentences: Array<{ sentenceEn?: string; sentenceCn?: string; aiReferenceCn?: string }>
-  translations: Array<{ originalText?: string }>
+  sentences: Array<{
+    sentenceEn?: string
+    sentenceCn?: string
+    aiReferenceCn?: string
+    scoring_points?: unknown
+    difficulty_note?: string
+  }>
+  translations: Array<{ direction?: string; originalText?: string; scoring_points?: unknown }>
 }
 function parseLearningJSON(raw: string): ParsedLearningJSON {
   let text = raw.trim()
@@ -224,6 +238,294 @@ function parseLearningJSON(raw: string): ParsedLearningJSON {
   } catch {
     return { words: [], sentences: [], translations: [] }
   }
+}
+
+// ============================================================
+// 长难句 / 翻译练习 共享工具（提取指令、判分、踩分点序列化）
+// ============================================================
+
+/** AI 返回的数组字段归一：string[] / 分隔符字符串 / 其它 → 干净的 string[] */
+function toStringArray(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map((x) => (x == null ? '' : String(x)).trim()).filter(Boolean)
+  }
+  if (typeof raw === 'string') {
+    return raw.split(/[\n;；]+/).map((s) => s.trim()).filter(Boolean)
+  }
+  return []
+}
+
+/** 字符串数组 → CSV 单元字符串（JSON 数组；空则空串，与 learningData 的解析对齐） */
+function listToCsv(list: string[]): string {
+  const clean = (list || []).map((s) => s.trim()).filter(Boolean)
+  return clean.length ? JSON.stringify(clean) : ''
+}
+
+/** CSV 里存回的列表字符串 → string[]（容错 JSON / 旧的分隔符写法） */
+function csvToList(raw: string): string[] {
+  const t = (raw || '').trim()
+  if (!t) return []
+  if (t.startsWith('[')) {
+    try {
+      const arr = JSON.parse(t)
+      if (Array.isArray(arr)) return arr.map((x) => String(x).trim()).filter(Boolean)
+    } catch {
+      // 坏 JSON：退化成按分隔符切
+    }
+  }
+  return t.split(/[\n;；、]+/).map((s) => s.trim()).filter(Boolean)
+}
+
+/** 翻译题方向 → 界面标签 */
+function directionLabelOf(dir: TranslationDirection | undefined): string {
+  return dir === 'cn2en' ? '中译英' : '英译中'
+}
+
+interface LearningGenOptions {
+  words: boolean
+  sentences: boolean
+  translation: boolean
+  /** 生词条数（来自设置 wordGenCount） */
+  wordCount: number
+  /** 长难句条数（来自设置 sentenceGenCount） */
+  sentenceCount: number
+}
+
+/**
+ * 拼装 AI-1 的学习内容提取指令。
+ * 交互式「AI 补充生成」与「历史批量补提」共用同一套 prompt，保证口径一致。
+ *
+ * 摘要翻译的题面/参考答案直接来自文献元数据（abstractEn/abstractCn），
+ * AI 既不翻译也不产出译文，只需给两个方向的**踩分点** —— 这点必须在 prompt 里说死，
+ * 否则模型很容易自作主张去翻译。
+ */
+function buildLearningInstruction(
+  o: LearningGenOptions,
+  abstracts: { en: string; cn: string },
+): string {
+  const tasks: string[] = []
+  if (o.words) {
+    tasks.push(
+      `生词卡片：从原文中挑选 ${o.wordCount} 个学术核心单词，每条含 word/phonetic/meaning(中文)/exampleEn(原文中含该词的句子)/exampleZh(中文译文)`,
+    )
+  }
+  if (o.sentences) {
+    tasks.push(
+      `长难句：从原文中挑选 ${o.sentenceCount} 个有学习价值的长难句，每条含 sentenceEn(原文逐字)/sentenceCn(中文翻译)/aiReferenceCn(参考译文)/scoring_points(踩分点数组)/difficulty_note(说明这句"难"在哪里)`,
+    )
+  }
+  if (o.translation) {
+    tasks.push('摘要翻译踩分点：为下面的英文摘要与中文摘要两个翻译方向各生成一组踩分点（写入 JSON 的 translations 字段）')
+  }
+
+  const lines: string[] = [
+    '请基于上述源材料生成以下学习内容：',
+    tasks.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+    '',
+  ]
+
+  if (o.translation) {
+    lines.push(
+      '【翻译题的两个方向（题面与参考答案由系统直接从文献元数据注入，你不需要翻译，也不得输出任何译文）】',
+      '- en2cn（英译中）：题面 = 英文摘要原文，参考答案 = 中文摘要',
+      '- cn2en（中译英）：题面 = 中文摘要原文，参考答案 = 英文摘要',
+      '你只需为这两个方向分别给出**踩分点**（判分标准，主要覆盖逻辑关系与关键术语/词汇）。',
+      '',
+      `【英文摘要】${abstracts.en || '[NOT_IN_SOURCE] abstract_en'}`,
+      `【中文摘要】${abstracts.cn || '[NOT_IN_SOURCE] abstract_cn'}`,
+      '',
+    )
+  }
+
+  const schema: string[] = []
+  if (o.words) {
+    schema.push('  "words": [{"word":"...","phonetic":"...","meaning":"...","exampleEn":"...","exampleZh":"..."}]')
+  }
+  if (o.sentences) {
+    schema.push('  "sentences": [{"sentenceEn":"...","sentenceCn":"...","aiReferenceCn":"...","scoring_points":["..."],"difficulty_note":"..."}]')
+  }
+  if (o.translation) {
+    schema.push('  "translations": [{"direction":"en2cn","scoring_points":["..."]},{"direction":"cn2en","scoring_points":["..."]}]')
+  }
+
+  lines.push(
+    '【输出格式（严格 JSON，不要 markdown 代码块包裹）】',
+    '{',
+    schema.join(',\n'),
+    '}',
+    '',
+    '【严格要求】',
+    '- word/exampleEn/sentenceEn 等英文片段必须**逐字复制**自源材料，禁止改写或编造',
+    '- sentenceCn/aiReferenceCn 为中文翻译，可基于学术常识给出',
+    '- scoring_points 是判分用的踩分点清单，每条一句话，聚焦逻辑关系（因果/转折/递进/让步等）与关键术语词汇，不要泛泛而谈',
+    '- translations **只输出两个方向的 scoring_points**，不得输出 originalText / reference_translation / 任何译文',
+    '- 源材料未涉及的字段用 [NOT_IN_SOURCE] <字段名> 标注',
+    '- 输出语言：英文片段保持原文，中文释义/翻译/踩分点用中文',
+  )
+  return lines.join('\n')
+}
+
+/** 判分结果（AI 只判分，不参与出标准） */
+interface GradeResult {
+  score: number
+  hitPoints: string[]
+  missedPoints: string[]
+  feedback: string
+}
+
+/** 解析判分 JSON（容错去 ```json 包裹 / 截首尾花括号），失败抛可读错误 */
+function parseGradeJSON(raw: string): GradeResult {
+  let text = (raw || '').trim()
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fence) text = fence[1].trim()
+  const first = text.indexOf('{')
+  const last = text.lastIndexOf('}')
+  if (first >= 0 && last > first) text = text.slice(first, last + 1)
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    throw new Error('AI 判分结果不是合法 JSON，请重试')
+  }
+  const scoreNum = Number(parsed.score)
+  return {
+    score: Number.isFinite(scoreNum) ? Math.max(0, Math.min(100, Math.round(scoreNum))) : 0,
+    hitPoints: toStringArray(parsed.hit_points),
+    missedPoints: toStringArray(parsed.missed_points),
+    feedback: typeof parsed.feedback === 'string' ? parsed.feedback.trim() : '',
+  }
+}
+
+/**
+ * 调用 AI 判分 —— 单次调用即可（不走双引擎）。
+ * AI 只负责按给定的踩分点清单打分，返回命中/漏掉的踩分点。
+ */
+async function gradeTranslationWithAI(params: {
+  question: string
+  directionLabel: string
+  userTranslation: string
+  referenceTranslation: string
+  scoringPoints: string[]
+}): Promise<GradeResult> {
+  const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+  const pointList = params.scoringPoints.length
+    ? params.scoringPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')
+    : '（本题未设置踩分点，请按整体忠实度与表达给分）'
+
+  const resp = await callAI({
+    baseUrl: ai1.baseUrl,
+    apiKey: ai1.apiKey,
+    model: ai1.model,
+    temperature: 0,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是学术翻译阅卷老师。你的职责只有判分：严格按给定的「踩分点」核对学生的译文，' +
+          '指出命中了哪些、漏掉了哪些，并给出 0-100 的综合得分和简短中文反馈。' +
+          '不得自行新增或改写踩分点，也不得重写学生译文。只输出 JSON。',
+      },
+      {
+        role: 'user',
+        content: [
+          `【翻译方向】${params.directionLabel}`,
+          '',
+          '【题面原文】',
+          params.question,
+          '',
+          '【参考答案】',
+          params.referenceTranslation || '（无）',
+          '',
+          '【评分标准（踩分点）】',
+          pointList,
+          '',
+          '【学生译文】',
+          params.userTranslation,
+          '',
+          '请严格按上述踩分点核对，并只返回如下 JSON（不要 markdown 代码块包裹）：',
+          '{',
+          '  "score": 0-100 的整数,',
+          '  "hit_points": ["命中的踩分点，逐字取自上面的清单"],',
+          '  "missed_points": ["漏掉或表达不到位的踩分点，同样取自清单"],',
+          '  "feedback": "一段中文反馈，说明扣分原因与改进建议"',
+          '}',
+        ].join('\n'),
+      },
+    ],
+  })
+  return parseGradeJSON(resp.content)
+}
+
+/**
+ * 依据文献摘要元数据构造两个方向的翻译题。
+ * 题面与参考答案直接取自 abstractEn/abstractCn，AI 只提供踩分点。
+ * 只有某方向的题面与参考答案都存在时才生成（缺反向摘要无法构成题目）。
+ */
+function buildTranslationItems(
+  lit: Literature,
+  pointsByDirection: Partial<Record<TranslationDirection, string[]>>,
+  now: number,
+  idPrefix: string,
+): TranslationData[] {
+  const en = (lit.abstractEn || '').trim()
+  const cn = (lit.abstractCn || '').trim()
+  if (!en || !cn) return []
+  const make = (direction: TranslationDirection, originalText: string, referenceTranslation: string, seq: number): TranslationData => ({
+    id: `${idPrefix}${now}_${seq}_${Math.random().toString(36).slice(2, 6)}`,
+    originalText,
+    direction,
+    referenceTranslation,
+    scoringPoints: pointsByDirection[direction] || [],
+    sourceKind: 'abstract',
+    sourceDoi: lit.doi,
+    latestUserTranslation: '',
+    latestAiFeedback: '',
+    latestErrorWords: '',
+    status: 'pending',
+    addedAt: now,
+    lastPractice: 0,
+    practiceCount: 0,
+  })
+  // 两个方向都出题：英译中 + 中译英
+  return [
+    make('en2cn', en, cn, 0),
+    make('cn2en', cn, en, 1),
+  ]
+}
+
+/**
+ * 批量补提的串行执行器：逐篇处理、可中断、单篇失败不中断整批。
+ * 每篇处理结果由 processOne 决定（内部负责增量落盘）。
+ */
+async function runBatchExtraction(
+  candidates: Literature[],
+  processOne: (lit: Literature) => Promise<{ ok: boolean; reason?: string }>,
+  ctl: {
+    onProgress: (done: number, total: number, title: string) => void
+    shouldStop: () => boolean
+    onFailure: (title: string, reason: string) => void
+  },
+): Promise<{ processed: number; failed: number; stopped: boolean }> {
+  let processed = 0
+  let failed = 0
+  for (const lit of candidates) {
+    if (ctl.shouldStop()) return { processed, failed, stopped: true }
+    ctl.onProgress(processed, candidates.length, lit.title || lit.doi)
+    try {
+      const r = await processOne(lit)
+      if (!r.ok) {
+        failed++
+        ctl.onFailure(lit.title || lit.doi, r.reason || '未知失败')
+      }
+    } catch (err) {
+      failed++
+      ctl.onFailure(lit.title || lit.doi, err instanceof Error ? err.message : String(err))
+    }
+    processed++
+    ctl.onProgress(processed, candidates.length, '')
+  }
+  return { processed, failed, stopped: false }
 }
 
 export default function LearnPage() {
@@ -384,55 +686,52 @@ export default function LearnPage() {
       return
     }
 
+    const settingsState = useSettingsStore.getState()
+    const wordCount = settingsState.wordGenCount || 15
+    const sentenceCount = settingsState.sentenceGenCount || 8
+    const abstractEn = (lit.abstractEn || '').trim()
+    const abstractCn = (lit.abstractCn || '').trim()
+    // 摘要翻译题面/参考答案都来自文献元数据的摘要（不需要 md）。
+    // 两个方向都要有题面+参考答案才成立，缺一边就没法出题，提前告知而不是让 AI 空转。
+    const canTranslate = !!abstractEn && !!abstractCn
+    if (genTypes.translation && !canTranslate) {
+      toast.error('该文献缺少中/英文摘要，无法生成摘要翻译题（摘要翻译来自文献元数据，不需要 md）')
+      return
+    }
+
     setIsAiGenerating(true)
     try {
-      // 1. 解析双引擎配置（硅基流动 / 自定义端点）
-      const { getDualEngineConfig } = useSettingsStore.getState()
-      const { ai1, ai2 } = getDualEngineConfig()
+      // 1. 解析双引擎配置
+      const { ai1, ai2 } = settingsState.getDualEngineConfig()
 
-      // 2. 加载文献正文作为源材料（唯一 ground truth）。
-      //    取清洗后的原文块，不用 MinerU 的脏 full.md —— 例句是从这里逐字抽的，
-      //    脏原文里的页眉页脚/断段会直接变成学习材料。详见 loadAiSourceText。
+      // 2. 加载文献正文作为源材料（长难句/单词依赖正文）。
+      //    取清洗后的原文块，不用 MinerU 的脏 full.md —— 句子是从这里逐字抽的。
+      //    纯摘要翻译不需要 md，此时不强制要求正文。
       let fulltext = ''
       try {
         fulltext = await loadAiSourceText(selectedPaper)
       } catch (err) {
         console.warn('[Learn] 加载文献正文失败:', err)
       }
-      if (!fulltext.trim()) {
+      const needsFulltext = genTypes.words || genTypes.sentences
+      if (!fulltext.trim() && needsFulltext) {
         // 兜底：用摘要作为源材料
-        fulltext = [lit.abstractEn, lit.abstractCn].filter(Boolean).join('\n\n') || '（文献无可用全文）'
+        fulltext = [abstractEn, abstractCn].filter(Boolean).join('\n\n')
       }
-      const sourceMaterial = fulltext
+      const sourceMaterial =
+        fulltext.trim() || [abstractEn, abstractCn].filter(Boolean).join('\n\n') || '（文献无可用全文）'
 
-      // 3. 构造生成指令：根据勾选的类型组合
-      const tasks: string[] = []
-      if (genTypes.words) {
-        tasks.push('生词卡片：从原文中挑选 5-8 个学术核心单词，每条含 word/phonetic/meaning(中文)/exampleEn(原文中含该词的句子)/exampleZh(中文译文)')
-      }
-      if (genTypes.sentences) {
-        tasks.push('长难句：从原文中挑选 3-5 个有学习价值的长难句，每条含 sentenceEn(原文逐字)/sentenceCn(中文翻译)/aiReferenceCn(参考译文)')
-      }
-      if (genTypes.translation) {
-        tasks.push('翻译练习：从原文中挑选 2-3 段适合做翻译练习的段落，每条含 originalText(原文逐字)')
-      }
-      const ai1Instruction = [
-        `请基于上述源材料生成以下学习内容：`,
-        tasks.map((t, i) => `${i + 1}. ${t}`).join('\n'),
-        '',
-        '【输出格式（严格 JSON，不要 markdown 代码块包裹）】',
-        '{',
-        '  "words": [{"word":"...","phonetic":"...","meaning":"...","exampleEn":"...","exampleZh":"..."}],',
-        '  "sentences": [{"sentenceEn":"...","sentenceCn":"...","aiReferenceCn":"..."}],',
-        '  "translations": [{"originalText":"..."}]',
-        '}',
-        '',
-        '【严格要求】',
-        '- word/exampleEn/sentenceEn/originalText 等英文片段必须**逐字复制**自源材料，禁止改写或编造',
-        '- 不确定的内容（如音标/中文释义）允许基于学术常识给出，但原文片段必须严格逐字对齐',
-        '- 源材料未涉及的字段用 [NOT_IN_SOURCE] <字段名> 标注',
-        '- 输出语言：英文片段保持原文，中文释义/翻译用中文',
-      ].join('\n')
+      // 3. 构造生成指令（与历史批量补提共用同一套 prompt）
+      const ai1Instruction = buildLearningInstruction(
+        {
+          words: genTypes.words,
+          sentences: genTypes.sentences,
+          translation: genTypes.translation,
+          wordCount,
+          sentenceCount,
+        },
+        { en: abstractEn, cn: abstractCn },
+      )
 
       // 4. 调用双引擎：AI-1 生成 + AI-2 核查 + 引证锚定 + 分层归因重试
       const result = await runDualEngine({
@@ -451,7 +750,7 @@ export default function LearnPage() {
       let addedCount = 0
 
       if (genTypes.words && parsed.words.length > 0) {
-        const newWords: WordData[] = parsed.words.map((w) => ({
+        const newWords: WordData[] = parsed.words.slice(0, wordCount).map((w) => ({
           id: `ai_${now}_${addedCount++}`,
           word: w.word || '',
           phonetic: w.phonetic || '',
@@ -475,41 +774,54 @@ export default function LearnPage() {
       }
 
       if (genTypes.sentences && parsed.sentences.length > 0) {
-        const newSentences: SentenceData[] = parsed.sentences.map((s) => ({
-          id: `ai_${now}_${addedCount++}`,
-          sentenceEn: s.sentenceEn || '',
-          sentenceCn: s.sentenceCn || '',
-          aiReferenceCn: s.aiReferenceCn || '',
-          sourceDoi: selectedPaper,
-          status: 'new',
-          addedAt: now,
-          lastReview: 0,
-          reviewCount: 0,
-          sm2Interval: 1,
-          sm2Ease: 2.5,
-        }))
+        const newSentences: SentenceData[] = parsed.sentences
+          .filter((s) => (s.sentenceEn || '').trim())
+          .slice(0, sentenceCount)
+          .map((s) => ({
+            id: `ai_${now}_${addedCount++}`,
+            sentenceEn: s.sentenceEn || '',
+            sentenceCn: s.sentenceCn || '',
+            aiReferenceCn: s.aiReferenceCn || '',
+            sourceDoi: selectedPaper,
+            status: 'new',
+            addedAt: now,
+            lastReview: 0,
+            reviewCount: 0,
+            sm2Interval: 1,
+            sm2Ease: 2.5,
+            scoringPoints: toStringArray(s.scoring_points),
+            difficultyNote: (s.difficulty_note || '').trim() || undefined,
+            latestUserTranslation: '',
+            latestAiFeedback: '',
+            latestErrorWords: '',
+            practiceCount: 0,
+            lastPractice: 0,
+          }))
         setSentences((prev) => [...prev, ...newSentences])
       }
 
-      if (genTypes.translation && parsed.translations.length > 0) {
-        const newTranslations: TranslationData[] = parsed.translations.map((t) => ({
-          id: `ai_${now}_${addedCount++}`,
-          originalText: t.originalText || '',
-          sourceDoi: selectedPaper,
-          latestUserTranslation: '',
-          latestAiFeedback: '',
-          latestErrorWords: '',
-          status: 'pending',
-          addedAt: now,
-          lastPractice: 0,
-          practiceCount: 0,
-        }))
+      if (genTypes.translation && canTranslate) {
+        // AI 只产出两个方向的踩分点；题面/参考答案由元数据注入
+        const pointsByDirection: Partial<Record<TranslationDirection, string[]>> = {}
+        for (const t of parsed.translations) {
+          const dir: TranslationDirection | null =
+            t.direction === 'cn2en' ? 'cn2en' : t.direction === 'en2cn' ? 'en2cn' : null
+          if (dir) pointsByDirection[dir] = toStringArray(t.scoring_points)
+        }
+        const newTranslations = buildTranslationItems(lit, pointsByDirection, now, `ai_${now}_`)
         setTranslations((prev) => [...prev, ...newTranslations])
+        addedCount += newTranslations.length
       }
 
+      // AI-2 什么都不返回 ≠ AI-2 判定不忠实 —— 前者多半是输出预算被推理烧穿，
+      // 报成"未通过"会把用户引去怀疑材料，其实是模型自己哑了。分开说。
+      const lastAttempt = result.attempts[result.attempts.length - 1]
+      const ai2Silent = !(lastAttempt?.ai2RawOutput || '').trim()
       const reviewNote = result.finalPassed
         ? 'AI-2 审阅通过'
-        : `AI-2 审阅未通过：${result.ai2Feedback.summary || '存在忠实性问题，请人工核对'}`
+        : ai2Silent
+          ? `AI-2 这一轮没有任何输出（第 ${result.attempts.length} 轮），内容按 AI-1 原样收下了，建议人工扫一眼`
+          : `AI-2 审阅未通过：${result.ai2Feedback.summary || '存在忠实性问题，请人工核对'}`
       toast.success(`AI 生成完成（${addedCount} 条），${reviewNote}`)
       setAiGenOpen(false)
     } catch (err) {
@@ -640,8 +952,8 @@ export default function LearnPage() {
           onStudied={markStudied}
         />
       )}
-      {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} />}
-      {activeTab === 'translation' && <TranslationSection translations={translations} setTranslations={setTranslations} />}
+      {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} literatures={literatures} />}
+      {activeTab === 'translation' && <TranslationSection translations={translations} setTranslations={setTranslations} literatures={literatures} />}
     </div>
   )
 }
@@ -1464,10 +1776,386 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 }
 
 
-function SentenceSection({ sentences, setSentences }: { sentences: SentenceData[]; setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>> }) {
+/**
+ * 练习面板（长难句 / 翻译练习共用）：题面 → 作答 → 提交判分 → 结果展示。
+ *
+ * 形态保持一致，差异只在外面包一层（长难句题面是英文，翻译题面按方向是英/中并带方向标签）。
+ * AI 只判分：按踩分点清单核对用户译文，返回 命中/漏掉 的踩分点与分数。
+ */
+function PracticePanel({
+  itemKey,
+  question,
+  directionLabel,
+  note,
+  referenceTranslation,
+  referenceLabel,
+  scoringPoints,
+  answerPlaceholder,
+  storedAnswer,
+  storedFeedback,
+  storedMissed,
+  onSavePoints,
+  onSubmitResult,
+}: {
+  /** 题目唯一键：切换题目时重置作答/结果 */
+  itemKey: string
+  question: string
+  /** 翻译方向标签（长难句不传） */
+  directionLabel?: string
+  /** 题目备注（长难句的 difficultyNote） */
+  note?: string
+  referenceTranslation: string
+  referenceLabel: string
+  scoringPoints: string[]
+  answerPlaceholder: string
+  storedAnswer: string
+  storedFeedback: string
+  storedMissed: string
+  onSavePoints: (points: string[]) => void
+  onSubmitResult: (answer: string, result: GradeResult) => void
+}) {
+  const [answer, setAnswer] = useState(storedAnswer)
+  const [grading, setGrading] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState<GradeResult | null>(null)
+  const [showReference, setShowReference] = useState(false)
+  const [showPoints, setShowPoints] = useState(false)
+  const [editingPoints, setEditingPoints] = useState(false)
+  const [pointsDraft, setPointsDraft] = useState('')
+
+  // 切换题目：用该题已落库的数据重置作答/结果（参考译文默认折叠，让用户先自己做）
+  useEffect(() => {
+    setAnswer(storedAnswer)
+    setResult(null)
+    setError('')
+    setShowReference(false)
+    setShowPoints(false)
+    setEditingPoints(false)
+    // 只在换题时重置，storedAnswer 随题目一起变，不单独依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemKey])
+
+  // 判分耗时计时（对应后端排队跑 GitHub Actions 的等待）
+  useEffect(() => {
+    if (!grading) return
+    const t = setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => clearInterval(t)
+  }, [grading])
+
+  const handleSubmit = async () => {
+    const text = answer.trim()
+    if (!text) {
+      toast.error('请先输入你的译文')
+      return
+    }
+    if (grading) return
+    setGrading(true)
+    setError('')
+    setElapsed(0)
+    setResult(null)
+    try {
+      const r = await gradeTranslationWithAI({
+        question,
+        directionLabel: directionLabel || '英译中',
+        userTranslation: text,
+        referenceTranslation,
+        scoringPoints,
+      })
+      setResult(r)
+      onSubmitResult(text, r)
+      toast.success(`判分完成：${r.score} 分`)
+    } catch (err) {
+      // 不静默吞错：把可读原因显示出来，用户可重试
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGrading(false)
+    }
+  }
+
+  const storedMissedList = csvToList(storedMissed)
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+      {/* 题面 */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          {directionLabel && (
+            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">{directionLabel}</span>
+          )}
+          <span className="text-xs font-medium text-slate-400">{directionLabel ? '原文（请翻译）' : '英文长难句'}</span>
+        </div>
+        <p className="text-lg text-slate-800 leading-relaxed">{question}</p>
+        {note && <p className="mt-2 text-xs text-amber-600">难点：{note}</p>}
+      </div>
+
+      {/* 踩分点：默认折叠，可编辑 */}
+      <div className="border border-slate-200 rounded-lg">
+        <div className="flex items-center justify-between px-3 py-2">
+          <button
+            onClick={() => setShowPoints((v) => !v)}
+            className="flex items-center gap-1.5 text-sm text-slate-600"
+          >
+            {showPoints ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            踩分点（{scoringPoints.length}）
+          </button>
+          <button
+            onClick={() => {
+              setPointsDraft(scoringPoints.join('\n'))
+              setShowPoints(true)
+              setEditingPoints(true)
+            }}
+            className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            编辑踩分点
+          </button>
+        </div>
+        {showPoints && (
+          editingPoints ? (
+            <div className="px-3 pb-3 space-y-2">
+              <textarea
+                value={pointsDraft}
+                onChange={(e) => setPointsDraft(e.target.value)}
+                rows={4}
+                placeholder="一行一条踩分点"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setEditingPoints(false)}
+                  className="px-3 py-1.5 text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    onSavePoints(pointsDraft.split('\n').map((s) => s.trim()).filter(Boolean))
+                    setEditingPoints(false)
+                    toast.success('踩分点已保存')
+                  }}
+                  className="px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition"
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          ) : (
+            <ul className="px-3 pb-3 space-y-1">
+              {scoringPoints.length === 0 && (
+                <li className="text-xs text-slate-400">暂无踩分点，点「编辑踩分点」补充，AI 将据此判分</li>
+              )}
+              {scoringPoints.map((p, i) => (
+                <li key={i} className="text-sm text-slate-600 flex gap-2">
+                  <span className="text-slate-300">{i + 1}.</span>
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+      </div>
+
+      {/* 作答 */}
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">你的译文</label>
+        <textarea
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              e.preventDefault()
+              void handleSubmit()
+            }
+          }}
+          rows={4}
+          disabled={grading}
+          placeholder={answerPlaceholder}
+          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-slate-50"
+        />
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={grading || !answer.trim()}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {grading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                判分中…（已等 {elapsed}s）
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                提交判分
+              </>
+            )}
+          </button>
+          <span className="text-xs text-slate-400">Ctrl/Cmd + Enter 快捷提交</span>
+        </div>
+        {grading && (
+          <p className="text-xs text-slate-400 mt-1.5">
+            后端需排队跑 GitHub Actions，通常要 1-3 分钟，请耐心等待（界面不会卡住）。
+          </p>
+        )}
+        {error && (
+          <div className="mt-2 flex items-start gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p>判分失败：{error}</p>
+              <button onClick={handleSubmit} className="mt-1 text-xs text-red-700 underline">
+                重试
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 本次判分结果 */}
+      {result && (
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl font-bold text-indigo-600">{result.score}</span>
+            <span className="text-sm text-slate-500">/ 100</span>
+          </div>
+          {result.hitPoints.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-emerald-600 mb-1">命中的踩分点</p>
+              <ul className="space-y-0.5">
+                {result.hitPoints.map((p, i) => (
+                  <li key={i} className="text-sm text-slate-700 flex gap-1.5">
+                    <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                    <span>{p}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {result.missedPoints.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-red-500 mb-1">漏掉的踩分点</p>
+              <ul className="space-y-0.5">
+                {result.missedPoints.map((p, i) => (
+                  <li key={i} className="text-sm text-slate-700 flex gap-1.5">
+                    <X className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
+                    <span>{p}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {result.feedback && <p className="text-sm text-slate-600 whitespace-pre-wrap">{result.feedback}</p>}
+        </div>
+      )}
+
+      {/* 无本次结果时，展示落库的上一次判分记录 */}
+      {!result && (storedFeedback || storedMissedList.length > 0) && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-slate-500">上次判分记录</p>
+          {storedMissedList.length > 0 && (
+            <p className="text-sm text-slate-600">漏掉的踩分点：{storedMissedList.join('；')}</p>
+          )}
+          {storedFeedback && <p className="text-sm text-slate-600 whitespace-pre-wrap">{storedFeedback}</p>}
+        </div>
+      )}
+
+      {/* 参考译文：默认隐藏，做完再展开 */}
+      <div>
+        <button
+          onClick={() => setShowReference((v) => !v)}
+          className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700"
+        >
+          {showReference ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {showReference ? '收起参考译文' : `查看参考译文（${referenceLabel}）`}
+        </button>
+        {showReference && (
+          <p className="mt-2 text-sm text-slate-700 leading-relaxed bg-slate-50 rounded-lg p-3 whitespace-pre-wrap">
+            {referenceTranslation || '（暂无参考译文）'}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 批量补提的进度 / 失败汇总面板（长难句 / 翻译练习共用） */
+function BatchProgressPanel({
+  running,
+  done,
+  total,
+  title,
+  failures,
+  onStop,
+}: {
+  running: boolean
+  done: number
+  total: number
+  title: string
+  failures: string[]
+  onStop: () => void
+}) {
+  if (!running && failures.length === 0) return null
+  return (
+    <div className="space-y-2">
+      {running && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-600">
+              批量补提中：已完成 {done} / {total} 篇
+            </span>
+            <button
+              onClick={onStop}
+              className="flex items-center gap-1 px-3 py-1 text-red-600 hover:bg-red-50 rounded-lg transition"
+            >
+              <Square className="w-3.5 h-3.5" />
+              停止
+            </button>
+          </div>
+          {title && <p className="text-xs text-slate-400 truncate">正在处理：{title}</p>}
+          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-2 bg-indigo-600 rounded-full transition-all"
+              style={{ width: `${total ? (done / total) * 100 : 0}%` }}
+            />
+          </div>
+          <p className="text-xs text-slate-400">
+            逐篇串行调用后端（GitHub Actions），每篇完成后立即增量落盘；点「停止」不会丢失已完成的部分。
+          </p>
+        </div>
+      )}
+      {!running && failures.length > 0 && (
+        <div className="bg-red-50 border border-red-100 rounded-xl p-4">
+          <p className="text-sm font-medium text-red-600 mb-1">以下文献补提失败（{failures.length} 篇）</p>
+          <ul className="space-y-0.5 max-h-44 overflow-y-auto">
+            {failures.map((f, i) => (
+              <li key={i} className="text-xs text-red-500">{f}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SentenceSection({
+  sentences,
+  setSentences,
+  literatures,
+}: {
+  sentences: SentenceData[]
+  setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>>
+  literatures: Literature[]
+}) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [flipped, setFlipped] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+
+  // 批量补提状态
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchDone, setBatchDone] = useState(0)
+  const [batchTotal, setBatchTotal] = useState(0)
+  const [batchTitle, setBatchTitle] = useState('')
+  const [batchFailures, setBatchFailures] = useState<string[]>([])
+  const stopRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -1490,22 +2178,26 @@ function SentenceSection({ sentences, setSentences }: { sentences: SentenceData[
     updateProgress({ sentenceCurrentIndex: currentIndex })
   }, [currentIndex])
 
-  const currentSentence = sentences.length > 0 ? sentences[currentIndex % sentences.length] : undefined
+  const safeIndex = sentences.length > 0 ? currentIndex % sentences.length : 0
+  const currentSentence = sentences.length > 0 ? sentences[safeIndex] : undefined
 
   const handlePrev = () => {
-    setFlipped(false)
     setCurrentIndex((i) => (i - 1 + sentences.length) % sentences.length)
   }
 
   const handleNext = () => {
-    setFlipped(false)
     setCurrentIndex((i) => (i + 1) % sentences.length)
   }
+
+  /** 按数组下标精确更新当前句（踩分点编辑 / 判分结果落库） */
+  const patchCurrent = useCallback((patch: Partial<SentenceData>) => {
+    setSentences((prev) => prev.map((s, i) => (i === safeIndex ? { ...s, ...patch } : s)))
+  }, [safeIndex, setSentences])
 
   const toggleMastered = () => {
     setSentences((prev) =>
       prev.map((s, i) =>
-        i === currentIndex % sentences.length
+        i === safeIndex
           ? { ...s, status: s.status === 'mastered' ? 'learning' : 'mastered' }
           : s
       )
@@ -1519,117 +2211,225 @@ function SentenceSection({ sentences, setSentences }: { sentences: SentenceData[
     toast.success('长难句已添加')
   }
 
-  if (sentences.length === 0) {
-    return (
-      <div className="text-center py-16">
-        <Type className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-        <p className="text-slate-500 mb-4">还没有长难句，快来添加吧！</p>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
-        >
-          添加长难句
-        </button>
-      </div>
+  /**
+   * 历史批量补提：只处理「已转换出 md」且尚未提取过长难句的文献。
+   * 串行逐篇 loadAiSourceText → runDualEngine 提取，每篇完成立刻增量落盘。
+   */
+  const handleBatchBackfill = async () => {
+    if (batchRunning) return
+    const existing = new Set(sentences.map((s) => s.sourceDoi).filter(Boolean))
+    const candidates = literatures.filter((l) => l.mdStatus === 'done' && !existing.has(l.doi))
+    if (candidates.length === 0) {
+      toast.info('没有需要补提的文献（仅处理已转换出 md 且尚未提取过的文献）')
+      return
+    }
+    const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
+    const sentenceCount = useSettingsStore.getState().sentenceGenCount || 8
+    const instruction = buildLearningInstruction(
+      { words: false, sentences: true, translation: false, wordCount: 0, sentenceCount },
+      { en: '', cn: '' },
     )
+
+    stopRef.current = false
+    setBatchRunning(true)
+    setBatchFailures([])
+    setBatchDone(0)
+    setBatchTotal(candidates.length)
+    setBatchTitle('')
+
+    const failures: string[] = []
+    let addedTotal = 0
+    const res = await runBatchExtraction(
+      candidates,
+      async (lit) => {
+        const sourceMaterial = await loadAiSourceText(lit.doi)
+        if (!sourceMaterial.trim()) {
+          return { ok: false, reason: '未读到 md 正文（loadAiSourceText 为空）' }
+        }
+        const result = await runDualEngine({
+          taskType: 'faithfulness_check',
+          sourceMaterial,
+          ai1Instruction: instruction,
+          ai1,
+          ai2,
+        })
+        const parsed = parseLearningJSON(result.ai1Output || '')
+        const now = Date.now()
+        const newItems: SentenceData[] = parsed.sentences
+          .filter((s) => (s.sentenceEn || '').trim())
+          .slice(0, sentenceCount)
+          .map((s, i) => ({
+            id: `ai_${now}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+            sentenceEn: s.sentenceEn || '',
+            sentenceCn: s.sentenceCn || '',
+            aiReferenceCn: s.aiReferenceCn || '',
+            sourceDoi: lit.doi,
+            status: 'new',
+            addedAt: now,
+            lastReview: 0,
+            reviewCount: 0,
+            sm2Interval: 1,
+            sm2Ease: 2.5,
+            scoringPoints: toStringArray(s.scoring_points),
+            difficultyNote: (s.difficulty_note || '').trim() || undefined,
+            latestUserTranslation: '',
+            latestAiFeedback: '',
+            latestErrorWords: '',
+            practiceCount: 0,
+            lastPractice: 0,
+          }))
+        if (newItems.length === 0) {
+          // AI 没给出可用长难句：记为失败，绝不误报"已完成"
+          return { ok: false, reason: 'AI 未返回可用长难句' }
+        }
+        // 增量落盘：追加进 state，父组件的防抖副作用会写回 CSV
+        setSentences((prev) => [...prev, ...newItems])
+        existing.add(lit.doi)
+        addedTotal += newItems.length
+        return { ok: true }
+      },
+      {
+        onProgress: (done, total, title) => {
+          setBatchDone(done)
+          setBatchTotal(total)
+          if (title) setBatchTitle(title)
+        },
+        shouldStop: () => stopRef.current,
+        onFailure: (title, reason) => failures.push(`${title}：${reason}`),
+      },
+    )
+
+    setBatchTitle('')
+    setBatchFailures([...failures])
+    setBatchRunning(false)
+
+    if (res.stopped) {
+      toast.info(`已停止补提：新增 ${addedTotal} 条长难句，${failures.length} 篇失败`)
+    } else if (failures.length > 0) {
+      toast.warning(`补提完成（新增 ${addedTotal} 条长难句），${failures.length} 篇失败，详见下方清单`)
+    } else {
+      toast.success(`补提完成，新增 ${addedTotal} 条长难句`)
+    }
   }
 
   return (
-    <div className="relative">
-      <div className="flex justify-between items-center mb-4">
+    <div className="space-y-4">
+      <div className="flex flex-wrap justify-between items-center gap-3">
         <div className="text-sm text-slate-500">
-          进度：{currentIndex + 1} / {sentences.length}
+          进度：{sentences.length > 0 ? `${safeIndex + 1} / ${sentences.length}` : '0 / 0'}
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-        >
-          <Plus className="w-4 h-4" />
-          手动添加
-        </button>
-      </div>
-
-      <div className="w-full bg-slate-100 rounded-full h-2 mb-6">
-        <div
-          className="bg-indigo-600 h-2 rounded-full transition-all"
-          style={{ width: `${((currentIndex + 1) / sentences.length) * 100}%` }}
-        />
-      </div>
-
-      <div
-        onClick={() => setFlipped(!flipped)}
-        className="w-full min-h-[20rem] cursor-pointer perspective-[62.5rem]"
-        style={{ perspective: '62.5rem' }}
-      >
-        <div
-          className="relative w-full h-full transition-transform duration-500"
-          style={{
-            transformStyle: 'preserve-3d',
-            transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-            minHeight: '20rem',
-          }}
-        >
-          <div
-            className="absolute inset-0 bg-white rounded-2xl shadow-lg border border-slate-200 p-6 flex flex-col justify-center"
-            style={{ backfaceVisibility: 'hidden' }}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleBatchBackfill}
+            disabled={batchRunning}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition disabled:opacity-50"
           >
-            <div className="text-xs font-medium text-slate-400 mb-3">英文长难句</div>
-            <p className="text-lg text-slate-800 leading-relaxed">{currentSentence?.sentenceEn}</p>
-            <div className="mt-6 text-xs text-slate-400 text-center">点击卡片查看答案</div>
-          </div>
-
-          <div
-            className="absolute inset-0 bg-white rounded-2xl shadow-lg border border-indigo-200 p-6 overflow-y-auto"
-            style={{
-              backfaceVisibility: 'hidden',
-              transform: 'rotateY(180deg)',
-            }}
+            <History className="w-4 h-4" />
+            批量补提历史文献
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
           >
-            <div className="text-xs font-medium text-indigo-500 mb-3">中文翻译</div>
-            <p className="text-base text-slate-800 leading-relaxed mb-6">{currentSentence?.sentenceCn}</p>
-
-            <div className="mt-4 text-xs text-slate-400 text-center">点击卡片翻回正面</div>
-          </div>
+            <Plus className="w-4 h-4" />
+            手动添加
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-3 mt-6">
-        <button
-          onClick={handlePrev}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          上一张
-        </button>
-        <button
-          onClick={toggleMastered}
-          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-            currentSentence?.status === 'mastered'
-              ? 'bg-green-100 text-green-700 hover:bg-green-200'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Check className="w-4 h-4" />
-          {currentSentence?.status === 'mastered' ? '已掌握' : '标记掌握'}
-        </button>
-        <button
-          onClick={handleNext}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
-        >
-          下一张
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
+      <BatchProgressPanel
+        running={batchRunning}
+        done={batchDone}
+        total={batchTotal}
+        title={batchTitle}
+        failures={batchFailures}
+        onStop={() => { stopRef.current = true }}
+      />
+
+      {sentences.length === 0 || !currentSentence ? (
+        <div className="text-center py-16">
+          <Type className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-500 mb-4">
+            还没有长难句。可点上方「批量补提历史文献」（仅对有 md 的文献生效），或手动添加。
+          </p>
+        </div>
+      ) : (
+        <>
+          <PracticePanel
+            itemKey={currentSentence.id || `idx-${safeIndex}`}
+            question={currentSentence.sentenceEn}
+            note={currentSentence.difficultyNote}
+            referenceTranslation={currentSentence.sentenceCn || currentSentence.aiReferenceCn}
+            referenceLabel="中文翻译"
+            scoringPoints={currentSentence.scoringPoints || []}
+            answerPlaceholder="用中文翻译上面的英文句子"
+            storedAnswer={currentSentence.latestUserTranslation}
+            storedFeedback={currentSentence.latestAiFeedback}
+            storedMissed={currentSentence.latestErrorWords}
+            onSavePoints={(points) => patchCurrent({ scoringPoints: points })}
+            onSubmitResult={(ans, r) => patchCurrent({
+              latestUserTranslation: ans,
+              latestAiFeedback: r.feedback,
+              latestErrorWords: listToCsv(r.missedPoints),
+              practiceCount: (currentSentence.practiceCount || 0) + 1,
+              lastPractice: Date.now(),
+            })}
+          />
+
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={handlePrev}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              上一张
+            </button>
+            <button
+              onClick={toggleMastered}
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+                currentSentence.status === 'mastered'
+                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Check className="w-4 h-4" />
+              {currentSentence.status === 'mastered' ? '已掌握' : '标记掌握'}
+            </button>
+            <button
+              onClick={handleNext}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+            >
+              下一张
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </>
+      )}
 
       {showAddModal && <AddSentenceModal onClose={() => setShowAddModal(false)} onAdd={handleAddSentence} />}
     </div>
   )
 }
 
-function TranslationSection({ translations, setTranslations }: { translations: TranslationData[]; setTranslations: React.Dispatch<React.SetStateAction<TranslationData[]>> }) {
+function TranslationSection({
+  translations,
+  setTranslations,
+  literatures,
+}: {
+  translations: TranslationData[]
+  setTranslations: React.Dispatch<React.SetStateAction<TranslationData[]>>
+  literatures: Literature[]
+}) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [flipped, setFlipped] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+
+  // 批量补提状态
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchDone, setBatchDone] = useState(0)
+  const [batchTotal, setBatchTotal] = useState(0)
+  const [batchTitle, setBatchTitle] = useState('')
+  const [batchFailures, setBatchFailures] = useState<string[]>([])
+  const stopRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -1652,22 +2452,25 @@ function TranslationSection({ translations, setTranslations }: { translations: T
     updateProgress({ translationCurrentIndex: currentIndex })
   }, [currentIndex])
 
-  const currentItem = translations.length > 0 ? translations[currentIndex % translations.length] : undefined
+  const safeIndex = translations.length > 0 ? currentIndex % translations.length : 0
+  const currentItem = translations.length > 0 ? translations[safeIndex] : undefined
 
   const handlePrev = () => {
-    setFlipped(false)
     setCurrentIndex((i) => (i - 1 + translations.length) % translations.length)
   }
 
   const handleNext = () => {
-    setFlipped(false)
     setCurrentIndex((i) => (i + 1) % translations.length)
   }
+
+  const patchCurrent = useCallback((patch: Partial<TranslationData>) => {
+    setTranslations((prev) => prev.map((t, i) => (i === safeIndex ? { ...t, ...patch } : t)))
+  }, [safeIndex, setTranslations])
 
   const toggleMastered = () => {
     setTranslations((prev) =>
       prev.map((t, i) =>
-        i === currentIndex % translations.length
+        i === safeIndex
           ? { ...t, status: t.status === 'completed' ? 'pending' : 'completed' }
           : t
       )
@@ -1681,106 +2484,187 @@ function TranslationSection({ translations, setTranslations }: { translations: T
     toast.success('翻译练习已添加')
   }
 
-  if (translations.length === 0) {
-    return (
-      <div className="text-center py-16">
-        <Languages className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-        <p className="text-slate-500 mb-4">还没有翻译练习，快来添加吧！</p>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
-        >
-          添加翻译练习
-        </button>
-      </div>
+  /**
+   * 历史批量补提（摘要翻译）：处理所有有摘要（至少英/中一边非空）且尚未出过题的文献。
+   * 不需要 md —— 题面与参考答案直接来自文献元数据。
+   */
+  const handleBatchBackfill = async () => {
+    if (batchRunning) return
+    const existing = new Set(translations.map((t) => t.sourceDoi).filter(Boolean))
+    const candidates = literatures.filter(
+      (l) => (((l.abstractEn || '').trim() || (l.abstractCn || '').trim()) && !existing.has(l.doi)),
     )
+    if (candidates.length === 0) {
+      toast.info('没有需要补提的文献（需要有摘要且尚未出过题）')
+      return
+    }
+    const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
+
+    stopRef.current = false
+    setBatchRunning(true)
+    setBatchFailures([])
+    setBatchDone(0)
+    setBatchTotal(candidates.length)
+    setBatchTitle('')
+
+    const failures: string[] = []
+    let addedTotal = 0
+    const res = await runBatchExtraction(
+      candidates,
+      async (lit) => {
+        const en = (lit.abstractEn || '').trim()
+        const cn = (lit.abstractCn || '').trim()
+        if (!en || !cn) {
+          return { ok: false, reason: '摘要不完整（缺少英文或中文摘要），无法构成两个方向的题目' }
+        }
+        const sourceMaterial = [`【英文摘要】${en}`, `【中文摘要】${cn}`].join('\n\n')
+        const instruction = buildLearningInstruction(
+          { words: false, sentences: false, translation: true, wordCount: 0, sentenceCount: 0 },
+          { en, cn },
+        )
+        const result = await runDualEngine({
+          taskType: 'faithfulness_check',
+          sourceMaterial,
+          ai1Instruction: instruction,
+          ai1,
+          ai2,
+        })
+        const parsed = parseLearningJSON(result.ai1Output || '')
+        const pointsByDirection: Partial<Record<TranslationDirection, string[]>> = {}
+        for (const t of parsed.translations) {
+          const dir: TranslationDirection | null =
+            t.direction === 'cn2en' ? 'cn2en' : t.direction === 'en2cn' ? 'en2cn' : null
+          if (dir) pointsByDirection[dir] = toStringArray(t.scoring_points)
+        }
+        // 题面/参考答案由元数据注入，两个方向各一条；AI 只提供踩分点
+        const items = buildTranslationItems(lit, pointsByDirection, Date.now(), `ai_${lit.doi}_`)
+        if (items.length === 0) {
+          return { ok: false, reason: '未能生成任何翻译题' }
+        }
+        setTranslations((prev) => [...prev, ...items])
+        existing.add(lit.doi)
+        addedTotal += items.length
+        return { ok: true }
+      },
+      {
+        onProgress: (done, total, title) => {
+          setBatchDone(done)
+          setBatchTotal(total)
+          if (title) setBatchTitle(title)
+        },
+        shouldStop: () => stopRef.current,
+        onFailure: (title, reason) => failures.push(`${title}：${reason}`),
+      },
+    )
+
+    setBatchTitle('')
+    setBatchFailures([...failures])
+    setBatchRunning(false)
+
+    if (res.stopped) {
+      toast.info(`已停止补提：新增 ${addedTotal} 条翻译题，${failures.length} 篇失败`)
+    } else if (failures.length > 0) {
+      toast.warning(`补提完成（新增 ${addedTotal} 条翻译题），${failures.length} 篇失败，详见下方清单`)
+    } else {
+      toast.success(`补提完成，新增 ${addedTotal} 条翻译题（每篇按方向各一条）`)
+    }
   }
 
+  const directionLabel = directionLabelOf(currentItem?.direction)
+
   return (
-    <div className="relative">
-      <div className="flex justify-between items-center mb-4">
+    <div className="space-y-4">
+      <div className="flex flex-wrap justify-between items-center gap-3">
         <div className="text-sm text-slate-500">
-          进度：{currentIndex + 1} / {translations.length}
+          进度：{translations.length > 0 ? `${safeIndex + 1} / ${translations.length}` : '0 / 0'}
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-        >
-          <Plus className="w-4 h-4" />
-          手动添加
-        </button>
-      </div>
-
-      <div className="w-full bg-slate-100 rounded-full h-2 mb-6">
-        <div
-          className="bg-indigo-600 h-2 rounded-full transition-all"
-          style={{ width: `${((currentIndex + 1) / translations.length) * 100}%` }}
-        />
-      </div>
-
-      <div
-        onClick={() => setFlipped(!flipped)}
-        className="w-full min-h-[17.5rem] cursor-pointer"
-        style={{ perspective: '62.5rem' }}
-      >
-        <div
-          className="relative w-full h-full transition-transform duration-500"
-          style={{
-            transformStyle: 'preserve-3d',
-            transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-            minHeight: '17.5rem',
-          }}
-        >
-          <div
-            className="absolute inset-0 bg-white rounded-2xl shadow-lg border border-slate-200 p-6 flex flex-col justify-center"
-            style={{ backfaceVisibility: 'hidden' }}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleBatchBackfill}
+            disabled={batchRunning}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition disabled:opacity-50"
           >
-            <div className="text-xs font-medium text-slate-400 mb-3">中文句子（请翻译为英文）</div>
-            <p className="text-lg text-slate-800 leading-relaxed">{currentItem?.originalText}</p>
-            <div className="mt-6 text-xs text-slate-400 text-center">点击卡片查看参考译文</div>
-          </div>
-
-          <div
-            className="absolute inset-0 bg-white rounded-2xl shadow-lg border border-indigo-200 p-6 flex flex-col justify-center"
-            style={{
-              backfaceVisibility: 'hidden',
-              transform: 'rotateY(180deg)',
-            }}
+            <History className="w-4 h-4" />
+            批量补提历史文献
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
           >
-            <div className="text-xs font-medium text-indigo-500 mb-3">参考译文</div>
-            <p className="text-base text-slate-800 leading-relaxed">{currentItem?.latestUserTranslation}</p>
-            <div className="mt-6 text-xs text-slate-400 text-center">点击卡片翻回正面</div>
-          </div>
+            <Plus className="w-4 h-4" />
+            手动添加
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-3 mt-6">
-        <button
-          onClick={handlePrev}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          上一张
-        </button>
-        <button
-          onClick={toggleMastered}
-          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-            currentItem?.status === 'completed'
-              ? 'bg-green-100 text-green-700 hover:bg-green-200'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Check className="w-4 h-4" />
-          {currentItem?.status === 'completed' ? '已完成' : '标记完成'}
-        </button>
-        <button
-          onClick={handleNext}
-          className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
-        >
-          下一张
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
+      <BatchProgressPanel
+        running={batchRunning}
+        done={batchDone}
+        total={batchTotal}
+        title={batchTitle}
+        failures={batchFailures}
+        onStop={() => { stopRef.current = true }}
+      />
+
+      {translations.length === 0 || !currentItem ? (
+        <div className="text-center py-16">
+          <Languages className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-500 mb-4">
+            还没有翻译练习。可点上方「批量补提历史文献」（只需文献有摘要，不需要 md），或手动添加。
+          </p>
+        </div>
+      ) : (
+        <>
+          <PracticePanel
+            itemKey={currentItem.id || `idx-${safeIndex}`}
+            question={currentItem.originalText}
+            directionLabel={directionLabel}
+            referenceTranslation={currentItem.referenceTranslation}
+            referenceLabel={directionLabel === '中译英' ? '英文参考译文' : '中文参考译文'}
+            scoringPoints={currentItem.scoringPoints || []}
+            answerPlaceholder={directionLabel === '中译英' ? '用英文翻译上面的中文摘要/句子' : '用中文翻译上面的英文摘要/句子'}
+            storedAnswer={currentItem.latestUserTranslation}
+            storedFeedback={currentItem.latestAiFeedback}
+            storedMissed={currentItem.latestErrorWords}
+            onSavePoints={(points) => patchCurrent({ scoringPoints: points })}
+            onSubmitResult={(ans, r) => patchCurrent({
+              latestUserTranslation: ans,
+              latestAiFeedback: r.feedback,
+              latestErrorWords: listToCsv(r.missedPoints),
+              practiceCount: (currentItem.practiceCount || 0) + 1,
+              lastPractice: Date.now(),
+            })}
+          />
+
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={handlePrev}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              上一张
+            </button>
+            <button
+              onClick={toggleMastered}
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+                currentItem.status === 'completed'
+                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Check className="w-4 h-4" />
+              {currentItem.status === 'completed' ? '已完成' : '标记完成'}
+            </button>
+            <button
+              onClick={handleNext}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+            >
+              下一张
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </>
+      )}
 
       {showAddModal && <AddTranslationModal onClose={() => setShowAddModal(false)} onAdd={handleAddTranslation} />}
     </div>
@@ -1943,6 +2827,8 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
 function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sentence: SentenceData) => void }) {
   const [en, setEn] = useState('')
   const [zh, setZh] = useState('')
+  const [points, setPoints] = useState('')
+  const [difficulty, setDifficulty] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1962,6 +2848,13 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
       reviewCount: 0,
       sm2Interval: 0,
       sm2Ease: 2.5,
+      scoringPoints: points.split('\n').map((s) => s.trim()).filter(Boolean),
+      difficultyNote: difficulty.trim() || undefined,
+      latestUserTranslation: '',
+      latestAiFeedback: '',
+      latestErrorWords: '',
+      practiceCount: 0,
+      lastPractice: 0,
     }
     onAdd(newSentence)
   }
@@ -2002,6 +2895,28 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">踩分点（选填，一行一条）</label>
+            <textarea
+              value={points}
+              onChange={(e) => setPoints(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              placeholder="判分标准，主要写逻辑关系与关键术语"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">难点说明（选填）</label>
+            <input
+              type="text"
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              placeholder="这句难在哪里"
+            />
+          </div>
+
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -2024,20 +2939,31 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
 }
 
 function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (item: TranslationData) => void }) {
+  const [direction, setDirection] = useState<TranslationDirection>('cn2en')
   const [source, setSource] = useState('')
   const [reference, setReference] = useState('')
+  const [points, setPoints] = useState('')
+
+  const sourceLabel = direction === 'cn2en' ? '中文原文' : '英文原文'
+  const referenceLabel = direction === 'cn2en' ? '英文参考译文' : '中文参考译文'
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!source.trim() || !reference.trim()) {
-      toast.error('请填写中文和参考译文')
+      toast.error('请填写原文和参考译文')
       return
     }
     const newItem: TranslationData = {
       id: `t_${Date.now()}`,
       originalText: source.trim(),
+      direction,
+      referenceTranslation: reference.trim(),
+      scoringPoints: points.split('\n').map((s) => s.trim()).filter(Boolean),
+      // 手动添加来自任意文本，不是文献摘要
+      sourceKind: 'text',
       sourceDoi: '',
-      latestUserTranslation: reference.trim(),
+      // 这里是"用户作答"语义，手动添加时为空（参考译文进 referenceTranslation）
+      latestUserTranslation: '',
       latestAiFeedback: '',
       latestErrorWords: '',
       status: 'pending',
@@ -2063,24 +2989,47 @@ function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">中文句子 *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">翻译方向 *</label>
+            <select
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as TranslationDirection)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="cn2en">中译英（题面中文 → 译文英文）</option>
+              <option value="en2cn">英译中（题面英文 → 译文中文）</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">{sourceLabel} *</label>
             <textarea
               value={source}
               onChange={(e) => setSource(e.target.value)}
               rows={3}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              placeholder="中文句子"
+              placeholder={direction === 'cn2en' ? '中文句子' : 'English sentence'}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">参考译文 *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">{referenceLabel} *</label>
             <textarea
               value={reference}
               onChange={(e) => setReference(e.target.value)}
               rows={3}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              placeholder="英文参考译文"
+              placeholder={direction === 'cn2en' ? 'English reference translation' : '中文参考译文'}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">踩分点（选填，一行一条）</label>
+            <textarea
+              value={points}
+              onChange={(e) => setPoints(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              placeholder="判分标准，主要写逻辑关系与关键术语"
             />
           </div>
 

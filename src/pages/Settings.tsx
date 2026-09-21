@@ -616,6 +616,27 @@ function Settings() {
             </span>
           </div>
           <p className="text-xs text-slate-400 pl-14">范围 10-50，默认 15。例句必须逐字来自原文献。</p>
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium text-slate-700 whitespace-nowrap">长难句提取数量</label>
+            <input
+              type="range"
+              min={3}
+              max={30}
+              step={1}
+              value={store.sentenceGenCount ?? 8}
+              onChange={(e) => store.updateSettings({ sentenceGenCount: parseInt(e.target.value, 10) })}
+              className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+            />
+            <span className="text-sm font-semibold text-indigo-600 w-12 text-center">
+              {store.sentenceGenCount ?? 8}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 pl-14">
+            范围 3-30，默认 8。仅作用于学习页「长难句」的 AI 提取（需文献已转换出 md）。
+          </p>
+          <p className="text-xs text-slate-400 pl-14">
+            摘要翻译不设数量限制：每篇摘要按「英译中」「中译英」两个方向各出一题，只要有摘要（无需 md）即可生成。
+          </p>
         </section>
 
         {/* PDF 清理（转换成功后的 PDF 体积大且无法检索，可批量清掉） */}

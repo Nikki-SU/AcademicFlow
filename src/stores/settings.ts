@@ -86,6 +86,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   autoExtractWords: false,
   mineruDebugMode: true,
   wordGenCount: 15,
+  sentenceGenCount: 8,
   // 思考模式默认：四个阶段全部关掉（输出预算全给正文，且省钱）。
   // 用户仍可在设置里逐阶段手动开启并调强度 —— 默认值只决定"没动过时"的行为。
   thinkingClean: 'off',
@@ -117,6 +118,7 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'autoExtractWords', key: SETTING_KEYS.AUTO_EXTRACT_WORDS },
   { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
   { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
+  { field: 'sentenceGenCount', key: SETTING_KEYS.SENTENCE_GEN_COUNT },
   { field: 'ai2ProviderMode', key: SETTING_KEYS.AI_2_PROVIDER_MODE },
   { field: 'thinkingClean', key: SETTING_KEYS.THINKING_CLEAN },
   { field: 'thinkingTag', key: SETTING_KEYS.THINKING_TAG },
@@ -286,6 +288,7 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         autoExtractWords: s.autoExtractWords,
         mineruDebugMode: s.mineruDebugMode,
         wordGenCount: s.wordGenCount,
+        sentenceGenCount: s.sentenceGenCount,
         thinkingClean: s.thinkingClean,
         thinkingTag: s.thinkingTag,
         thinkingTranslate: s.thinkingTranslate,
@@ -403,6 +406,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           if (loaded.wordGenCount !== undefined) {
             const n = Number(loaded.wordGenCount)
             if (!isNaN(n)) patch.wordGenCount = Math.min(50, Math.max(10, Math.floor(n)))
+          }
+          if (loaded.sentenceGenCount !== undefined) {
+            const n = Number(loaded.sentenceGenCount)
+            if (!isNaN(n)) patch.sentenceGenCount = Math.min(30, Math.max(3, Math.floor(n)))
           }
           // 思考模式：非法值回退默认，避免手改坏 global.md 后 runner 收到脏参数
           if (loaded.thinkingClean !== undefined) patch.thinkingClean = normalizeThinking(loaded.thinkingClean, DEFAULT_SETTINGS.thinkingClean)
@@ -735,6 +742,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           autoExtractWords: merged.autoExtractWords,
           mineruDebugMode: merged.mineruDebugMode,
           wordGenCount: merged.wordGenCount,
+          sentenceGenCount: merged.sentenceGenCount,
           thinkingClean: merged.thinkingClean,
           thinkingTag: merged.thinkingTag,
           thinkingTranslate: merged.thinkingTranslate,
