@@ -816,7 +816,7 @@ export default function LearnPage() {
       // AI-2 什么都不返回 ≠ AI-2 判定不忠实 —— 前者多半是输出预算被推理烧穿，
       // 报成"未通过"会把用户引去怀疑材料，其实是模型自己哑了。分开说。
       const lastAttempt = result.attempts[result.attempts.length - 1]
-      const ai2Silent = !(lastAttempt?.ai2RawOutput || '').trim()
+      const ai2Silent = lastAttempt?.ai2Silent ?? !(lastAttempt?.ai2RawOutput || '').trim()
       const reviewNote = result.finalPassed
         ? 'AI-2 审阅通过'
         : ai2Silent

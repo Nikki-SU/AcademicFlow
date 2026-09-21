@@ -450,6 +450,8 @@ export interface DualEngineAttempt {
   ai2Ms: number
   /** 本轮是否通过（= ai2Feedback.passed；即 AI-2 自判 passed 且引证锚定全命中） */
   passed: boolean
+  /** 本轮 AI-2 是否压根没输出（区别于"输出了但判定不忠实"）；旧版结果文件没有这个字段 */
+  ai2Silent?: boolean
   /** 上一轮的 AI-1 输出（重写时作为 context；首轮为 null） */
   previousAI1Output: string | null
 }
@@ -477,6 +479,15 @@ export interface DualEngineResult {
   maxAttempts: number
   /** M3.6: 最终是否通过（= 最后一轮 passed；5 轮全失败时为 false） */
   finalPassed: boolean
+  /**
+   * AI-2 是"没说话"而不是"说不忠实"。
+   * 后端 runner 在 AI-2 返回空正文（输出预算被推理烧穿）时会置 true 并提前收尾 ——
+   * 此时 ai1Output 是有效内容，只是没得到复核。UI 必须把这两种情况分开报，
+   * 别让用户以为"AI 判定不忠实"而去怀疑材料。
+   */
+  ai2Silent?: boolean
+  /** 提前收尾的原因：'' | 'ai2_silent' | 'budget_exceeded' | 'call_failed' */
+  stopReason?: string
   /** 首轮 AI-1 token 使用（保留向后兼容，= attempts[0].ai1Usage） */
   ai1Usage: AIResponse['usage']
   /** 首轮 AI-2 token 使用（保留向后兼容，= attempts[0].ai2Usage） */

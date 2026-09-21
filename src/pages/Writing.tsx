@@ -1467,7 +1467,7 @@ export default function WritingPage() {
        * 前者的实情是：输出预算（max_tokens）被推理过程烧完了，正文一个字没吐，JSON 当然解析不出来，
        * 后端只能返回 passed=false —— 界面上却显示成"未通过核查"，等于骗人。
        */
-      const ai2Silent = !(lastAttempt?.ai2RawOutput || '').trim()
+      const ai2Silent = lastAttempt?.ai2Silent ?? !(lastAttempt?.ai2RawOutput || '').trim()
       const reviewNote = passed
         ? ''
         : ai2Silent
