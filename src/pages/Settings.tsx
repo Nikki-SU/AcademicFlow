@@ -39,8 +39,25 @@ import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
-import type { AIProviderMode, AIThinkingMode } from '../types'
+import type { AIProviderMode, AIThinkingMode, AISlotThinking } from '../types'
 import { AI_PROVIDERS } from '../types'
+
+/**
+ * 槽位级推理模式选项 —— 多一个「不干预」。
+ * 为什么要有「不干预」：AI-1 / AI-2 的交互式调用（问 AI、双引擎、检索）加这个开关
+ * 之前从来不发 thinking 参数，默认必须是「什么都不发」，否则等于替用户改了一次行为。
+ */
+const SLOT_THINKING_OPTIONS: {
+  value: AISlotThinking
+  label: string
+  hint: string
+}[] = [
+  { value: '', label: '不干预（模型默认）', hint: '不发送 thinking 参数，行为与之前完全一致' },
+  { value: 'off', label: '关闭思考', hint: '强制关闭 reasoning，输出预算全部留给正文（省钱）' },
+  { value: 'low', label: '开启 · 低强度', hint: '开启思考，reasoning_effort=low' },
+  { value: 'high', label: '开启 · 高强度', hint: '开启思考，reasoning_effort=high' },
+  { value: 'max', label: '开启 · 最高强度', hint: '开启思考，reasoning_effort=max（最慢最贵）' },
+]
 
 /** 思考模式下拉选项 —— off 关闭，其余为开启并控制强度 */
 const THINKING_OPTIONS: { value: AIThinkingMode; label: string }[] = [
@@ -105,6 +122,8 @@ function Settings() {
     mineruToken,
     simpletexToken,
     simpletexSecret,
+    thinkingAi1,
+    thinkingAi2,
     updateSettings,
     refreshModels,
     init,
@@ -331,6 +350,8 @@ function Settings() {
           onCustomApiKeyChange={(v) => updateSettings({ customAi1ApiKey: v })}
           customModel={customAi1Model}
           onCustomModelChange={(v) => updateSettings({ customAi1Model: v })}
+          thinking={thinkingAi1}
+          onThinkingChange={(v) => updateSettings({ thinkingAi1: v })}
           fetchedModels={slot1ChatIds}
           fetchedProvider={slot1ModelsProvider}
           fetchedAt={slot1ModelsFetchedAt}
@@ -365,6 +386,8 @@ function Settings() {
           onCustomApiKeyChange={(v) => updateSettings({ customAi2ApiKey: v })}
           customModel={customAi2Model}
           onCustomModelChange={(v) => updateSettings({ customAi2Model: v })}
+          thinking={thinkingAi2}
+          onThinkingChange={(v) => updateSettings({ thinkingAi2: v })}
           fallbackKeyNote={
             slot2Key.trim() === '' &&
             ai2ProviderMode !== 'custom' &&
@@ -419,6 +442,7 @@ function Settings() {
           </div>
           <p className="text-xs text-slate-400">
             保存后写入私库 <code className="font-mono">settings/global.md</code>，Runner 读取后按阶段拼进请求体，无需重新同步 Secrets。
+            本段只管文献处理管线的四个阶段；阅读页问 AI / 双引擎 / 联网检索走上面各槽位自己的「推理模式」。
           </p>
         </section>
 
@@ -649,6 +673,9 @@ function AISlotSection(props: {
   onCustomApiKeyChange: (v: string) => void
   customModel: string
   onCustomModelChange: (v: string) => void
+  /** 本槽位交互式调用的推理模式（'' = 不干预） */
+  thinking: AISlotThinking
+  onThinkingChange: (v: AISlotThinking) => void
   /** 本槽位 key 留空时的共用提示（仅 AI-2 位会出现） */
   fallbackKeyNote?: string
   /** 从 runner 拉取的真实模型 id 清单（已过滤 chat 类，下拉第二组） */
@@ -668,9 +695,10 @@ function AISlotSection(props: {
     slot, title, desc, advancedMode, providerMode, onProviderChange,
     apiKey, onApiKeyChange, model, onModelChange,
     customBaseUrl, onCustomBaseUrlChange, customApiKey, onCustomApiKeyChange,
-    customModel, onCustomModelChange, fallbackKeyNote,
+    customModel, onCustomModelChange, thinking, onThinkingChange, fallbackKeyNote,
     fetchedModels, fetchedProvider, fetchedAt, isFetching, canFetch, onFetch,
   } = props
+  const thinkingHint = SLOT_THINKING_OPTIONS.find((o) => o.value === thinking)?.hint ?? ''
 
   const isCustom = providerMode === 'custom'
   const cfg = AI_PROVIDERS[providerMode]
@@ -851,6 +879,27 @@ function AISlotSection(props: {
           </div>
         </>
       )}
+
+      {/* 推理模式（reasoning）—— 本槽位的交互式调用：问 AI / 双引擎 / 联网检索 */}
+      <div className="space-y-1.5">
+        <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+          <Brain className="w-3.5 h-3.5 text-violet-500" />
+          推理模式
+        </label>
+        <select
+          value={thinking}
+          onChange={(e) => onThinkingChange(e.target.value as AISlotThinking)}
+          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md
+                     focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent bg-white"
+        >
+          {SLOT_THINKING_OPTIONS.map((o) => (
+            <option key={o.value || 'default'} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] text-slate-400">{thinkingHint}</p>
+      </div>
     </section>
   )
 }

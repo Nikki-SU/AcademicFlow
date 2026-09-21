@@ -251,6 +251,10 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       const q = question.trim()
       if (!q || busy || !docRef) return
 
+      // 联网检索走的是 AI-1 位的凭据，所以它的推理模式也跟 AI-1 位设置走。
+      // '' 表示不干预 → 传 undefined，后端就不发 thinking（保持模型默认）。
+      const webSearchThinking = useSettingsStore.getState().thinkingAi1 || undefined
+
       const now = Date.now()
       const userMsg: ReadingChatMessage = {
         id: `u_${now}`,
@@ -285,6 +289,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
                 `【问题】\n${q}`,
               ].filter(Boolean).join('\n\n'),
               maxUses: 3,
+              thinking: webSearchThinking,
             })
             webSources = search.sources
             if (search.content.trim()) {
@@ -348,7 +353,11 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             `【问题】\n${q}`,
           ].filter(Boolean).join('\n\n')
 
-          const resp = await callWebSearch({ system: sys, user: userContent })
+          const resp = await callWebSearch({
+            system: sys,
+            user: userContent,
+            thinking: webSearchThinking,
+          })
 
           setMessages((prev) => [
             ...prev,

@@ -70,6 +70,9 @@ export const SETTING_KEYS = {
   THINKING_TAG: 'ai_thinking_tag',
   THINKING_TRANSLATE: 'ai_thinking_translate',
   THINKING_WORDS: 'ai_thinking_words',
+  // 槽位级思考开关（交互式调用：问 AI / 双引擎 / 检索）—— '' | off | low | high | max
+  THINKING_AI_1: 'ai_thinking_ai1',
+  THINKING_AI_2: 'ai_thinking_ai2',
 } as const
 
 class AcademicFlowDB extends Dexie {

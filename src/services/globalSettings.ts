@@ -30,6 +30,9 @@ export interface GlobalSettingsData {
   thinkingTag: string
   thinkingTranslate: string
   thinkingWords: string
+  /** 槽位级思考开关（交互式调用）—— '' 表示不干预，见 AISlotThinking */
+  thinkingAi1: string
+  thinkingAi2: string
 }
 
 /** 从 GitHub 私库读取非敏感全局设置 */
@@ -116,6 +119,15 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
       case 'ai_thinking_words':
         result.thinkingWords = value
         break
+      // 槽位级：写文件时把「不干预」序列化成 default 这个词。
+      // 不能直接写空值 —— 解析器按 `- key: value` 切分，值为空的行会被整行跳过，
+      // 于是「把 off 改回不干预」这条设置根本同步不到另一台设备。
+      case 'ai_thinking_ai1':
+        result.thinkingAi1 = value === 'default' ? '' : value
+        break
+      case 'ai_thinking_ai2':
+        result.thinkingAi2 = value === 'default' ? '' : value
+        break
     }
   }
   return result
@@ -144,6 +156,11 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - ai_thinking_tag: ${s.thinkingTag}
 - ai_thinking_translate: ${s.thinkingTranslate}
 - ai_thinking_words: ${s.thinkingWords}
+
+## 推理模式（交互式调用：问 AI / 双引擎 / 联网检索）
+# default = 不干预，沿用模型默认；off = 强制关闭思考；low/high/max = 开启并控制强度
+- ai_thinking_ai1: ${s.thinkingAi1 || 'default'}
+- ai_thinking_ai2: ${s.thinkingAi2 || 'default'}
 
 ## PDF 处理
 - pdf_retention_days: 30

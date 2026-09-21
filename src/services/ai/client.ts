@@ -117,6 +117,8 @@ export async function callAI(req: AIRequest): Promise<AIResponse> {
   const inputJson: Record<string, any> = { messages: req.messages }
   if (req.temperature !== undefined) inputJson.temperature = req.temperature
   if (req.maxTokens !== undefined) inputJson.maxTokens = req.maxTokens
+  // 推理模式：不传 = 后端什么都不发，沿用模型默认行为
+  if (req.thinking) inputJson.thinking = req.thinking
 
   await dispatchAiCall(taskId, 'chat', inputJson, outputPath, 1, owner, repoName, token)
   return pollResult(outputPath, owner, repoName, token, req.signal)

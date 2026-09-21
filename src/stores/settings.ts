@@ -14,8 +14,8 @@
  * - refreshModels() 拉 /v1/models + 缓存（TTL 24h，与 SPEC §9.3 对齐）
  */
 import { create } from 'zustand'
-import type { AIProviderMode, AIThinkingMode } from "../types"
-import { AI_THINKING_MODES } from '../types'
+import type { AIProviderMode, AIThinkingMode, AISlotThinking } from "../types"
+import { AI_THINKING_MODES, AI_SLOT_THINKING_MODES } from '../types'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { MODELS_CACHE_TTL_MS } from '../services/ai/models'
 import { getSetting, putSetting, SETTING_KEYS } from '../services/db'
@@ -26,6 +26,7 @@ import { useAuthStore } from './auth'
 import { useWorkspaceStore } from './workspace'
 import type {
   AIModel,
+  AISlotConfig,
   DualEngineProgressCallback,
   DualEngineResult,
   SettingsData,
@@ -91,6 +92,10 @@ const DEFAULT_SETTINGS: SettingsData = {
   thinkingTag: 'off',
   thinkingTranslate: 'off',
   thinkingWords: 'off',
+  // 槽位级默认「不干预」：交互式调用（问 AI / 双引擎 / 联网检索）以前就没发过
+  // thinking 字段，默认值必须是「什么都不发」，否则等于替用户改了一次行为。
+  thinkingAi1: '',
+  thinkingAi2: '',
 }
 
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
@@ -117,15 +122,20 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'thinkingTag', key: SETTING_KEYS.THINKING_TAG },
   { field: 'thinkingTranslate', key: SETTING_KEYS.THINKING_TRANSLATE },
   { field: 'thinkingWords', key: SETTING_KEYS.THINKING_WORDS },
+  { field: 'thinkingAi1', key: SETTING_KEYS.THINKING_AI_1 },
+  { field: 'thinkingAi2', key: SETTING_KEYS.THINKING_AI_2 },
 ]
 
-/** 思考模式字段 —— 校验时复用同一套合法值 */
+/** 思考模式字段（pipeline 阶段）—— 校验时复用同一套合法值 */
 const THINKING_FIELDS = [
   'thinkingClean',
   'thinkingTag',
   'thinkingTranslate',
   'thinkingWords',
 ] as const
+
+/** 槽位级思考字段 —— 合法值多一个 ''（不干预） */
+const SLOT_THINKING_FIELDS = ['thinkingAi1', 'thinkingAi2'] as const
 
 /** 敏感字段 → IndexedDB SETTING_KEYS 映射 */
 const SENSITIVE_KEY_MAP: Record<string, string> = {
@@ -160,6 +170,10 @@ function deserialize(
     const ok = (AI_THINKING_MODES as readonly string[]).includes(raw ?? '')
     return (ok ? raw : DEFAULT_SETTINGS[key]) as SettingsData[typeof key]
   }
+  if ((SLOT_THINKING_FIELDS as readonly string[]).includes(key)) {
+    const ok = (AI_SLOT_THINKING_MODES as readonly string[]).includes(raw ?? '')
+    return (ok ? raw : DEFAULT_SETTINGS[key]) as SettingsData[typeof key]
+  }
   return raw as SettingsData[typeof key]
 }
 
@@ -167,6 +181,13 @@ function deserialize(
 function normalizeThinking(raw: string, fallback: AIThinkingMode): AIThinkingMode {
   return (AI_THINKING_MODES as readonly string[]).includes(raw)
     ? (raw as AIThinkingMode)
+    : fallback
+}
+
+/** 槽位级思考值校验：同 normalizeThinking，但 ''（不干预）也是合法值 */
+function normalizeSlotThinking(raw: string, fallback: AISlotThinking): AISlotThinking {
+  return (AI_SLOT_THINKING_MODES as readonly string[]).includes(raw)
+    ? (raw as AISlotThinking)
     : fallback
 }
 
@@ -216,8 +237,8 @@ interface SettingsActions {
    *  供写作页 / 学习页 / 期刊模板提取 / 题图识别等所有"AI 可信检索"场景复用，
    *  确保各场景走同一套凭据来源（硅基流动或自定义端点）。 */
   getDualEngineConfig: () => {
-    ai1: { baseUrl: string; apiKey: string; model: string }
-    ai2: { baseUrl: string; apiKey: string; model: string }
+    ai1: AISlotConfig
+    ai2: AISlotConfig
   }
   /** 清空错误提示 */
   clearError: () => void
@@ -269,6 +290,8 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         thinkingTag: s.thinkingTag,
         thinkingTranslate: s.thinkingTranslate,
         thinkingWords: s.thinkingWords,
+        thinkingAi1: s.thinkingAi1,
+        thinkingAi2: s.thinkingAi2,
       })
     } catch (err) {
       console.error('[settings] 保存非敏感设置到 GitHub 失败:', err)
@@ -386,6 +409,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           if (loaded.thinkingTag !== undefined) patch.thinkingTag = normalizeThinking(loaded.thinkingTag, DEFAULT_SETTINGS.thinkingTag)
           if (loaded.thinkingTranslate !== undefined) patch.thinkingTranslate = normalizeThinking(loaded.thinkingTranslate, DEFAULT_SETTINGS.thinkingTranslate)
           if (loaded.thinkingWords !== undefined) patch.thinkingWords = normalizeThinking(loaded.thinkingWords, DEFAULT_SETTINGS.thinkingWords)
+          // 槽位级推理模式：''（不干预）是合法值，不能用 truthy 判断跳过
+          if (loaded.thinkingAi1 !== undefined) patch.thinkingAi1 = normalizeSlotThinking(loaded.thinkingAi1, DEFAULT_SETTINGS.thinkingAi1)
+          if (loaded.thinkingAi2 !== undefined) patch.thinkingAi2 = normalizeSlotThinking(loaded.thinkingAi2, DEFAULT_SETTINGS.thinkingAi2)
           set(patch)
         }
       } catch (err) {
@@ -574,7 +600,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       const state = get()
 
       // ── AI-1（生成位）──
-      let ai1: { baseUrl: string; apiKey: string; model: string }
+      let ai1: AISlotConfig
       if (state.aiProviderMode === 'custom') {
         const baseUrl = state.customAi1BaseUrl.trim()
         const apiKey = state.customAi1ApiKey.trim()
@@ -602,7 +628,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
       }
 
       // ── AI-2（审阅位）：与 AI-1 完全对称 ──
-      let ai2: { baseUrl: string; apiKey: string; model: string }
+      let ai2: AISlotConfig
       if (state.ai2ProviderMode === 'custom') {
         const baseUrl = state.customAi2BaseUrl.trim()
         const apiKey = state.customAi2ApiKey.trim()
@@ -629,6 +655,11 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
             : cfg2.defaultModel2,
         }
       }
+
+      // 推理模式：'' = 不干预 → 不挂 thinking 字段，后端就不会往请求体里拼，
+      // 行为和加这个开关之前完全一致。只有用户明确选了 off/low/high/max 才生效。
+      if (state.thinkingAi1) ai1.thinking = state.thinkingAi1
+      if (state.thinkingAi2) ai2.thinking = state.thinkingAi2
 
       return { ai1, ai2 }
     },
@@ -708,6 +739,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           thinkingTag: merged.thinkingTag,
           thinkingTranslate: merged.thinkingTranslate,
           thinkingWords: merged.thinkingWords,
+          thinkingAi1: merged.thinkingAi1,
+          thinkingAi2: merged.thinkingAi2,
         })
       } catch (err) {
         console.error('[settings] 重置后保存到 GitHub 失败:', err)

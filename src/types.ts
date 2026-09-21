@@ -109,6 +109,31 @@ export type AIThinkingMode = 'off' | 'low' | 'high' | 'max'
 
 export const AI_THINKING_MODES: AIThinkingMode[] = ['off', 'low', 'high', 'max']
 
+/**
+ * 槽位级推理模式（AI-1 / AI-2 在对话、双引擎、联网检索等交互式调用上的思考开关）。
+ *
+ * 比 AIThinkingMode 多一个 `''`（不干预）：请求体里不带 thinking 字段，沿用模型
+ * 默认的思考行为。留这一档是为了不给老用户造成静默的行为变更 —— 这两个槽位以前
+ * 从来没发过 thinking，没主动配过的用户，请求体必须和以前一模一样。
+ */
+export type AISlotThinking = AIThinkingMode | ''
+
+export const AI_SLOT_THINKING_MODES: AISlotThinking[] = ['', ...AI_THINKING_MODES]
+
+/**
+ * 单个 AI 槽位的端点配置（AI-1 生成位 / AI-2 审阅位对称）。
+ *
+ * thinking 不传 = 什么都不发，用模型默认的思考行为。故意不用默认值兜底：
+ * 用户没配过这个字段时，请求体和以前一模一样，行为不会因为一次设置改动而变。
+ */
+export interface AISlotConfig {
+  baseUrl: string
+  apiKey: string
+  model: string
+  /** 推理模式：off = 关闭；low/high/max = 开启并控制强度 */
+  thinking?: AIThinkingMode
+}
+
 export type AIProviderConfig = {
   label: string
   baseUrl: string
@@ -226,6 +251,13 @@ export interface SettingsData {
   thinkingTag: AIThinkingMode
   thinkingTranslate: AIThinkingMode
   thinkingWords: AIThinkingMode
+  /**
+   * 槽位级思考开关 —— 上面四个是 pipeline 阶段，这两个管交互式调用
+   * （阅读页问 AI、双引擎试运行、可信检索、联网检索）。
+   * '' = 不干预（保持模型默认），见 AISlotThinking。
+   */
+  thinkingAi1: AISlotThinking
+  thinkingAi2: AISlotThinking
 }
 
 /** 设置 store 状态 */
@@ -264,6 +296,8 @@ export interface AIRequest {
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[]
   temperature?: number
   maxTokens?: number
+  /** 推理模式：off = 关闭；不传 = 用模型默认 */
+  thinking?: AIThinkingMode
   signal?: AbortSignal
 }
 
@@ -292,8 +326,8 @@ export interface DualEngineRunParams {
   ai1Instruction: string
   ai1RolePrompt?: string
   maxAttempts?: number
-  ai1?: { baseUrl: string; apiKey: string; model: string }
-  ai2?: { baseUrl: string; apiKey: string; model: string }
+  ai1?: AISlotConfig
+  ai2?: AISlotConfig
   onProgress?: DualEngineProgressCallback
 }
 

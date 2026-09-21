@@ -10,6 +10,7 @@
  *
  * 产物：temp/ai/web_search/search_{ts}_{rand}.json
  */
+import type { AIThinkingMode } from '../../types'
 import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
 import { useAuthStore } from '../../stores/auth'
@@ -31,6 +32,8 @@ export interface WebSearchRequest {
   user: string
   /** 最多检索几次，默认 5（前端不传则用后端默认值） */
   maxUses?: number
+  /** 推理模式：不传 = 后端不发 thinking 参数，沿用模型默认 */
+  thinking?: AIThinkingMode
   signal?: AbortSignal
 }
 
@@ -53,6 +56,7 @@ export async function callWebSearch(req: WebSearchRequest): Promise<WebSearchRes
   const inputJson: Record<string, unknown> = { user: req.user }
   if (req.system) inputJson.system = req.system
   if (req.maxUses) inputJson.max_uses = req.maxUses
+  if (req.thinking) inputJson.thinking = req.thinking
 
   await dispatchAiCall(taskId, 'web_search', inputJson, outputPath, 1, owner, repoName, token)
 
