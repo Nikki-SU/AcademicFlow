@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   BookOpen,
   BookCopy,
@@ -53,6 +53,9 @@ type FilterType = 'all' | 'has-md' | 'no-md'
 type TierFilter = 'all' | 1 | 2
 /** 阅读对象：文献（按 doi）/ 图书（按书名）/ 其他文档（按 documents 下的目录名） */
 type DocType = 'paper' | 'book' | 'document'
+
+/** 文献的显示模式全集 —— 只用来校验从进度文件里读回来的 mode 是不是合法值 */
+const TRANSLATION_MODES: TranslationMode[] = ['original', 'bilingual', 'chinese', 'english']
 
 interface Annotation {
   id: string
@@ -277,6 +280,10 @@ function getColorInfo(color: HighlightColor) {
 export default function ReadingPage() {
   const { repo } = useWorkspaceStore()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const location = useLocation()
+  /** 管理页的"眼睛"按钮带过来的目标对象：paper:<doi> / book:<书名> / document:<目录名> */
+  const docParam = searchParams.get('doc')
   const [papers, setPapers] = useState<Paper[]>([])
   const [papersLoading, setPapersLoading] = useState(true)
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null)
@@ -349,6 +356,15 @@ const [aligned_content, set_aligned_content] = useState('')
   /** 用户一旦手动滚过，就不再自动回填（否则图片加载完会被拽回去） */
   const userScrolledRef = useRef(false)
   const scrollRafRef = useRef(0)
+  /**
+   * 当前读到的标题（锚点 + 文本 + 层级）。
+   * 文本必须在"当时那个模式"的 DOM 上取：切模式会重渲染，之后再回头取会取到另一段的文本。
+   */
+  const activeHeadingRef = useRef<{ anchor: string; heading: string; level: number } | null>(null)
+  /** 进度是否已加载完 —— 没加载完就落盘，会拿默认值把上次的记录覆盖掉 */
+  const progressLoadedRef = useRef(false)
+  /** 我们自己恢复出来的模式不算"用户改了模式"，不能因此把进度写回去 */
+  const restoringModeRef = useRef(false)
   const [savedProgress, setSavedProgress] = useState<ReadingProgress | null>(null)
   /** 当前视口顶部所在的标题锚点 —— 用来在大纲里标出读到哪了 */
   const [activeAnchor, setActiveAnchor] = useState('')
@@ -400,7 +416,8 @@ const [aligned_content, set_aligned_content] = useState('')
             cats.filter((c) => c.dois.includes(doi)).map((c) => c.id)
           const paperList = lits.map((l) => literatureToPaper(l, catIdsOf(l.doi)))
           setPapers(paperList)
-          if (paperList.length > 0) {
+          // 默认打开第一篇；但如果 URL 指名了要读哪篇，就别抢，等参数生效
+          if (paperList.length > 0 && !docParam?.startsWith('paper:')) {
             setSelectedPaperId(paperList[0].id)
           }
         }
@@ -437,6 +454,41 @@ const [aligned_content, set_aligned_content] = useState('')
       .finally(() => { if (!cancelled) setDocumentsLoading(false) })
     return () => { cancelled = true }
   }, [repo])
+
+  /**
+   * 应用 URL 里的 ?doc= 参数（管理页"眼睛"按钮的落地）。
+   * 三个列表都是异步来的，所以要等对应那份列表到位再选中。
+   * 用 location.key 而不是布尔量：同一次导航只应用一次（用户在列表里换对象不被拽回去），
+   * 但下一次从管理页点进来（新 key）必须重新生效 —— 哪怕 ?doc= 和上次一模一样。
+   */
+  const docParamAppliedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!docParam || docParamAppliedRef.current === location.key) return
+    const sep = docParam.indexOf(':')
+    if (sep <= 0) { docParamAppliedRef.current = location.key; return }
+    const kind = docParam.slice(0, sep)
+    const id = docParam.slice(sep + 1)
+    if (!id) { docParamAppliedRef.current = location.key; return }
+    if (kind === 'paper') {
+      if (papersLoading) return
+      setDocType('paper')
+      // 找不到就退回第一篇（可能是被删了 / DOI 变了），别留一个空壳在页面上
+      setSelectedPaperId(papers.some((p) => p.id === id) ? id : (papers[0]?.id ?? null))
+    } else if (kind === 'book') {
+      if (booksLoading) return
+      setDocType('book')
+      setSelectedBookId(books.some((b) => b.id === id) ? id : (books[0]?.id ?? null))
+    } else if (kind === 'document') {
+      if (documentsLoading) return
+      setDocType('document')
+      setSelectedDocumentId(documents.some((d) => d.id === id) ? id : (documents[0]?.id ?? null))
+    } else {
+      docParamAppliedRef.current = location.key
+      return
+    }
+    docParamAppliedRef.current = location.key
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docParam, location.key, papers, papersLoading, books, booksLoading, documents, documentsLoading])
 
   // 图书分类 / 其他文档分类（各自一份表）
   useEffect(() => {
@@ -971,13 +1023,29 @@ const [aligned_content, set_aligned_content] = useState('')
     if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
     restoringRef.current = false
     userScrolledRef.current = false
+    progressLoadedRef.current = false
+    activeHeadingRef.current = null
     setSavedProgress(null)
     setActiveAnchor('')
     if (!docRef) return
     let cancelled = false
     loadProgress(docRef)
-      .then((p) => { if (!cancelled) setSavedProgress(p) })
-      .catch((err) => console.error('[Reading] 加载阅读进度失败:', err))
+      .then((p) => {
+        if (cancelled) return
+        setSavedProgress(p)
+        // 到位之后才允许落盘：否则文档还没读出来就写，会拿默认值把上次的记录顶掉
+        progressLoadedRef.current = true
+        // 上次用的是哪种语言模式，一并恢复 —— 模式也是"读到哪儿"的一部分。
+        // 这是恢复、不是用户改设置，打个标记免得立刻触发回写。
+        if (p?.mode && TRANSLATION_MODES.includes(p.mode as TranslationMode)) {
+          restoringModeRef.current = true
+          set_translation_mode(p.mode as TranslationMode)
+        }
+      })
+      .catch((err) => {
+        console.error('[Reading] 加载阅读进度失败:', err)
+        if (!cancelled) progressLoadedRef.current = true
+      })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docKey])
@@ -1026,8 +1094,15 @@ const [aligned_content, set_aligned_content] = useState('')
     restoringRef.current = true
     box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top - 8
     setActiveAnchor(target.id)
+    // 记下回填到的位置：用户接着换个显示模式时，要落盘的就是这个标题
+    const item = outlineByAnchor.get(target.id)
+    activeHeadingRef.current = {
+      anchor: target.id,
+      heading: item?.text ?? (target.textContent ?? '').trim(),
+      level: item?.level ?? Number(target.tagName.slice(1)),
+    }
     window.setTimeout(() => { restoringRef.current = false }, 120)
-  }, [savedProgress])
+  }, [savedProgress, outlineByAnchor])
 
   // 正文是异步来的、图片加载还会把版面撑高，所以头两秒补几次；用户一动滚动条就永久让位
   useEffect(() => {
@@ -1046,23 +1121,62 @@ const [aligned_content, set_aligned_content] = useState('')
       scrollRafRef.current = 0
       const el = pickCurrentHeading()
       if (!el) return
-      const anchor = el.id
-      setActiveAnchor(anchor)
+      setActiveAnchor(el.id)
+      // 标题文本要在「当前这个模式」的 DOM 上取：切模式会整篇重渲染，回头再取就是另一段的文字了
+      const item = outlineByAnchor.get(el.id)
+      const headingInfo = {
+        anchor: el.id,
+        heading: item?.text ?? (el.textContent ?? '').trim(),
+        level: item?.level ?? Number(el.tagName.slice(1)),
+      }
+      activeHeadingRef.current = headingInfo
       if (!docRef) return
+      // 进度还没读出来就落盘，会拿"当前视口第一个标题"把上次的记录顶掉
+      if (!progressLoadedRef.current) return
       if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
       progressSaveTimerRef.current = setTimeout(() => {
-        const item = outlineByAnchor.get(anchor)
         saveProgress(docRef, {
-          anchor,
-          heading: item?.text ?? (el.textContent ?? '').trim(),
-          level: item?.level ?? Number(el.tagName.slice(1)),
+          ...headingInfo,
+          // 文献连显示模式一起记住；图书 / 其他文档没有模式，留空
+          mode: isPlain ? undefined : translation_mode,
           updated_at: new Date().toISOString(),
         }).catch((err) => console.error('[Reading] 保存阅读进度失败:', err))
       }, 1200)
     })
     // docRef 每次渲染都是新对象，但它只有 kind/id 有意义 —— 这里用 docKey 兜住
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickCurrentHeading, outlineByAnchor, docKey])
+  }, [pickCurrentHeading, outlineByAnchor, docKey, isPlain, translation_mode])
+
+  /**
+   * 换了显示模式 → 进度里的模式要跟着更新。
+   * 位置用**新 DOM**里视口顶部那个标题：模式变了锚点和标题文字都会变，
+   * 沿用切换前的标题会把「英文模式的进度」写成一句中文，下次就找不回来了。
+   */
+  useEffect(() => {
+    if (restoringModeRef.current) {
+      // 是系统在恢复上次的模式，不是用户改的，别写盘
+      restoringModeRef.current = false
+      return
+    }
+    if (isPlain || !docRef || !progressLoadedRef.current) return
+    // 同一刻可能有个"滚动落盘"在排队，里面存的是旧模式 —— 先撤掉，最后由这里统一写
+    if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
+    const el = pickCurrentHeading()
+    if (!el) return
+    const item = outlineByAnchor.get(el.id)
+    const info = {
+      anchor: el.id,
+      heading: item?.text ?? (el.textContent ?? '').trim(),
+      level: item?.level ?? Number(el.tagName.slice(1)),
+    }
+    activeHeadingRef.current = info
+    saveProgress(docRef, {
+      ...info,
+      mode: translation_mode,
+      updated_at: new Date().toISOString(),
+    }).catch((err) => console.error('[Reading] 保存阅读进度失败:', err))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [translation_mode])
 
   // 图片预加载：渲染后把 api.github.com/contents URL 换成 blob URL（绕过 GFW 对 raw.githubusercontent.com 的封锁）
   useEffect(() => {

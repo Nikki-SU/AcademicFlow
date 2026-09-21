@@ -1253,14 +1253,13 @@ export default function ManagementPage() {
     }
   }
 
-  /** 跳转到阅读页 */
+  /** 跳转到阅读页并直接打开这篇文献 */
   const handleOpenReading = useCallback((paper: Paper) => {
     if (!paper.doi) {
       toast.error('这篇文献没有 DOI，无法阅读')
       return
     }
-    const slug = doiToSlug(paper.doi)
-    navigate(`/reading/${slug}`)
+    navigate(`/reading?doc=paper:${encodeURIComponent(paper.doi)}`)
   }, [navigate])
 
   /** 重新触发 pipeline（复用私库里已上传的 PDF，不要求重新上传） */
@@ -2009,9 +2008,14 @@ export default function ManagementPage() {
     }
   }
 
-  /** 阅读页目前不支持用参数指定选中文档，这里只负责把用户带到阅读页 */
-  const handleOpenDocumentReading = () => {
-    navigate('/reading')
+  /** 跳转到阅读页并直接打开这份文档 */
+  const handleOpenDocumentReading = (doc: DocumentSummary) => {
+    navigate(`/reading?doc=document:${encodeURIComponent(doc.id)}`)
+  }
+
+  /** 跳转到阅读页并直接打开这本书 */
+  const handleOpenBookReading = (book: BookItem) => {
+    navigate(`/reading?doc=book:${encodeURIComponent(book.id)}`)
   }
 
   // 渲染文献分类树
@@ -3059,9 +3063,9 @@ export default function ManagementPage() {
                     <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => openBookDetail(book)}
+                          onClick={() => handleOpenBookReading(book)}
                           className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
-                          title="详情"
+                          title="阅读"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -3205,9 +3209,9 @@ export default function ManagementPage() {
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
-                        onClick={handleOpenDocumentReading}
+                        onClick={() => handleOpenDocumentReading(doc)}
                         className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"
-                        title="打开阅读（到阅读页的『其他文档』里选）"
+                        title="打开阅读"
                       >
                         <BookOpen className="w-4 h-4" />
                       </button>
