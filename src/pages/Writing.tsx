@@ -218,7 +218,7 @@ const BUILTIN_ACTIONS: QuickActionDef[] = [
     icon: Search,
     template:
       '请基于给出的检索结果逐条整理文献：标题、作者、年份、期刊、DOI，' +
-      '并为每一条写一句中文小结（说清这篇做了什么、跟你这个主题有什么关系）。\n\n研究主题：{topic}',
+      '并为每一条写一句中文小结（说清这篇做了什么、结论是什么）。\n\n研究主题：{topic}',
     params: [{ key: 'topic', label: '研究主题', placeholder: '例如：钙钛矿太阳能电池的稳定性' }],
   },
   {
@@ -295,6 +295,25 @@ function parseOnlineSummaries(text: string, dois: string[]): Record<string, stri
     if (summary) out[doi] = summary
   }
   return out
+}
+
+/**
+ * AI-1 对「源材料未提及」的字段会按约定输出内部标记 `[NOT_IN_SOURCE] <说明>`。
+ * 那是给系统识别的，不该让用户看到 —— 标记连它后面那段说明整行删掉；
+ * 删完只剩 "- " / "：" 这类空壳的行也一并清掉。
+ */
+function stripNotInSource(text: string): string {
+  return text
+    .split('\n')
+    .map((line) =>
+      line.includes('[NOT_IN_SOURCE]') ? line.slice(0, line.indexOf('[NOT_IN_SOURCE]')) : line,
+    )
+    .map((line) => {
+      const t = line.trim()
+      return t.length > 0 && /^[-*+>#：:，,、]+$/.test(t) ? '' : line
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
 }
 
 /**
@@ -1509,7 +1528,7 @@ export default function WritingPage() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === genMsgId
-                  ? { ...m, content: event.ai1Output || m.content }
+                  ? { ...m, content: stripNotInSource(event.ai1Output || m.content) }
                   : m
               )
             )
@@ -1556,7 +1575,8 @@ export default function WritingPage() {
           m.id === genMsgId
             ? {
                 ...m,
-                content: (result.ai1Output || '（AI-1 未返回内容）') + missingNote + reviewNote,
+                content:
+                  stripNotInSource(result.ai1Output || '（AI-1 未返回内容）') + missingNote + reviewNote,
                 citations: attached.length > 0 ? attached : undefined,
                 reviewStatus: passed ? ('pass' as const) : ('fail' as const),
               }
