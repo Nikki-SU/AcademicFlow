@@ -45,7 +45,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getAllTemplates, createTemplate, updateTemplate, listTemplateAssets, loadTemplateAsset } from '../services/journal-templates'
-import { planTemplateAssets } from '../services/latex-assets'
+import { planTemplateAssets, collectTexFileRefs, resolveTexFileRef } from '../services/latex-assets'
 import {
   extractGuidelinesWithAI,
   applyExtractedToTemplate,
@@ -2502,10 +2502,29 @@ export default function WritingPage() {
     if (assetPaths.length === 0) return { files: [], missing: [] }
     const plan = planTemplateAssets(latexCode, assetPaths)
     const files: Array<{ path: string; data: Uint8Array }> = []
-    for (const rel of plan.files) {
-      setCompileStatus(`正在加载模板资源 ${rel}...`)
-      const data = await loadTemplateAsset(currentTemplate.id, rel)
-      if (data) files.push({ path: rel, data })
+    // 队列里带「assets 里的实际路径 from」和「编译目录里要放的路径 to」——
+    // 两者通常一样；类文件按裸文件名引用子目录里的图时才会分开（见 resolveTexFileRef）。
+    const queue: Array<{ from: string; to: string }> = plan.files.map((p) => ({ from: p, to: p }))
+    const placed = new Set(plan.files)
+
+    while (queue.length > 0) {
+      const { from, to } = queue.shift() as { from: string; to: string }
+      setCompileStatus(`正在加载模板资源 ${to}...`)
+      const data = await loadTemplateAsset(currentTemplate.id, from)
+      if (!data) continue
+      files.push({ path: to, data })
+      // 模板自带的类文件内部还会去磁盘上找东西（USG.cls 的 \maketitle 里就有
+      // \includegraphics{Wiley_logo.eps}，而图在 assets/images/ 下）。主 .tex 里
+      // 看不到这层依赖，只能把类文件读出来再顺着找一遍。
+      if (!/\.(cls|sty|clo|def)$/i.test(from)) continue
+      for (const ref of collectTexFileRefs(new TextDecoder().decode(data))) {
+        const hit = resolveTexFileRef(ref, assetPaths)
+        // 类文件里有大量条件引用（\IfFileExists、注释掉的备用分支），
+        // 解不出来的一律不报缺件 —— 那是噪声，不是这次编译真会缺的东西。
+        if (!hit || placed.has(hit.to)) continue
+        placed.add(hit.to)
+        queue.push(hit)
+      }
     }
     return { files, missing: plan.missing }
   }

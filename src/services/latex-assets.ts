@@ -128,3 +128,61 @@ export function planTemplateAssets(tex: string, assetPaths: string[]): TemplateA
 
   return { files: [...files], missing: [...missing] }
 }
+
+/** 会去磁盘上找文件的命令：图片、\input 进来的片段 */
+const FILE_REF_COMMANDS = ['includegraphics', 'input', 'include', 'lstinputlisting']
+
+/**
+ * 从一段 TeX 源码里收集「会去磁盘上找文件」的引用。
+ *
+ * 主 .tex 和模板自带的 .cls/.sty 都喂给这个函数 —— 类文件内部的依赖在主 .tex
+ * 里根本看不到：Wiley 的 USG.cls 在 \maketitle 里就要 \includegraphics{Wiley_logo.eps}。
+ */
+export function collectTexFileRefs(tex: string): string[] {
+  return FILE_REF_COMMANDS.flatMap((cmd) => collectCommandArgs(tex, cmd))
+}
+
+/** 按「文件名」在整包里捞一个文件（含子目录），补常见图片扩展名 */
+function lookupByBasename(name: string, assetPaths: string[]): string | null {
+  const base = normalizeRef(name).split('/').pop()
+  if (!base) return null
+  const basenameOf = (p: string) => normalizeRef(p).split('/').pop()
+  const exact = assetPaths.find((p) => basenameOf(p) === base)
+  if (exact) return normalizeRef(exact)
+  if (/\.[a-z0-9]{1,5}$/i.test(base)) return null
+  for (const ext of GRAPHIC_EXTS) {
+    const hit = assetPaths.find((p) => basenameOf(p) === base + ext)
+    if (hit) return normalizeRef(hit)
+  }
+  return null
+}
+
+/**
+ * 把一条引用解析成「编译目录里要放的文件」。
+ *
+ * 难点在于模板整包里的资源常常放在子目录，而类文件引用时两种写法都有：
+ *   USG.cls: \includegraphics{images/ORCID_Logo}     ← 带目录
+ *   USG.cls: \includegraphics{Wiley_logo.eps}        ← 裸文件名（图在 images/ 下）
+ * 所以原样找不到时再按文件名在整包里捞一遍，并按**引用写的路径**落位：
+ * 带目录就照原样放（类文件按这个路径找），裸文件名就放到编译目录根下。
+ *
+ * 这样就不必依赖 kpathsea 的递归搜索（`//`）能不能在没有 ls-R 的目录树上生效。
+ */
+export function resolveTexFileRef(
+  ref: string,
+  assetPaths: string[],
+): { from: string; to: string } | null {
+  const n = normalizeRef(ref)
+  if (!n) return null
+  const assetSet = new Set(assetPaths.map(normalizeRef))
+  // 1. 先按原样（含补图片扩展名）
+  const direct = lookup(n, assetSet) ?? lookup(`${n}.tex`, assetSet)
+  if (direct) return { from: direct, to: direct }
+  // 2. 再按文件名在整包里捞
+  const found = lookupByBasename(n, assetPaths)
+  if (!found) return null
+  const slash = n.lastIndexOf('/')
+  const dir = slash === -1 ? '' : n.slice(0, slash)
+  const basename = found.slice(found.lastIndexOf('/') + 1)
+  return { from: found, to: dir ? `${dir}/${basename}` : basename }
+}
