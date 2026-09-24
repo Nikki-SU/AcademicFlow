@@ -264,7 +264,9 @@ const EditBlockCard = memo(function EditBlockCard({
       )}
 
       <div className="flex items-center justify-between mb-2 gap-2">
-        {/* 拖拽把手 = 图标 + 块名，整段都能按（以前只有那个小点能按，太难点中） */}
+        {/* 拖拽把手 = 撑满整行的一条横条（图标 + 块名 + 悬停提示）。
+            以前只有那个 10px 的小点能按，很难点中；现在整行高度、从图标到右侧按钮前面
+            全是可拖区，横向也基本吃满。 */}
         <div
           draggable
           onDragStart={(e) => {
@@ -277,12 +279,16 @@ const EditBlockCard = memo(function EditBlockCard({
             onDragStartUnit(unit.srcIdx, e.clientY)
           }}
           onDragEnd={onDragEndUnit}
-          className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing select-none
-                     rounded-md -m-1 p-1 hover:bg-slate-100 transition"
-          title="按住这里上下拖：拖多远就挪几位（不用拖到目标块的一半）"
+          className="group flex flex-1 items-center gap-2 min-w-0 min-h-[2.25rem] px-2 py-1.5
+                     rounded-md border border-dashed border-slate-200/80 cursor-grab active:cursor-grabbing
+                     select-none hover:bg-slate-50 hover:border-slate-300 transition"
+          title="按住这条横条上下拖：拖多远就挪几位（不用拖到目标块的一半）"
         >
-          <span className="text-slate-400 text-base leading-none px-0.5">⠿</span>
+          <span className="text-slate-300 group-hover:text-slate-500 text-base leading-none transition">⠿</span>
           <span className="text-xs font-medium text-slate-400 tabular-nums truncate">{unit.label}</span>
+          <span className="ml-auto pr-1 text-[11px] text-slate-300 opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
+            按住拖动换位
+          </span>
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
