@@ -299,18 +299,20 @@ function parseOnlineSummaries(text: string, dois: string[]): Record<string, stri
 
 /**
  * AI-1 对「源材料未提及」的字段会按约定输出内部标记 `[NOT_IN_SOURCE] <说明>`。
- * 那是给系统识别的，不该让用户看到 —— 标记连它后面那段说明整行删掉；
- * 删完只剩 "- " / "：" 这类空壳的行也一并清掉。
+ * 那是给系统识别的，不该让用户看到，直接连标记带内容删掉：
+ *   - 整行的字段值就是个标记（如 `- **作者**：[NOT_IN_SOURCE] 作者`）→ 整行删掉，
+ *     否则会剩下「**作者**：」这种空壳；
+ *   - 标记夹在句子中间（如 `…的方式；[NOT_IN_SOURCE] 结论。`）→ 切掉标记及其后的说明，
+ *     再去掉遗留的悬空分隔符（`；`/`，`/`：` 等）。
  */
 function stripNotInSource(text: string): string {
   return text
     .split('\n')
-    .map((line) =>
-      line.includes('[NOT_IN_SOURCE]') ? line.slice(0, line.indexOf('[NOT_IN_SOURCE]')) : line,
-    )
-    .map((line) => {
-      const t = line.trim()
-      return t.length > 0 && /^[-*+>#：:，,、]+$/.test(t) ? '' : line
+    .flatMap((line) => {
+      // 整条字段值缺失 → 整行去掉（留空行会在列表里撑出一道缝）
+      if (/[：:]\s*\[NOT_IN_SOURCE\]/.test(line)) return []
+      if (!line.includes('[NOT_IN_SOURCE]')) return [line]
+      return [line.slice(0, line.indexOf('[NOT_IN_SOURCE]')).replace(/[\s；;，,、：:]+$/, '')]
     })
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
