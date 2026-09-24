@@ -2,27 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Base 全局重置 */
-html,
-body,
-#root {
-  height: 100%;
-}
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-body {
-  margin: 0;
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    'PingFang SC',
-    'Hiragino Sans GB',
-    'Microsoft YaHei',
-    'Helvetica Neue',
-    Arial,
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /*
+   * body 默认走无衬线（UI 骨架），底色用「纸」而不是纯白 ——
+   * 纯白在暖色界面里会发冷、也会让卡片没有"贴在纸上"的层次。
+   * 需要编辑感的内容面单独加 font-content（见 tailwind.config 的 fontFamily.content）。
+   */
+  body {
+    @apply font-sans bg-paper-100 text-ink-900;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 内容面：衬线在小字号下容易发虚，单独把抗锯齿与字距调稳一点 */
+  .font-content {
+    font-feature-settings: 'kern' 1, 'liga' 1;
+    letter-spacing: 0.005em;
+  }
 }
 
 /*
