@@ -98,7 +98,13 @@ import {
 } from '../services/projectData'
 import { loadLiteratures, loadTitleCns, type Literature } from '../services/literatureData'
 import { callAI } from '../services/ai/client'
-import { searchCrossref, normalizeDoi, preflightCitations, type OnlineSearchResult } from '../services/citation'
+import {
+  searchCrossref,
+  enrichWithAbstracts,
+  normalizeDoi,
+  preflightCitations,
+  type OnlineSearchResult,
+} from '../services/citation'
 import { readRepoTextFile, uploadRepoBinaryFile } from '../services/github'
 import { dispatchAiCall } from '../services/workflowClient'
 import { getRepoContext } from '../services/userData'
@@ -210,7 +216,9 @@ const BUILTIN_ACTIONS: QuickActionDef[] = [
     key: 'find-papers',
     label: '找文献',
     icon: Search,
-    template: '请检索与以下研究主题相关的文献，逐条给出标题、作者、年份、期刊和 DOI。\n\n研究主题：{topic}',
+    template:
+      '请基于给出的检索结果逐条整理文献：标题、作者、年份、期刊、DOI，' +
+      '并为每一条写一句中文小结（说清这篇做了什么、跟你这个主题有什么关系）。\n\n研究主题：{topic}',
     params: [{ key: 'topic', label: '研究主题', placeholder: '例如：钙钛矿太阳能电池的稳定性' }],
   },
   {
@@ -260,9 +268,33 @@ function buildCrossrefSourceMaterial(topic: string, records: OnlineSearchResult[
     if (r.authors) lines.push(`Authors: ${flat(r.authors)}`)
     if (r.year) lines.push(`Year: ${r.year}`)
     if (r.journal) lines.push(`Journal: ${flat(r.journal)}`)
+    // 摘要给 AI 当"写中文小结"的依据。个别摘要很长，截一下，免得十几篇把调用预算吃光。
+    if (r.abstract) lines.push(`Abstract: ${flat(r.abstract).slice(0, 1500)}`)
     return lines.join('\n')
   })
   return `--- Crossref 检索结果（检索词：${topic}）---\n\n${blocks.join('\n\n')}`
+}
+
+/**
+ * 从 AI 的返回里按 DOI 抠出中文小结。
+ *
+ * 不按行号硬对齐：模型偶尔会漏一篇、或者把 DOI 写成大写/带 https://doi.org/ 前缀。
+ * 所以对每篇已知的 DOI 去全文找"提到它的那一行"，取 DOI 之后的部分当小结 ——
+ * 找不到就跳过这篇（卡片上不显示小结），而不是整体失败。
+ */
+function parseOnlineSummaries(text: string, dois: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  for (const doi of dois) {
+    const needle = doi.toLowerCase()
+    const line = lines.find((l) => l.toLowerCase().includes(needle))
+    if (!line) continue
+    const rest = line.slice(line.toLowerCase().indexOf(needle) + doi.length)
+    // 去掉箭头/冒号这类分隔符，剩下的就是小结
+    const summary = rest.replace(/^[\s:：=＝\-–—>＞|,，、)）\]]+/, '').trim()
+    if (summary) out[doi] = summary
+  }
+  return out
 }
 
 /**
@@ -859,6 +891,9 @@ export default function WritingPage() {
   const [onlineQuery, setOnlineQuery] = useState('')
   const [onlineResults, setOnlineResults] = useState<OnlineSearchResult[]>([])
   const [isSearchingOnline, setIsSearchingOnline] = useState(false)
+  /** 在线检索结果的中文小结（DOI → 一句话），由「AI 中文小结」按钮按需生成 */
+  const [onlineSummaries, setOnlineSummaries] = useState<Record<string, string>>({})
+  const [isSummarizingOnline, setIsSummarizingOnline] = useState(false)
   const [importedDois, setImportedDois] = useState<string[]>([])
 
   void saveBookReferences
@@ -1629,16 +1664,19 @@ export default function WritingPage() {
           const keyword = /[\u4e00-\u9fff]/.test(topic) ? await toEnglishSearchQuery(topic) : topic
           // 多取一些再筛：Crossref 会把同一篇论文的"补充材料"（DOI 以 .s001 结尾）
           // 也当成独立条目返回，不筛的话结果一半是这类重复项。
-          const records = (await searchCrossref(keyword, 20))
+          const hits = (await searchCrossref(keyword, 20))
             .filter((r) => !/\.s\d{3}$/.test(r.doi))
             .slice(0, 10)
-          if (records.length === 0) {
+          if (hits.length === 0) {
             throw new Error(
               `Crossref 没有检索到与「${topic}」相关的文献` +
                 (keyword === topic ? '' : `（已自动转成英文检索词：${keyword}）`) +
                 '。换个更具体的关键词，或直接用英文关键词再试。',
             )
           }
+          // Crossref 只有一半记录带 abstract，缺的走 OpenAlex 批量补一次 ——
+          // 回答里要给每篇写中文小结，依据就是这些摘要
+          const records = await enrichWithAbstracts(hits)
           found = records.map((r) => ({
             id: r.doi,
             doi: r.doi,
@@ -1822,12 +1860,66 @@ export default function WritingPage() {
     try {
       const results = await searchCrossref(q, 12)
       setOnlineResults(results)
+      setOnlineSummaries({})
       if (results.length === 0) toast.info('没有检索到结果，换个关键词试试')
+      // Crossref 只有一半左右记录带摘要，缺的走 OpenAlex 补一次（失败就不补，不影响检索）
+      const withAbstracts = await enrichWithAbstracts(results)
+      setOnlineResults(withAbstracts)
     } catch (err) {
       console.error('[Writing] 在线检索失败:', err)
       toast.error(err instanceof Error ? err.message : '在线检索失败')
     } finally {
       setIsSearchingOnline(false)
+    }
+  }
+
+  /**
+   * 给当前这批检索结果生成中文小结。
+   *
+   * 走一次轻量 AI（跟「中文主题转英文检索词」同一条链路），按 DOI 把结果填回各自卡片。
+   * 做成手动按钮而不是检索完自动跑：检索只是随手看看时不该额外等一分钟、花一次钱。
+   */
+  const handleSummarizeOnline = async () => {
+    const usable = onlineResults.filter((r) => r.abstract)
+    if (usable.length === 0) {
+      toast.error('这批结果都没取到摘要，写不了小结')
+      return
+    }
+    setIsSummarizingOnline(true)
+    try {
+      const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+      const body = usable
+        .map((r, i) => `[${i + 1}] DOI: ${r.doi}\nTitle: ${r.title}\nAbstract: ${r.abstract.slice(0, 1500)}`)
+        .join('\n\n')
+      const resp = await callAI({
+        baseUrl: ai1.baseUrl,
+        apiKey: ai1.apiKey,
+        model: ai1.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是学术文献助手。用户会给若干篇文献的标题与摘要，请为每一篇写一句中文小结' +
+              '（30-60 字，说清这篇做了什么、结论是什么，不要复述标题）。\n' +
+              '输出格式：每行一条，以该篇的 DOI 开头，紧跟 " => "，然后是中文小结。' +
+              '不要序号、不要 markdown、不要任何多余解释。',
+          },
+          { role: 'user', content: body },
+        ],
+      })
+      const parsed = parseOnlineSummaries(resp.content, usable.map((r) => r.doi))
+      const n = Object.keys(parsed).length
+      if (n === 0) {
+        toast.error('AI 没有按 DOI 逐条返回，稍后再试或换个模型')
+        return
+      }
+      setOnlineSummaries((prev) => ({ ...prev, ...parsed }))
+      toast.success(`已为 ${n} 篇生成中文小结`)
+    } catch (err) {
+      console.error('[Writing] 生成中文小结失败:', err)
+      toast.error(err instanceof Error ? err.message : '生成中文小结失败')
+    } finally {
+      setIsSummarizingOnline(false)
     }
   }
 
@@ -3429,144 +3521,6 @@ export default function WritingPage() {
                 )}
               </div>
 
-              <div className="p-2.5 border-b border-slate-100 bg-white">
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <span className="text-[0.6875rem] font-medium text-slate-500">快捷指令</span>
-                  <button
-                    onClick={() => setShowActionModal(true)}
-                    className="p-0.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
-                    title="添加自定义指令（可直接写 prompt，也可让 AI 按需求生成）"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                {/* 指令 = 模式开关：点亮它，下面只出现这条指令需要的输入框 */}
-                <div className="flex flex-wrap gap-1.5">
-                  {BUILTIN_ACTIONS.map((action) => {
-                    const Icon = action.icon
-                    const active = activeActionKey === action.key
-                    return (
-                      <button
-                        key={action.key}
-                        onClick={() => toggleQuickAction(action.key)}
-                        className={`px-2.5 py-1.5 text-xs rounded-full border transition flex items-center gap-1 ${
-                          active
-                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
-                        }`}
-                        title={action.template}
-                      >
-                        <Icon className="w-3 h-3" />
-                        {action.label}
-                      </button>
-                    )
-                  })}
-                  {customActions.map((action) => {
-                    const key = `custom:${action.label}`
-                    const active = activeActionKey === key
-                    return (
-                      <span
-                        key={action.label}
-                        className={`inline-flex items-center text-xs rounded-full border transition ${
-                          active
-                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
-                        }`}
-                      >
-                        <button
-                          onClick={() => toggleQuickAction(key)}
-                          className="pl-2.5 pr-1 py-1.5"
-                          title={action.prompt}
-                        >
-                          {action.label}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteAction(action.label)}
-                          className={`pr-1.5 pl-0.5 py-1.5 transition ${
-                            active ? 'text-indigo-200 hover:text-white' : 'text-slate-300 hover:text-red-500'
-                          }`}
-                          title="删除该指令"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    )
-                  })}
-                </div>
-
-                {activeAction && (
-                  <div className="mt-2.5 p-2.5 rounded-lg border border-indigo-200 bg-indigo-50/40 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[0.6875rem] font-semibold text-indigo-700">
-                        {activeAction.kind === 'custom' ? activeAction.label : activeAction.def.label}
-                      </span>
-                      <button
-                        onClick={() => setActiveActionKey(null)}
-                        className="text-slate-400 hover:text-slate-600"
-                        title="取消选择"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {activeAction.kind === 'builtin'
-                      ? activeAction.def.params.map((param, i) =>
-                          param.multiline ? (
-                            <textarea
-                              key={param.key}
-                              value={actionValues[param.key] || ''}
-                              onChange={(e) =>
-                                setActionValues((prev) => ({ ...prev, [param.key]: e.target.value }))
-                              }
-                              rows={3}
-                              autoFocus={i === 0}
-                              placeholder={param.placeholder}
-                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 resize-y bg-white"
-                            />
-                          ) : (
-                            <input
-                              key={param.key}
-                              type="text"
-                              value={actionValues[param.key] || ''}
-                              onChange={(e) =>
-                                setActionValues((prev) => ({ ...prev, [param.key]: e.target.value }))
-                              }
-                              autoFocus={i === 0}
-                              placeholder={param.placeholder}
-                              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 bg-white"
-                            />
-                          ),
-                        )
-                      : (
-                          <textarea
-                            value={customPromptDraft}
-                            onChange={(e) => setCustomPromptDraft(e.target.value)}
-                            rows={4}
-                            autoFocus
-                            placeholder="这条指令的提示词…"
-                            className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 resize-y bg-white"
-                          />
-                        )}
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={sendQuickAction}
-                        disabled={
-                          isAiGenerating || isAiReviewing || !!actionIncomplete || !composeActionPrompt()
-                        }
-                        className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                      >
-                        <Send className="w-3 h-3" />
-                        拼好并发送
-                      </button>
-                      <span className="text-[0.625rem] text-slate-400 leading-tight">
-                        {actionIncomplete ? '填完上面的空才能发' : '发送时自动拼成完整提示词'}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
               <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50/30">
                 {messages.length === 0 && (
                   <div className="text-center py-10">
@@ -3729,37 +3683,167 @@ export default function WritingPage() {
                     <span>可信检索模式 · AI-1生成 + AI-2审阅</span>
                   </div>
                 )}
-                <div className="flex gap-2">
+
+                {/* 快捷指令：点一下点亮，发送框就地换成这条指令要的空 —— 选和填在同一处，
+                    不必跳到面板顶端去看另一块表单。再点一下（或点别的指令）即取消。 */}
+                <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                  {BUILTIN_ACTIONS.map((action) => {
+                    const Icon = action.icon
+                    const active = activeActionKey === action.key
+                    return (
+                      <button
+                        key={action.key}
+                        onClick={() => toggleQuickAction(action.key)}
+                        className={`px-2.5 py-1 text-xs rounded-full border transition flex items-center gap-1 ${
+                          active
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
+                        }`}
+                        title={action.template}
+                      >
+                        <Icon className="w-3 h-3" />
+                        {action.label}
+                      </button>
+                    )
+                  })}
+                  {customActions.map((action) => {
+                    const key = `custom:${action.label}`
+                    const active = activeActionKey === key
+                    return (
+                      <span
+                        key={action.label}
+                        className={`inline-flex items-center text-xs rounded-full border transition ${
+                          active
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
+                        }`}
+                      >
+                        <button
+                          onClick={() => toggleQuickAction(key)}
+                          className="pl-2.5 pr-1 py-1"
+                          title={action.prompt}
+                        >
+                          {action.label}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAction(action.label)}
+                          className={`pr-1.5 pl-0.5 py-1 transition ${
+                            active ? 'text-indigo-200 hover:text-white' : 'text-slate-300 hover:text-red-500'
+                          }`}
+                          title="删除该指令"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    )
+                  })}
                   <button
-                    onClick={handleOpenFolder}
-                    className="flex items-center gap-1.5 px-3 py-2 text-[0.6875rem] bg-slate-50 border border-slate-200 text-slate-600 rounded-xl hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex-shrink-0"
-                    title="从文件夹导入文献"
+                    onClick={() => setShowActionModal(true)}
+                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"
+                    title="添加自定义指令（可直接写 prompt，也可让 AI 按需求生成）"
                   >
-                    <FolderOpen className="w-4 h-4" />
-                    <span>导入</span>
-                  </button>
-                  <textarea
-                    ref={aiInputRef}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSendMessage()
-                      }
-                    }}
-                    rows={2}
-                    placeholder="给 AI 一个需求…（Enter 发送，Shift+Enter 换行）"
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y min-h-[2.375rem] max-h-[10rem]"
-                  />
-                  <button
-                    onClick={() => handleSendMessage()}
-                    disabled={isAiGenerating || isAiReviewing || !inputValue.trim()}
-                    className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl text-sm hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                  >
-                    <Send className="w-4 h-4" />
+                    <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
+
+                {activeAction ? (
+                  /* 指令模式：发送框位置换成这条指令需要的输入项（引用检验就是两个框） */
+                  <div className="flex gap-2 items-start">
+                    <div className="flex-1 space-y-1.5">
+                      {activeAction.kind === 'builtin'
+                        ? activeAction.def.params.map((param, i) =>
+                            param.multiline ? (
+                              <textarea
+                                key={param.key}
+                                value={actionValues[param.key] || ''}
+                                onChange={(e) =>
+                                  setActionValues((prev) => ({ ...prev, [param.key]: e.target.value }))
+                                }
+                                rows={3}
+                                autoFocus={i === 0}
+                                placeholder={param.placeholder}
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y"
+                              />
+                            ) : (
+                              <input
+                                key={param.key}
+                                type="text"
+                                value={actionValues[param.key] || ''}
+                                onChange={(e) =>
+                                  setActionValues((prev) => ({ ...prev, [param.key]: e.target.value }))
+                                }
+                                autoFocus={i === 0}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !actionIncomplete) {
+                                    e.preventDefault()
+                                    sendQuickAction()
+                                  }
+                                }}
+                                placeholder={param.placeholder}
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                              />
+                            ),
+                          )
+                        : (
+                            <textarea
+                              value={customPromptDraft}
+                              onChange={(e) => setCustomPromptDraft(e.target.value)}
+                              rows={3}
+                              autoFocus
+                              placeholder="这条指令的提示词…"
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y"
+                            />
+                          )}
+                    </div>
+                    <button
+                      onClick={sendQuickAction}
+                      disabled={
+                        isAiGenerating || isAiReviewing || !!actionIncomplete || !composeActionPrompt()
+                      }
+                      className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl text-sm hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                      title={actionIncomplete ? '把这条指令要的空填完' : '发送时自动拼成完整提示词'}
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleOpenFolder}
+                      className="flex items-center gap-1.5 px-3 py-2 text-[0.6875rem] bg-slate-50 border border-slate-200 text-slate-600 rounded-xl hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex-shrink-0"
+                      title="从文件夹导入文献"
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      <span>导入</span>
+                    </button>
+                    <textarea
+                      ref={aiInputRef}
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          handleSendMessage()
+                        }
+                      }}
+                      rows={2}
+                      placeholder="给 AI 一个需求…（Enter 发送，Shift+Enter 换行）"
+                      className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y min-h-[2.375rem] max-h-[10rem]"
+                    />
+                    <button
+                      onClick={() => handleSendMessage()}
+                      disabled={isAiGenerating || isAiReviewing || !inputValue.trim()}
+                      className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl text-sm hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                {activeAction && (
+                  <div className="mt-1.5 text-[0.625rem] text-slate-400">
+                    {actionIncomplete ? '填完这条指令要的空才能发' : '发送时自动拼成完整提示词'}
+                  </div>
+                )}
                 {folderPasted && (
                   <div className="mt-2 flex items-center gap-1 text-[0.625rem] text-emerald-600">
                     <Check className="w-3 h-3" />
@@ -4578,15 +4662,30 @@ export default function WritingPage() {
               </div>
               {citationSource === 'online' ? (
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-[0.6875rem] text-slate-400">数据源：Crossref（中英文关键词均可）</span>
-                  <button
-                    onClick={handleOnlineSearch}
-                    disabled={isSearchingOnline || !onlineQuery.trim()}
-                    className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                  >
-                    {isSearchingOnline && <Loader2 className="w-3 h-3 animate-spin" />}
-                    检索
-                  </button>
+                  <span className="text-[0.6875rem] text-slate-400">数据源：Crossref（摘要缺的用 OpenAlex 补）</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSummarizeOnline}
+                      disabled={isSummarizingOnline || isSearchingOnline || onlineResults.length === 0}
+                      className="px-2.5 py-1 text-xs bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                      title="让 AI 给当前这批结果各写一句中文小结（走一次后端 AI，通常一分钟上下）"
+                    >
+                      {isSummarizingOnline ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      {isSummarizingOnline ? '生成中…' : 'AI 中文小结'}
+                    </button>
+                    <button
+                      onClick={handleOnlineSearch}
+                      disabled={isSearchingOnline || !onlineQuery.trim()}
+                      className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    >
+                      {isSearchingOnline && <Loader2 className="w-3 h-3 animate-spin" />}
+                      检索
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="mt-2 text-[0.6875rem] text-slate-400">
@@ -4620,6 +4719,21 @@ export default function WritingPage() {
                           {result.authors} ({result.year})
                         </div>
                         <div className="text-xs text-slate-400 truncate mt-0.5">{result.journal}</div>
+                        {onlineSummaries[result.doi] && (
+                          <p className="mt-2 text-xs text-indigo-800 bg-indigo-50/70 rounded px-2 py-1.5 leading-relaxed">
+                            <span className="font-medium">中文小结：</span>
+                            {onlineSummaries[result.doi]}
+                          </p>
+                        )}
+                        {result.abstract && (
+                          // 摘要动辄上千字，展开会把列表撑爆 —— 折在 details 里，要看再点开
+                          <details className="mt-2">
+                            <summary className="text-[0.6875rem] text-slate-400 cursor-pointer hover:text-indigo-600">
+                              摘要
+                            </summary>
+                            <p className="mt-1 text-xs text-slate-500 leading-relaxed">{result.abstract}</p>
+                          </details>
+                        )}
                         <div className="mt-2 flex items-center justify-between">
                           <DoiLink doi={result.doi} mode="short" />
                           {imported ? (

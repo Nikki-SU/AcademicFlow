@@ -20,7 +20,8 @@ export interface LearningProgress {
   wordEnabledTypes?: string[]
   // 新版 CAT 式单词学习设置
   wordQueueLength?: number
-  wordMasterCount?: number
+  /** 掌握条件：走满多少轮算掌握（旧字段 wordMasterCount 是"连续答对次数"，语义已改） */
+  wordMasterRounds?: number
   wordQuestionTypes?: string[]
   wordAllowZhan?: boolean
   wordVoiceEnabled?: boolean
@@ -118,8 +119,8 @@ function parseProgressMd(md: string): LearningProgress {
       case 'word_queue_length':
         result.wordQueueLength = parseInt(value, 10) || 0
         break
-      case 'word_master_count':
-        result.wordMasterCount = parseInt(value, 10) || 0
+      case 'word_master_rounds':
+        result.wordMasterRounds = parseInt(value, 10) || 0
         break
       case 'word_question_types':
         result.wordQuestionTypes = value ? value.split(',').filter(Boolean) : []
@@ -160,7 +161,7 @@ function serializeProgressMd(p: LearningProgress): string {
   if (p.wordEnabledTypes !== undefined) lines.push(`- word_enabled_types: ${p.wordEnabledTypes.join(',')}`)
   // 新版 CAT 式单词学习设置 —— 之前漏写，导致刷新后 WordSection 的设置在重新加载时丢失
   if (p.wordQueueLength !== undefined) lines.push(`- word_queue_length: ${p.wordQueueLength}`)
-  if (p.wordMasterCount !== undefined) lines.push(`- word_master_count: ${p.wordMasterCount}`)
+  if (p.wordMasterRounds !== undefined) lines.push(`- word_master_rounds: ${p.wordMasterRounds}`)
   if (p.wordQuestionTypes !== undefined) lines.push(`- word_question_types: ${p.wordQuestionTypes.join(',')}`)
   if (p.wordAllowZhan !== undefined) lines.push(`- word_allow_zhan: ${p.wordAllowZhan}`)
   if (p.wordVoiceEnabled !== undefined) lines.push(`- word_voice_enabled: ${p.wordVoiceEnabled}`)

@@ -41,10 +41,11 @@ export interface WordData {
   status: WordStatus
   addedAt: number
   lastReview: number
+  /** 已走完的轮数（一轮 = 把选中的题型各答对一遍）；走满设置的轮数即 mastered */
   reviewCount: number
   sm2Interval: number
   sm2Ease: number
-  /** 连续答对次数（CAT 掌握条件：达到 master_count 即 mastered） */
+  /** 连续答对次数（答错清零）。只作统计用 —— 是否掌握看 reviewCount 走满了几轮 */
   streak: number
   /** 累计答错次数（>=3 进错词本） */
   wrongCount: number

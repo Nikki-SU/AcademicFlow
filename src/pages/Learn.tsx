@@ -183,13 +183,9 @@ function buildQuestion(
   return { wordId: word.id, type, typeLabel: typeMeta.label, isSentence, question, options, answer }
 }
 
-/** SM-2 风格的复习重排（复习模式答对时调用） */
-function rescheduleReview(w: WordData, correct: boolean, now: number): Partial<WordData> {
-  if (correct) {
-    const interval = Math.max(1, Math.round((w.sm2Interval || 1) * w.sm2Ease))
-    return { sm2Interval: interval, lastReview: now, reviewCount: w.reviewCount + 1 }
-  }
-  return { sm2Interval: 1, lastReview: now }
+/** SM-2 风格的下次复习间隔：答对一次，间隔按难度系数放大（复习模式用） */
+function nextSm2Interval(w: WordData): number {
+  return Math.max(1, Math.round((w.sm2Interval || 1) * w.sm2Ease))
 }
 
 /** 学习模式完成全部适用题型后的新间隔（艾宾浩斯阶梯：1/2/4/7/15/30 天） */
@@ -965,10 +961,11 @@ interface WordSectionProps {
   onStudied: (wordId: string) => void
 }
 
-/** 单词学习设置（对齐 CAT：队列长度 / 题型多选 / 掌握连续正确次数 / 斩词 / 发音） */
+/** 单词学习设置（对齐 CAT：队列长度 / 题型多选 / 掌握所需轮数 / 斩词 / 发音） */
 interface WordStudySettings {
   queueLength: number
-  masterCount: number
+  /** 走满多少轮算掌握 —— 一轮 = 把选中的题型各答对一遍 */
+  masterRounds: number
   questionTypes: WordQuestionType[]
   allowZhan: boolean
   voiceEnabled: boolean
@@ -976,27 +973,29 @@ interface WordStudySettings {
 
 const DEFAULT_WORD_SETTINGS: WordStudySettings = {
   queueLength: 5,
-  masterCount: 12,
+  masterRounds: 3,
   questionTypes: ['en_select_cn'],
   allowZhan: true,
   voiceEnabled: true,
 }
 
+/** 「掌握条件」可选的轮数（走满这么多轮才算掌握） */
+const MASTER_ROUND_OPTIONS = [3, 5, 7]
+
 /**
  * 学习会话状态（移植自 CAT StudySession）
  * - queue：本组单词 id，跨所有题型轮次固定
- * - wrongIds：本轮**顺延队列**。答错就排到队尾；第一遍把这组词走完之后，再按出错先后
- *             把它们做完（答错一次就再排到队尾一次），答对才出队。
- *             注意这**不是**"答错立刻重做"。
+ * - retryId：**待重做的错题**。答错就把这个词记在这里，卡片关掉后立刻重出同一道题
+ *            （同一个词、同一个题型）；答对才清掉继续往下走。
  * - askedOnce：本会话已经出过题的词。learn 模式下第一次出题的词，答完要把卡片亮出来。
- * - correctTypes：每个词已答对的题型，全部适用题型答对 → learned
+ * - correctTypes：每个词**本轮**已答对的题型；全部适用题型答对 = 走完一轮
  */
 interface StudySession {
   mode: 'learn' | 'review'
   queue: string[]
   typeIdx: number
   wordIdx: number
-  wrongIds: string[]
+  retryId: string | null
   correctTypes: Record<string, string[]>
   askedOnce: string[]
   correctCount: number
@@ -1008,6 +1007,8 @@ const DAY_MS = 86_400_000
 
 function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProps) {
   const [settings, setSettings] = useState<WordStudySettings>(DEFAULT_WORD_SETTINGS)
+  /** 设置是否已从私库读回来 —— 读完之前不许回写，免得用默认值盖掉用户的偏好 */
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
 
@@ -1053,6 +1054,9 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   }, [words, nowTick])
 
   // ── 设置持久化（learningProgress） ──
+  // 先读回用户上次的选择，读完才把 settingsLoaded 置真。下面的回写 effect 必须等它 ——
+  // 否则组件一挂载就拿**默认值**回写一次，而首次从私库读取一旦慢过 2s 的防抖窗口，
+  // 这次回写就会把用户存好的偏好覆盖掉（之后再靠读回的值自愈，但中间是真丢过）。
   useEffect(() => {
     let cancelled = false
     loadProgress().then((p) => {
@@ -1062,44 +1066,46 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             WORD_QUESTION_TYPES.some((wt) => wt.key === t))
         : []
       const ql = p.wordQueueLength
-      const mc = p.wordMasterCount
+      const mr = p.wordMasterRounds
       setSettings((prev) => ({
         queueLength: ql !== undefined && [5, 7, 9].includes(ql) ? ql : prev.queueLength,
-        masterCount: mc !== undefined && [6, 12, 18].includes(mc) ? mc : prev.masterCount,
+        masterRounds: mr !== undefined && MASTER_ROUND_OPTIONS.includes(mr) ? mr : prev.masterRounds,
         questionTypes: savedTypes.length > 0 ? savedTypes : prev.questionTypes,
         allowZhan: typeof p.wordAllowZhan === 'boolean' ? p.wordAllowZhan : prev.allowZhan,
         voiceEnabled: typeof p.wordVoiceEnabled === 'boolean' ? p.wordVoiceEnabled : prev.voiceEnabled,
       }))
-    }).catch(() => {})
+      setSettingsLoaded(true)
+    }).catch(() => setSettingsLoaded(true))
     return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
+    if (!settingsLoaded) return
     void updateProgress({
       wordQueueLength: settings.queueLength,
-      wordMasterCount: settings.masterCount,
+      wordMasterRounds: settings.masterRounds,
       wordQuestionTypes: settings.questionTypes,
       wordAllowZhan: settings.allowZhan,
       wordVoiceEnabled: settings.voiceEnabled,
     })
-  }, [settings])
+  }, [settings, settingsLoaded])
 
   // ── 出题 / 会话推进 ──
 
   /**
    * 根据会话当前指针出题，并重置答题 UI。
    *
-   * 一轮（一个题型轮）的顺序 = 先把这组词按顺序各出一题，答错的**顺延到本轮末尾**
-   * （按出错先后排队），本轮全部清空才换下一个题型。所以取词分两段：
-   *   - 第一遍：按 wordIdx 走 eligible
-   *   - 顺延段：wordIdx 已顶到队尾，改从 wrongIds 队首取
+   * 一轮（一个题型轮）的顺序 = 把这组词按顺序各出一题。某道题答错，卡片关掉后**立刻重做**
+   * 同一个词、同一个题型（见 retryId），做对了才继续往下；答对就按 wordIdx 走下一个词。
+   * 本轮全部走完才换下一个题型。
    * 卡片改为"答完才亮"：不再有开头的预展卡（先测后看），见 submitAnswer。
    */
   const presentQuestion = useCallback((s: StudySession) => {
     const type = settings.questionTypes[s.typeIdx]
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
     const eligible = pool.filter((w) => isWordEligible(w, type, s.mode))
-    const wid = s.wordIdx < eligible.length ? eligible[s.wordIdx]?.id : s.wrongIds[0]
+    // 有待重做的错题时优先它；否则按 wordIdx 走第一遍
+    const wid = s.retryId ?? eligible[s.wordIdx]?.id
     if (!wid) {
       // 理论上不该发生：安全收尾
       setFinished(s)
@@ -1126,28 +1132,22 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     setShowCard(false)
   }, [byId, settings.questionTypes])
 
-  /** 推进到下一题：第一遍走完 → 消化顺延的错题 → 本轮清空则切下一题型 */
+  /** 推进到下一题：本轮还有下一个词就走，走完则切下一个"有题可出"的题型 */
   const advance = useCallback((s: StudySession) => {
     const types = settings.questionTypes
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
     const eligibleNow = pool.filter((w) => isWordEligible(w, types[s.typeIdx], s.mode))
 
-    // 第一遍还没走完 → 下一词。错题先攒着，本轮走完才回头消化
+    // 本轮还没走完 → 下一词（错题已在 handleNext 里就地重做过，这里不会漏题）
     if (s.wordIdx < eligibleNow.length - 1) {
-      presentQuestion({ ...s, wordIdx: s.wordIdx + 1 })
-      return
-    }
-    // 顺延段：刚做完的这一题，答对的已在 submitAnswer 里出队、答错的已挪到队尾。
-    // 把 wordIdx 顶到队尾，presentQuestion 才会从 wrongIds 取词（否则会重复出最后一题）
-    if (s.wrongIds.length > 0) {
-      presentQuestion({ ...s, wordIdx: eligibleNow.length })
+      presentQuestion({ ...s, wordIdx: s.wordIdx + 1, retryId: null })
       return
     }
     // 本轮清空 → 切下一个"有题可出"的题型
     for (let ni = s.typeIdx + 1; ni < types.length; ni++) {
       const eligibleNext = pool.filter((w) => isWordEligible(w, types[ni], s.mode))
       if (eligibleNext.length > 0) {
-        presentQuestion({ ...s, typeIdx: ni, wordIdx: 0 })
+        presentQuestion({ ...s, typeIdx: ni, wordIdx: 0, retryId: null })
         return
       }
     }
@@ -1194,7 +1194,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       queue: queue.map((w) => w.id),
       typeIdx,
       wordIdx: 0,
-      wrongIds: [],
+      retryId: null,
       correctTypes: {},
       askedOnce: [],
       correctCount: 0,
@@ -1213,10 +1213,9 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     setAnswered(true)
 
     if (isCorrect) {
-      const wrongIds = session.wrongIds.filter((id) => id !== wid)
       const doneTypes = Array.from(new Set([...(session.correctTypes[wid] || []), question.type]))
       const correctTypes = { ...session.correctTypes, [wid]: doneTypes }
-      const masterCount = settings.masterCount
+      const masterRounds = settings.masterRounds
       const mode = session.mode
       const selectedTypes = settings.questionTypes
 
@@ -1225,33 +1224,20 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       let nextWord: WordData | null = null
       let masteredNow = false
       if (cur) {
-        const streak = cur.streak + 1
-        let next: WordData = { ...cur, streak }
+        let next: WordData = { ...cur, streak: cur.streak + 1 }
+        // 走完一轮 = 这个词把本轮选中的、且它适用的题型各答对了一遍。
+        // 掌握以「轮次」计量：走满 masterRounds 轮才算掌握，单个题型答得再顺也不算。
         const applicable = selectedTypes.filter((t) => isWordEligible(cur, t, mode))
-        const allTypesDone = applicable.every((t) => doneTypes.includes(t))
-        if (mode === 'learn') {
-          if (allTypesDone) {
-            if (streak >= masterCount) {
-              next = { ...next, status: 'mastered' }
-              masteredNow = cur.status !== 'mastered'
-            } else {
-              next = {
-                ...next,
-                status: 'learned',
-                sm2Interval: nextLearnInterval(cur),
-                reviewCount: cur.reviewCount + 1,
-              }
-            }
-            next = { ...next, lastReview: now }
-          }
-        } else {
-          // 复习模式：SM-2 重排；连续正确达标 → 掌握
-          const rs = rescheduleReview(cur, true, now)
-          if (streak >= masterCount) {
-            next = { ...next, ...rs, status: 'mastered' }
-            masteredNow = cur.status !== 'mastered'
-          } else {
-            next = { ...next, ...rs, status: 'learned' }
+        if (applicable.every((t) => doneTypes.includes(t))) {
+          const rounds = cur.reviewCount + 1
+          masteredNow = rounds >= masterRounds && cur.status !== 'mastered'
+          next = {
+            ...next,
+            reviewCount: rounds,
+            lastReview: now,
+            status: rounds >= masterRounds ? 'mastered' : 'learned',
+            // 下一次该隔多久再复习：复习模式按 SM-2 放大，学习模式走艾宾浩斯阶梯
+            sm2Interval: mode === 'review' ? nextSm2Interval(cur) : nextLearnInterval(cur),
           }
         }
         nextWord = next
@@ -1263,7 +1249,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       onStudied(wid)
       const nextSession: StudySession = {
         ...session,
-        wrongIds,
+        // 答对就清掉重做标记，回到正常推进
+        retryId: null,
         correctTypes,
         correctCount: session.correctCount + 1,
         masteredCount: session.masteredCount + (masteredNow ? 1 : 0),
@@ -1281,9 +1268,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         }, 800)
       }
     } else {
-      // 答错：streak 清零、wrong_count+1，本题顺延到本轮末尾（按出错先后排队）
-      const wrongIds = [...session.wrongIds.filter((id) => id !== wid), wid]
-
+      // 答错：streak 清零、wrong_count+1，并把这个词挂成"待重做" ——
+      // 卡片关掉后立刻重出同一个词、同一个题型，做对才继续往下
       setWords((prev) => prev.map((w) =>
         w.id === wid
           ? { ...w, streak: 0, wrongCount: w.wrongCount + 1, status: 'learning' }
@@ -1292,34 +1278,41 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       setShowCard(true)
       setSession({
         ...session,
-        wrongIds,
+        retryId: wid,
         wrongCount: session.wrongCount + 1,
       })
     }
-  }, [session, question, answered, firstAsk, settings.masterCount, settings.questionTypes, setWords, onStudied, byId, advance])
+  }, [session, question, answered, firstAsk, settings.masterRounds, settings.questionTypes, setWords, onStudied, byId, advance])
 
-  /** 看完卡片后继续（顺延的错题排在后面，点一下接着做） */
+  /** 看完卡片后继续：答错的那道题就地重做，其余按正常顺序推进 */
   const handleNext = useCallback(() => {
-    if (session) advance(session)
-  }, [session, advance])
+    if (!session) return
+    if (session.retryId) {
+      presentQuestion(session)
+      return
+    }
+    advance(session)
+  }, [session, advance, presentQuestion])
 
-  /** 斩词：直接标记掌握，移出错题队列 */
+  /** 斩词：直接标记掌握，清掉待重做标记 */
   const handleZhan = useCallback(() => {
     if (!question) return
     const wid = question.wordId
     setWords((prev) => prev.map((w) =>
-      w.id === wid ? { ...w, status: 'mastered', streak: settings.masterCount } : w,
+      w.id === wid
+        // 斩词 = 用户说"这个词我会了"：轮次直接记满，跟正常走满轮次掌握保持一致
+        ? { ...w, status: 'mastered', reviewCount: Math.max(w.reviewCount, settings.masterRounds) }
+        : w,
     ))
     toast.success('已斩词，标记为掌握')
     if (session) {
-      const s2 = {
+      advance({
         ...session,
-        wrongIds: session.wrongIds.filter((id) => id !== wid),
+        retryId: session.retryId === wid ? null : session.retryId,
         masteredCount: session.masteredCount + 1,
-      }
-      advance(s2)
+      })
     }
-  }, [question, session, setWords, settings.masterCount, advance])
+  }, [question, session, setWords, settings.masterRounds, advance])
 
   const exitSession = useCallback(() => {
     if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null }
@@ -1390,7 +1383,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     const currentType = settings.questionTypes[session.typeIdx]
     const pool = session.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
     const eligible = pool.filter((w) => isWordEligible(w, currentType, session.mode))
-    const isRetry = session.wrongIds.length > 0
+    const isRetry = session.retryId !== null
     const currentWord = byId.get(question.wordId)
     const progressPct = ((isRetry ? session.wordIdx : session.wordIdx + 1) / Math.max(eligible.length, 1)) * 100
 
@@ -1668,7 +1661,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             </div>
 
             <div>
-              <label className="block text-sm text-slate-600 mb-2">题型选择（按勾选顺序分轮出题，答错顺延到本轮最后）</label>
+              <label className="block text-sm text-slate-600 mb-2">题型选择（按勾选顺序分轮出题，答错就地重做这道题）</label>
               <div className="flex flex-wrap gap-2">
                 {WORD_QUESTION_TYPES.map((t) => {
                   const Icon = t.icon
@@ -1706,20 +1699,23 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             </div>
 
             <div>
-              <label className="block text-sm text-slate-600 mb-2">掌握条件（连续答对次数，中途答错清零）</label>
+              <label className="block text-sm text-slate-600 mb-2">掌握条件（走满多少轮算掌握）</label>
               <div className="flex gap-2">
-                {[6, 12, 18].map((n) => (
+                {MASTER_ROUND_OPTIONS.map((n) => (
                   <button
                     key={n}
-                    onClick={() => setSettings((p) => ({ ...p, masterCount: n }))}
+                    onClick={() => setSettings((p) => ({ ...p, masterRounds: n }))}
                     className={`px-4 py-1.5 rounded-lg text-sm transition ${
-                      settings.masterCount === n ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      settings.masterRounds === n ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
-                    {n} 次
+                    {n} 轮
                   </button>
                 ))}
               </div>
+              <p className="text-xs text-slate-400 mt-1.5">
+                一轮 = 把选中的题型各答对一遍；答错会立刻重做这道题，不计入下一轮
+              </p>
             </div>
 
             <div className="flex items-center gap-6 pt-1">

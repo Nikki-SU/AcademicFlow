@@ -256,12 +256,106 @@ export interface OnlineSearchResult {
   authors: string
   year: number
   journal: string
+  /** 摘要纯文本；两处数据源都拿不到就是空串 */
+  abstract: string
+}
+
+/** OpenAlex 基础 URL（按 DOI 批量补摘要用；免费、不需要 key） */
+const OPENALEX_API_BASE = 'https://api.openalex.org'
+
+/**
+ * 清洗摘要文本。
+ *
+ * Crossref 的 abstract 是 JATS 片段，长这样：
+ *   <jats:title>Abstract</jats:title><jats:p>正文……</jats:p>
+ * 直接塞到界面上会露出标签，所以剥掉标记、还原实体、压掉多余空白。
+ */
+function cleanAbstract(raw: string | undefined): string {
+  if (!raw) return ''
+  return raw
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    // &amp; 放最后解，否则 &amp;lt; 会被先解成 <
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** OpenAlex 存的是「词 → 出现位置」的倒排索引，按位置还原成句子 */
+function rebuildAbstractFromInvertedIndex(
+  index: Record<string, number[]> | null | undefined,
+): string {
+  if (!index) return ''
+  const slots: string[] = []
+  for (const [word, positions] of Object.entries(index)) {
+    for (const p of positions) slots[p] = word
+  }
+  return slots.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * 按 DOI 批量补摘要（走 OpenAlex 的 abstract_inverted_index）。
+ *
+ * 为什么需要兜底：Crossref 的 abstract 字段只有一半左右的记录有（取决于出版社有没有提交），
+ * 实测同一批检索结果里常常一半是空的。OpenAlex 覆盖率更好，而且一次能查多个 DOI，
+ * 所以拿它补一次而不是逐个 DOI 去请求。
+ * 整体失败直接返回空表 —— 摘要只是锦上添花，不该让检索本身失败。
+ */
+async function fetchAbstractsFromOpenAlex(dois: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (dois.length === 0) return out
+  const filter = dois.map((d) => `doi:${encodeURIComponent(d)}`).join('|')
+  const url =
+    `${OPENALEX_API_BASE}/works?filter=${filter}` +
+    '&per-page=50&select=doi,abstract_inverted_index'
+  try {
+    const resp = await fetch(url, { headers: { Accept: 'application/json' } })
+    if (!resp.ok) return out
+    const data = (await resp.json()) as {
+      results?: Array<{
+        doi?: string
+        abstract_inverted_index?: Record<string, number[]> | null
+      }>
+    }
+    for (const r of data.results || []) {
+      const text = rebuildAbstractFromInvertedIndex(r.abstract_inverted_index)
+      // OpenAlex 回的是全称 https://doi.org/10.xxx/yyy，换算回裸 DOI 才能对上
+      const doi = (r.doi || '').replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').toLowerCase()
+      if (doi && text) out.set(doi, text)
+    }
+  } catch {
+    // 兜底失败不当错误处理：Crossref 那份摘要照用，最多少几篇
+  }
+  return out
+}
+
+/**
+ * 给检索结果补齐摘要：Crossref 已经带回的直接用，缺的用 OpenAlex 批量兜一次。
+ * 两处都拿不到就留空。
+ */
+export async function enrichWithAbstracts(
+  results: OnlineSearchResult[],
+): Promise<OnlineSearchResult[]> {
+  const missing = results.filter((r) => !r.abstract).map((r) => r.doi)
+  if (missing.length === 0) return results
+  const found = await fetchAbstractsFromOpenAlex(missing)
+  if (found.size === 0) return results
+  return results.map((r) =>
+    r.abstract ? r : { ...r, abstract: found.get(r.doi) || '' },
+  )
 }
 
 /**
  * Crossref 在线检索。
  * 中文关键词直接透传即可 —— Crossref 收录了大量中文期刊（含中文标题/英文标题），
  * 不需要额外的中文库；检索式走 query.bibliographic，对"标题+作者+期刊"最友好。
+ *
+ * 顺带把 abstract 一起要回来：它在 Crossref 侧是可选字段（部分出版社不提交），
+ * 所以调用方拿到结果后可以再走 enrichWithAbstracts() 用 OpenAlex 补齐。
  */
 export async function searchCrossref(query: string, rows = 10): Promise<OnlineSearchResult[]> {
   const q = query.trim()
@@ -269,7 +363,7 @@ export async function searchCrossref(query: string, rows = 10): Promise<OnlineSe
 
   const url =
     `${CROSSREF_API_BASE}/works?query.bibliographic=${encodeURIComponent(q)}` +
-    `&rows=${rows}&select=DOI,title,author,issued,container-title`
+    `&rows=${rows}&select=DOI,title,author,issued,container-title,abstract`
 
   const resp = await fetch(url, {
     headers: {
@@ -287,6 +381,7 @@ export async function searchCrossref(query: string, rows = 10): Promise<OnlineSe
         author?: Array<{ family?: string; given?: string; name?: string }>
         'container-title'?: string[]
         issued?: { 'date-parts'?: Array<number[]> }
+        abstract?: string
       }>
     }
   }
@@ -303,6 +398,7 @@ export async function searchCrossref(query: string, rows = 10): Promise<OnlineSe
         authors,
         year: item.issued?.['date-parts']?.[0]?.[0] || 0,
         journal: item['container-title']?.[0] || '',
+        abstract: cleanAbstract(item.abstract),
       }
     })
     .filter((r) => r.doi && r.title)
