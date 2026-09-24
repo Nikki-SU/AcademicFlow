@@ -29,7 +29,7 @@ const APP_PROVIDED = new Set(['references.bib'])
  * Wiley NJD 包就是现成的例子：主 .tex 只写 \documentclass[ASNA,twocolumn]{USG}，
  * 而 USG.cls 第 281 行 \usepackage{lettersp}（真正的文件叫 LETTERSP.STY，
  * 大小写无妨 —— TeX Live 2018 起 kpathsea 默认开启大小写折叠搜索），
- * 第 1955 行 \bibliographystyle{wileyNJD-Chicago}（.bst 同样只在包里）。
+ * 第 1955 行 \bibliographystyle{wileyNJD-Chicago-lastoo}（.bst 同样只在包里）。
  * 只挂主 .tex 直接引到的文件，就会一直编到类文件内部才炸 not found。
  *
  * 这些文件都很小（现有全部模板加起来约 500KB），比「猜依赖猜不全」的代价小得多。

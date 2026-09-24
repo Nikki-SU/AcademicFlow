@@ -4,7 +4,7 @@
 > 前端通过 Contents API 把 base64 嵌在 `src/constants/skeleton.ts` 里的副本「安装」进去。
 > 本文档记三件事：**现在两边是否一致**、**改后端必须遵守什么**、**还剩什么没做**。
 >
-> 最后更新：2026-09-21
+> 最后更新：2026-09-24
 
 ---
 
@@ -200,3 +200,70 @@ token 就分叉。要共享就得把两个角色提示都挪到源材料之后 �
 - [ ] 学习页 AI 补例句 + 历史批量补提
 - [ ] 阅读页问 AI
 - [ ] 转一篇新 PDF，确认 `sentences/sentences.csv` 收到新行且列对齐、逐字回贴生效
+- [ ] 写作页选一个期刊模板 → 「正式编译（后端）」→ 确认 0 TeX/bibtex 报错、参考文献有年份
+
+---
+
+## 7. LaTeX 云端编译（正式编译）
+
+### 7.1 链路
+
+```
+写作页「正式编译（后端）」
+  ├─ saveCloudSource()  写 projects/<id>/latex-cloud/{main.tex, references.bib} + extraFiles
+  │                     extraFiles = collectTemplateAssets()（模板 assets 里该挂的那些）
+  ├─ repository_dispatch: latex_compile {project_id, run_id}
+  │     ↓ 私库 .github/workflows/latex_compile.yml
+  │       docker: texlive/texlive:latest
+  │       latexmk -xelatex -interaction=nonstopmode -file-line-error main.tex
+  └─ 轮询 projects/<id>/latex-cloud/build.json（status/log_tail），产物 main.pdf
+
+输入  projects/<id>/latex-cloud/main.tex, references.bib（+ 模板资源，同目录）
+附加搜索路径  projects/<id>/latex-packages/（用户导入的宏包）
+输出  build.json（status + 日志尾部） / main.pdf / main.log
+```
+
+**工作目录就是 `main.tex` 所在目录**，所以 `extraFiles` 一律按相对 `main.tex` 的路径落位。
+
+### 7.2 模板资源该挂哪些（`src/services/latex-assets.ts`）
+
+| 类别 | 规则 | 为什么 |
+|------|------|--------|
+| 图片、`\input`/`\include` | 只挂源码**引用到的**，缺了就在界面上点名 | Wiley 整包 14MB，全量拉没意义 |
+| `.sty/.cls/.clo/.def/.bst` | **无条件全挂**，哪怕主 `.tex` 一个字没提 | 出版社整包是自洽的一套，依赖藏在类文件内部 |
+| 类文件内部引用的文件 | 读 `.cls/.sty` 再顺着找一遍，按**引用写的路径**落位 | `USG.cls` 里既有 `images/ORCID_Logo` 也有裸文件名引用 |
+| `references.bib` | 应用自己提供，不算模板缺件 | 否则每次编译都误报 |
+
+### 7.3 这一轮后端编译踩过的坑（全部已修并真机验证）
+
+1. **`! LaTeX Error: File 'lettersp.sty' not found`** —— 模板自带的 `.sty/.cls/.bst` 一件都没挂，
+   而 `USG.cls` 内部 `\usepackage{lettersp}`（实际文件名是 `LETTERSP.STY`，靠 kpathsea 大小写折叠命中）。
+   → 见 7.2 第 2 行。
+2. **类文件内部引用图片找不到** —— `USG.cls` 按裸文件名引 `images/` 下的图。
+   → 读类文件顺着找 + 按引用写的路径落位（`resolveTexFileRef`）。
+3. **编译不幂等** —— `main.log` 会被提交回仓库（失败时给用户看日志），runner 一检出就带着旧日志；
+   latexmk 先读它、据此决定先跑 bibtex 还是 xelatex，旧日志写着 `No file main.bbl` 就会在还没有
+   `.aux` 时先跑 bibtex，报 `I found no \bibstyle command` 直接中断，xelatex 一次都没跑。
+   → workflow 编译前 `rm -f` 清掉 `main.aux/.log/.blg/.bbl/.xdv/.pdf/.fdb_latexmk/.fls`。
+4. **bibtex 160+ 报错、每条文献丢年份** —— 出版社给的 `wileyNJD-Chicago.bst`（1992 年的老 chicago）
+   头部声明的函数与文件尾实际用的（`label` / `short.list`）对不上，label 栈损坏 → 年份全空。
+   **注意**：bibtex **只认 aux 里第一条 `\bibstyle`**（后续的报 `Illegal, another \bibstyle command` 被丢掉），
+   所以**在稿子里加 `\bibliographystyle` 永远赢不过类文件** —— 必须改类文件点名的那个名字。
+   → 把 `USG.cls` 里的 `{wileyNJD-Chicago}` 换成同包里健康的 `{wileyNJD-Chicago-lastoo}`
+     （natbib `plainnat` 衍生）。**这是模板数据，不是前端代码**，落点在私库
+     `templates/journals/wiley-njd-optimal-design-twocolumn/assets/USG.cls`。
+
+### 7.4 真机验证结果（run #10，2026-09-24）
+
+`build.json` = `ok`，`main.pdf` 10 页，`The style file: wileyNJD-Chicago-lastoo.bst`，
+bibtex 只剩 5 条**数据性** warning（`empty year in Hoch2009` / `empty booktitle in Burton2013` ——
+出版社自己的示例 `.bib` 里这些条目确实没写这两个字段，属真实的源数据缺口，不是样式错误），
+无未解析引用，参考文献每条都有年份。
+
+### 7.5 仍然待办
+
+- ⚠️ **`回写结果` 的 push 竞态**：编译期间前端在自动保存稿件（也是 push），`回写结果` 被拒后
+  走 4 次 `pull --rebase` 重试，极端情况下仍可能全部失败 → 编译结果整份丢掉（本轮出现过一次）。
+  可考虑改成「失败也先 push 到独立分支 / 或延长重试窗口」。
+- 其他模板（`rsc-article-template` / `science-family-templates` / `wiley-vch-chemistry-europe`）
+  各自带的 `.bst` **未逐一验证**；也没有它们的真机编译记录。
