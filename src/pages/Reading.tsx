@@ -42,7 +42,7 @@ import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml } from '../services/markdown-renderer'
 import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
-import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem } from '../services/blocks.mjs'
+import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem, type BlockNode } from '../services/blocks.mjs'
 import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits } from '../services/text-highlight'
 import {
   searchLibrary,
@@ -82,14 +82,43 @@ interface EditUnit {
   srcIdx: number
   /** 配对的译文块下标（原文里没有译文则为 null） */
   transIdx: number | null
-  /** 展示名，如「正文 12」「图 12·1」「引文」 */
-  label: string
+  /**
+   * 源块的元信息节点。**编辑态里"改类型"就是改这里** ——
+   * 展示名（labelOf）与是否该有译文（isTranslatable）都从它推出来，不会各说各话。
+   */
+  node: BlockNode
   /** 按块语法，这一块是否"该有译文"（图 / 公式 / 文献 不翻） */
   translatable: boolean
   /** 英文（源语言）内容 */
   en: string
   /** 中文（译文）内容 */
   cn: string
+}
+
+/**
+ * 编辑页能改成的类型 —— 只放「文字」家族：正文 / 标题 1-6 / 列表 1-3。
+ *
+ * 为什么不做图/表/公式那一大堆：那些是浮动块，编号是「锚到前面第几个流块 · 同锚点内第几个」，
+ * 而且 图/公式 不翻译、表/图注 才翻译 —— 改过去会同时动到编号体系、图片路径和译文语义。
+ * 实际会看错的多半就是「标题 ↔ 正文 ↔ 列表」，这三类互改零副作用。
+ */
+const EDIT_TYPE_OPTIONS: Array<{ value: string; label: string; type: '正文' | '标题' | '列表'; level: number }> = [
+  { value: '正文', label: '正文', type: '正文', level: 0 },
+  ...[1, 2, 3, 4, 5, 6].map((lv) => ({ value: `标题${lv}`, label: `标题 ${lv} 级`, type: '标题' as const, level: lv })),
+  ...[1, 2, 3].map((lv) => ({ value: `列表${lv}`, label: `列表 ${lv} 级`, type: '列表' as const, level: lv })),
+]
+
+/** 这一块对上下拉里的哪个值（非流块返回 ''，调用方据此不渲染下拉） */
+function editTypeValueOf(node: BlockNode): string {
+  if (!node || node.kind !== 'flow') return ''
+  return node.type === '正文' ? '正文' : `${node.type}${node.level}`
+}
+
+/** 改类型：只换 kind/type/level，其余字段（编号 n 等）原样留给 renumber 去排 */
+function withEditType(node: BlockNode, value: string): BlockNode {
+  const opt = EDIT_TYPE_OPTIONS.find((o) => o.value === value)
+  if (!opt) return node
+  return { ...node, kind: 'flow', type: opt.type, level: opt.level } as BlockNode
 }
 
 /**
@@ -138,7 +167,7 @@ function buildEditUnits(items: Array<Record<string, any>>): EditUnit[] {
       key: `blk${i}_${blockId(it.node) ?? it.node.type}`,
       srcIdx: i,
       transIdx,
-      label: labelOf(it.node),
+      node: { ...it.node } as BlockNode,
       translatable: isTranslatable(it.node),
       en: it.content ?? '',
       cn: transIdx != null ? (items[transIdx].content ?? '') : '',
@@ -202,10 +231,11 @@ function rebuildDocFromUnits(
   units.forEach((u, k) => {
     const src = items[u.srcIdx]
     if (!src || src.t !== 'block') return
-    out.push({ t: 'block', node: src.node, content: u.en })
+    // 元信息取 unit 上的那份（用户可能在编辑态里改过类型），不是原文件的
+    out.push({ t: 'block', node: u.node, content: u.en })
     if (u.translatable && u.cn.trim()) {
       const trans = u.transIdx != null ? items[u.transIdx] : null
-      const node = trans && trans.t === 'block' ? trans.node : { kind: 'translation', ref: blockId(src.node) }
+      const node = trans && trans.t === 'block' ? trans.node : { kind: 'translation', ref: blockId(u.node) }
       out.push({ t: 'block', node, content: u.cn })
     }
     pushSlot(k + 1)
@@ -229,6 +259,7 @@ const EditBlockCard = memo(function EditBlockCard({
   onChange,
   onRemove,
   onMoveUnit,
+  onChangeType,
   onDragStartUnit,
   onDragEndUnit,
 }: {
@@ -244,10 +275,13 @@ const EditBlockCard = memo(function EditBlockCard({
   onRemove: (srcIdx: number) => void
   /** 上移 / 下移一位（dir = -1 / +1）—— 不想拖的时候用这个 */
   onMoveUnit: (srcIdx: number, dir: -1 | 1) => void
+  /** 改块类型（只支持文字家族，见 EDIT_TYPE_OPTIONS） */
+  onChangeType: (srcIdx: number, value: string) => void
   onDragStartUnit: (srcIdx: number, clientY: number) => void
   onDragEndUnit: () => void
 }) {
   const rowsFor = (s: string) => Math.min(24, Math.max(2, Math.ceil(s.length / 56)))
+  const typeValue = editTypeValueOf(unit.node)
   return (
     <div
       data-unit-card
@@ -285,13 +319,27 @@ const EditBlockCard = memo(function EditBlockCard({
           title="按住这条横条上下拖：拖多远就挪几位（不用拖到目标块的一半）"
         >
           <span className="text-slate-300 group-hover:text-slate-500 text-base leading-none transition">⠿</span>
-          <span className="text-xs font-medium text-slate-400 tabular-nums truncate">{unit.label}</span>
+          <span className="text-xs font-medium text-slate-400 tabular-nums truncate">{labelOf(unit.node)}</span>
           <span className="ml-auto pr-1 text-[11px] text-slate-300 opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
             按住拖动换位
           </span>
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* 改类型：只给文字家族（图/表/公式/引文那些牵动编号与译文语义，不给改） */}
+          {typeValue && (
+            <select
+              value={typeValue}
+              onChange={(e) => onChangeType(unit.srcIdx, e.target.value)}
+              className="h-6 text-[11px] border border-slate-200 rounded-md px-1 bg-white text-slate-600
+                         hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer"
+              title="这一块实际是什么类型（标题认成正文了就在这里改）"
+            >
+              {EDIT_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             onClick={() => onMoveUnit(unit.srcIdx, -1)}
@@ -1925,6 +1973,19 @@ const [aligned_content, set_aligned_content] = useState('')
     })
   }, [])
 
+  /**
+   * 改块类型（正文 / 标题 1-6 / 列表 1-3）。
+   * 只动元信息，正文一个字不碰；编号与译文引用照旧由保存时的 renumber 统一重排。
+   */
+  const changeEditUnitType = useCallback((srcIdx: number, value: string) => {
+    setEditUnits((prev) => prev.map((u) => {
+      if (u.srcIdx !== srcIdx) return u
+      const node = withEditType(u.node, value)
+      // 文字家族之间互改不会改变"要不要翻译"，但顺手重算一次，免得日后扩类型时漏掉
+      return { ...u, node, translatable: isTranslatable(node) }
+    }))
+  }, [])
+
   const saveArticle = async () => {
     if (!selectedPaperId) return
     const built = editUnits.length > 0 ? buildEditedMd() : null
@@ -3098,9 +3159,10 @@ const [aligned_content, set_aligned_content] = useState('')
                         <>
                           <p className="text-xs text-slate-400 px-1">
                             共 {editUnits.length} 个块，英文一个框、中文一个框，块标记由系统持有（不显示，也就删不掉）。
-                            删掉某一整块 = 中英一起删。换位两种办法：按住块名那一行
+                            删掉某一整块 = 中英一起删。换位两种办法：按住块名那条横条
                             <span className="text-slate-500">上下拖</span>
                             （拖多远就挪几位，不用拖到目标块的一半），或者直接点右侧的 ↑ ↓ 一位一位挪。
+                            类型认错了（比如标题被当成正文）就点块名右边的下拉直接改，编号与译文都会跟着走。
                             保存时会自动核对块数并重排编号。
                             {editModeTextCount > 0 && `另有 ${editModeTextCount} 处块外文本会原样保留。`}
                           </p>
@@ -3115,6 +3177,7 @@ const [aligned_content, set_aligned_content] = useState('')
                               onChange={updateEditUnit}
                               onRemove={removeEditUnit}
                               onMoveUnit={moveEditUnit}
+                              onChangeType={changeEditUnitType}
                               onDragStartUnit={beginEditDrag}
                               onDragEndUnit={clearEditDrag}
                             />
