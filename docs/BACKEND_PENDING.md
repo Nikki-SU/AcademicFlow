@@ -263,7 +263,43 @@ bibtex 只剩 5 条**数据性** warning（`empty year in Hoch2009` / `empty boo
 ### 7.5 仍然待办
 
 - ⚠️ **`回写结果` 的 push 竞态**：编译期间前端在自动保存稿件（也是 push），`回写结果` 被拒后
-  走 4 次 `pull --rebase` 重试，极端情况下仍可能全部失败 → 编译结果整份丢掉（本轮出现过一次）。
-  可考虑改成「失败也先 push 到独立分支 / 或延长重试窗口」。
+  走 `pull --rebase` 重试。原本只重试 4 次、间隔固定 3s —— 那次自动保存正好压在窗口里时
+  4 次会全废，**编译结果整份丢掉**（实测出现过一次，用户表现为「等了十分钟什么都没有」）。
+  已改成 **10 次、退避 + 抖动**（`sleep $(( i * 2 + RANDOM % 3 ))`，窗口约 110s 起），
+  并在 `pull --rebase` 自身失败时 `git rebase --abort`，避免仓库停在半截 rebase 状态。
 - 其他模板（`rsc-article-template` / `science-family-templates` / `wiley-vch-chemistry-europe`）
-  各自带的 `.bst` **未逐一验证**；也没有它们的真机编译记录。
+  各自带的 `.bst` **未在本地逐一验证**；真机编译验证见 7.6。
+
+### 7.6 其余三个模板的真机验证
+
+> 复刻前端 `collectTemplateAssets` 的落盘（`main.tex` = 模板 `template.tex`，其余 = plan 出来的那批），
+> 每个模板单独一个项目目录，避免上一个模板残留的 `.cls/.sty` 把 not found 盖掉。临时目录验证完已删。
+
+| 模板 | 结果 | 参考文献样式 | bibtex |
+|------|------|------------|--------|
+| `rsc-article-template` | ✅ `ok` / 有 PDF / 0 报错 | `rsc.bst` | 无 warning |
+| `science-family-templates` | ✅ `ok` / 有 PDF / 0 报错 | `sciencemag.bst` | 1 条源数据 warning |
+| `wiley-vch-chemistry-europe` | ⚠️ 首轮失败，修后 ✅ `ok` | `Wiley-chemistry.bst` | 2 条源数据 warning |
+| `wiley-njd-optimal-design-twocolumn` | ✅ `ok`（见 7.4） | `wileyNJD-Chicago-lastoo.bst` | 5 条源数据 warning |
+
+**Wiley-VCH 首轮暴露的问题（已修）**：`! LaTeX Error: File 'wiley-vch.eps' not found.`
+—— 包里真实文件名是 `Wiley-VCH.eps`（大写），而 `WileyChemistry-template.cls` 第 20 行的页眉里写的是
+`wiley-vch.eps`（小写）。出版社在 macOS / Windows 上打包，大小写无所谓；Linux runner 上是按字面找的。
+kpathsea 的大小写折叠只在 texmf 树上生效，编译目录里不兜这个底。
+
+修法在 `src/services/latex-assets.ts`（**不是**改模板数据 —— 数据侧的改动重装模板就会被冲掉）：
+
+- `lookup` / `lookupByBasename` 的比对**忽略大小写**；
+- 新增 `placementFor()`：**目录与文件名取引用的写法，扩展名取真实文件的**。
+  `\includegraphics{wiley-vch.eps}` 就得落成 `wiley-vch.eps`（连大小写都对），
+  而 `\includegraphics{head_foot/LOGO}` 要保留真实扩展名（graphicx 自己会试 `.pdf/.eps…`）；
+- `planTemplateAssets` 的 `files` 由 `string[]` 改成 `{from,to}[]`，与「顺着类文件找图」共用同一套
+  解析，主 `.tex` 与类文件两条路径不再各有一套规则。
+
+### 7.7 重新导入模板会冲掉数据侧修复
+
+出版社原包留在 `templates/packages/`（例如 `Wiley-NJD-Optimal-Design-TwoColumn.zip`），
+重新导入会重新解包、把 `assets/` 覆盖回去 —— `USG.cls` 里被我们改掉的 `-lastoo` 会变回
+有缺陷的 `wileyNJD-Chicago`。已在对应模板的 `meta.md` 里记了一笔，重装后需重做。
+
+> 这也是 7.6 那个修法放在**前端代码**而不是模板数据里的原因：数据侧的修复活不过一次重装。

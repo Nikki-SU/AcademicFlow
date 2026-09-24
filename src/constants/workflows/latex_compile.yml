@@ -150,14 +150,20 @@ jobs:
             echo "没有可提交的内容"
           else
             git commit -m "chore(latex): 云端编译完成 $RUN_ID ($STATUS) [skip ci]"
-            # 编译期间前端可能正在自动保存稿件（也是一次 push），直接 push 会被拒。
-            # 重试几次、每次先 rebase，避免因为这种并发把 PDF 丢掉。
+            # 编译期间前端在自动保存稿件（也是一次 push），所以 push 被拒是常态、不是异常。
+            # 早先只重试 4 次、间隔固定 3s：如果那次自动保存正好压在窗口里，4 次会全废，
+            # 编译结果整份丢掉 —— 用户等十分钟，最后什么都没看到。改成 10 次、退避 + 抖动，
+            # 让重试窗口明显长于「保存一次稿件」的间隔。
             pushed=0
-            for i in 1 2 3 4; do
+            for i in $(seq 1 10); do
               if git push; then pushed=1; break; fi
               echo "push 被拒（main 上有新提交），rebase 后重试（第 $i 次）"
-              git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
-              sleep 3
+              # rebase 自己也可能失败（网络抖动 / 冲突）。失败就把它中止掉，
+              # 别让仓库停在半截 rebase 状态 —— 那样后面每次 push 都必然失败。
+              if ! git pull --rebase --autostash origin "$GITHUB_REF_NAME"; then
+                git rebase --abort 2>/dev/null || true
+              fi
+              sleep $(( i * 2 + RANDOM % 3 ))
             done
             if [ "$pushed" != "1" ]; then
               echo "多次重试后仍无法推送结果" >&2

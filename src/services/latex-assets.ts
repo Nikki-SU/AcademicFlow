@@ -41,9 +41,20 @@ function isTemplatePackageFile(path: string): boolean {
   return TEMPLATE_PACKAGE_EXTS.some((ext) => lower.endsWith(ext))
 }
 
+/** 编译目录里的一个落点：from = assets/ 里的实际路径，to = 编译目录里的路径 */
+export interface TemplateAssetFile {
+  from: string
+  to: string
+}
+
 export interface TemplateAssetPlan {
-  /** 要挂进虚拟文件系统的文件，路径**相对 assets/**（.tex 就是这么引用的） */
-  files: string[]
+  /**
+   * 要挂进虚拟文件系统的文件。**路径相对 assets/**（.tex 就是这么引用的）。
+   *
+   * from/to 通常一样，只有「引用的写法与真实文件名对不上」时才分开 ——
+   * 落位必须服从**引用的写法**，理由见 placementFor()。
+   */
+  files: TemplateAssetFile[]
   /** 源码引用了、模板 assets/ 里却没有的 —— 编译会在这些名字上 not found */
   missing: string[]
 }
@@ -66,17 +77,47 @@ function collectCommandArgs(tex: string, cmd: string): string[] {
   return out
 }
 
-/** 在 assets 路径表里查一个引用：先按原样，再按常见图片扩展名补全 */
-function lookup(name: string, assetSet: Set<string>): string | null {
+/**
+ * 在 assets 路径表里查一个引用：先按原样，再按常见图片扩展名补全。
+ *
+ * 比对**忽略大小写**：出版社多是在 macOS / Windows 上打的包，类文件里的引用常和
+ * 真实文件名大小写对不上 —— Wiley-VCH 的 WileyChemistry-template.cls 第 20 行要
+ * `wiley-vch.eps`，包里却是 `Wiley-VCH.eps`，在 Linux runner 上就是一句 not found。
+ * （kpathsea 的大小写折叠只在 texmf 树上生效，编译目录里是按字面找的。）
+ */
+function lookup(name: string, assetList: string[]): string | null {
   const n = normalizeRef(name)
   if (!n) return null
-  if (assetSet.has(n)) return n
+  const exact = assetList.find((p) => p === n)
+  if (exact) return exact
+  const lower = n.toLowerCase()
+  const ci = assetList.find((p) => p.toLowerCase() === lower)
+  if (ci) return ci
   // 已经写了扩展名还不命中，就别再猜了（猜错反而挂错文件）
   if (/\.[a-z0-9]{1,5}$/i.test(n)) return null
   for (const ext of GRAPHIC_EXTS) {
-    if (assetSet.has(n + ext)) return n + ext
+    const hit = assetList.find((p) => p.toLowerCase() === lower + ext)
+    if (hit) return hit
   }
   return null
+}
+
+/**
+ * 算出编译目录里该放成什么名字。
+ *
+ * TeX 是按**引用的写法**去找文件的，所以：
+ *   \includegraphics{wiley-vch.eps}   → 编译目录里就得有 wiley-vch.eps（连大小写都得对）
+ *   \includegraphics{head_foot/LOGO}  → graphicx 会自己试 .pdf/.eps…，扩展名要留着
+ * 于是：目录和文件名取**引用的写法**，扩展名取**真实文件**的（引用没写扩展名时）。
+ */
+function placementFor(ref: string, actual: string): string {
+  const n = normalizeRef(ref)
+  const slash = n.lastIndexOf('/')
+  const dir = slash === -1 ? '' : n.slice(0, slash)
+  const refBase = n.slice(slash + 1)
+  const actualBase = actual.slice(actual.lastIndexOf('/') + 1)
+  const base = /\.[a-z0-9]{1,5}$/i.test(refBase) ? refBase : actualBase
+  return dir ? `${dir}/${base}` : base
 }
 
 /**
@@ -84,12 +125,12 @@ function lookup(name: string, assetSet: Set<string>): string | null {
  * 纯函数，不碰网络，方便单独验证。
  */
 export function planTemplateAssets(tex: string, assetPaths: string[]): TemplateAssetPlan {
-  const assetSet = new Set(assetPaths.map(normalizeRef))
-  // 源码里的图片引用不带扩展名，assets 里的带 —— 反转表让「带扩展名的」也能直接命中
-  const files = new Set<string>()
+  const assetList = assetPaths.map(normalizeRef)
+  const files = new Map<string, string>()
   const missing = new Set<string>()
 
-  // 图片与 \input/\include：缺了必然编不过，要在界面上点名
+  // 图片与 \input/\include：缺了必然编不过，要在界面上点名。
+  // 解析走 resolveTexFileRef —— 和「顺着类文件找图」用的是同一套，免得两边规则跑偏。
   const hardRefs = [
     ...collectCommandArgs(tex, 'includegraphics'),
     ...collectCommandArgs(tex, 'input'),
@@ -98,8 +139,8 @@ export function planTemplateAssets(tex: string, assetPaths: string[]): TemplateA
   ]
   for (const ref of hardRefs) {
     if (APP_PROVIDED.has(ref)) continue
-    const hit = lookup(ref, assetSet) ?? lookup(`${ref}.tex`, assetSet)
-    if (hit) files.add(hit)
+    const hit = resolveTexFileRef(ref, assetList)
+    if (hit) files.set(hit.to, hit.from)
     else missing.add(ref)
   }
 
@@ -117,16 +158,19 @@ export function planTemplateAssets(tex: string, assetPaths: string[]): TemplateA
   ]
   for (const ref of softRefs) {
     if (APP_PROVIDED.has(ref)) continue
-    const hit = lookup(ref, assetSet)
-    if (hit) files.add(hit)
+    const hit = lookup(ref, assetList)
+    if (hit) files.set(placementFor(ref, hit), hit)
   }
 
   // 出版社整包里的宏包 / 文档类 / 参考文献样式无条件带上（理由见 TEMPLATE_PACKAGE_EXTS）
-  for (const path of assetSet) {
-    if (isTemplatePackageFile(path)) files.add(path)
+  for (const path of assetList) {
+    if (isTemplatePackageFile(path)) files.set(path, path)
   }
 
-  return { files: [...files], missing: [...missing] }
+  return {
+    files: [...files].map(([to, from]) => ({ from, to })),
+    missing: [...missing],
+  }
 }
 
 /** 会去磁盘上找文件的命令：图片、\input 进来的片段 */
@@ -136,22 +180,23 @@ const FILE_REF_COMMANDS = ['includegraphics', 'input', 'include', 'lstinputlisti
  * 从一段 TeX 源码里收集「会去磁盘上找文件」的引用。
  *
  * 主 .tex 和模板自带的 .cls/.sty 都喂给这个函数 —— 类文件内部的依赖在主 .tex
- * 里根本看不到：Wiley 的 USG.cls 在 \maketitle 里就要 \includegraphics{Wiley_logo.eps}。
+ * 里根本看不到：Wiley 的 USG.cls 在 \maketitle 里就要 \includegraphics{Wiley_logo.eps}，
+ * Wiley-VCH 的 WileyChemistry-template.cls 在页眉里要 \includegraphics{wiley-vch.eps}。
  */
 export function collectTexFileRefs(tex: string): string[] {
   return FILE_REF_COMMANDS.flatMap((cmd) => collectCommandArgs(tex, cmd))
 }
 
-/** 按「文件名」在整包里捞一个文件（含子目录），补常见图片扩展名 */
-function lookupByBasename(name: string, assetPaths: string[]): string | null {
-  const base = normalizeRef(name).split('/').pop()
+/** 按「文件名」在整包里捞一个文件（含子目录），比对忽略大小写，补常见图片扩展名 */
+function lookupByBasename(name: string, assetList: string[]): string | null {
+  const base = (normalizeRef(name).split('/').pop() ?? '').toLowerCase()
   if (!base) return null
-  const basenameOf = (p: string) => normalizeRef(p).split('/').pop()
-  const exact = assetPaths.find((p) => basenameOf(p) === base)
+  const basenameOf = (p: string) => (normalizeRef(p).split('/').pop() ?? '').toLowerCase()
+  const exact = assetList.find((p) => basenameOf(p) === base)
   if (exact) return normalizeRef(exact)
   if (/\.[a-z0-9]{1,5}$/i.test(base)) return null
   for (const ext of GRAPHIC_EXTS) {
-    const hit = assetPaths.find((p) => basenameOf(p) === base + ext)
+    const hit = assetList.find((p) => basenameOf(p) === base + ext)
     if (hit) return normalizeRef(hit)
   }
   return null
@@ -166,7 +211,8 @@ function lookupByBasename(name: string, assetPaths: string[]): string | null {
  * 所以原样找不到时再按文件名在整包里捞一遍，并按**引用写的路径**落位：
  * 带目录就照原样放（类文件按这个路径找），裸文件名就放到编译目录根下。
  *
- * 这样就不必依赖 kpathsea 的递归搜索（`//`）能不能在没有 ls-R 的目录树上生效。
+ * 这样就不必依赖 kpathsea 的递归搜索（`//`）能不能在没有 ls-R 的目录树上生效，
+ * 也不必赌它会不会替我们折叠大小写。
  */
 export function resolveTexFileRef(
   ref: string,
@@ -174,15 +220,12 @@ export function resolveTexFileRef(
 ): { from: string; to: string } | null {
   const n = normalizeRef(ref)
   if (!n) return null
-  const assetSet = new Set(assetPaths.map(normalizeRef))
+  const assetList = assetPaths.map(normalizeRef)
   // 1. 先按原样（含补图片扩展名）
-  const direct = lookup(n, assetSet) ?? lookup(`${n}.tex`, assetSet)
-  if (direct) return { from: direct, to: direct }
+  const direct = lookup(n, assetList) ?? lookup(`${n}.tex`, assetList)
+  if (direct) return { from: direct, to: placementFor(n, direct) }
   // 2. 再按文件名在整包里捞
-  const found = lookupByBasename(n, assetPaths)
+  const found = lookupByBasename(n, assetList)
   if (!found) return null
-  const slash = n.lastIndexOf('/')
-  const dir = slash === -1 ? '' : n.slice(0, slash)
-  const basename = found.slice(found.lastIndexOf('/') + 1)
-  return { from: found, to: dir ? `${dir}/${basename}` : basename }
+  return { from: found, to: placementFor(n, found) }
 }

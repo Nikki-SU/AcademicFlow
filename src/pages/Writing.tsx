@@ -2503,9 +2503,9 @@ export default function WritingPage() {
     const plan = planTemplateAssets(latexCode, assetPaths)
     const files: Array<{ path: string; data: Uint8Array }> = []
     // 队列里带「assets 里的实际路径 from」和「编译目录里要放的路径 to」——
-    // 两者通常一样；类文件按裸文件名引用子目录里的图时才会分开（见 resolveTexFileRef）。
-    const queue: Array<{ from: string; to: string }> = plan.files.map((p) => ({ from: p, to: p }))
-    const placed = new Set(plan.files)
+    // 两者通常一样；只有引用的写法与真实文件名对不上时才会分开（见 resolveTexFileRef）。
+    const queue: Array<{ from: string; to: string }> = plan.files.map((f) => ({ ...f }))
+    const placed = new Set(plan.files.map((f) => f.to))
 
     while (queue.length > 0) {
       const { from, to } = queue.shift() as { from: string; to: string }
