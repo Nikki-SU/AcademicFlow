@@ -308,7 +308,10 @@ function rebuildAbstractFromInvertedIndex(
 async function fetchAbstractsFromOpenAlex(dois: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   if (dois.length === 0) return out
-  const filter = dois.map((d) => `doi:${encodeURIComponent(d)}`).join('|')
+  // OpenAlex 的 OR 语法是「键只写一次，值用 | 连接」：filter=doi:a|b|c。
+  // 要是每段都写成 doi:a|doi:b，会被服务端判成「OR query between filters」
+  // 直接回 400 —— 那样这个兜底永远拿不到数据，等于白写。
+  const filter = 'doi:' + dois.map((d) => encodeURIComponent(d)).join('|')
   const url =
     `${OPENALEX_API_BASE}/works?filter=${filter}` +
     '&per-page=50&select=doi,abstract_inverted_index'
