@@ -70,7 +70,7 @@ function Login() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-paper-100 p-6">
-      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-ink-900/10 bg-paper-50 shadow-card">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-card">
         <div className="h-[3px] bg-seal-600" />
 
         <div className="p-8 md:p-10">
@@ -90,7 +90,7 @@ function Login() {
 
           {/* PAT 手贴 */}
           <div className="space-y-4">
-            <div className="space-y-3 rounded-lg border border-ink-900/10 bg-paper-100 p-4">
+            <div className="space-y-3 rounded-lg border border-ink-200 bg-paper-100 p-4">
               <p className="text-sm font-semibold text-ink-700">
                 如果你希望权限精确到单个仓库，可用 PAT 手贴登录
               </p>
@@ -134,7 +134,7 @@ function Login() {
                   autoComplete="current-password"
                   spellCheck={false}
                   disabled={isLoading}
-                  className="w-full rounded-lg border border-ink-900/15 bg-paper-50 px-3 py-2 pr-10 font-mono text-sm text-ink-900 transition placeholder:text-ink-300 focus:border-seal-500 focus:outline-none focus:ring-2 focus:ring-seal-600/20 disabled:bg-ink-50"
+                  className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 pr-10 font-mono text-sm text-ink-900 transition placeholder:text-ink-300 focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100 disabled:bg-ink-50"
                   required
                 />
                 <button
@@ -160,7 +160,7 @@ function Login() {
                 value={patExpiresAt}
                 onChange={(e) => setPatExpiresAt(e.target.value)}
                 disabled={isLoading}
-                className="w-full rounded-lg border border-ink-900/15 bg-paper-50 px-3 py-2 text-sm text-ink-900 transition focus:border-seal-500 focus:outline-none focus:ring-2 focus:ring-seal-600/20 disabled:bg-ink-50"
+                className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 transition focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100 disabled:bg-ink-50"
               />
               <p className="mt-1 text-xs text-ink-500">
                 如果 GitHub 响应头提供了过期时间，会自动覆盖此处。
@@ -193,7 +193,7 @@ function Login() {
           </div>
 
           {/* 网络诊断 */}
-          <div className="mt-2 border-t border-ink-900/10 pt-4">
+          <div className="mt-2 border-t border-ink-200 pt-4">
             <div className="mb-2 flex items-center justify-between">
               <p className="flex items-center gap-1.5 text-xs font-medium text-ink-500">
                 <Wifi className="h-3.5 w-3.5" />
@@ -215,7 +215,7 @@ function Login() {
               </button>
             </div>
             {diagnosticResult && (
-              <div className="whitespace-pre-wrap break-words rounded-lg border border-ink-900/10 bg-paper-100 p-3 font-mono text-xs leading-relaxed text-ink-700">
+              <div className="whitespace-pre-wrap break-words rounded-lg border border-ink-200 bg-paper-100 p-3 font-mono text-xs leading-relaxed text-ink-700">
                 {diagnosticResult}
               </div>
             )}

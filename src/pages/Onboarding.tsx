@@ -73,7 +73,7 @@ function Onboarding() {
   return (
     <div className="min-h-full bg-paper-100">
       {/* 顶栏 */}
-      <header className="border-b border-ink-900/10 bg-paper-50">
+      <header className="border-b border-ink-200 bg-paper-50">
         <div className="page-container flex items-center gap-2.5 py-3">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-seal-600">
             <BookOpen className="h-4 w-4 text-paper-50" strokeWidth={1.75} />
