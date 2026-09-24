@@ -5,10 +5,11 @@ import { Toaster } from 'sonner'
 import App from './App'
 
 // 自托管字体：站点 CSP 是 font-src 'self' data:，不能引外部 CDN
-// 文楷按 unicode-range 切成 97 片，浏览器只下用到的几片，这里只用 400/700
+// 文楷按 unicode-range 切成 97 片，浏览器只下用到的几片
 import '@fontsource-variable/crimson-pro'
 import 'lxgw-wenkai-webfont/lxgwwenkai-regular.css'
 import 'lxgw-wenkai-webfont/lxgwwenkai-bold.css'
+import 'lxgw-wenkai-webfont/lxgwwenkaimono-regular.css'
 
 import './index.css'
 

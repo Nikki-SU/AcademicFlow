@@ -6,9 +6,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        /* preflight 用 sans 设 html；mono 也指同一款，等宽面不再另开字体 */
+        /* preflight 用 sans 设 html */
         sans: appFont,
-        mono: appFont,
+        /* 代码/LaTeX 区必须等宽：用同族的文楷等宽切版，再兜到系统等宽 */
+        mono: ['"LXGW WenKai Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       colors: {
         paper: {
