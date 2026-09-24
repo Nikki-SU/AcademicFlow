@@ -1,28 +1,24 @@
 /**
- * 设置页
- * -------------------------------------------------
- * 对应 SPEC v0.3 §5.2 / §7.3 / §8。
- *
- * 功能：
- * - AI-1（生成位）/ AI-2（审阅位）两块完全对称的配置界面：
- *   各自选 Provider、各自填 API Key（按公司独立槽位）、各自选模型
- * - 高级模式 → 每端可切自定义 OpenAI 兼容端点
- * - AI 双引擎试运行（fact_check）
+ * 设置页 —— 分组折叠（手机设置模式）
+ * 四组：AI 服务 / 文献处理 / 数据维护 / 诊断与调试。
+ * 诊断类面板（连通性、双引擎、后端能力、Secrets 明细、Pipeline 看板）默认折叠。
  */
 import {
   ArrowLeft,
   Brain,
+  ChevronDown,
+  Database,
+  FileText,
   Loader2,
   RefreshCw,
   Settings as SettingsIcon,
   Sparkles,
   ToggleLeft,
   ToggleRight,
-  Trash2,
-  Wifi,
   Wrench,
+  type LucideIcon,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
@@ -44,19 +40,19 @@ import { AI_PROVIDERS } from '../types'
 
 /**
  * 槽位级推理模式选项 —— 多一个「不干预」。
- * 为什么要有「不干预」：AI-1 / AI-2 的交互式调用（问 AI、双引擎、检索）加这个开关
- * 之前从来不发 thinking 参数，默认必须是「什么都不发」，否则等于替用户改了一次行为。
+ * 交互式调用（问 AI、双引擎、检索）加这个开关之前从来不发 thinking 参数，
+ * 默认必须是「什么都不发」，否则等于替用户改了一次行为。
  */
 const SLOT_THINKING_OPTIONS: {
   value: AISlotThinking
   label: string
   hint: string
 }[] = [
-  { value: '', label: '不干预（模型默认）', hint: '不发送 thinking 参数，行为与之前完全一致' },
-  { value: 'off', label: '关闭思考', hint: '强制关闭 reasoning，输出预算全部留给正文（省钱）' },
-  { value: 'low', label: '开启 · 低强度', hint: '开启思考，reasoning_effort=low' },
-  { value: 'high', label: '开启 · 高强度', hint: '开启思考，reasoning_effort=high' },
-  { value: 'max', label: '开启 · 最高强度', hint: '开启思考，reasoning_effort=max（最慢最贵）' },
+  { value: '', label: '不干预（模型默认）', hint: '不发 thinking 参数' },
+  { value: 'off', label: '关闭思考', hint: '输出预算全部留给正文' },
+  { value: 'low', label: '开启 · 低强度', hint: 'reasoning_effort=low' },
+  { value: 'high', label: '开启 · 高强度', hint: 'reasoning_effort=high' },
+  { value: 'max', label: '开启 · 最高强度', hint: 'reasoning_effort=max（最慢最贵）' },
 ]
 
 /** 思考模式下拉选项 —— off 关闭，其余为开启并控制强度 */
@@ -73,10 +69,10 @@ const THINKING_ROWS: {
   label: string
   desc: string
 }[] = [
-  { field: 'thinkingClean', label: '清理正文', desc: '去页眉页脚、拼回断段，纯搬运 → 建议关闭' },
-  { field: 'thinkingTag', label: '打标', desc: '判断标题/图注/列表类型，规则明确 → 建议关闭' },
-  { field: 'thinkingTranslate', label: '翻译', desc: '逐段与表格翻译，不需要推理 → 建议关闭' },
-  { field: 'thinkingWords', label: '提词核验', desc: '筛选学术词汇，机械筛选 → 建议关闭（要更保守可手动开启）' },
+  { field: 'thinkingClean', label: '清理正文', desc: '去页眉页脚、拼回断段' },
+  { field: 'thinkingTag', label: '打标', desc: '判断标题/图注/列表类型' },
+  { field: 'thinkingTranslate', label: '翻译', desc: '逐段与表格翻译' },
+  { field: 'thinkingWords', label: '提词核验', desc: '筛选学术词汇' },
 ]
 
 function formatFetchedAt(ts: number | null): string {
@@ -88,6 +84,57 @@ function formatFetchedAt(ts: number | null): string {
   const hr = Math.floor(min / 60)
   if (hr < 24) return `${hr} 小时前`
   return new Date(ts).toLocaleString()
+}
+
+/** 分组卡片：组头可点击折叠，展开区以分隔线区隔各子块 */
+function SettingsGroup(props: {
+  icon: LucideIcon
+  title: string
+  summary: string
+  badge?: ReactNode
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  const { icon: Icon, title, summary, badge, open, onToggle, children } = props
+  return (
+    <section className="overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-card">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-paper-100"
+      >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-paper-100">
+          <Icon className="h-4 w-4 text-ink-600" strokeWidth={1.75} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-ink-900">{title}</div>
+          <div className="truncate text-xs text-ink-500">{summary}</div>
+        </div>
+        {badge}
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <div className="divide-y divide-ink-100 border-t border-ink-200 px-5 py-5">{children}</div>
+      )}
+    </section>
+  )
+}
+
+/** 组内子块：小节标题 + 一行说明 + 内容 */
+function SubBlock(props: { title: string; hint?: string; children: ReactNode }) {
+  const { title, hint, children } = props
+  return (
+    <div className="space-y-3 pt-5 first:pt-0">
+      <div>
+        <h3 className="text-sm font-semibold text-ink-800">{title}</h3>
+        {hint && <p className="mt-0.5 text-xs text-ink-500">{hint}</p>}
+      </div>
+      {children}
+    </div>
+  )
 }
 
 function Settings() {
@@ -128,6 +175,16 @@ function Settings() {
     refreshModels,
     init,
   } = store
+
+  // 分组折叠状态：前两组默认展开，诊断类默认收起
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    ai: true,
+    processing: true,
+    data: false,
+    diag: false,
+  })
+  const toggleGroup = (k: string) =>
+    setOpenGroups((s) => ({ ...s, [k]: !s[k] }))
 
   useEffect(() => {
     if (!isInitialized) init()
@@ -276,6 +333,22 @@ function Settings() {
   const slot1ChatIds = slot1Models.map((m) => m.id).filter(isChatModel)
   const slot2ChatIds = slot2Models.map((m) => m.id).filter(isChatModel)
 
+  // AI 服务组头的同步状态徽章：一眼确认 key 已生效，明细在诊断组
+  const syncOkCount = secretItems.filter((it) => it.putOk).length
+  const syncBadge = secretSyncing ? (
+    <span className="flex shrink-0 items-center gap-1 text-xs text-ink-400">
+      <Loader2 className="h-3 w-3 animate-spin" />同步中
+    </span>
+  ) : secretItems.length > 0 ? (
+    <span
+      className={`shrink-0 text-xs ${
+        syncOkCount === secretItems.length ? 'text-green-600' : 'text-amber-600'
+      }`}
+    >
+      {syncOkCount}/{secretItems.length} 已同步
+    </span>
+  ) : null
+
   return (
     <div className="min-h-full bg-paper-100">
       {/* 顶栏 */}
@@ -295,379 +368,352 @@ function Settings() {
         </div>
       </header>
 
-      <main className="page-container py-8 grid gap-5 items-start grid-cols-[repeat(auto-fit,minmax(min(100%,40rem),1fr))]">
-        {/* 高级模式 toggle */}
-        <section className="rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
-          <button
-            type="button"
-            onClick={() => updateSettings({ advancedMode: !advancedMode })}
-            className="w-full flex items-center justify-between text-left"
+      <main className="page-container py-8">
+        <div className="mx-auto flex max-w-3xl flex-col gap-4">
+          {/* ── AI 服务 ── */}
+          <SettingsGroup
+            icon={Sparkles}
+            title="AI 服务"
+            summary="AI-1 生成位 / AI-2 审阅位 · Key、模型与推理模式"
+            badge={syncBadge}
+            open={openGroups.ai}
+            onToggle={() => toggleGroup('ai')}
           >
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                {advancedMode ? (
-                  <ToggleRight className="w-6 h-6 text-seal-600" />
-                ) : (
-                  <ToggleLeft className="w-6 h-6 text-ink-400" />
-                )}
-                <span className="font-semibold text-ink-900">高级模式</span>
+            {/* 高级模式 */}
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-ink-800">高级模式</h3>
+                <p className="mt-0.5 text-xs text-ink-500">解锁自定义 OpenAI 兼容端点</p>
               </div>
-              <p className="text-xs text-ink-500 pl-8">
-                {advancedMode
-                  ? '已解锁自定义 OpenAI 兼容端点 + MinerU / 词典高级选项'
-                  : '选择预置 Provider 直接用，或开启高级模式用自定义端点'}
-              </p>
-            </div>
-          </button>
-        </section>
-
-        {/* ── AI-1（生成位）—— 与 AI-2 完全对称 ── */}
-        <AISlotSection
-          slot={1}
-          title="AI-1（生成位）"
-          desc="生成类任务：清理、打标、单词提取"
-          advancedMode={advancedMode}
-          providerMode={aiProviderMode}
-          onProviderChange={(mode) => {
-            // 切 provider 时自动填该家的生成位默认模型（防跨家模型名残留）
-            const cfg = AI_PROVIDERS[mode]
-            updateSettings({ aiProviderMode: mode, ai1Model: cfg.defaultModel1 || ai1Model })
-          }}
-          apiKey={slot1Key}
-          onApiKeyChange={setSlot1Key}
-          model={ai1Model}
-          onModelChange={(v) => updateSettings({ ai1Model: v })}
-          customBaseUrl={customAi1BaseUrl}
-          onCustomBaseUrlChange={(v) => updateSettings({ customAi1BaseUrl: v })}
-          customApiKey={customAi1ApiKey}
-          onCustomApiKeyChange={(v) => updateSettings({ customAi1ApiKey: v })}
-          customModel={customAi1Model}
-          onCustomModelChange={(v) => updateSettings({ customAi1Model: v })}
-          thinking={thinkingAi1}
-          onThinkingChange={(v) => updateSettings({ thinkingAi1: v })}
-          fetchedModels={slot1ChatIds}
-          fetchedProvider={slot1ModelsProvider}
-          fetchedAt={slot1ModelsFetchedAt}
-          isFetching={isLoadingSlot1Models}
-          canFetch={
-            aiProviderMode === 'custom'
-              ? !!(customAi1BaseUrl.trim() && customAi1ApiKey.trim())
-              : !!slot1Key.trim()
-          }
-          onFetch={() => handleFetchModels(1)}
-        />
-
-        {/* ── AI-2（审阅位）—— 与 AI-1 完全对称 ── */}
-        <AISlotSection
-          slot={2}
-          title="AI-2（审阅位）"
-          desc="审阅类任务：翻译、核验"
-          advancedMode={advancedMode}
-          providerMode={ai2ProviderMode}
-          onProviderChange={(mode) => {
-            // 切 provider 时自动填该家的审阅位默认模型
-            const cfg = AI_PROVIDERS[mode]
-            updateSettings({ ai2ProviderMode: mode, ai2Model: cfg.defaultModel2 || ai2Model })
-          }}
-          apiKey={slot2Key}
-          onApiKeyChange={setSlot2Key}
-          model={ai2Model}
-          onModelChange={(v) => updateSettings({ ai2Model: v })}
-          customBaseUrl={customAi2BaseUrl}
-          onCustomBaseUrlChange={(v) => updateSettings({ customAi2BaseUrl: v })}
-          customApiKey={customAi2ApiKey}
-          onCustomApiKeyChange={(v) => updateSettings({ customAi2ApiKey: v })}
-          customModel={customAi2Model}
-          onCustomModelChange={(v) => updateSettings({ customAi2Model: v })}
-          thinking={thinkingAi2}
-          onThinkingChange={(v) => updateSettings({ thinkingAi2: v })}
-          fallbackKeyNote={
-            slot2Key.trim() === '' &&
-            ai2ProviderMode !== 'custom' &&
-            ai2ProviderMode === aiProviderMode
-              ? `未填写：将沿用 AI-1 位的 ${AI_PROVIDERS[ai2ProviderMode].label} Key（同 key 双模型）`
-              : undefined
-          }
-          fetchedModels={slot2ChatIds}
-          fetchedProvider={slot2ModelsProvider}
-          fetchedAt={slot2ModelsFetchedAt}
-          isFetching={isLoadingSlot2Models}
-          canFetch={
-            ai2ProviderMode === 'custom'
-              ? !!(customAi2BaseUrl.trim() && customAi2ApiKey.trim())
-              : !!(slot2Key.trim() ||
-                  (ai2ProviderMode === aiProviderMode && slot1Key.trim()))
-          }
-          onFetch={() => handleFetchModels(2)}
-        />
-
-        {/* 思考模式（reasoning）—— 按阶段控制 */}
-        <section className="space-y-4 rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
-          <h2 className="flex items-center gap-2 font-semibold text-ink-900">
-            <Brain className="h-4 w-4 text-violet-600" />
-            思考模式（reasoning）
-          </h2>
-          <p className="text-xs text-ink-500">
-            推理模型<b>默认开启思考</b>，而思考内容与正文<b>共用同一个输出预算</b>，且按输出价计费（约为输入价的 4 倍）。
-            实测思考可吃掉约 8 成预算，导致正文被截断成空。清理 / 打标 / 翻译都是机械任务，
-            建议关闭——预算全部留给正文，同时显著省钱。
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {THINKING_ROWS.map(({ field, label, desc }) => (
-              <div key={field} className="space-y-1">
-                <label className="block text-sm font-medium text-ink-700">{label}</label>
-                <select
-                  value={store[field]}
-                  onChange={(e) =>
-                    store.updateSettings({ [field]: e.target.value as AIThinkingMode })
-                  }
-                  className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                >
-                  {THINKING_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-ink-400">{desc}</p>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-ink-400">
-            保存后写入私库 <code className="font-mono">settings/global.md</code>，Runner 读取后按阶段拼进请求体，无需重新同步 Secrets。
-            本段只管文献处理管线的四个阶段；阅读页问 AI / 双引擎 / 联网检索走上面各槽位自己的「推理模式」。
-          </p>
-        </section>
-
-        {/* 双引擎试运行 */}
-        <section className="space-y-3 rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
-          <h2 className="flex items-center gap-2 font-semibold text-ink-900">
-            <Sparkles className="h-4 w-4 text-green-600" />
-            双引擎试运行（fact_check）
-          </h2>
-          <p className="text-xs text-ink-500">
-            用当前配置跑一次事实核查任务，验证 AI-1 生成 + AI-2 审阅链路。
-          </p>
-          <DualEngineTestPanel />
-        </section>
-
-        {/* 服务连通性测试 —— 统一面板：GitHub + AI + MinerU */}
-        <section className="space-y-3 rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
-          <h2 className="flex items-center gap-2 font-semibold text-ink-900">
-            <Wifi className="h-4 w-4 text-seal-600" />
-            服务连通性测试
-          </h2>
-          <p className="text-xs text-ink-500">
-            GitHub API（前端直连）、AI Provider（Runner 端到端）、MinerU（快速 JWT + Runner 端到端）。
-            点"全部测试"串行跑完三项，或各自点独立按钮。Runner 端到端测试各需 1-2 分钟。
-          </p>
-          <ConnectivityPanel />
-        </section>
-
-        {/* 后端处理能力（GitHub Actions） */}
-        <section className="space-y-3 rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
-          <h2 className="flex items-center gap-2 font-semibold text-ink-900">
-            <Sparkles className="h-4 w-4 text-cyan-600" />
-            后端处理能力（GitHub Actions）
-          </h2>
-
-          <BackendCapabilitiesPanel />
-
-          {/* MinerU API Token — PDF 转换必需（后端 pipeline 从 GitHub Secrets 取） */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-ink-700">
-              MinerU API Token
-              <span className="ml-1 text-xs text-orange-600">*</span>
-            </label>
-            <p className="text-xs text-ink-500">
-              PDF → Markdown 转换必需。在 <a href="https://op.mineru.ai" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">MinerU 用户中心</a> 生成 API token。
-              填入后会自动同步到 GitHub Actions Secrets（MINERU_API_TOKEN）。
-            </p>
-            <input
-              type="password"
-              placeholder="eyJ...（MinerU JWT token）"
-              value={mineruToken}
-              onChange={(e) => updateSettings({ mineruToken: e.target.value })}
-              className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-            />
-          </div>
-
-          {/* SimpleTex 令牌 — 「识图输入公式」用（不走浏览器直连，随识图请求传给 runner） */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-ink-700">SimpleTex 令牌（公式识图）</label>
-            <p className="text-xs text-ink-500">
-              写作页「公式 → 识图输入公式」用它把图片转成 LaTeX。在{' '}
-              <a href="https://simpletex.cn/user/center" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                SimpleTex 用户中心
-              </a>{' '}
-              创建「用户授权令牌（UAT）」填到第一栏即可；要用 APP 鉴权则填 APP ID + APP Secret。
-              浏览器直连 SimpleTex 会被对方 CORS 拦，所以识图改由 GitHub Actions 后端完成：
-              令牌只存在本机，识图时随该次请求传给 runner，用完即弃，不写进私库文件。
-            </p>
-            <input
-              type="password"
-              placeholder="UAT 或 APP ID"
-              value={simpletexToken}
-              onChange={(e) => updateSettings({ simpletexToken: e.target.value })}
-              className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-            />
-            <input
-              type="password"
-              placeholder="APP Secret（只有 APP 鉴权才需要，UAT 请留空）"
-              value={simpletexSecret}
-              onChange={(e) => updateSettings({ simpletexSecret: e.target.value })}
-              className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-            />
-          </div>
-
-          {/* Secrets 同步明细 —— 每条都亮出来，拒绝黑箱 */}
-          <div className="mt-3 overflow-hidden rounded-lg border border-ink-200 bg-paper-100">
-            <div className="flex items-center justify-between px-3 py-1.5 bg-ink-100 border-b border-ink-200 text-xs">
-              <span className="font-medium text-ink-700">
-                Secrets 同步状态（写入 <code className="font-mono text-[11px] bg-ink-200 px-1 rounded">{owner}/{repoName}</code>）
-              </span>
               <button
                 type="button"
-                onClick={runSync}
-                disabled={secretSyncing}
-                className="flex items-center gap-1 rounded-lg border border-ink-300 bg-paper-50 px-2 py-0.5 text-[11px] hover:bg-paper-100 disabled:text-ink-400"
+                onClick={() => updateSettings({ advancedMode: !advancedMode })}
+                aria-label="切换高级模式"
               >
-                {secretSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                手动同步
+                {advancedMode ? (
+                  <ToggleRight className="h-6 w-6 text-seal-600" />
+                ) : (
+                  <ToggleLeft className="h-6 w-6 text-ink-400" />
+                )}
               </button>
             </div>
-            {secretItems.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-ink-400">等待首次同步…</div>
-            ) : (
-              <div className="divide-y divide-ink-200 text-[11px] font-mono">
-                {secretItems.map((it) => {
-                  // 状态图标 + 颜色
-                  const isSkipped = !it.valueWanted && it.putStatus === 0
-                  const isFailed = !it.putOk
-                  const isDelayed = it.putOk && it.valueWanted && !it.verified
 
-                  let icon: string, color: string, label: string
-                  if (isSkipped) { icon = '—'; color = 'text-ink-400'; label = '未填写（跳过）' }
-                  else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `PUT 失败 HTTP ${it.putStatus}` }
-                  else if (isDelayed) {
-                    icon = '⏳'; color = 'text-amber-600'
-                    // 已重试 4 次指数退避后仍未命中 —— GitHub 可能还在索引长值 secret
-                    // 实际上 PUT 已成功（201/204），只是 secrets 列表还没列出来；
-                    // workflow 运行时 GitHub Actions 通常能直接读到值
-                    label = it.error || 'GitHub 回查未命中（已重试多次，PUT 实际成功）'
-                  }
-                  else { icon = '✓'; color = 'text-green-600'; label = '已写入 + 已回查确认' }
+            <AISlotSection
+              slot={1}
+              title="AI-1（生成位）"
+              desc="清理、打标、单词提取"
+              advancedMode={advancedMode}
+              providerMode={aiProviderMode}
+              onProviderChange={(mode) => {
+                // 切 provider 时自动填该家的生成位默认模型（防跨家模型名残留）
+                const cfg = AI_PROVIDERS[mode]
+                updateSettings({ aiProviderMode: mode, ai1Model: cfg.defaultModel1 || ai1Model })
+              }}
+              apiKey={slot1Key}
+              onApiKeyChange={setSlot1Key}
+              model={ai1Model}
+              onModelChange={(v) => updateSettings({ ai1Model: v })}
+              customBaseUrl={customAi1BaseUrl}
+              onCustomBaseUrlChange={(v) => updateSettings({ customAi1BaseUrl: v })}
+              customApiKey={customAi1ApiKey}
+              onCustomApiKeyChange={(v) => updateSettings({ customAi1ApiKey: v })}
+              customModel={customAi1Model}
+              onCustomModelChange={(v) => updateSettings({ customAi1Model: v })}
+              thinking={thinkingAi1}
+              onThinkingChange={(v) => updateSettings({ thinkingAi1: v })}
+              fetchedModels={slot1ChatIds}
+              fetchedProvider={slot1ModelsProvider}
+              fetchedAt={slot1ModelsFetchedAt}
+              isFetching={isLoadingSlot1Models}
+              canFetch={
+                aiProviderMode === 'custom'
+                  ? !!(customAi1BaseUrl.trim() && customAi1ApiKey.trim())
+                  : !!slot1Key.trim()
+              }
+              onFetch={() => handleFetchModels(1)}
+            />
 
-                  // 简短的 value 预览（前 8 字符 + ...）
-                  const valPreview = isSkipped ? '' : (() => {
-                    const v = it.valueWanted
-                    if (!v) return ''
-                    if (v.length <= 12) return v
-                    return v.slice(0, 8) + '…' + v.slice(-4)
-                  })()
+            <AISlotSection
+              slot={2}
+              title="AI-2（审阅位）"
+              desc="翻译、核验"
+              advancedMode={advancedMode}
+              providerMode={ai2ProviderMode}
+              onProviderChange={(mode) => {
+                // 切 provider 时自动填该家的审阅位默认模型
+                const cfg = AI_PROVIDERS[mode]
+                updateSettings({ ai2ProviderMode: mode, ai2Model: cfg.defaultModel2 || ai2Model })
+              }}
+              apiKey={slot2Key}
+              onApiKeyChange={setSlot2Key}
+              model={ai2Model}
+              onModelChange={(v) => updateSettings({ ai2Model: v })}
+              customBaseUrl={customAi2BaseUrl}
+              onCustomBaseUrlChange={(v) => updateSettings({ customAi2BaseUrl: v })}
+              customApiKey={customAi2ApiKey}
+              onCustomApiKeyChange={(v) => updateSettings({ customAi2ApiKey: v })}
+              customModel={customAi2Model}
+              onCustomModelChange={(v) => updateSettings({ customAi2Model: v })}
+              thinking={thinkingAi2}
+              onThinkingChange={(v) => updateSettings({ thinkingAi2: v })}
+              fallbackKeyNote={
+                slot2Key.trim() === '' &&
+                ai2ProviderMode !== 'custom' &&
+                ai2ProviderMode === aiProviderMode
+                  ? `未填写：将沿用 AI-1 位的 ${AI_PROVIDERS[ai2ProviderMode].label} Key（同 key 双模型）`
+                  : undefined
+              }
+              fetchedModels={slot2ChatIds}
+              fetchedProvider={slot2ModelsProvider}
+              fetchedAt={slot2ModelsFetchedAt}
+              isFetching={isLoadingSlot2Models}
+              canFetch={
+                ai2ProviderMode === 'custom'
+                  ? !!(customAi2BaseUrl.trim() && customAi2ApiKey.trim())
+                  : !!(slot2Key.trim() ||
+                      (ai2ProviderMode === aiProviderMode && slot1Key.trim()))
+              }
+              onFetch={() => handleFetchModels(2)}
+            />
 
-                  return (
-                    <div key={it.name} className="flex items-center gap-2 px-3 py-1.5">
-                      <span className={`${color} w-4 text-center shrink-0`}>{icon}</span>
-                      <span className="text-ink-700 w-40 shrink-0 truncate" title={it.name}>{it.name}</span>
-                      {valPreview && (
-                        <span className="text-ink-400 truncate flex-1 max-w-[12.5rem]" title={it.valueWanted}>
-                          {valPreview}
-                        </span>
-                      )}
-                      <span className={`${color} ml-auto truncate max-w-[16.25rem]`}>{label}</span>
-                    </div>
-                  )
-                })}
+            {/* 思考模式：按文献管线阶段控制 */}
+            <SubBlock
+              title="思考模式（reasoning）"
+              hint="机械任务建议关闭：思考与正文共用输出预算"
+            >
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {THINKING_ROWS.map(({ field, label, desc }) => (
+                  <div key={field} className="space-y-1">
+                    <label className="block text-sm font-medium text-ink-700">{label}</label>
+                    <select
+                      value={store[field]}
+                      onChange={(e) =>
+                        store.updateSettings({ [field]: e.target.value as AIThinkingMode })
+                      }
+                      className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    >
+                      {THINKING_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-ink-400">{desc}</p>
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
-        </section>
+              <p className="text-xs text-ink-400">
+                只管文献处理管线；问 AI / 双引擎走各槽位自己的「推理模式」。
+              </p>
+            </SubBlock>
+          </SettingsGroup>
 
-        <section className="space-y-4 rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
-          <h2 className="flex items-center gap-2 font-semibold text-ink-900">
-            <Sparkles className="h-4 w-4 text-seal-600" />
-            后置任务设置（PDF 转换后自动执行）
-          </h2>
-          <p className="text-xs text-ink-500">
-            PDF 转换成功后，自动调用 AI-2 生成全文翻译、AI-1 提取核心单词。翻译保存为 translation.md，
-            单词合并到全局词汇表。单词数量越多耗时越长、token 越多。
-          </p>
-          <div className="flex items-center gap-4">
-            <label className="text-sm font-medium text-ink-700 whitespace-nowrap">单词生成数量</label>
-            <input
-              type="range"
-              min={10}
-              max={50}
-              step={1}
-              value={store.wordGenCount ?? 15}
-              onChange={(e) => store.updateSettings({ wordGenCount: parseInt(e.target.value, 10) })}
-              className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
-            />
-            <span className="text-sm font-semibold text-seal-600 w-12 text-center">
-              {store.wordGenCount ?? 15}
-            </span>
-          </div>
-          <p className="text-xs text-ink-400 pl-14">范围 10-50，默认 15。例句必须逐字来自原文献。</p>
-          <div className="flex items-center gap-4">
-            <label className="text-sm font-medium text-ink-700 whitespace-nowrap">长难句提取数量</label>
-            <input
-              type="range"
-              min={3}
-              max={30}
-              step={1}
-              value={store.sentenceGenCount ?? 8}
-              onChange={(e) => store.updateSettings({ sentenceGenCount: parseInt(e.target.value, 10) })}
-              className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
-            />
-            <span className="text-sm font-semibold text-seal-600 w-12 text-center">
-              {store.sentenceGenCount ?? 8}
-            </span>
-          </div>
-          <p className="text-xs text-ink-400 pl-14">
-            范围 3-30，默认 8。仅作用于学习页「长难句」的 AI 提取（需文献已转换出 md）。
-          </p>
-          <p className="text-xs text-ink-400 pl-14">
-            摘要翻译不设数量限制：每篇摘要按「英译中」「中译英」两个方向各出一题，只要有摘要（无需 md）即可生成。
-          </p>
-        </section>
+          {/* ── 文献处理 ── */}
+          <SettingsGroup
+            icon={FileText}
+            title="文献处理"
+            summary="PDF 转换、公式识图与转换后的自动任务"
+            open={openGroups.processing}
+            onToggle={() => toggleGroup('processing')}
+          >
+            <SubBlock
+              title="MinerU Token"
+              hint="PDF → Markdown 转换必需"
+            >
+              <input
+                type="password"
+                placeholder="eyJ...（MinerU JWT token）"
+                value={mineruToken}
+                onChange={(e) => updateSettings({ mineruToken: e.target.value })}
+                className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+              <p className="text-xs text-ink-400">
+                在{' '}
+                <a href="https://op.mineru.ai" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                  MinerU 用户中心
+                </a>{' '}
+                生成，填入后自动同步到后端。
+              </p>
+            </SubBlock>
 
-        {/* PDF 清理（转换成功后的 PDF 体积大且无法检索，可批量清掉） */}
-        <section className="space-y-3 rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
-          <h2 className="flex items-center gap-2 font-semibold text-ink-900">
-            <Trash2 className="h-4 w-4 text-red-600" />
-            清理已转换文献的 PDF
-          </h2>
-          <p className="text-xs text-ink-500">
-            PDF 体积大且无法检索，转换成功后就没用了（正文已落成 MinerU 的 full.md，图片在 images/）。
-            只列出<b>转换成功</b>的文献，可全选或部分选择。md、图片、词汇表不受影响。
-          </p>
-          <PdfCleanupPanel />
-        </section>
+            <SubBlock
+              title="SimpleTex 令牌"
+              hint="写作页「公式识图」用"
+            >
+              <input
+                type="password"
+                placeholder="UAT 或 APP ID"
+                value={simpletexToken}
+                onChange={(e) => updateSettings({ simpletexToken: e.target.value })}
+                className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+              <input
+                type="password"
+                placeholder="APP Secret（仅 APP 鉴权需要，UAT 留空）"
+                value={simpletexSecret}
+                onChange={(e) => updateSettings({ simpletexSecret: e.target.value })}
+                className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              />
+              <p className="text-xs text-ink-400">
+                在{' '}
+                <a href="https://simpletex.cn/user/center" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                  SimpleTex 用户中心
+                </a>{' '}
+                创建。仅存本机，识图时临时传给后端，不写进私库。
+              </p>
+            </SubBlock>
 
-        {/* 调试看板 */}
-        <section className="overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-card">
-          <div className="border-b border-ink-200 bg-paper-100 px-5 py-3">
-            <h2 className="flex items-center gap-2 font-semibold text-ink-900">
-              <Wrench className="h-4 w-4 text-ink-400" />
-              Pipeline 调试看板
-            </h2>
-            <p className="mt-0.5 text-xs text-ink-500">
-              查看每次 PDF 转换的完整链路：每步 Prompt / 输入 / AI 输出 / 耗时
-            </p>
+            <SubBlock
+              title="转换后自动任务"
+              hint="PDF 转换成功后自动生成全文翻译与核心单词"
+            >
+              <div className="flex items-center gap-4">
+                <label className="text-sm font-medium text-ink-700 whitespace-nowrap">单词生成数量</label>
+                <input
+                  type="range"
+                  min={10}
+                  max={50}
+                  step={1}
+                  value={store.wordGenCount ?? 15}
+                  onChange={(e) => store.updateSettings({ wordGenCount: parseInt(e.target.value, 10) })}
+                  className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
+                />
+                <span className="text-sm font-semibold text-seal-600 w-12 text-center">
+                  {store.wordGenCount ?? 15}
+                </span>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="text-sm font-medium text-ink-700 whitespace-nowrap">长难句提取数量</label>
+                <input
+                  type="range"
+                  min={3}
+                  max={30}
+                  step={1}
+                  value={store.sentenceGenCount ?? 8}
+                  onChange={(e) => store.updateSettings({ sentenceGenCount: parseInt(e.target.value, 10) })}
+                  className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
+                />
+                <span className="text-sm font-semibold text-seal-600 w-12 text-center">
+                  {store.sentenceGenCount ?? 8}
+                </span>
+              </div>
+              <p className="text-xs text-ink-400">数量越多，耗时与 token 消耗越大。例句必须逐字来自原文献。</p>
+            </SubBlock>
+          </SettingsGroup>
+
+          {/* ── 数据维护 ── */}
+          <SettingsGroup
+            icon={Database}
+            title="数据维护"
+            summary="清理已转换文献的 PDF，释放仓库空间"
+            open={openGroups.data}
+            onToggle={() => toggleGroup('data')}
+          >
+            <SubBlock
+              title="清理已转换的 PDF"
+              hint="只列转换成功的文献；md、图片、词汇表不受影响"
+            >
+              <PdfCleanupPanel />
+            </SubBlock>
+          </SettingsGroup>
+
+          {/* ── 诊断与调试 ── */}
+          <SettingsGroup
+            icon={Wrench}
+            title="诊断与调试"
+            summary="连通性测试、双引擎试运行、后端能力、Secrets 明细、Pipeline 看板"
+            open={openGroups.diag}
+            onToggle={() => toggleGroup('diag')}
+          >
+            <SubBlock title="服务连通性" hint="GitHub / AI / MinerU，排查问题时用">
+              <ConnectivityPanel />
+            </SubBlock>
+
+            <SubBlock title="双引擎试运行" hint="用当前配置跑一次事实核查，验证生成 + 审阅链路">
+              <DualEngineTestPanel />
+            </SubBlock>
+
+            <SubBlock title="后端处理能力" hint="GitHub Actions 工作流状态">
+              <BackendCapabilitiesPanel />
+            </SubBlock>
+
+            <SubBlock
+              title="Secrets 同步状态"
+              hint={`写入 ${owner}/${repoName}，配置变更后自动同步`}
+            >
+              <div className="overflow-hidden rounded-lg border border-ink-200 bg-paper-100">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-ink-100 border-b border-ink-200 text-xs">
+                  <span className="font-medium text-ink-700">同步明细</span>
+                  <button
+                    type="button"
+                    onClick={runSync}
+                    disabled={secretSyncing}
+                    className="flex items-center gap-1 rounded-lg border border-ink-300 bg-paper-50 px-2 py-0.5 text-[11px] hover:bg-paper-100 disabled:text-ink-400"
+                  >
+                    {secretSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    手动同步
+                  </button>
+                </div>
+                {secretItems.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-ink-400">等待首次同步…</div>
+                ) : (
+                  <div className="divide-y divide-ink-200 text-[11px] font-mono">
+                    {secretItems.map((it) => {
+                      const isSkipped = !it.valueWanted && it.putStatus === 0
+                      const isFailed = !it.putOk
+                      const isDelayed = it.putOk && it.valueWanted && !it.verified
+
+                      let icon: string, color: string, label: string
+                      if (isSkipped) { icon = '—'; color = 'text-ink-400'; label = '未填写（跳过）' }
+                      else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `PUT 失败 HTTP ${it.putStatus}` }
+                      else if (isDelayed) {
+                        icon = '⏳'; color = 'text-amber-600'
+                        // PUT 已成功（201/204），只是 secrets 列表还没列出来；
+                        // workflow 运行时 GitHub Actions 通常能直接读到值
+                        label = it.error || 'GitHub 回查未命中（已重试多次，PUT 实际成功）'
+                      }
+                      else { icon = '✓'; color = 'text-green-600'; label = '已写入 + 已回查确认' }
+
+                      const valPreview = isSkipped ? '' : (() => {
+                        const v = it.valueWanted
+                        if (!v) return ''
+                        if (v.length <= 12) return v
+                        return v.slice(0, 8) + '…' + v.slice(-4)
+                      })()
+
+                      return (
+                        <div key={it.name} className="flex items-center gap-2 px-3 py-1.5">
+                          <span className={`${color} w-4 text-center shrink-0`}>{icon}</span>
+                          <span className="text-ink-700 w-40 shrink-0 truncate" title={it.name}>{it.name}</span>
+                          {valPreview && (
+                            <span className="text-ink-400 truncate flex-1 max-w-[12.5rem]" title={it.valueWanted}>
+                              {valPreview}
+                            </span>
+                          )}
+                          <span className={`${color} ml-auto truncate max-w-[16.25rem]`}>{label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </SubBlock>
+
+            <SubBlock title="Pipeline 调试看板" hint="每次 PDF 转换的完整链路：每步 Prompt / 输入 / 输出 / 耗时">
+              <PipelineDebugPanel />
+            </SubBlock>
+          </SettingsGroup>
+
+          <div className="pt-2 text-center text-xs text-ink-400">
+            所有凭据仅存本机 IndexedDB · License AGPL-3.0-or-later
           </div>
-          <PipelineDebugPanel />
-        </section>
-
-        <div className="pt-4 text-center text-xs text-ink-400">
-          所有凭据仅存本机 IndexedDB · License AGPL-3.0-or-later
         </div>
       </main>
     </div>
   )
 }
 
-/** AI 槽位配置卡片 —— AI-1（生成位）/ AI-2（审阅位）共用同一组件，保证界面完全对称。
+/** AI 槽位配置块 —— AI-1（生成位）/ AI-2（审阅位）共用同一组件，保证完全对称。
  *  每个槽位：Provider 选择 + 该家该位的 API Key + 该家的模型下拉；
  *  Provider 为 custom 时展开 Base URL / Key / Model 三件套。 */
 function AISlotSection(props: {
@@ -748,13 +794,13 @@ function AISlotSection(props: {
   }, [isCustom, hasFetched, model, fallbackModel])
 
   return (
-    <section className="space-y-4 rounded-xl border border-ink-200 bg-paper-50 p-5 shadow-card">
+    <div className="space-y-4 pt-5 first:pt-0">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="flex items-center gap-2 font-semibold text-ink-900">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-800">
             <Sparkles className="h-4 w-4 text-seal-600" />
             {title}
-          </h2>
+          </h3>
           <p className="mt-0.5 text-xs text-ink-500">{desc}</p>
         </div>
         {!isCustom && cfg.apiKeyUrl && (
@@ -823,7 +869,7 @@ function AISlotSection(props: {
             fieldId={`ai${slot}-${providerMode}`}
             value={apiKey}
             onChange={onApiKeyChange}
-            hint="仅存本机 IndexedDB，不上传任何服务器；各家 key 独立保存、切换不丢"
+            hint="仅存本机"
           />
           {fallbackKeyNote && (
             <p className="text-xs text-amber-600 -mt-2">{fallbackKeyNote}</p>
@@ -832,13 +878,13 @@ function AISlotSection(props: {
           {/* 拉取真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */}
           <div className="flex items-center justify-between">
             <div className="text-xs text-ink-500">
-              真实清单：
+              模型清单：
               {hasFetched
-                ? `${fetchedModels.length} 个 chat 类`
+                ? `${fetchedModels.length} 个`
                 : fetchedModels.length > 0
                   ? '已切换 Provider，旧清单不适用'
                   : '未拉取'}
-              {' '}· 上次更新 <span className="font-mono">{formatFetchedAt(fetchedAt)}</span>
+              {' '}· <span className="font-mono">{formatFetchedAt(fetchedAt)}</span>
             </div>
             <button
               type="button"
@@ -855,11 +901,6 @@ function AISlotSection(props: {
               拉取
             </button>
           </div>
-          {!canFetch && (
-            <p className="text-[11px] text-ink-400 -mt-2">
-              填好 API Key 后可拉取该 Provider 的完整模型清单
-            </p>
-          )}
 
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-ink-700">模型</label>
@@ -888,16 +929,10 @@ function AISlotSection(props: {
                 </optgroup>
               )}
             </select>
-            <p className="text-[11px] text-ink-400">
-              {hasFetched
-                ? '推荐已按真实清单过滤，不存在的模型不会再出现'
-                : '选「拉取」验证后，只显示真实存在的模型'}
-            </p>
           </div>
 
-          {/* 官方价目：当前选中模型的价格（空闲 / 高峰双价 + 缓存命中价）。
-              很多人以为"重试就是又花一遍钱"，其实同一篇文章在重试/复核时会命中前缀缓存，
-              输入按「缓存命中」那一列计 —— 这一列通常只有未命中的 1/50。 */}
+          {/* 官方价目：空闲 / 高峰双价 + 缓存命中价。
+              重试/复核会命中前缀缓存，输入按缓存价计（约为未命中的 1/50）。 */}
           {selectedPricing && (
             <div className="rounded-lg border border-ink-200 bg-paper-100/70 p-3 space-y-2">
               <div className="flex items-baseline justify-between gap-2">
@@ -928,17 +963,15 @@ function AISlotSection(props: {
                   </tr>
                 </tbody>
               </table>
-              <p className="text-[11px] text-ink-400 leading-relaxed">
-                单位：元 / 百万 tokens。高峰时段 = 北京时间周一至周五 9:00–12:00、14:00–18:00
-                （法定节假日按空闲计），单价翻倍。同一篇文献在重写 / 复核时会命中同一条前缀缓存，
-                输入按「缓存命中」计。
+              <p className="text-[11px] text-ink-400">
+                元 / 百万 tokens · 高峰 = 工作日 9–12 / 14–18 时 · 重写复核命中前缀缓存，输入按缓存价计
               </p>
             </div>
           )}
         </>
       )}
 
-      {/* 推理模式（reasoning）—— 本槽位的交互式调用：问 AI / 双引擎 / 联网检索 */}
+      {/* 推理模式 —— 本槽位的交互式调用：问 AI / 双引擎 / 联网检索 */}
       <div className="space-y-1.5">
         <label className="flex items-center gap-1.5 text-sm font-medium text-ink-700">
           <Brain className="w-3.5 h-3.5 text-violet-500" />
@@ -958,7 +991,7 @@ function AISlotSection(props: {
         </select>
         <p className="text-[11px] text-ink-400">{thinkingHint}</p>
       </div>
-    </section>
+    </div>
   )
 }
 
