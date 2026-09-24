@@ -1,8 +1,15 @@
 /** @type {import('tailwindcss').Config} */
+const appFont = ['"Crimson Pro Variable"', '"LXGW WenKai"', '"Songti SC"', 'STSong', 'serif']
+
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        /* preflight 用 sans 设 html；mono 也指同一款，等宽面不再另开字体 */
+        sans: appFont,
+        mono: appFont,
+      },
       colors: {
         paper: {
           50: '#FDFBF7',

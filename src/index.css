@@ -11,8 +11,6 @@
 
   body {
     @apply bg-paper-100 text-ink-900;
-    /* Crimson 在前、文楷在后：西文与数字落 Crimson，中文回落到文楷 */
-    font-family: 'Crimson Pro Variable', 'LXGW WenKai', 'Songti SC', STSong, serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
