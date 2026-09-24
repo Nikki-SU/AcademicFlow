@@ -572,7 +572,7 @@ function DualEngineTestPanel() {
               </span>
             )}
           </summary>
-          <pre className="p-3 text-xs bg-white text-slate-800 whitespace-pre-wrap font-sans leading-relaxed max-h-[25rem] overflow-y-auto">
+          <pre className="p-3 text-xs bg-white text-slate-800 whitespace-pre-wrap leading-relaxed max-h-[25rem] overflow-y-auto">
             {ai1OutputToShow}
           </pre>
         </details>

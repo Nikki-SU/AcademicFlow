@@ -82,7 +82,7 @@ function APIKeyInput({ label, value, onChange, placeholder, hint, disabled, fiel
           className="w-full px-3 py-2 pr-20 text-sm font-mono border border-slate-300 rounded-md
                      focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
                      disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed
-                     placeholder:font-sans placeholder:text-slate-400"
+                     placeholder:text-slate-400"
         />
         <div className="absolute inset-y-0 right-2 flex items-center gap-1">
           <button

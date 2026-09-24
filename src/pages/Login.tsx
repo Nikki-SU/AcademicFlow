@@ -1,8 +1,5 @@
 /**
  * 登录页 — Fine-grained PAT 单路径
- *
- * 视觉：纸底 + 墨字 + 朱砂点缀。字分两档 ——
- *   UI（表单/按钮/提示）走无衬线；品牌字与说明文案走 font-content（Crimson + 文楷）。
  */
 import { useState, useCallback } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
@@ -73,21 +70,19 @@ function Login() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-paper-100 p-6">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-ink-900/10 bg-paper-50 shadow-card">
-        {/* 顶部一道朱砂细带 —— 印章式的品牌记号，不铺面积 */}
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-ink-900/10 bg-paper-50 shadow-card">
         <div className="h-[3px] bg-seal-600" />
 
         <div className="p-8 md:p-10">
-          {/* 品牌区：西文衬线 + 中文文楷，两种语言各走各的字 */}
           <div className="mb-7 flex items-center gap-3.5">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-seal-600 shadow-sm">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-seal-600 shadow-sm">
               <BookOpen className="h-5 w-5 text-paper-50" strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="font-content text-[26px] font-semibold leading-none tracking-tight text-ink-900">
+              <h1 className="text-[26px] font-semibold leading-none tracking-tight text-ink-900">
                 AcademicFlow
               </h1>
-              <p className="font-content mt-1.5 text-xs text-ink-500">
+              <p className="mt-1.5 text-xs text-ink-500">
                 学术工作流工具 · 用你自己的 GitHub 私库当后端
               </p>
             </div>
@@ -95,7 +90,7 @@ function Login() {
 
           {/* PAT 手贴 */}
           <div className="space-y-4">
-            <div className="space-y-3 rounded-xl border border-ink-900/10 bg-paper-100 p-4">
+            <div className="space-y-3 rounded-lg border border-ink-900/10 bg-paper-100 p-4">
               <p className="text-sm font-semibold text-ink-700">
                 如果你希望权限精确到单个仓库，可用 PAT 手贴登录
               </p>

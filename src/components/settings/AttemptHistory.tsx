@@ -128,7 +128,7 @@ function AttemptHistory({
                       </span>
                     )}
                   </div>
-                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded whitespace-pre-wrap font-sans leading-relaxed max-h-[10rem] overflow-y-auto">
+                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded whitespace-pre-wrap leading-relaxed max-h-[10rem] overflow-y-auto">
                     {a.ai1Output}
                   </pre>
                 </div>

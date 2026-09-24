@@ -9,21 +9,12 @@
     height: 100%;
   }
 
-  /*
-   * body 默认走无衬线（UI 骨架），底色用「纸」而不是纯白 ——
-   * 纯白在暖色界面里会发冷、也会让卡片没有"贴在纸上"的层次。
-   * 需要编辑感的内容面单独加 font-content（见 tailwind.config 的 fontFamily.content）。
-   */
   body {
-    @apply font-sans bg-paper-100 text-ink-900;
+    @apply bg-paper-100 text-ink-900;
+    /* Crimson 在前、文楷在后：西文与数字落 Crimson，中文回落到文楷 */
+    font-family: 'Crimson Pro Variable', 'LXGW WenKai', 'Songti SC', STSong, serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-  }
-
-  /* 内容面：衬线在小字号下容易发虚，单独把抗锯齿与字距调稳一点 */
-  .font-content {
-    font-feature-settings: 'kern' 1, 'liga' 1;
-    letter-spacing: 0.005em;
   }
 }
 
