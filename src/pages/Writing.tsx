@@ -153,6 +153,32 @@ function withRuntimeHint(log: string): string {
   return /\.(sty|cls|def)['`]?\s*not found/i.test(log) ? RUNTIME_MISSING_FILE_HINT + log : log
 }
 
+/**
+ * 运行时压根没加载起来时的提示（不是 TeX 排出来的错）。
+ * 「预览（前端）」要先在浏览器里下约 110MB / 1800+ 个文件的 XeLaTeX 运行时，
+ * 途中丢一个文件整个初始化就失败，而 fetch 只会留一句 "Failed to fetch"。
+ * 重试已经在 worker 里做了，剩下的情况在这里说清楚怎么自救 —— 尤其是
+ * 「再点一次不会重下」这一点，否则用户会以为要重新等一遍。
+ */
+const RUNTIME_LOAD_FAILED_HINT =
+  '【提示】「预览（前端）」要在浏览器里跑 XeLaTeX，得先把运行时下到本地\n' +
+  '（约 110MB、1800+ 个文件；只需下一次，之后走浏览器缓存）。\n' +
+  '这次有文件没下下来 —— 多是网络抖动，或代理 / VPN 拦掉了一部分请求。\n' +
+  '可以这样办：\n' +
+  '  1) 再点一次「预览（前端）」：已下好的文件不会重下，通常第二次就过；\n' +
+  '  2) 还不行就刷新页面重来；\n' +
+  '  3) 只想要 PDF，直接点「正式编译（后端）」，那是在你私库里跑 GitHub Actions。\n' +
+  '\n'
+
+/** 异常是不是「运行时没加载起来」这一类（对照 worker 抛出来的那几种 message） */
+function isRuntimeLoadFailure(message: string): boolean {
+  return (
+    /Failed to fetch|NetworkError|Load failed|net::ERR_/i.test(message) ||
+    /Runtime (asset|manifest) .*could not be loaded/i.test(message) ||
+    /The XeLaTeX worker could not initialize/i.test(message)
+  )
+}
+
 const CITATION_SCOPES = [
   { value: 'all', label: '全部文献' },
   { value: 'project', label: '当前项目文献' },
@@ -764,7 +790,7 @@ export default function WritingPage() {
   const [isLoadingPackages, setIsLoadingPackages] = useState(false)
   const [isImportingPackages, setIsImportingPackages] = useState(false)
   const [packageStatus, setPackageStatus] = useState('')
-  // ── 云端编译（GitHub Actions）：与浏览器内 WASM 并列的第二条通道 ──
+  // ── 正式编译（后端，GitHub Actions）：与浏览器内 WASM 并列的第二条通道 ──
   const [isCloudCompiling, setIsCloudCompiling] = useState(false)
   const [cloudRunUrl, setCloudRunUrl] = useState('')
   // ── 期刊模板面板：让 AI 直接改 LaTeX 代码 ──
@@ -2525,20 +2551,27 @@ export default function WritingPage() {
         onStatus: (e) => setCompileStatus(e.message),
       })
       setPdfObjectUrl(createPdfObjectUrl(result.pdf))
-      setCompileStatus(`编译完成 · ${result.passes} 趟 XeTeX${result.bibtexRan ? ' + BibTeX' : ''}`)
-      toast.success('编译完成')
+      setCompileStatus(`预览编译完成 · ${result.passes} 趟 XeTeX${result.bibtexRan ? ' + BibTeX' : ''}`)
+      toast.success('预览编译完成')
     } catch (err) {
       const log = getCompileErrorLog(err)
-      setCompileError(withRuntimeHint(log || (err instanceof Error ? err.message : String(err))))
+      const raw = log || (err instanceof Error ? err.message : String(err))
+      setCompileError(
+        log
+          ? withRuntimeHint(log)
+          : isRuntimeLoadFailure(raw)
+            ? RUNTIME_LOAD_FAILED_HINT + raw
+            : raw,
+      )
       setCompileStatus('')
-      toast.error('编译失败，见下方日志')
+      toast.error('预览编译失败，见下方日志')
     } finally {
       setIsCompiling(false)
     }
   }
 
   /**
-   * 云端编译：把源文件提交进私库，叫起 GitHub Actions 跑官方 TeX Live 镜像。
+   * 正式编译（后端）：把源文件提交进私库，叫起 GitHub Actions 跑官方 TeX Live 镜像。
    * 与浏览器内 WASM 编译并列 —— 那边快但宏包/版本被运行时钉死，这边慢但什么包都能用。
    */
   const compileInCloud = async () => {
@@ -2547,13 +2580,13 @@ export default function WritingPage() {
       return
     }
     if (!activeProjectId) {
-      toast.error('先选一个项目 —— 云端编译的产物要落到项目目录里')
+      toast.error('先选一个项目 —— 正式编译（后端）的产物要落到项目目录里')
       return
     }
     setIsCloudCompiling(true)
     setCompileError('')
     setCloudRunUrl('')
-    setCompileStatus('正在准备云端编译...')
+    setCompileStatus('正在准备正式编译（后端）...')
     try {
       // 期刊模板自带资源同样要挂（见 collectTemplateAssets 注释）——
       // 云端是把文件提交进私库、以 main.tex 所在目录为工作目录跑 latexmk，
@@ -2572,12 +2605,12 @@ export default function WritingPage() {
         },
       )
       setPdfObjectUrl(createPdfObjectUrl(result.pdf))
-      setCompileStatus('云端编译完成（官方 TeX Live）')
-      toast.success('云端编译完成')
+      setCompileStatus('正式编译完成（官方 TeX Live）')
+      toast.success('正式编译完成')
     } catch (err) {
       setCompileError(err instanceof Error ? err.message : String(err))
       setCompileStatus('')
-      toast.error('云端编译失败，见下方日志')
+      toast.error('正式编译失败，见下方日志')
     } finally {
       setIsCloudCompiling(false)
     }
@@ -4054,7 +4087,7 @@ export default function WritingPage() {
 
                 {/* 编译器的能力边界：写清楚内置了什么，省得用户猜 */}
                 <p className="text-[0.625rem] text-slate-400 leading-relaxed bg-slate-50 rounded-lg p-2">
-                  编译器是随站点分发的 XeLaTeX 运行时（不联网，约 85MB，首次编译加载一次）。
+                  编译器是随站点分发的 XeLaTeX 运行时（不联网，约 110MB，首次编译加载一次）。
                   已内置基础宏包 amsmath / graphicx / hyperref / geometry / xcolor / longtable /
                   etoolbox / fontspec，常用宏包 booktabs、natbib、amssymb、tabularx、multirow、
                   caption / subcaption / microtype，文档类{' '}
@@ -4066,7 +4099,7 @@ export default function WritingPage() {
                   其它宏包可以自己导入：在右边编译器顶部点「宏包」，把 .sty / .cls 选进来，
                   导入一次之后每次编译自动带上。
                   <br />
-                  还是编不过的（要最新 TeX Live、要 biber、要冷门宏包），就点「云端编译」——
+                  还是编不过的（要最新 TeX Live、要 biber、要冷门宏包），就点「正式编译（后端）」——
                   那是在你自己的私库里跑 GitHub Actions + 官方 TeX Live 镜像，什么宏包都能装，
                   代价是要排队等一会儿。
                 </p>
@@ -4304,26 +4337,27 @@ export default function WritingPage() {
                     onClick={compileInCloud}
                     disabled={isCloudCompiling || isCompiling}
                     className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="用 GitHub Actions 跑官方 TeX Live 编译：宏包和版本都不受浏览器运行时的限制，代价是要排队等一会儿"
+                    title="正式编译（后端）：在你自己的私库里跑 GitHub Actions + 官方 TeX Live 镜像，宏包最全、版本最新；代价是提交源码并等排队（几分钟）"
                   >
                     {isCloudCompiling ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
                     ) : (
                       <CloudUpload className="w-3 h-3" />
                     )}
-                    {isCloudCompiling ? '云端编译中' : '云端编译'}
+                    {isCloudCompiling ? '正式编译中' : '正式编译（后端）'}
                   </button>
                   <button
                     onClick={compileCurrentLatex}
                     disabled={isCompiling || isCloudCompiling}
                     className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-white bg-emerald-600 rounded hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="预览（前端）：在本机浏览器里跑 XeLaTeX（首次要先下约 110MB 运行时，之后走缓存），几秒出 PDF、不联网、源码不出本机；但宏包被运行时钉死"
                   >
                     {isCompiling ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
                     ) : (
                       <Play className="w-3 h-3" />
                     )}
-                    {isCompiling ? '编译中' : '编译'}
+                    {isCompiling ? '预览中' : '预览（前端）'}
                   </button>
                 </div>
 
@@ -4427,7 +4461,7 @@ export default function WritingPage() {
                       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border-b border-red-100 flex-shrink-0">
                         <X className="w-3.5 h-3.5 text-red-500" />
                         <span className="text-[0.6875rem] font-medium text-red-600">
-                          编译失败 · TeX 日志
+                          编译失败 · 日志
                         </span>
                         <div className="flex-1" />
                         <button
@@ -4448,7 +4482,7 @@ export default function WritingPage() {
                     <div className="h-full flex flex-col items-center justify-center text-center px-6">
                       <Play className="w-8 h-8 text-slate-300 mb-2" />
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        点「编译」在浏览器里跑 XeLaTeX
+                        点「预览（前端）」在本机浏览器里跑 XeLaTeX
                         <br />
                         出来的是真 PDF，不联网、不上传
                       </p>

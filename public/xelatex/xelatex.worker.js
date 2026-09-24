@@ -9,8 +9,19 @@ const manifestUrl = new URL("runtime-manifest.json", runtimeBaseUrl);
 // 实测一次性并发会失败 805 个（fetch 抛 "TypeError: Failed to fetch"），
 // 运行时初始化失败 → 整个编译器不可用。改成固定并发上限后实测全部成功，
 // 且运行时的文件数继续增长也不会退化。
+//
+// 并发上限只解决「同时开太多连接」，解决不了网络本身的抖动：1875 个文件里
+// 只要有一个请求失败（挂 VPN / 代理时很常见），整个运行时初始化就失败，
+// 用户看到的就是一句光秃秃的 "Failed to fetch"。所以每个文件再单独重试几次 ——
+// 重试是安全的：这些资源按路径缓存，已下好的不会重下。
+//
+// ⚠️ 这个文件是 CLI 生成的（npx @arnon3339/thtex --to public/xelatex）。
+//    重新生成运行时之后，上面这段补丁（并发上限 + 逐文件重试）必须重新打回来，
+//    否则「Failed to fetch」会原样复发。
 // -----------------------------------------------------------------------------
 const RUNTIME_FETCH_CONCURRENCY = 16;
+const RUNTIME_FETCH_ATTEMPTS = 3;
+const RUNTIME_RETRY_DELAY_MS = 400;
 async function mapWithConcurrency(items, limit, mapper) {
     const results = new Array(items.length);
     let next = 0;
@@ -25,6 +36,7 @@ async function mapWithConcurrency(items, limit, mapper) {
     await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
     return results;
 }
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const texEnvironment = {
     HOME: "/work",
     TMPDIR: "/work",
@@ -69,12 +81,29 @@ async function importFactory(file) {
     /* @vite-ignore */ moduleUrl));
     return imported.default;
 }
-async function loadRuntimeFiles() {
-    const response = await fetch(manifestUrl);
-    if (!response.ok) {
-        throw new Error(`Runtime manifest could not be loaded (${response.status}). Run pnpm xelatex:manifest after adding the texmf, fonts, and ICU assets.`);
+// 清单是第一个请求，同样按「失败就重试」处理 —— 它挂了后面的资源一个都拉不到。
+async function fetchManifest() {
+    let lastError;
+    for (let attempt = 1; attempt <= RUNTIME_FETCH_ATTEMPTS; attempt += 1) {
+        try {
+            const response = await fetch(manifestUrl);
+            if (!response.ok) {
+                throw new Error(`Runtime manifest could not be loaded (${response.status}). Run pnpm xelatex:manifest after adding the texmf, fonts, and ICU assets.`);
+            }
+            return (await response.json());
+        }
+        catch (error) {
+            lastError = error;
+            if (attempt < RUNTIME_FETCH_ATTEMPTS) {
+                await sleep(RUNTIME_RETRY_DELAY_MS * attempt);
+            }
+        }
     }
-    const manifest = (await response.json());
+    const reason = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`Runtime manifest could not be loaded after ${RUNTIME_FETCH_ATTEMPTS} attempts: ${reason}`);
+}
+async function loadRuntimeFiles() {
+    const manifest = await fetchManifest();
     if (manifest.version !== 1 || !Array.isArray(manifest.files)) {
         throw new Error("The XeLaTeX runtime manifest is invalid.");
     }
@@ -99,15 +128,29 @@ async function loadRuntimeFiles() {
     };
     reportProgress();
     const fetchAsset = async (path, expectedSize) => {
-        const assetResponse = await fetch(getRuntimeUrl(path));
-        if (!assetResponse.ok) {
-            throw new Error(`Runtime asset ${path} could not be loaded (${assetResponse.status}).`);
+        const url = getRuntimeUrl(path);
+        let lastError;
+        for (let attempt = 1; attempt <= RUNTIME_FETCH_ATTEMPTS; attempt += 1) {
+            try {
+                const assetResponse = await fetch(url);
+                if (!assetResponse.ok) {
+                    throw new Error(`Runtime asset ${path} could not be loaded (${assetResponse.status}).`);
+                }
+                const bytes = new Uint8Array(await assetResponse.arrayBuffer());
+                if (bytes.byteLength !== expectedSize) {
+                    throw new Error(`Runtime asset ${path} has ${bytes.byteLength} bytes; the manifest expects ${expectedSize}.`);
+                }
+                return bytes;
+            }
+            catch (error) {
+                lastError = error;
+                if (attempt < RUNTIME_FETCH_ATTEMPTS) {
+                    await sleep(RUNTIME_RETRY_DELAY_MS * attempt);
+                }
+            }
         }
-        const bytes = new Uint8Array(await assetResponse.arrayBuffer());
-        if (bytes.byteLength !== expectedSize) {
-            throw new Error(`Runtime asset ${path} has ${bytes.byteLength} bytes; the manifest expects ${expectedSize}.`);
-        }
-        return bytes;
+        const reason = lastError instanceof Error ? lastError.message : String(lastError);
+        throw new Error(`Runtime asset ${path} could not be loaded after ${RUNTIME_FETCH_ATTEMPTS} attempts: ${reason}`);
     };
     const files = await mapWithConcurrency(manifest.files, RUNTIME_FETCH_CONCURRENCY, async ({ path, size, chunks }) => {
         let bytes;

@@ -134,7 +134,16 @@ export async function compileLatex(
   params: CompileLatexParams,
 ): Promise<CompileLatexResult> {
   const instance = getCompiler()
-  await instance.ready
+  try {
+    await instance.ready
+  } catch (err) {
+    // 运行时加载失败（网络抖动 / 代理拦截）后，这个实例的 ready 会永久保持 rejected，
+    // 再点一次「预览（前端）」只会立刻抛同一个错，用户被迫刷新页面。
+    // 这里把它丢掉：下次调用重建一个 worker，已下好的资源走浏览器缓存、不会重下。
+    instance.dispose()
+    if (compiler === instance) compiler = null
+    throw err
+  }
 
   const compileOptions: Parameters<XeLaTeXCompiler['compile']>[1] = {
     bibtex: params.bibtex ? 'auto' : false,

@@ -167,7 +167,7 @@ export async function compileOnGitHub(
   const beforeCreatedAt = before?.created_at ?? new Date(Date.now() - 60_000).toISOString()
 
   const runId = newRunId()
-  stage('已触发云端编译，等待 runner 接单…')
+  stage('已触发正式编译（后端），等待 runner 接单…')
   await dispatchWorkflow(
     LATEX_CLOUD_EVENT,
     { project_id: projectId, run_id: runId },
@@ -192,7 +192,7 @@ export async function compileOnGitHub(
     await new Promise((r) => setTimeout(r, 1500))
   }
   if (runFound) {
-    stage('云端编译进行中（首次运行要拉 TeX Live 镜像，可能几分钟）…')
+    stage('正式编译（后端）进行中（首次运行要拉 TeX Live 镜像，可能几分钟）…')
   } else {
     // 找不到 run 不代表失败：可能只是排队慢。继续轮询 build.json，
     // 但把原因说清楚，免得用户干等。
@@ -212,20 +212,20 @@ export async function compileOnGitHub(
       status = s
       break
     }
-    if (s) stage(`云端编译中…（已 ${Math.round(((i + 1) * intervalMs) / 1000)}s）`)
+    if (s) stage(`正式编译（后端）中…（已 ${Math.round(((i + 1) * intervalMs) / 1000)}s）`)
   }
 
   if (!status) {
     throw new Error(
       runFound
-        ? `云端编译超时（${Math.round(timeoutMs / 1000)}s 内没有结果）。可以打开运行页看实时日志：${runUrl ?? ''}`
-        : '云端编译没有启动。最可能的原因：后端 workflow 还没装到你的私库 —— 去设置页的「后端处理能力」点一下「重写后端」。',
+        ? `正式编译（后端）超时（${Math.round(timeoutMs / 1000)}s 内没有结果）。可以打开运行页看实时日志：${runUrl ?? ''}`
+        : '正式编译（后端）没有启动。最可能的原因：后端 workflow 还没装到你的私库 —— 去设置页的「后端处理能力」点一下「重写后端」。',
     )
   }
 
   if (status.status === 'error') {
     throw new Error(
-      `云端编译失败。\n\n${status.log_tail ?? '(workflow 没有留下日志)'}\n\n` +
+      `正式编译（后端）失败。\n\n${status.log_tail ?? '(workflow 没有留下日志)'}\n\n` +
         (runUrl ? `运行页：${runUrl}` : ''),
     )
   }
@@ -239,7 +239,7 @@ export async function compileOnGitHub(
     'application/pdf',
   )
   if (!pdfFile) {
-    throw new Error('云端编译报告成功，但仓库里没有 main.pdf —— 去看一眼 workflow 日志。')
+    throw new Error('正式编译（后端）报告成功，但仓库里没有 main.pdf —— 去看一眼 workflow 日志。')
   }
 
   return { pdf: await pdfFile.blob.arrayBuffer(), status, runUrl }
