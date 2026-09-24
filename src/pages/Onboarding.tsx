@@ -71,33 +71,31 @@ function Onboarding() {
   }
 
   return (
-    <div className="min-h-full bg-gradient-to-br from-paper-100 via-seal-50 to-purple-50">
+    <div className="min-h-full bg-paper-100">
       {/* 顶栏 */}
-      <header className="border-b border-ink-200 bg-paper-50/80 backdrop-blur-sm">
-        <div className="page-container py-3 flex items-center gap-2">
-          <div className="p-1.5 bg-seal-100 rounded-md">
-            <BookOpen className="w-5 h-5 text-seal-600" />
+      <header className="border-b border-ink-900/10 bg-paper-50">
+        <div className="page-container flex items-center gap-2.5 py-3">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-seal-600">
+            <BookOpen className="h-4 w-4 text-paper-50" strokeWidth={1.75} />
           </div>
-          <span className="font-bold text-ink-800">AcademicFlow</span>
-          <span className="ml-auto text-sm text-ink-500">
-            设置工作空间 · M2
-          </span>
+          <span className="font-semibold tracking-tight text-ink-900">AcademicFlow</span>
+          <span className="ml-auto text-sm text-ink-500">设置工作空间</span>
         </div>
       </header>
 
-      <main className="page-container py-10 flex justify-center">
-        <div className="bg-paper-50 rounded-2xl shadow-xl p-8 md:p-10 border border-ink-200 w-full max-w-[min(100%,48rem)]">
+      <main className="page-container flex flex-col items-center gap-6 py-10">
+        <div className="w-full max-w-3xl rounded-xl border border-ink-900/10 bg-paper-50 p-8 shadow-card md:p-10">
           {/* 标题 */}
-          <div className="text-center mb-8">
-            <div className="inline-flex p-3 bg-seal-100 rounded-full mb-4">
-              <Rocket className="w-8 h-8 text-seal-600" />
+          <div className="mb-8 text-center">
+            <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-seal-600">
+              <Rocket className="h-6 w-6 text-paper-50" strokeWidth={1.75} />
             </div>
-            <h1 className="text-3xl md:text-4xl font-bold text-ink-800 mb-2">
+            <h1 className="mb-2 text-2xl font-semibold tracking-tight text-ink-900 md:text-3xl">
               欢迎，{user?.name || user?.login}！
             </h1>
-            <p className="text-ink-600 max-w-xl mx-auto">
+            <p className="mx-auto max-w-xl text-sm leading-relaxed text-ink-600">
               AcademicFlow 需要在你的 GitHub 创建一个
-              <strong className="text-seal-700 font-mono mx-1">
+              <strong className="mx-1 font-mono text-seal-700">
                 {DEFAULT_WORKSPACE_REPO_NAME}
               </strong>
               私库作为工作区。你的所有笔记数据都会存到这个私库里，我们只是路过。
@@ -105,29 +103,25 @@ function Onboarding() {
           </div>
 
           {/* 数据主权说明 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-ink-700">
-                <div className="font-semibold text-ink-900 mb-0.5">私库</div>
+          <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="flex items-start gap-2 rounded-lg border border-ink-900/10 bg-paper-100 p-3">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+              <div className="text-xs text-ink-600">
+                <div className="mb-0.5 font-medium text-ink-900">私库</div>
                 仅你可读写，AcademicFlow 无服务器留存
               </div>
             </div>
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2">
-              <Github className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-ink-700">
-                <div className="font-semibold text-ink-900 mb-0.5">
-                  数据自主
-                </div>
+            <div className="flex items-start gap-2 rounded-lg border border-ink-900/10 bg-paper-100 p-3">
+              <Github className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+              <div className="text-xs text-ink-600">
+                <div className="mb-0.5 font-medium text-ink-900">数据自主</div>
                 随时可在 GitHub 直接查看/迁移/删除
               </div>
             </div>
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2">
-              <FileText className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-ink-700">
-                <div className="font-semibold text-ink-900 mb-0.5">
-                  纯文本
-                </div>
+            <div className="flex items-start gap-2 rounded-lg border border-ink-900/10 bg-paper-100 p-3">
+              <FileText className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+              <div className="text-xs text-ink-600">
+                <div className="mb-0.5 font-medium text-ink-900">纯文本</div>
                 Markdown + CSV，无锁定，全永久可读
               </div>
             </div>
@@ -135,15 +129,15 @@ function Onboarding() {
 
           {/* 骨架清单预览 */}
           <div className="mb-8">
-            <div className="text-sm font-semibold text-ink-700 mb-2 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-ink-500" />
-              将初始化 {WORKSPACE_SKELETON.length} 个文件（一次 commit）：
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-ink-700">
+              <FileText className="h-4 w-4 text-ink-400" />
+              将初始化 {WORKSPACE_SKELETON.length} 个文件（一次 commit）
             </div>
-            <div className="bg-paper-100 border border-ink-200 rounded-lg p-3 max-h-52 overflow-y-auto">
-              <ul className="text-xs font-mono text-ink-600 space-y-1">
+            <div className="max-h-52 overflow-y-auto rounded-lg border border-ink-900/10 bg-paper-100 p-3">
+              <ul className="space-y-1 font-mono text-xs text-ink-600">
                 {WORKSPACE_SKELETON.map((f) => (
                   <li key={f.path} className="flex items-center gap-2">
-                    <span className="text-ink-400">📄</span>
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-ink-300" />
                     <span>{f.path}</span>
                   </li>
                 ))}
@@ -161,7 +155,7 @@ function Onboarding() {
                 <button
                   onClick={handleStart}
                   disabled={isLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-md transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-200 disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
                   重试初始化
@@ -208,7 +202,7 @@ function Onboarding() {
           <button
             onClick={handleStart}
             disabled={isLoading || creationDone}
-            className="w-full py-4 px-6 rounded-xl font-semibold text-paper-50 bg-gradient-to-r from-seal-600 to-purple-600 hover:from-seal-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-ink-900 px-6 py-3.5 text-base font-medium text-paper-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-300"
           >
             {isLoading ? (
               <>
@@ -235,24 +229,22 @@ function Onboarding() {
         </div>
 
         {/* 其他功能入口（不初始化 workspace 也能用） */}
-        <div className="mt-6">
-          <p className="text-sm text-ink-500 text-center mb-3">
-            👀 想先看看？试试这些功能：
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="w-full max-w-3xl">
+          <p className="mb-3 text-center text-sm text-ink-500">想先看看？试试这些功能：</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Link
               to="/writing"
-              className="group p-4 bg-paper-50 border border-ink-200 rounded-xl hover:shadow-md hover:border-seal-200 transition-all"
+              className="group rounded-xl border border-ink-900/10 bg-paper-50 p-4 transition hover:border-seal-200 hover:shadow-card"
             >
               <div className="flex items-start gap-3">
-                <div className="p-2 bg-seal-50 rounded-lg group-hover:bg-seal-100 transition">
-                  <FileText className="w-5 h-5 text-seal-600" />
+                <div className="rounded-lg bg-seal-50 p-2 transition group-hover:bg-seal-100">
+                  <FileText className="h-5 w-5 text-seal-600" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-ink-800 group-hover:text-seal-700 transition">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-ink-900 transition group-hover:text-seal-700">
                     AI 期刊排版
                   </div>
-                  <div className="text-xs text-ink-500 mt-1">
+                  <div className="mt-1 text-xs text-ink-500">
                     Markdown → LaTeX，按期刊格式自动排版，DOI 引用一键解析
                   </div>
                 </div>
@@ -260,17 +252,17 @@ function Onboarding() {
             </Link>
             <Link
               to="/management"
-              className="group p-4 bg-paper-50 border border-ink-200 rounded-xl hover:shadow-md hover:border-seal-200 transition-all"
+              className="group rounded-xl border border-ink-900/10 bg-paper-50 p-4 transition hover:border-seal-200 hover:shadow-card"
             >
               <div className="flex items-start gap-3">
-                <div className="p-2 bg-paper-100 rounded-lg group-hover:bg-seal-50 transition">
-                  <BookMarked className="w-5 h-5 text-ink-600 group-hover:text-seal-600 transition" />
+                <div className="rounded-lg bg-ink-50 p-2 transition group-hover:bg-seal-50">
+                  <BookMarked className="h-5 w-5 text-ink-500 transition group-hover:text-seal-600" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-ink-800 group-hover:text-seal-700 transition">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-ink-900 transition group-hover:text-seal-700">
                     期刊模板管理
                   </div>
-                  <div className="text-xs text-ink-500 mt-1">
+                  <div className="mt-1 text-xs text-ink-500">
                     粘贴投稿须知，AI 自动提取格式规范，生成可复用模板
                   </div>
                 </div>
