@@ -7,9 +7,11 @@
  * -halt-on-error 下直接失败，用户看到的是「你们下载的官方模板都编不过」。
  *
  * 这里的原则：
- *   1. 只挂**源码真正引用到的**那几件 —— Wiley 那种整包 14MB，全量下载没意义；
- *   2. 缺件要**点名报到界面上**，不能让用户对着一句 not found 猜是哪个文件；
- *   3. references.bib 由应用单独提供，不算缺件（否则每次编译都会误报）。
+ *   1. 图片这类大件只挂**源码真正引用到的**那几件 —— Wiley 那种整包 14MB，全量下载没意义；
+ *   2. 出版社整包里的**宏包/文档类/参考文献样式**（.sty/.cls/.clo/.def/.bst）无条件全带上 ——
+ *      它们是自洽的一套，依赖藏在类文件内部，从主 .tex 里看不出来（详见 TEMPLATE_PACKAGE_EXTS）；
+ *   3. 缺件要**点名报到界面上**，不能让用户对着一句 not found 猜是哪个文件；
+ *   4. references.bib 由应用单独提供，不算缺件（否则每次编译都会误报）。
  */
 
 /** graphicx 找图时会自己试的扩展名（顺序即 TeX 的搜索顺序） */
@@ -17,6 +19,27 @@ const GRAPHIC_EXTS = ['.pdf', '.eps', '.png', '.jpg', '.jpeg', '.svg', '.ps', '.
 
 /** 应用自己会提供的文件，不算「模板缺件」 */
 const APP_PROVIDED = new Set(['references.bib'])
+
+/**
+ * 「出版社整包里的宏包文件」——这些**无条件**挂上，哪怕主 .tex 一个字都没提到。
+ *
+ * 出版社给的整包是一套自洽的目录：类文件内部还会 \usepackage 同包里的宏包、
+ * \bibliographystyle 同包里的 .bst，从主 .tex 里根本看不到这层依赖。
+ *
+ * Wiley NJD 包就是现成的例子：主 .tex 只写 \documentclass[ASNA,twocolumn]{USG}，
+ * 而 USG.cls 第 281 行 \usepackage{lettersp}（真正的文件叫 LETTERSP.STY，
+ * 大小写无妨 —— TeX Live 2018 起 kpathsea 默认开启大小写折叠搜索），
+ * 第 1955 行 \bibliographystyle{wileyNJD-Chicago}（.bst 同样只在包里）。
+ * 只挂主 .tex 直接引到的文件，就会一直编到类文件内部才炸 not found。
+ *
+ * 这些文件都很小（现有全部模板加起来约 500KB），比「猜依赖猜不全」的代价小得多。
+ */
+const TEMPLATE_PACKAGE_EXTS = ['.sty', '.cls', '.clo', '.def', '.bst']
+
+function isTemplatePackageFile(path: string): boolean {
+  const lower = path.toLowerCase()
+  return TEMPLATE_PACKAGE_EXTS.some((ext) => lower.endsWith(ext))
+}
 
 export interface TemplateAssetPlan {
   /** 要挂进虚拟文件系统的文件，路径**相对 assets/**（.tex 就是这么引用的） */
@@ -96,6 +119,11 @@ export function planTemplateAssets(tex: string, assetPaths: string[]): TemplateA
     if (APP_PROVIDED.has(ref)) continue
     const hit = lookup(ref, assetSet)
     if (hit) files.add(hit)
+  }
+
+  // 出版社整包里的宏包 / 文档类 / 参考文献样式无条件带上（理由见 TEMPLATE_PACKAGE_EXTS）
+  for (const path of assetSet) {
+    if (isTemplatePackageFile(path)) files.add(path)
   }
 
   return { files: [...files], missing: [...missing] }
