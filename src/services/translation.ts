@@ -110,14 +110,14 @@ export function renderAlignedHtml(
       } else {
         // 没有译文 → 渲染原文 + 灰色提示
         chunks.push(
-          `<div class="original-fallback text-slate-400 italic">${render(p.original_raw)}</div>`,
+          `<div class="original-fallback text-ink-400 italic">${render(p.original_raw)}</div>`,
         )
       }
     } else if (mode === 'bilingual') {
       chunks.push(render(p.original_raw))
       if ((p.type === 'text' || p.type === 'heading') && p.translation_raw && !allTransAreEnglish) {
         chunks.push(
-          `<div class="translation-paragraph bg-indigo-50/30 border-l-2 border-indigo-300 pl-3">${render(p.translation_raw)}</div>`,
+          `<div class="translation-paragraph bg-seal-50/30 border-l-2 border-seal-300 pl-3">${render(p.translation_raw)}</div>`,
         )
       }
     }
@@ -167,13 +167,13 @@ export function renderAlignedMdHtml(
     )
   }
 
-  const pendingNote = '<div class="text-xs text-slate-400 italic mb-2">（此段译文排队中）</div>'
+  const pendingNote = '<div class="text-xs text-ink-400 italic mb-2">（此段译文排队中）</div>'
   const fallback = (raw: string) =>
-    '<div class="original-fallback text-slate-400 italic border-l-2 border-slate-300 pl-3 opacity-75">' +
-    '<div class="text-xs text-slate-400 mb-1">— 此段译文排队中 —</div>' +
+    '<div class="original-fallback text-ink-400 italic border-l-2 border-ink-300 pl-3 opacity-75">' +
+    '<div class="text-xs text-ink-400 mb-1">— 此段译文排队中 —</div>' +
     render(raw) + '</div>'
   const cnBox = (cn: string) =>
-    '<div class="translation-paragraph bg-indigo-50/30 border-l-2 border-indigo-300 pl-3 my-2">' +
+    '<div class="translation-paragraph bg-seal-50/30 border-l-2 border-seal-300 pl-3 my-2">' +
     render(cn) + '</div>'
 
   /**
@@ -235,10 +235,10 @@ export function renderAlignedMdHtml(
 
     // 参考文献：不翻译
     if (node.kind === 'note' && node.type === '文献') {
-      chunks.push('<hr class="my-6 border-slate-200"/>')
-      chunks.push('<h2 class="text-lg font-semibold text-slate-700 mb-3">参考文献</h2>')
+      chunks.push('<hr class="my-6 border-ink-200"/>')
+      chunks.push('<h2 class="text-lg font-semibold text-ink-700 mb-3">参考文献</h2>')
       if (mode === 'chinese') {
-        chunks.push('<div class="text-xs text-slate-400 italic mb-2">（参考文献不参与翻译）</div>')
+        chunks.push('<div class="text-xs text-ink-400 italic mb-2">（参考文献不参与翻译）</div>')
       }
       if (body) chunks.push(wrapEn(render(body)))
       continue

@@ -82,7 +82,7 @@ export default function BackendCapabilitiesPanel() {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-500">
         后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上。你需要在私库安装
         <b> paper_convert.yml / book_convert.yml / ai_call.yml </b>
         三个主 workflow（外加两个连通性自测 workflow，以及「云端编译」用的
@@ -93,7 +93,7 @@ export default function BackendCapabilitiesPanel() {
       <div className={`flex items-center gap-2 p-3 rounded-md border text-sm ${
         installed === true ? 'bg-green-50 border-green-200 text-green-800'
         : installed === false ? 'bg-amber-50 border-amber-200 text-amber-800'
-        : 'bg-slate-50 border-slate-200 text-slate-600'
+        : 'bg-paper-100 border-ink-200 text-ink-600'
       }`}>
         {installed === true ? (
           <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已就绪（新版），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
@@ -102,7 +102,7 @@ export default function BackendCapabilitiesPanel() {
             缺 {checkResult?.missing?.length ?? '?'} 个新文件 · 残留 {checkResult?.legacy?.length ?? '?'} 个旧版文件）
           </>
         ) : (
-          <><Server className="w-4 h-4 text-slate-400" /> 状态未知，点下方"检测"按钮</>
+          <><Server className="w-4 h-4 text-ink-400" /> 状态未知，点下方"检测"按钮</>
         )}
       </div>
 
@@ -112,8 +112,8 @@ export default function BackendCapabilitiesPanel() {
           type="button"
           onClick={runCheck}
           disabled={checking || !owner || !repo}
-          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-slate-300 rounded-md
-                     hover:bg-slate-50 disabled:text-slate-300 disabled:cursor-not-allowed"
+          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-ink-300 rounded-md
+                     hover:bg-paper-100 disabled:text-ink-300 disabled:cursor-not-allowed"
         >
           {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Server className="w-3.5 h-3.5" />}
           检测
@@ -122,8 +122,8 @@ export default function BackendCapabilitiesPanel() {
           type="button"
           onClick={runInstall}
           disabled={installing || !owner || !repo}
-          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-indigo-300 bg-indigo-50 text-indigo-700 rounded-md
-                     hover:bg-indigo-100 disabled:text-slate-300 disabled:cursor-not-allowed"
+          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-seal-300 bg-seal-50 text-seal-700 rounded-md
+                     hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed"
         >
           {installing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           重写后端
@@ -132,12 +132,12 @@ export default function BackendCapabilitiesPanel() {
           href={secretsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-slate-300 rounded-md
-                     hover:bg-slate-50 text-slate-700"
+          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-ink-300 rounded-md
+                     hover:bg-paper-100 text-ink-700"
         >
           <Wrench className="w-3.5 h-3.5" />
           配置 Secrets
-          <ExternalLink className="w-3 h-3 text-slate-400" />
+          <ExternalLink className="w-3 h-3 text-ink-400" />
         </a>
       </div>
 
@@ -167,28 +167,28 @@ export default function BackendCapabilitiesPanel() {
       )}
 
       {/* Secrets 引导模板 */}
-      <details className="border border-slate-200 rounded-md overflow-hidden">
-        <summary className="cursor-pointer px-3 py-2 bg-slate-50 hover:bg-slate-100 text-sm font-medium text-slate-800 flex items-center gap-2">
-          <Wrench className="w-4 h-4 text-indigo-600" />
+      <details className="border border-ink-200 rounded-md overflow-hidden">
+        <summary className="cursor-pointer px-3 py-2 bg-paper-100 hover:bg-ink-100 text-sm font-medium text-ink-800 flex items-center gap-2">
+          <Wrench className="w-4 h-4 text-seal-600" />
           7 个必需 Secrets（点击展开查看模板）
         </summary>
         <div className="p-3 space-y-2">
-          <p className="text-xs text-slate-600 leading-relaxed">
+          <p className="text-xs text-ink-600 leading-relaxed">
             上一步"重写后端"只是把 workflow 文件塞进了你的私库。要让 pipeline 真跑起来，必须在 GitHub
             Settings → Secrets and variables → Actions 里创建下面 7 个 Repository Secret。
           </p>
           <div className="grid gap-1.5">
             {REQUIRED_SECRETS.map(s => (
-              <div key={s.name} className="flex items-start gap-2 p-2 bg-slate-50 border border-slate-200 rounded text-xs">
-                <code className="shrink-0 px-1.5 py-0.5 bg-indigo-100 text-indigo-800 rounded font-mono">{s.name}</code>
+              <div key={s.name} className="flex items-start gap-2 p-2 bg-paper-100 border border-ink-200 rounded text-xs">
+                <code className="shrink-0 px-1.5 py-0.5 bg-seal-100 text-seal-800 rounded font-mono">{s.name}</code>
                 <div className="flex-1">
-                  <div className="text-slate-700">{s.hint}</div>
-                  <div className="text-slate-500 text-[11px]">来源：{s.from}</div>
+                  <div className="text-ink-700">{s.hint}</div>
+                  <div className="text-ink-500 text-[11px]">来源：{s.from}</div>
                 </div>
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-slate-500 pt-1">
+          <p className="text-[11px] text-ink-500 pt-1">
             推荐模型：AI-1（生成）Qwen2.5-32B-Instruct · AI-2（审阅）Qwen2.5-72B-Instruct。
             硅基流动的 base URL 是 https://api.siliconflow.cn/v1。
           </p>

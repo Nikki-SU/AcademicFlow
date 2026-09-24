@@ -71,33 +71,33 @@ function Onboarding() {
   }
 
   return (
-    <div className="min-h-full bg-gradient-to-br from-slate-50 via-indigo-50 to-purple-50">
+    <div className="min-h-full bg-gradient-to-br from-paper-100 via-seal-50 to-purple-50">
       {/* 顶栏 */}
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm">
+      <header className="border-b border-ink-200 bg-paper-50/80 backdrop-blur-sm">
         <div className="page-container py-3 flex items-center gap-2">
-          <div className="p-1.5 bg-indigo-100 rounded-md">
-            <BookOpen className="w-5 h-5 text-indigo-600" />
+          <div className="p-1.5 bg-seal-100 rounded-md">
+            <BookOpen className="w-5 h-5 text-seal-600" />
           </div>
-          <span className="font-bold text-slate-800">AcademicFlow</span>
-          <span className="ml-auto text-sm text-slate-500">
+          <span className="font-bold text-ink-800">AcademicFlow</span>
+          <span className="ml-auto text-sm text-ink-500">
             设置工作空间 · M2
           </span>
         </div>
       </header>
 
       <main className="page-container py-10 flex justify-center">
-        <div className="bg-white rounded-2xl shadow-xl p-8 md:p-10 border border-slate-200 w-full max-w-[min(100%,48rem)]">
+        <div className="bg-paper-50 rounded-2xl shadow-xl p-8 md:p-10 border border-ink-200 w-full max-w-[min(100%,48rem)]">
           {/* 标题 */}
           <div className="text-center mb-8">
-            <div className="inline-flex p-3 bg-indigo-100 rounded-full mb-4">
-              <Rocket className="w-8 h-8 text-indigo-600" />
+            <div className="inline-flex p-3 bg-seal-100 rounded-full mb-4">
+              <Rocket className="w-8 h-8 text-seal-600" />
             </div>
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-800 mb-2">
+            <h1 className="text-3xl md:text-4xl font-bold text-ink-800 mb-2">
               欢迎，{user?.name || user?.login}！
             </h1>
-            <p className="text-slate-600 max-w-xl mx-auto">
+            <p className="text-ink-600 max-w-xl mx-auto">
               AcademicFlow 需要在你的 GitHub 创建一个
-              <strong className="text-indigo-700 font-mono mx-1">
+              <strong className="text-seal-700 font-mono mx-1">
                 {DEFAULT_WORKSPACE_REPO_NAME}
               </strong>
               私库作为工作区。你的所有笔记数据都会存到这个私库里，我们只是路过。
@@ -108,15 +108,15 @@ function Onboarding() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2">
               <ShieldCheck className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-slate-700">
-                <div className="font-semibold text-slate-900 mb-0.5">私库</div>
+              <div className="text-xs text-ink-700">
+                <div className="font-semibold text-ink-900 mb-0.5">私库</div>
                 仅你可读写，AcademicFlow 无服务器留存
               </div>
             </div>
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2">
               <Github className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-slate-700">
-                <div className="font-semibold text-slate-900 mb-0.5">
+              <div className="text-xs text-ink-700">
+                <div className="font-semibold text-ink-900 mb-0.5">
                   数据自主
                 </div>
                 随时可在 GitHub 直接查看/迁移/删除
@@ -124,8 +124,8 @@ function Onboarding() {
             </div>
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2">
               <FileText className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-slate-700">
-                <div className="font-semibold text-slate-900 mb-0.5">
+              <div className="text-xs text-ink-700">
+                <div className="font-semibold text-ink-900 mb-0.5">
                   纯文本
                 </div>
                 Markdown + CSV，无锁定，全永久可读
@@ -135,15 +135,15 @@ function Onboarding() {
 
           {/* 骨架清单预览 */}
           <div className="mb-8">
-            <div className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-slate-500" />
+            <div className="text-sm font-semibold text-ink-700 mb-2 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-ink-500" />
               将初始化 {WORKSPACE_SKELETON.length} 个文件（一次 commit）：
             </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 max-h-52 overflow-y-auto">
-              <ul className="text-xs font-mono text-slate-600 space-y-1">
+            <div className="bg-paper-100 border border-ink-200 rounded-lg p-3 max-h-52 overflow-y-auto">
+              <ul className="text-xs font-mono text-ink-600 space-y-1">
                 {WORKSPACE_SKELETON.map((f) => (
                   <li key={f.path} className="flex items-center gap-2">
-                    <span className="text-slate-400">📄</span>
+                    <span className="text-ink-400">📄</span>
                     <span>{f.path}</span>
                   </li>
                 ))}
@@ -172,11 +172,11 @@ function Onboarding() {
 
           {/* 进度显示 */}
           {isLoading && progress && (
-            <div className="mb-6 p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center gap-3">
-              <Loader2 className="w-5 h-5 text-indigo-600 animate-spin flex-shrink-0" />
-              <div className="text-sm text-indigo-900 flex-1">
+            <div className="mb-6 p-3 bg-seal-50 border border-seal-200 rounded-lg flex items-center gap-3">
+              <Loader2 className="w-5 h-5 text-seal-600 animate-spin flex-shrink-0" />
+              <div className="text-sm text-seal-900 flex-1">
                 <div className="font-semibold">正在初始化…</div>
-                <div className="text-xs font-mono text-indigo-700 mt-0.5">
+                <div className="text-xs font-mono text-seal-700 mt-0.5">
                   {progress}
                 </div>
               </div>
@@ -208,7 +208,7 @@ function Onboarding() {
           <button
             onClick={handleStart}
             disabled={isLoading || creationDone}
-            className="w-full py-4 px-6 rounded-xl font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
+            className="w-full py-4 px-6 rounded-xl font-semibold text-paper-50 bg-gradient-to-r from-seal-600 to-purple-600 hover:from-seal-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
           >
             {isLoading ? (
               <>
@@ -229,30 +229,30 @@ function Onboarding() {
           </button>
 
           {/* 提示 */}
-          <p className="mt-4 text-xs text-slate-500 text-center">
+          <p className="mt-4 text-xs text-ink-500 text-center">
             首次初始化约需 5~15 秒；期间请勿关闭页面。
           </p>
         </div>
 
         {/* 其他功能入口（不初始化 workspace 也能用） */}
         <div className="mt-6">
-          <p className="text-sm text-slate-500 text-center mb-3">
+          <p className="text-sm text-ink-500 text-center mb-3">
             👀 想先看看？试试这些功能：
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Link
               to="/writing"
-              className="group p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all"
+              className="group p-4 bg-paper-50 border border-ink-200 rounded-xl hover:shadow-md hover:border-seal-200 transition-all"
             >
               <div className="flex items-start gap-3">
-                <div className="p-2 bg-indigo-50 rounded-lg group-hover:bg-indigo-100 transition">
-                  <FileText className="w-5 h-5 text-indigo-600" />
+                <div className="p-2 bg-seal-50 rounded-lg group-hover:bg-seal-100 transition">
+                  <FileText className="w-5 h-5 text-seal-600" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                  <div className="font-semibold text-ink-800 group-hover:text-seal-700 transition">
                     AI 期刊排版
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
+                  <div className="text-xs text-ink-500 mt-1">
                     Markdown → LaTeX，按期刊格式自动排版，DOI 引用一键解析
                   </div>
                 </div>
@@ -260,17 +260,17 @@ function Onboarding() {
             </Link>
             <Link
               to="/management"
-              className="group p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all"
+              className="group p-4 bg-paper-50 border border-ink-200 rounded-xl hover:shadow-md hover:border-seal-200 transition-all"
             >
               <div className="flex items-start gap-3">
-                <div className="p-2 bg-slate-50 rounded-lg group-hover:bg-indigo-50 transition">
-                  <BookMarked className="w-5 h-5 text-slate-600 group-hover:text-indigo-600 transition" />
+                <div className="p-2 bg-paper-100 rounded-lg group-hover:bg-seal-50 transition">
+                  <BookMarked className="w-5 h-5 text-ink-600 group-hover:text-seal-600 transition" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-800 group-hover:text-indigo-700 transition">
+                  <div className="font-semibold text-ink-800 group-hover:text-seal-700 transition">
                     期刊模板管理
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
+                  <div className="text-xs text-ink-500 mt-1">
                     粘贴投稿须知，AI 自动提取格式规范，生成可复用模板
                   </div>
                 </div>

@@ -242,14 +242,14 @@ export default function FormulaSidebar({
     .filter((f) => !findQuery.trim() || f.tex.toLowerCase().includes(findQuery.trim().toLowerCase()))
 
   return (
-    <div className="w-80 flex-shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col overflow-hidden">
+    <div className="w-80 flex-shrink-0 border-l border-ink-200 bg-paper-100/70 flex flex-col overflow-hidden">
       {/* 头部 */}
-      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between bg-white">
+      <div className="px-3 py-2 border-b border-ink-200 flex items-center justify-between bg-paper-50">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setTab('create')}
             className={`px-2.5 py-1 text-xs rounded-lg transition ${
-              tab === 'create' ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-slate-500 hover:bg-slate-100'
+              tab === 'create' ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
             }`}
           >
             生成公式
@@ -257,7 +257,7 @@ export default function FormulaSidebar({
           <button
             onClick={() => setTab('find')}
             className={`px-2.5 py-1 text-xs rounded-lg transition ${
-              tab === 'find' ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-slate-500 hover:bg-slate-100'
+              tab === 'find' ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
             }`}
           >
             查找公式
@@ -265,7 +265,7 @@ export default function FormulaSidebar({
         </div>
         <button
           onClick={onClose}
-          className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+          className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
           title="关闭公式栏"
         >
           <X className="w-4 h-4" />
@@ -296,7 +296,7 @@ export default function FormulaSidebar({
                     type="checkbox"
                     checked={globalReplace}
                     onChange={(e) => setGlobalReplace(e.target.checked)}
-                    className="accent-indigo-600"
+                    className="accent-seal-600"
                   />
                   全局变换：全文 {duplicateCount} 处相同公式一起改（取消勾选 = 只改这一处）
                 </label>
@@ -307,16 +307,16 @@ export default function FormulaSidebar({
           )}
 
           {/* 1. 识图输入 */}
-          <section className="bg-white rounded-lg border border-slate-200 p-2.5">
+          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                <Camera className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-xs font-medium text-ink-600 flex items-center gap-1">
+                <Camera className="w-3.5 h-3.5 text-seal-500" />
                 识图输入公式
               </span>
               <select
                 value={ocrModel}
                 onChange={(e) => setOcrModel(e.target.value as SimpleTexModel)}
-                className="text-[0.6875rem] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-500"
+                className="text-[0.6875rem] border border-ink-200 rounded px-1 py-0.5 bg-paper-50 text-ink-500"
               >
                 <option value="standard">标准（准）</option>
                 <option value="turbo">轻量（快）</option>
@@ -336,23 +336,23 @@ export default function FormulaSidebar({
             <button
               onClick={() => fileRef.current?.click()}
               disabled={ocrLoading}
-              className="w-full px-2 py-2 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+              className="w-full px-2 py-2 text-xs border border-dashed border-ink-300 rounded-lg text-ink-500 hover:border-seal-300 hover:text-seal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
             >
               {ocrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
               {ocrLoading ? '识别中…（走后端，稍等十几秒）' : '上传/截图插入（SimpleTex）'}
             </button>
-            <p className="mt-1.5 text-[0.625rem] text-slate-400 leading-snug">
+            <p className="mt-1.5 text-[0.625rem] text-ink-400 leading-snug">
               需先在「设置 → 公式识图」填 SimpleTex 令牌；图片经私库转 GitHub Actions 调用 SimpleTex
               （浏览器直连被对方 CORS 拦），识别结果务必在下面渲染看板里核对一遍。
             </p>
           </section>
 
           {/* 2. 复用已有公式 */}
-          <section className="bg-white rounded-lg border border-slate-200 p-2.5">
-            <div className="text-xs font-medium text-slate-600 mb-2 flex items-center gap-1">
-              <Repeat className="w-3.5 h-3.5 text-indigo-500" />
+          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
+            <div className="text-xs font-medium text-ink-600 mb-2 flex items-center gap-1">
+              <Repeat className="w-3.5 h-3.5 text-seal-500" />
               复用已有公式
-              <span className="text-[0.625rem] font-normal text-slate-400 ml-auto">收藏 = 跨项目可用</span>
+              <span className="text-[0.625rem] font-normal text-ink-400 ml-auto">收藏 = 跨项目可用</span>
             </div>
 
             {favorites.length > 0 && (
@@ -380,11 +380,11 @@ export default function FormulaSidebar({
               </div>
             )}
 
-            <div className="text-[0.625rem] text-slate-500 mb-1">
+            <div className="text-[0.625rem] text-ink-500 mb-1">
               本项目公式（{projectFormulas.length}）
             </div>
             {projectFormulas.length === 0 ? (
-              <p className="text-[0.6875rem] text-slate-400 py-1">正文里还没有公式</p>
+              <p className="text-[0.6875rem] text-ink-400 py-1">正文里还没有公式</p>
             ) : (
               <div className="space-y-1 max-h-52 overflow-y-auto">
                 {projectFormulas.slice(0, 60).map((f, i) => (
@@ -406,18 +406,18 @@ export default function FormulaSidebar({
           </section>
 
           {/* 3. 稀有字符 */}
-          <section className="bg-white rounded-lg border border-slate-200 p-2.5">
-            <div className="text-xs font-medium text-slate-600 mb-2">字符 / 结构（键盘上没有的）</div>
+          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
+            <div className="text-xs font-medium text-ink-600 mb-2">字符 / 结构（键盘上没有的）</div>
             <div className="space-y-1.5 max-h-44 overflow-y-auto">
               {RARE_CHAR_GROUPS.map((g) => (
                 <div key={g.label}>
-                  <div className="text-[0.625rem] text-slate-400 mb-0.5">{g.label}</div>
+                  <div className="text-[0.625rem] text-ink-400 mb-0.5">{g.label}</div>
                   <div className="flex flex-wrap gap-0.5">
                     {g.chars.map((c) => (
                       <button
                         key={c}
                         onClick={() => append(c)}
-                        className="w-6 h-6 text-sm rounded hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 transition"
+                        className="w-6 h-6 text-sm rounded hover:bg-seal-50 hover:text-seal-700 text-ink-600 transition"
                         title={c}
                       >
                         {c}
@@ -427,13 +427,13 @@ export default function FormulaSidebar({
                 </div>
               ))}
               <div>
-                <div className="text-[0.625rem] text-slate-400 mb-0.5 mt-1">结构</div>
+                <div className="text-[0.625rem] text-ink-400 mb-0.5 mt-1">结构</div>
                 <div className="flex flex-wrap gap-1">
                   {LATEX_SNIPPETS.map((s) => (
                     <button
                       key={s.label}
                       onClick={() => append(s.tex)}
-                      className="px-1.5 py-0.5 text-[0.6875rem] rounded border border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 transition"
+                      className="px-1.5 py-0.5 text-[0.6875rem] rounded border border-ink-200 hover:bg-seal-50 hover:text-seal-700 text-ink-600 transition"
                     >
                       {s.label}
                     </button>
@@ -444,15 +444,15 @@ export default function FormulaSidebar({
           </section>
 
           {/* 4. 行内 / 行间 */}
-          <section className="flex items-center gap-2 bg-white rounded-lg border border-slate-200 p-2">
-            <span className="text-xs text-slate-600">位置</span>
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+          <section className="flex items-center gap-2 bg-paper-50 rounded-lg border border-ink-200 p-2">
+            <span className="text-xs text-ink-600">位置</span>
+            <div className="flex rounded-lg border border-ink-200 overflow-hidden">
               {(['inline', 'block'] as const).map((k) => (
                 <button
                   key={k}
                   onClick={() => setKind(k)}
                   className={`px-3 py-1 text-xs transition ${
-                    kind === k ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                    kind === k ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-600 hover:bg-paper-100'
                   }`}
                 >
                   {k === 'inline' ? '行内 $…$' : '行间 $$…$$'}
@@ -462,31 +462,31 @@ export default function FormulaSidebar({
           </section>
 
           {/* 5. 渲染看板 */}
-          <section className="bg-white rounded-lg border border-slate-200 p-2.5">
-            <div className="text-xs font-medium text-slate-600 mb-2">渲染看板</div>
+          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
+            <div className="text-xs font-medium text-ink-600 mb-2">渲染看板</div>
             <div
-              className="min-h-14 px-2 py-3 rounded bg-slate-50 overflow-x-auto text-center"
+              className="min-h-14 px-2 py-3 rounded bg-paper-100 overflow-x-auto text-center"
               dangerouslySetInnerHTML={{ __html: renderKatex(tex, kind === 'block') }}
             />
           </section>
 
           {/* 6. LaTeX 源码 */}
-          <section className="bg-white rounded-lg border border-slate-200 p-2.5">
-            <div className="text-xs font-medium text-slate-600 mb-1.5">LaTeX 源码</div>
+          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
+            <div className="text-xs font-medium text-ink-600 mb-1.5">LaTeX 源码</div>
             <textarea
               value={tex}
               onChange={(e) => setTex(e.target.value)}
               rows={4}
               spellCheck={false}
               placeholder="例如：\frac{\partial u}{\partial t} = \alpha \nabla^2 u"
-              className="w-full px-2 py-1.5 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 resize-y"
+              className="w-full px-2 py-1.5 text-xs font-mono border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 resize-y"
             />
           </section>
 
           {/* 7. 确认 */}
           <button
             onClick={handleConfirm}
-            className="w-full px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center justify-center gap-1.5"
+            className="w-full px-3 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1.5"
           >
             <CornerDownLeft className="w-4 h-4" />
             {editingIndex !== null ? '确认替换这一处' : '确认插入到光标处'}
@@ -495,34 +495,34 @@ export default function FormulaSidebar({
       ) : (
         /* ── 查找公式：全文公式清单，方便逐个跳过去改 ── */
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="p-2.5 border-b border-slate-200 bg-white">
+          <div className="p-2.5 border-b border-ink-200 bg-paper-50">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-400" />
               <input
                 value={findQuery}
                 onChange={(e) => setFindQuery(e.target.value)}
                 placeholder="按公式源码筛选…"
-                className="w-full pl-8 pr-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                className="w-full pl-8 pr-2 py-1.5 text-xs border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400"
               />
             </div>
-            <div className="mt-1.5 text-[0.6875rem] text-slate-400">
+            <div className="mt-1.5 text-[0.6875rem] text-ink-400">
               全文共 {projectFormulas.length} 个公式（含行内 / 行间）
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
             {filteredFind.length === 0 && (
-              <p className="text-center text-xs text-slate-400 py-8">没有匹配的公式</p>
+              <p className="text-center text-xs text-ink-400 py-8">没有匹配的公式</p>
             )}
             {filteredFind.map((f) => (
-              <div key={f.index} className="bg-white rounded-lg border border-slate-200 p-2">
+              <div key={f.index} className="bg-paper-50 rounded-lg border border-ink-200 p-2">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                  <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
                     #{f.index + 1} · {f.kind === 'block' ? '行间' : '行内'}
                   </span>
                   <div className="ml-auto flex items-center gap-1">
                     <button
                       onClick={() => onJump(f.index, f.tex)}
-                      className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                      className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                       title="跳到正文这一处"
                     >
                       <Crosshair className="w-3.5 h-3.5" />
@@ -536,7 +536,7 @@ export default function FormulaSidebar({
                         setEditOriginalTex(f.tex)
                         setGlobalReplace(true)
                       }}
-                      className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                      className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                       title="改这一条（只替换这一处）"
                     >
                       <Pencil className="w-3.5 h-3.5" />
@@ -549,7 +549,7 @@ export default function FormulaSidebar({
                       {isFavorited(f.tex) ? (
                         <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
                       ) : (
-                        <StarOff className="w-3.5 h-3.5 text-slate-400" />
+                        <StarOff className="w-3.5 h-3.5 text-ink-400" />
                       )}
                     </button>
                   </div>
@@ -558,7 +558,7 @@ export default function FormulaSidebar({
                   className="overflow-x-auto py-1 text-center"
                   dangerouslySetInnerHTML={{ __html: renderKatex(f.tex, f.kind === 'block') }}
                 />
-                <div className="font-mono text-[0.625rem] text-slate-400 truncate" title={f.tex}>
+                <div className="font-mono text-[0.625rem] text-ink-400 truncate" title={f.tex}>
                   {f.tex}
                 </div>
               </div>
@@ -585,7 +585,7 @@ function ReuseRow({
   onToggleStar: () => void
 }) {
   return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1 rounded border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/40 transition">
+    <div className="flex items-center gap-1.5 px-1.5 py-1 rounded border border-ink-100 hover:border-seal-200 hover:bg-seal-50/40 transition">
       <button onClick={onLoad} className="flex-1 min-w-0 text-left" title="载入到源码框（可再改）">
         <div
           className="overflow-x-auto text-center"
@@ -600,7 +600,7 @@ function ReuseRow({
         {starred ? (
           <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
         ) : (
-          <StarOff className="w-3.5 h-3.5 text-slate-400" />
+          <StarOff className="w-3.5 h-3.5 text-ink-400" />
         )}
       </button>
     </div>

@@ -285,16 +285,16 @@ const EditBlockCard = memo(function EditBlockCard({
   return (
     <div
       data-unit-card
-      className={`relative bg-white rounded-xl shadow-sm border p-3 transition ${
-        dragging ? 'opacity-40 border-indigo-300' : 'border-slate-200'
+      className={`relative bg-paper-50 rounded-xl shadow-sm border p-3 transition ${
+        dragging ? 'opacity-40 border-seal-300' : 'border-ink-200'
       }`}
     >
       {/* 落点提示：一条 3px 的横杠，插在上面还是下面看得清清楚楚 */}
       {dropEdge === 'before' && (
-        <span className="absolute -top-[3px] left-2 right-2 h-[3px] rounded-full bg-indigo-500 pointer-events-none" />
+        <span className="absolute -top-[3px] left-2 right-2 h-[3px] rounded-full bg-seal-500 pointer-events-none" />
       )}
       {dropEdge === 'after' && (
-        <span className="absolute -bottom-[3px] left-2 right-2 h-[3px] rounded-full bg-indigo-500 pointer-events-none" />
+        <span className="absolute -bottom-[3px] left-2 right-2 h-[3px] rounded-full bg-seal-500 pointer-events-none" />
       )}
 
       <div className="flex items-center justify-between mb-2 gap-2">
@@ -314,13 +314,13 @@ const EditBlockCard = memo(function EditBlockCard({
           }}
           onDragEnd={onDragEndUnit}
           className="group flex flex-1 items-center gap-2 min-w-0 min-h-[2.25rem] px-2 py-1.5
-                     rounded-md border border-dashed border-slate-200/80 cursor-grab active:cursor-grabbing
-                     select-none hover:bg-slate-50 hover:border-slate-300 transition"
+                     rounded-md border border-dashed border-ink-200/80 cursor-grab active:cursor-grabbing
+                     select-none hover:bg-paper-100 hover:border-ink-300 transition"
           title="按住这条横条上下拖：拖多远就挪几位（不用拖到目标块的一半）"
         >
-          <span className="text-slate-300 group-hover:text-slate-500 text-base leading-none transition">⠿</span>
-          <span className="text-xs font-medium text-slate-400 tabular-nums truncate">{labelOf(unit.node)}</span>
-          <span className="ml-auto pr-1 text-[11px] text-slate-300 opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
+          <span className="text-ink-300 group-hover:text-ink-500 text-base leading-none transition">⠿</span>
+          <span className="text-xs font-medium text-ink-400 tabular-nums truncate">{labelOf(unit.node)}</span>
+          <span className="ml-auto pr-1 text-[11px] text-ink-300 opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
             按住拖动换位
           </span>
         </div>
@@ -331,8 +331,8 @@ const EditBlockCard = memo(function EditBlockCard({
             <select
               value={typeValue}
               onChange={(e) => onChangeType(unit.srcIdx, e.target.value)}
-              className="h-6 text-[11px] border border-slate-200 rounded-md px-1 bg-white text-slate-600
-                         hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-200 cursor-pointer"
+              className="h-6 text-[11px] border border-ink-200 rounded-md px-1 bg-paper-50 text-ink-600
+                         hover:border-ink-300 focus:outline-none focus:ring-2 focus:ring-seal-200 cursor-pointer"
               title="这一块实际是什么类型（标题认成正文了就在这里改）"
             >
               {EDIT_TYPE_OPTIONS.map((o) => (
@@ -344,8 +344,8 @@ const EditBlockCard = memo(function EditBlockCard({
             type="button"
             onClick={() => onMoveUnit(unit.srcIdx, -1)}
             disabled={isFirst}
-            className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-500
-                       hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition"
+            className="w-6 h-6 flex items-center justify-center rounded-md border border-ink-200 text-ink-500
+                       hover:bg-paper-100 hover:text-seal-600 disabled:opacity-25 disabled:cursor-not-allowed transition"
             title="上移一位"
           >
             ↑
@@ -354,8 +354,8 @@ const EditBlockCard = memo(function EditBlockCard({
             type="button"
             onClick={() => onMoveUnit(unit.srcIdx, 1)}
             disabled={isLast}
-            className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-500
-                       hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition"
+            className="w-6 h-6 flex items-center justify-center rounded-md border border-ink-200 text-ink-500
+                       hover:bg-paper-100 hover:text-seal-600 disabled:opacity-25 disabled:cursor-not-allowed transition"
             title="下移一位"
           >
             ↓
@@ -363,7 +363,7 @@ const EditBlockCard = memo(function EditBlockCard({
           <button
             type="button"
             onClick={() => onRemove(unit.srcIdx)}
-            className="ml-1 text-xs text-slate-400 hover:text-red-600 transition"
+            className="ml-1 text-xs text-ink-400 hover:text-red-600 transition"
             title="删掉这一块（中英一起删，保存后生效）"
           >
             删除该块
@@ -376,7 +376,7 @@ const EditBlockCard = memo(function EditBlockCard({
         onChange={(e) => onChange(unit.srcIdx, 'en', e.target.value)}
         rows={rowsFor(unit.en)}
         spellCheck={false}
-        className="w-full px-3 py-2 text-sm leading-relaxed border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-y"
+        className="w-full px-3 py-2 text-sm leading-relaxed border border-ink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-seal-200 resize-y"
       />
 
       {unit.translatable ? (
@@ -386,10 +386,10 @@ const EditBlockCard = memo(function EditBlockCard({
           rows={rowsFor(unit.cn)}
           spellCheck={false}
           placeholder="（这块还没有译文，留空即视为没有译文）"
-          className="mt-2 w-full px-3 py-2 text-sm leading-relaxed border border-slate-200 rounded-lg bg-slate-50/60 focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-y"
+          className="mt-2 w-full px-3 py-2 text-sm leading-relaxed border border-ink-200 rounded-lg bg-paper-100/60 focus:outline-none focus:ring-2 focus:ring-seal-200 resize-y"
         />
       ) : (
-        <p className="mt-2 text-xs text-slate-400">这一块按语法不翻译（图 / 公式 / 文献）。</p>
+        <p className="mt-2 text-xs text-ink-400">这一块按语法不翻译（图 / 公式 / 文献）。</p>
       )}
     </div>
   )
@@ -618,11 +618,11 @@ function getColorInfo(color: HighlightColor) {
 /** 简易弹窗：阅读页只用它承载「导入文档」（和管理页那个是同一套视觉） */
 function Modal({ title, onClose, children, width = 'max-w-2xl' }: { title: string; onClose: () => void; children: React.ReactNode; width?: string }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className={`bg-white rounded-2xl shadow-xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h3 className="font-semibold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+    <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+      <div className={`bg-paper-50 rounded-2xl shadow-xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-ink-200">
+          <h3 className="font-semibold text-ink-800">{title}</h3>
+          <button onClick={onClose} className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-lg transition">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -971,8 +971,8 @@ const [aligned_content, set_aligned_content] = useState('')
   const chipCls = (active: boolean) =>
     `px-2 py-1 text-xs rounded-md border transition ${
       active
-        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-medium'
-        : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
+        ? 'bg-seal-50 border-seal-300 text-seal-700 font-medium'
+        : 'bg-paper-50 border-ink-200 text-ink-600 hover:border-seal-300'
     }`
 
   // ── 阅读页内直接导入其他文档：走的是和管理页同一套服务，数据落在同一处 ──
@@ -1456,7 +1456,7 @@ const [aligned_content, set_aligned_content] = useState('')
     if (!re) return text
     return text.split(re).map((part, i) =>
       i % 2 === 1 ? (
-        <mark key={i} className="bg-amber-200/70 text-slate-800 rounded-sm px-0.5">{part}</mark>
+        <mark key={i} className="bg-amber-200/70 text-ink-800 rounded-sm px-0.5">{part}</mark>
       ) : (
         <span key={i}>{part}</span>
       ),
@@ -2306,18 +2306,18 @@ const [aligned_content, set_aligned_content] = useState('')
   /** 划词浮层：文献和图书的正文容器共用同一份 */
   const selectionToolbar = showToolbar ? (
     <div
-      className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 px-2 py-1.5 flex items-center gap-1"
+      className="absolute z-50 bg-paper-50 rounded-lg shadow-xl border border-ink-200 px-2 py-1.5 flex items-center gap-1"
       style={{
         top: toolbarPosition.top,
         left: toolbarPosition.left,
       }}
     >
-      <span className="text-xs text-slate-400 px-1.5 font-medium">高亮颜色</span>
+      <span className="text-xs text-ink-400 px-1.5 font-medium">高亮颜色</span>
       {HIGHLIGHT_COLORS.map((c) => (
         <button
           key={c.value}
           onClick={() => handleHighlight(c.value)}
-          className={`w-6 h-6 rounded-full ${c.dot} hover:scale-110 transition-transform border-2 border-white shadow-sm hover:shadow-md`}
+          className={`w-6 h-6 rounded-full ${c.dot} hover:scale-110 transition-transform border-2 border-paper-50 shadow-sm hover:shadow-md`}
           title={`${c.label}高亮并添加批注`}
         />
       ))}
@@ -2340,17 +2340,17 @@ const [aligned_content, set_aligned_content] = useState('')
      * （正文卡片本来就有自己的字号，不受影响）。
      */
     <div
-      className="h-full overflow-hidden bg-slate-50 grid grid-cols-[minmax(15rem,16fr)_minmax(0,var(--reader-column))_minmax(17rem,18fr)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
+      className="h-full overflow-hidden bg-paper-100 grid grid-cols-[minmax(15rem,16fr)_minmax(0,var(--reader-column))_minmax(17rem,18fr)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
       style={{ fontSize: `${fontSize / 16}rem` }}
     >
       {/* 窄屏专用：两个抽屉开关 */}
       <div
-        className="hidden max-[1100px]:flex items-center gap-2 px-2 py-1.5 bg-white border-b border-slate-200"
+        className="hidden max-[1100px]:flex items-center gap-2 px-2 py-1.5 bg-paper-50 border-b border-ink-200"
         style={{ fontSize: '1rem' }}
       >
         <button
           onClick={() => setLeftDrawer(true)}
-          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition"
+          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-100 rounded transition"
           title="打开列表与大纲"
         >
           <ListTree className="w-4 h-4" />
@@ -2358,7 +2358,7 @@ const [aligned_content, set_aligned_content] = useState('')
         </button>
         <button
           onClick={() => setRightDrawer(true)}
-          className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition"
+          className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-100 rounded transition"
           title="打开问 AI / 笔记 / 批注"
         >
           <StickyNote className="w-4 h-4" />
@@ -2369,19 +2369,19 @@ const [aligned_content, set_aligned_content] = useState('')
       {/* 窄屏抽屉的遮罩（宽屏恒 hidden） */}
       {(leftDrawer || rightDrawer) && (
         <div
-          className="hidden max-[1100px]:block fixed inset-0 z-30 bg-black/30"
+          className="hidden max-[1100px]:block fixed inset-0 z-30 bg-ink-900/30"
           onClick={() => { setLeftDrawer(false); setRightDrawer(false) }}
         />
       )}
 
-      <aside className={`bg-white border-r border-slate-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
+      <aside className={`bg-paper-50 border-r border-ink-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
         leftDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:-translate-x-full'
       }`}
         style={{ fontSize: '1rem' }}
       >
         {/* 固定：阅读对象切换（文献 / 图书 / 其他文档） */}
-        <div className="p-2 border-b border-slate-200 flex-shrink-0">
-          <div className="flex gap-1 p-0.5 bg-slate-100 rounded-md">
+        <div className="p-2 border-b border-ink-200 flex-shrink-0">
+          <div className="flex gap-1 p-0.5 bg-ink-100 rounded-md">
             {([
               { type: 'paper' as DocType, label: '文献', Icon: BookOpen },
               { type: 'book' as DocType, label: '图书', Icon: BookCopy },
@@ -2393,8 +2393,8 @@ const [aligned_content, set_aligned_content] = useState('')
                 title={label}
                 className={`flex-1 flex items-center justify-center gap-1 px-1 py-1 text-xs rounded transition ${
                   docType === type
-                    ? 'bg-white text-indigo-600 font-medium shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
+                    : 'text-ink-500 hover:text-ink-700'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5 flex-shrink-0" />
@@ -2408,23 +2408,23 @@ const [aligned_content, set_aligned_content] = useState('')
         <div className={`flex flex-col ${listExpanded ? 'min-h-0' : 'flex-none'}`}>
           <button
             onClick={() => setListExpanded(!listExpanded)}
-            className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+            className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
             title={listExpanded ? '收起列表' : '展开列表'}
           >
             {listExpanded ? (
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              <ChevronRight className="w-3.5 h-3.5 text-ink-400" />
             )}
             {isBook ? (
-              <BookCopy className="w-3.5 h-3.5 text-indigo-600" />
+              <BookCopy className="w-3.5 h-3.5 text-seal-600" />
             ) : isDoc ? (
-              <FileText className="w-3.5 h-3.5 text-indigo-600" />
+              <FileText className="w-3.5 h-3.5 text-seal-600" />
             ) : (
-              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+              <BookOpen className="w-3.5 h-3.5 text-seal-600" />
             )}
             {isBook ? '图书列表' : isDoc ? '文档列表' : '文献列表'}
-            <span className="ml-auto text-slate-400 font-normal">
+            <span className="ml-auto text-ink-400 font-normal">
               {isBook
                 ? filteredBooks.length
                 : isDoc
@@ -2437,7 +2437,7 @@ const [aligned_content, set_aligned_content] = useState('')
           <div className="flex-shrink-0 px-2 pb-2">
           <div className="flex items-center gap-1">
           <div className="relative flex-1 min-w-0">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-ink-400 absolute left-2 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
@@ -2457,13 +2457,13 @@ const [aligned_content, set_aligned_content] = useState('')
                     ? '标题…（Enter 全文检索）'
                     : '标题、作者、期刊、DOI…（Enter 全文检索）'
               }
-              className="w-full pl-7 pr-6 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400"
+              className="w-full pl-7 pr-6 py-1.5 text-xs border border-ink-200 rounded-md focus:outline-none focus:border-seal-400"
             />
             {/* 点这里 = 按 Enter：检索库内所有正文（不只是当前列表的元数据） */}
             <button
               onClick={runFullTextSearch}
               title="全文检索库内所有正文（Enter）"
-              className="absolute right-0.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600 rounded transition"
+              className="absolute right-0.5 top-1/2 -translate-y-1/2 p-1 text-ink-400 hover:text-seal-600 rounded transition"
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
@@ -2473,7 +2473,7 @@ const [aligned_content, set_aligned_content] = useState('')
             <button
               onClick={() => setShowImportDocModal(true)}
               title="导入 .md 文件 / 粘贴 markdown / 上传 zip"
-              className="flex-shrink-0 p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 rounded-md transition"
+              className="flex-shrink-0 p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 border border-ink-200 rounded-md transition"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -2485,22 +2485,22 @@ const [aligned_content, set_aligned_content] = useState('')
               title="筛选"
               className={`p-1.5 border rounded-md transition relative ${
                 filterOpen || activeFilterCount > 0
-                  ? 'border-indigo-300 text-indigo-600 bg-indigo-50'
-                  : 'border-slate-200 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                  ? 'border-seal-300 text-seal-600 bg-seal-50'
+                  : 'border-ink-200 text-ink-400 hover:text-seal-600 hover:bg-seal-50'
               }`}
             >
               <Filter className="w-3.5 h-3.5" />
               {activeFilterCount > 0 && (
                 // 角标尺寸全部用 em：跟着按钮字号走，不写死尺寸
-                <span className="absolute -top-1.5 -right-1.5 min-w-[1.6em] h-[1.6em] px-[0.25em] rounded-full bg-indigo-600 text-white text-[0.75em] leading-[1.6em] text-center">
+                <span className="absolute -top-1.5 -right-1.5 min-w-[1.6em] h-[1.6em] px-[0.25em] rounded-full bg-seal-600 text-paper-50 text-[0.75em] leading-[1.6em] text-center">
                   {activeFilterCount}
                 </span>
               )}
             </button>
             {filterOpen && (
-              <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-3">
+              <div className="absolute right-0 top-full mt-1 w-60 bg-paper-50 border border-ink-200 rounded-lg shadow-xl z-40 p-3">
                 {/* 维度 1：分类 */}
-                <div className="text-[0.6875rem] font-semibold text-slate-500 mb-1.5">分类</div>
+                <div className="text-[0.6875rem] font-semibold text-ink-500 mb-1.5">分类</div>
                 <div className="flex flex-wrap gap-1">
                   <button onClick={() => setDraftCategory('all')} className={chipCls(draftCategory === 'all')}>
                     全部
@@ -2515,7 +2515,7 @@ const [aligned_content, set_aligned_content] = useState('')
                 {/* 维度 2：有无 md（其他文档导入的必然有 md，不给这一维） */}
                 {!isDoc && (
                   <>
-                    <div className="text-[0.6875rem] font-semibold text-slate-500 mt-3 mb-1.5">
+                    <div className="text-[0.6875rem] font-semibold text-ink-500 mt-3 mb-1.5">
                       {isBook ? '有无正文' : '有无 Markdown'}
                     </div>
                     <div className="flex flex-wrap gap-1">
@@ -2535,7 +2535,7 @@ const [aligned_content, set_aligned_content] = useState('')
                 {/* 维度 3：文献级别（只有文献有） */}
                 {!isPlain && (
                   <>
-                    <div className="text-[0.6875rem] font-semibold text-slate-500 mt-3 mb-1.5">文献级别</div>
+                    <div className="text-[0.6875rem] font-semibold text-ink-500 mt-3 mb-1.5">文献级别</div>
                     <div className="flex flex-wrap gap-1">
                       <button onClick={() => setDraftTier('all')} className={chipCls(draftTier === 'all')}>
                         全部
@@ -2558,16 +2558,16 @@ const [aligned_content, set_aligned_content] = useState('')
                   </>
                 )}
 
-                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-ink-100">
                   <button
                     onClick={resetFilterDraft}
-                    className="px-2 py-1 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
+                    className="px-2 py-1 text-xs text-ink-500 hover:text-ink-700 hover:bg-ink-100 rounded transition"
                   >
                     重置
                   </button>
                   <button
                     onClick={applyFilterDraft}
-                    className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
+                    className="px-3 py-1 text-xs bg-seal-600 text-paper-50 rounded-md hover:bg-seal-700 transition"
                   >
                     确定
                   </button>
@@ -2582,11 +2582,11 @@ const [aligned_content, set_aligned_content] = useState('')
             /* ── 全文检索结果：命中片段 + 点一下直达正文命中处 ── */
             <div className="p-2 space-y-1.5">
               <div className="flex items-center gap-1 px-1 pb-1">
-                <span className="text-xs font-semibold text-slate-600">全文检索</span>
-                <span className="text-xs text-slate-400 truncate" title={ftQuery}>「{ftQuery}」</span>
+                <span className="text-xs font-semibold text-ink-600">全文检索</span>
+                <span className="text-xs text-ink-400 truncate" title={ftQuery}>「{ftQuery}」</span>
                 <button
                   onClick={() => setFtResults(null)}
-                  className="ml-auto flex-shrink-0 p-0.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                  className="ml-auto flex-shrink-0 p-0.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
                   title="返回列表（Esc）"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -2594,21 +2594,21 @@ const [aligned_content, set_aligned_content] = useState('')
               </div>
 
               {ftLoading ? (
-                <div className="text-center py-8 text-slate-400 text-xs">
-                  <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+                <div className="text-center py-8 text-ink-400 text-xs">
+                  <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
                   {getSearchIndex()
                     ? '正在检索…'
                     : `首次检索，正在建立全文索引 ${ftProgress.done}/${ftProgress.total}`}
                 </div>
               ) : ftResults.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-sm">
+                <div className="text-center py-8 text-ink-400 text-sm">
                   <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   <p>全库正文里没有匹配的词</p>
                   <p className="text-xs mt-1">检索范围：文献 / 图书 / 其他文档的正文</p>
                 </div>
               ) : (
                 <>
-                  <div className="px-1 pb-1 text-[0.6875rem] text-slate-400">
+                  <div className="px-1 pb-1 text-[0.6875rem] text-ink-400">
                     {ftResults.length} 篇命中，点结果直达正文命中处
                   </div>
                   {ftResults.map((hit) => (
@@ -2618,19 +2618,19 @@ const [aligned_content, set_aligned_content] = useState('')
                       title="跳到正文命中处"
                       className={`w-full text-left p-2 rounded-md border transition ${
                         docKey === `${hit.kind}:${hit.id}`
-                          ? 'bg-indigo-50 border-indigo-200'
-                          : 'bg-white border-slate-200 hover:border-indigo-300'
+                          ? 'bg-seal-50 border-seal-200'
+                          : 'bg-paper-50 border-ink-200 hover:border-seal-300'
                       }`}
                     >
                       <div className="flex items-center gap-1.5">
-                        <span className="flex-shrink-0 px-1 py-0.5 rounded bg-slate-100 text-slate-500 text-[0.625rem]">
+                        <span className="flex-shrink-0 px-1 py-0.5 rounded bg-ink-100 text-ink-500 text-[0.625rem]">
                           {KIND_LABEL[hit.kind]}
                         </span>
-                        <span className="text-xs font-medium text-slate-700 truncate">{hit.title}</span>
-                        <span className="ml-auto flex-shrink-0 text-[0.625rem] text-slate-400">{hit.total} 处</span>
+                        <span className="text-xs font-medium text-ink-700 truncate">{hit.title}</span>
+                        <span className="ml-auto flex-shrink-0 text-[0.625rem] text-ink-400">{hit.total} 处</span>
                       </div>
                       {hit.snippets.map((sn, i) => (
-                        <div key={i} className="mt-1.5 text-[0.6875rem] leading-relaxed text-slate-500 line-clamp-3">
+                        <div key={i} className="mt-1.5 text-[0.6875rem] leading-relaxed text-ink-500 line-clamp-3">
                           {renderSnippet(sn.text)}
                         </div>
                       ))}
@@ -2641,27 +2641,27 @@ const [aligned_content, set_aligned_content] = useState('')
             </div>
           ) : isBook ? (
             booksLoading ? (
-              <div className="text-center py-8 text-slate-400 text-sm">
-                <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+              <div className="text-center py-8 text-ink-400 text-sm">
+                <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
                 <p>加载中...</p>
               </div>
             ) : books.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm px-4">
+              <div className="text-center py-8 text-ink-400 text-sm px-4">
                 <BookCopy className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-slate-500 font-medium mb-1">还没有图书</p>
-                <p className="text-xs text-slate-400 mb-3">
+                <p className="text-ink-500 font-medium mb-1">还没有图书</p>
+                <p className="text-xs text-ink-400 mb-3">
                   上传图书 PDF 转换后，正文会落到 textbooks/&lt;书名&gt;/content.md
                 </p>
                 <button
                   onClick={() => navigate('/management')}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs rounded-md hover:bg-seal-700 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   去上传图书
                 </button>
               </div>
             ) : filteredBooks.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">
+              <div className="text-center py-8 text-ink-400 text-sm">
                 <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p>没有找到匹配的图书</p>
               </div>
@@ -2670,11 +2670,11 @@ const [aligned_content, set_aligned_content] = useState('')
                 <button
                   key={b.id}
                   onClick={() => { setSelectedBookId(b.id); setLeftDrawer(false) }}
-                  className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
-                    selectedBookId === b.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
+                  className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                    selectedBookId === b.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
                   }`}
                 >
-                  <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                  <div className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
                     {b.title}
                   </div>
                   <div className="flex items-center gap-2 mt-1.5">
@@ -2684,7 +2684,7 @@ const [aligned_content, set_aligned_content] = useState('')
                         已转换
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[0.625rem]">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded text-[0.625rem]">
                         待转换
                       </span>
                     )}
@@ -2694,28 +2694,28 @@ const [aligned_content, set_aligned_content] = useState('')
             )
           ) : isDoc ? (
             documentsLoading ? (
-              <div className="text-center py-8 text-slate-400 text-sm">
-                <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+              <div className="text-center py-8 text-ink-400 text-sm">
+                <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
                 <p>加载中...</p>
               </div>
             ) : documents.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm px-4">
+              <div className="text-center py-8 text-ink-400 text-sm px-4">
                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-slate-500 font-medium mb-1">还没有其他文档</p>
-                <p className="text-xs text-slate-400 mb-3">
+                <p className="text-ink-500 font-medium mb-1">还没有其他文档</p>
+                <p className="text-xs text-ink-400 mb-3">
                   导入 .md 文件、粘贴 markdown 或上传 zip，
                   正文会落到 documents/&lt;目录名&gt;/content.md
                 </p>
                 <button
                   onClick={() => setShowImportDocModal(true)}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs rounded-md hover:bg-seal-700 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   导入文档
                 </button>
               </div>
             ) : filteredDocuments.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">
+              <div className="text-center py-8 text-ink-400 text-sm">
                 <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p>没有找到匹配的文档</p>
               </div>
@@ -2729,14 +2729,14 @@ const [aligned_content, set_aligned_content] = useState('')
                     setEditingAnnotationId(null)
                     setLeftDrawer(false)
                   }}
-                  className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
-                    selectedDocumentId === d.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
+                  className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                    selectedDocumentId === d.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
                   }`}
                 >
-                  <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                  <div className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
                     {d.title}
                   </div>
-                  <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-400">
+                  <div className="flex items-center gap-2 mt-1.5 text-xs text-ink-400">
                     {d.author ? <span className="truncate">{d.author}</span> : null}
                     {d.hasContent ? (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium">
@@ -2744,7 +2744,7 @@ const [aligned_content, set_aligned_content] = useState('')
                         已导入
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[0.625rem]">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded text-[0.625rem]">
                         无正文
                       </span>
                     )}
@@ -2753,25 +2753,25 @@ const [aligned_content, set_aligned_content] = useState('')
               ))
             )
           ) : papersLoading ? (
-            <div className="text-center py-8 text-slate-400 text-sm">
-              <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+            <div className="text-center py-8 text-ink-400 text-sm">
+              <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
               <p>加载中...</p>
             </div>
           ) : papers.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-sm px-4">
+            <div className="text-center py-8 text-ink-400 text-sm px-4">
               <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="text-slate-500 font-medium mb-1">还没有添加文献</p>
-              <p className="text-xs text-slate-400 mb-3">请到文献管理页添加文献后开始阅读</p>
+              <p className="text-ink-500 font-medium mb-1">还没有添加文献</p>
+              <p className="text-xs text-ink-400 mb-3">请到文献管理页添加文献后开始阅读</p>
               <button
                 onClick={() => navigate('/management')}
-                className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition"
+                className="inline-flex items-center gap-1 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs rounded-md hover:bg-seal-700 transition"
               >
                 <Plus className="w-3.5 h-3.5" />
                 去添加文献
               </button>
             </div>
           ) : filteredPapers.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-sm">
+            <div className="text-center py-8 text-ink-400 text-sm">
               <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
               <p>没有找到匹配的文献</p>
             </div>
@@ -2785,20 +2785,20 @@ const [aligned_content, set_aligned_content] = useState('')
                   setEditingAnnotationId(null)
                   setLeftDrawer(false)
                 }}
-                className={`w-full text-left p-3 border-b border-slate-100 hover:bg-slate-50 transition ${
-                  selectedPaperId === p.id ? 'bg-indigo-50 border-l-2 border-l-indigo-600' : ''
+                className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                  selectedPaperId === p.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
                 }`}
               >
-                <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                <div className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
                   {p.title}
                 </div>
-                <div className="text-xs text-slate-500 mt-1.5 space-y-0.5">
+                <div className="text-xs text-ink-500 mt-1.5 space-y-0.5">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate">{p.authors}</span>
                     <span>·</span>
                     <span className="flex-shrink-0">{p.year}</span>
                   </div>
-                  <div className="text-slate-400 truncate">{p.journal}</div>
+                  <div className="text-ink-400 truncate">{p.journal}</div>
                   <div className="flex items-center gap-2 mt-1">
                     {p.hasMarkdown ? (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium">
@@ -2806,11 +2806,11 @@ const [aligned_content, set_aligned_content] = useState('')
                         Markdown
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[0.625rem]">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded text-[0.625rem]">
                         待转换
                       </span>
                     )}
-                    <span className="text-slate-400 text-[0.625rem] truncate">
+                    <span className="text-ink-400 text-[0.625rem] truncate">
                       <DoiLink doi={p.doi} className="text-[0.625rem]" />
                     </span>
                   </div>
@@ -2824,25 +2824,25 @@ const [aligned_content, set_aligned_content] = useState('')
         </div>
 
         {/* 堆叠面板 2/2：大纲（文献按当前显示模式的内容生成，图书按 content.md） */}
-        <div className={`flex flex-col border-t border-slate-200 ${outlineOpen ? 'min-h-0' : 'flex-none'}`}>
+        <div className={`flex flex-col border-t border-ink-200 ${outlineOpen ? 'min-h-0' : 'flex-none'}`}>
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
-            className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+            className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
             title={outlineOpen ? '收起大纲' : '展开大纲'}
           >
             {outlineOpen ? (
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              <ChevronRight className="w-3.5 h-3.5 text-ink-400" />
             )}
-            <ListTree className="w-3.5 h-3.5 text-indigo-600" />
+            <ListTree className="w-3.5 h-3.5 text-seal-600" />
             大纲
-            <span className="ml-auto text-slate-400 font-normal">{outline.length}</span>
+            <span className="ml-auto text-ink-400 font-normal">{outline.length}</span>
           </button>
           {outlineOpen && (
             <div className="flex-auto min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
               {outline.length === 0 && (
-                <div className="text-xs text-slate-400 text-center py-3">
+                <div className="text-xs text-ink-400 text-center py-3">
                   {docRef ? '暂无大纲' : '选择阅读对象后显示大纲'}
                 </div>
               )}
@@ -2850,14 +2850,14 @@ const [aligned_content, set_aligned_content] = useState('')
                 <button
                   key={item.anchor}
                   onClick={() => { jumpToAnchor(item.anchor); setLeftDrawer(false) }}
-                  className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-seal-50 hover:text-seal-700 transition truncate ${
                     item.anchor === activeAnchor
-                      ? 'bg-indigo-50 text-indigo-700 font-medium'
+                      ? 'bg-seal-50 text-seal-700 font-medium'
                       : item.level === 1
-                        ? 'font-semibold text-slate-700'
+                        ? 'font-semibold text-ink-700'
                         : item.level === 2
-                          ? 'font-medium text-slate-600'
-                          : 'text-slate-500'
+                          ? 'font-medium text-ink-600'
+                          : 'text-ink-500'
                   }`}
                   style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
                   title={item.text}
@@ -2871,26 +2871,26 @@ const [aligned_content, set_aligned_content] = useState('')
       </aside>
 
       <section
-        className="bg-slate-50 flex flex-col min-w-0 min-h-0 overflow-hidden"
+        className="bg-paper-100 flex flex-col min-w-0 min-h-0 overflow-hidden"
         style={{ fontSize: '1rem' }}
       >
         {isPlain ? (
           plainId ? (
             <>
-              <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
+              <div className="bg-paper-50 border-b border-ink-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     onClick={() => (isBook ? setSelectedBookId(null) : setSelectedDocumentId(null))}
-                    className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition flex-shrink-0"
+                    className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition flex-shrink-0"
                     title="返回列表"
                   >
                     <ArrowLeft className="w-4 h-4" />
                   </button>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-700 truncate">
+                    <div className="text-sm font-medium text-ink-700 truncate">
                       {docTitle}
                     </div>
-                    <div className="text-xs text-slate-400 truncate">
+                    <div className="text-xs text-ink-400 truncate">
                       {isBook ? '图书' : '其他文档'} · {isBook ? 'textbooks' : 'documents'}/
                       {plainId}/content.md
                     </div>
@@ -2900,25 +2900,25 @@ const [aligned_content, set_aligned_content] = useState('')
                   <button
                     onClick={() => setZebraBands((v) => !v)}
                     className={`px-2 py-1.5 text-xs rounded transition flex items-center gap-1 ${
-                      zebraBands ? 'bg-lime-100 text-lime-800' : 'text-slate-600 hover:bg-slate-100'
+                      zebraBands ? 'bg-lime-100 text-lime-800' : 'text-ink-600 hover:bg-ink-100'
                     }`}
                     title="逐行交替底色：正文每一行交替极浅淡绿（1 行有色 / 1 行无色），按行高精确对齐，帮你锚住当前行、防看漏"
                   >
                     <Highlighter className="w-3.5 h-3.5" />
                     隔行底色
                   </button>
-                  <div className="w-px h-5 bg-slate-200 mx-1" />
+                  <div className="w-px h-5 bg-ink-200 mx-1" />
                   <button
                     onClick={() => setFontSize((s) => Math.max(12, s - 1))}
-                    className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition"
+                    className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                     title="减小字号"
                   >
                     <ZoomOut className="w-4 h-4" />
                   </button>
-                  <span className="text-xs text-slate-400 w-8 text-center">{fontSize / 16}rem</span>
+                  <span className="text-xs text-ink-400 w-8 text-center">{fontSize / 16}rem</span>
                   <button
                     onClick={() => setFontSize((s) => Math.min(24, s + 1))}
-                    className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition"
+                    className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                     title="增大字号"
                   >
                     <ZoomIn className="w-4 h-4" />
@@ -2928,9 +2928,9 @@ const [aligned_content, set_aligned_content] = useState('')
 
               <div className="flex-1 overflow-y-auto" ref={scrollRef} onScroll={handleReaderScroll}>
                 {plainLoading ? (
-                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                  <div className="flex items-center justify-center py-16 text-ink-400 text-sm">
                     <div className="text-center">
-                      <div className="w-8 h-8 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-2" />
+                      <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
                       <p>加载正文...</p>
                     </div>
                   </div>
@@ -2939,7 +2939,7 @@ const [aligned_content, set_aligned_content] = useState('')
                     className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)]"
                     style={{ fontSize: `${fontSize / 16}rem` }}
                   >
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-[var(--reader-cardpad)] relative">
+                    <div className="bg-paper-50 rounded-xl shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
                       <div
                         ref={readerRef}
                         onMouseUp={handleTextSelection}
@@ -2953,12 +2953,12 @@ const [aligned_content, set_aligned_content] = useState('')
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center py-16 text-slate-400">
+                  <div className="flex items-center justify-center py-16 text-ink-400">
                     <div className="text-center px-6">
                       {isDoc ? (
                         <>
                           <FileText className="w-16 h-16 mx-auto mb-3 opacity-30" />
-                          <p className="text-sm text-slate-500">这个文档还没有正文</p>
+                          <p className="text-sm text-ink-500">这个文档还没有正文</p>
                           <p className="text-xs mt-1">
                             正文应位于 documents/{plainId}/content.md
                           </p>
@@ -2966,7 +2966,7 @@ const [aligned_content, set_aligned_content] = useState('')
                       ) : (
                         <>
                           <BookCopy className="w-16 h-16 mx-auto mb-3 opacity-30" />
-                          <p className="text-sm text-slate-500">这本书还没有正文</p>
+                          <p className="text-sm text-ink-500">这本书还没有正文</p>
                           <p className="text-xs mt-1">
                             转换完成后，正文会写入 textbooks/{plainId}/content.md
                           </p>
@@ -2978,7 +2978,7 @@ const [aligned_content, set_aligned_content] = useState('')
               </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-slate-400">
+            <div className="flex-1 flex items-center justify-center text-ink-400">
               <div className="text-center">
                 <BookCopy className="w-16 h-16 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">从左侧选择一本书开始阅读</p>
@@ -2987,20 +2987,20 @@ const [aligned_content, set_aligned_content] = useState('')
           )
         ) : selectedPaper ? (
           <>
-            <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
+            <div className="bg-paper-50 border-b border-ink-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   onClick={() => setSelectedPaperId(null)}
-                  className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition flex-shrink-0"
+                  className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition flex-shrink-0"
                   title="返回列表"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-slate-700 truncate">
+                  <div className="text-sm font-medium text-ink-700 truncate">
                     {selectedPaper.title}
                   </div>
-                  <div className="text-xs text-slate-400 truncate">
+                  <div className="text-xs text-ink-400 truncate">
                     {selectedPaper.authors} · {selectedPaper.journal} · {selectedPaper.year}
                   </div>
                 </div>
@@ -3008,24 +3008,24 @@ const [aligned_content, set_aligned_content] = useState('')
               <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => setFontSize((s) => Math.max(12, s - 1))}
-                  className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition"
+                  className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                   title="减小字号"
                 >
                   <ZoomOut className="w-4 h-4" />
                 </button>
-                <span className="text-xs text-slate-400 w-8 text-center">{fontSize / 16}rem</span>
+                <span className="text-xs text-ink-400 w-8 text-center">{fontSize / 16}rem</span>
                 <button
                   onClick={() => setFontSize((s) => Math.min(24, s + 1))}
-                  className="p-1.5 text-slate-500 hover:bg-slate-100 rounded transition"
+                  className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                   title="增大字号"
                 >
                   <ZoomIn className="w-4 h-4" />
                 </button>
-                <div className="w-px h-5 bg-slate-200 mx-1" />
+                <div className="w-px h-5 bg-ink-200 mx-1" />
                 <button
                   onClick={exportAllAnnotations}
                   disabled={paperAnnotations.length === 0}
-                  className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                  className="px-2.5 py-1.5 text-xs text-ink-600 hover:bg-ink-100 rounded transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                   title="导出全部批注"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -3034,27 +3034,27 @@ const [aligned_content, set_aligned_content] = useState('')
                 <button
                   onClick={exportNote}
                   disabled={!currentNoteMd.trim()}
-                  className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                  className="px-2.5 py-1.5 text-xs bg-seal-600 text-paper-50 rounded hover:bg-seal-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                   title="导出笔记"
                 >
                   <Download className="w-3.5 h-3.5" />
                   导出笔记
                 </button>
-                <div className="w-px h-5 bg-slate-200 mx-1" />
+                <div className="w-px h-5 bg-ink-200 mx-1" />
                 <button
                   onClick={() => setZebraBands((v) => !v)}
                   className={`px-2.5 py-1.5 text-xs rounded transition flex items-center gap-1 ${
-                    zebraBands ? 'bg-lime-100 text-lime-800' : 'text-slate-600 hover:bg-slate-100'
+                    zebraBands ? 'bg-lime-100 text-lime-800' : 'text-ink-600 hover:bg-ink-100'
                   }`}
                   title="逐行交替底色：正文每一行交替极浅淡绿（1 行有色 / 1 行无色），按行高精确对齐，帮你锚住当前行、防段内串行（不改字号字色）"
                 >
                   <Highlighter className="w-3.5 h-3.5" />
                   隔行底色
                 </button>
-                <div className="w-px h-5 bg-slate-200 mx-1" />
+                <div className="w-px h-5 bg-ink-200 mx-1" />
                 {editMode ? (
                   <>
-                    <span className="text-xs text-slate-400 px-1 tabular-nums">
+                    <span className="text-xs text-ink-400 px-1 tabular-nums">
                       {editModeRemoved > 0
                         ? `编辑中 · ${articleSourceLabel} · 已删 ${editModeRemoved} 块`
                         : `编辑中 · ${articleSourceLabel} · ${editUnits.length || 0} 块`}
@@ -3062,7 +3062,7 @@ const [aligned_content, set_aligned_content] = useState('')
                     <button
                       onClick={saveArticle}
                       disabled={articleSaving}
-                      className="px-2.5 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-50 flex items-center gap-1"
+                      className="px-2.5 py-1.5 text-xs bg-seal-600 text-paper-50 rounded hover:bg-seal-700 transition disabled:opacity-50 flex items-center gap-1"
                       title="保存到仓库：会自动核对块数、重排编号后再写"
                     >
                       <Save className="w-3.5 h-3.5" />
@@ -3071,7 +3071,7 @@ const [aligned_content, set_aligned_content] = useState('')
                     <button
                       onClick={exitEditMode}
                       disabled={articleSaving}
-                      className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition disabled:opacity-50"
+                      className="px-2.5 py-1.5 text-xs text-ink-600 hover:bg-ink-100 rounded transition disabled:opacity-50"
                       title="放弃修改"
                     >
                       取消
@@ -3088,7 +3088,7 @@ const [aligned_content, set_aligned_content] = useState('')
                         const idx = modes.indexOf(translation_mode)
                         set_translation_mode(modes[(idx + 1) % modes.length])
                       }}
-                      className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1"
+                      className="px-2.5 py-1.5 text-xs text-ink-600 hover:bg-ink-100 rounded transition flex items-center gap-1"
                       title={hasTranslationContent ? '切换显示模式（原文 / 中英对照 / 全中文 / 全英文）' : '该文献还没有译文，仅可切换 原文 / 全英文'}
                     >
                       <Languages className="w-3.5 h-3.5" />
@@ -3101,7 +3101,7 @@ const [aligned_content, set_aligned_content] = useState('')
                     <button
                       onClick={enterEditMode}
                       disabled={!selectedPaper?.hasMarkdown}
-                      className="px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-2.5 py-1.5 text-xs text-ink-600 hover:bg-ink-100 rounded transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                       title="编辑模式开关：开启后可修改文献正文"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
@@ -3142,25 +3142,25 @@ const [aligned_content, set_aligned_content] = useState('')
                   >
                     <div className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)] space-y-3">
                       {editUnits.length === 0 ? (
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-[var(--reader-cardpad)]">
-                          <p className="text-sm text-slate-500 mb-3">
-                            这份文件还没有块结构（多半是 MinerU 的 <code className="px-1 bg-slate-100 rounded">full.md</code>），
-                            只能按整篇改。转成 <code className="px-1 bg-slate-100 rounded">{articleSourceLabel}</code> 之后
+                        <div className="bg-paper-50 rounded-xl shadow-sm border border-ink-200 p-[var(--reader-cardpad)]">
+                          <p className="text-sm text-ink-500 mb-3">
+                            这份文件还没有块结构（多半是 MinerU 的 <code className="px-1 bg-ink-100 rounded">full.md</code>），
+                            只能按整篇改。转成 <code className="px-1 bg-ink-100 rounded">{articleSourceLabel}</code> 之后
                             就会按「块」分开编辑，中英各一个框。
                           </p>
                           <textarea
                             value={editPlainDraft}
                             onChange={(e) => setEditPlainDraft(e.target.value)}
                             spellCheck={false}
-                            className="w-full h-[60vh] p-3 font-mono text-xs leading-relaxed border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                            className="w-full h-[60vh] p-3 font-mono text-xs leading-relaxed border border-ink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-seal-200"
                           />
                         </div>
                       ) : (
                         <>
-                          <p className="text-xs text-slate-400 px-1">
+                          <p className="text-xs text-ink-400 px-1">
                             共 {editUnits.length} 个块，英文一个框、中文一个框，块标记由系统持有（不显示，也就删不掉）。
                             删掉某一整块 = 中英一起删。换位两种办法：按住块名那条横条
-                            <span className="text-slate-500">上下拖</span>
+                            <span className="text-ink-500">上下拖</span>
                             （拖多远就挪几位，不用拖到目标块的一半），或者直接点右侧的 ↑ ↓ 一位一位挪。
                             类型认错了（比如标题被当成正文）就点块名右边的下拉直接改，编号与译文都会跟着走。
                             保存时会自动核对块数并重排编号。
@@ -3191,7 +3191,7 @@ const [aligned_content, set_aligned_content] = useState('')
                   className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)]"
                   style={{ fontSize: `${fontSize / 16}rem` }}
                 >
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-[var(--reader-cardpad)] relative">
+                  <div className="bg-paper-50 rounded-xl shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
                     <div
                       ref={readerRef}
                       onMouseUp={handleTextSelection}
@@ -3207,7 +3207,7 @@ const [aligned_content, set_aligned_content] = useState('')
                 )
               ) : (
                 <div className="h-full flex items-center justify-center">
-                  <div className="text-center text-slate-400">
+                  <div className="text-center text-ink-400">
                     <FileText className="w-16 h-16 mx-auto mb-3 opacity-30" />
                     <p className="text-sm">暂无 Markdown 内容</p>
                     <p className="text-xs mt-1">请先使用 MinerU 将 PDF 转换为 Markdown</p>
@@ -3217,7 +3217,7 @@ const [aligned_content, set_aligned_content] = useState('')
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-slate-400">
+          <div className="flex-1 flex items-center justify-center text-ink-400">
             <div className="text-center">
               <BookOpen className="w-16 h-16 mx-auto mb-3 opacity-30" />
               <p className="text-sm">从左侧选择一篇文献开始阅读</p>
@@ -3227,18 +3227,18 @@ const [aligned_content, set_aligned_content] = useState('')
       </section>
 
       {/* 右栏：问 AI / 笔记 / 批注 —— 文献与图书同一套 */}
-      <aside className={`bg-white border-l border-slate-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-40 max-[1100px]:w-[min(24rem,90vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
+      <aside className={`bg-paper-50 border-l border-ink-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-40 max-[1100px]:w-[min(24rem,90vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
         rightDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:translate-x-full'
       }`}
         style={{ fontSize: '1rem' }}
       >
-        <div className="flex border-b border-slate-200 flex-shrink-0">
+        <div className="flex border-b border-ink-200 flex-shrink-0">
           <button
             onClick={() => setActiveSideTab('ask')}
             className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'ask'
-                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                ? 'text-seal-600 border-b-2 border-seal-600 bg-seal-50/30'
+                : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
             }`}
           >
             <Sparkles className="w-4 h-4" />
@@ -3248,8 +3248,8 @@ const [aligned_content, set_aligned_content] = useState('')
             onClick={() => setActiveSideTab('notes')}
             className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'notes'
-                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                ? 'text-seal-600 border-b-2 border-seal-600 bg-seal-50/30'
+                : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
             }`}
           >
             <StickyNote className="w-4 h-4" />
@@ -3259,14 +3259,14 @@ const [aligned_content, set_aligned_content] = useState('')
             onClick={() => setActiveSideTab('annotations')}
             className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'annotations'
-                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                ? 'text-seal-600 border-b-2 border-seal-600 bg-seal-50/30'
+                : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
             }`}
           >
             <Highlighter className="w-4 h-4" />
             批注
             {paperAnnotations.length > 0 && (
-              <span className="px-1.5 py-0.5 text-[0.625rem] bg-indigo-100 text-indigo-600 rounded-full font-medium">
+              <span className="px-1.5 py-0.5 text-[0.625rem] bg-seal-100 text-seal-600 rounded-full font-medium">
                 {paperAnnotations.length}
               </span>
             )}
@@ -3283,11 +3283,11 @@ const [aligned_content, set_aligned_content] = useState('')
             />
           ) : activeSideTab === 'notes' ? (
             <div className="flex-1 flex flex-col min-h-0">
-              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-end flex-shrink-0 bg-slate-50/50">
+              <div className="px-3 py-2 border-b border-ink-100 flex items-center justify-end flex-shrink-0 bg-paper-100/50">
                 <button
                   onClick={exportNote}
                   disabled={!docRef || !currentNoteMd.trim()}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                 >
                   <Download className="w-3.5 h-3.5" />
                   导出
@@ -3311,19 +3311,19 @@ const [aligned_content, set_aligned_content] = useState('')
                     className="h-full"
                   />
                 ) : (
-                  <div className="text-center text-slate-400 py-8">
+                  <div className="text-center text-ink-400 py-8">
                     <StickyNote className="w-8 h-8 mx-auto mb-2 opacity-30" />
                     <p className="text-sm">选择文献或图书后开始记笔记</p>
                   </div>
                 )}
               </div>
 
-              <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between flex-shrink-0 bg-slate-50/50">
-                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <div className="px-3 py-2 border-t border-ink-100 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
+                <div className="flex items-center gap-1.5 text-xs text-ink-400">
                   {noteSaveState.status === 'saving' && (
                     <>
-                      <span className="w-2.5 h-2.5 border border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
-                      <span className="text-indigo-600">保存中...</span>
+                      <span className="w-2.5 h-2.5 border border-ink-300 border-t-seal-500 rounded-full animate-spin" />
+                      <span className="text-seal-600">保存中...</span>
                     </>
                   )}
                   {noteSaveState.status === 'saved' && (
@@ -3342,22 +3342,22 @@ const [aligned_content, set_aligned_content] = useState('')
                     </>
                   )}
                 </div>
-                <span className="text-xs text-slate-400 font-mono">
+                <span className="text-xs text-ink-400 font-mono">
                   {wordCount} 字
                 </span>
               </div>
             </div>
           ) : (
             <div className="flex-1 flex flex-col">
-              <div className="px-3 py-2 border-b border-slate-100 flex-shrink-0 space-y-2">
+              <div className="px-3 py-2 border-b border-ink-100 flex-shrink-0 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">
-                    共 <span className="font-medium text-slate-700">{paperAnnotations.length}</span> 条批注
+                  <span className="text-xs text-ink-500">
+                    共 <span className="font-medium text-ink-700">{paperAnnotations.length}</span> 条批注
                   </span>
                   <button
                     onClick={exportAllAnnotations}
                     disabled={paperAnnotations.length === 0}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                    className="flex items-center gap-1 px-2 py-1 text-xs text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                   >
                     <Download className="w-3.5 h-3.5" />
                     导出全部
@@ -3366,10 +3366,10 @@ const [aligned_content, set_aligned_content] = useState('')
                 {/* 批量操作条 —— 批注一多，逐条点 × 删太折磨 */}
                 {paperAnnotations.length > 0 && (
                   <div className="flex items-center gap-2 text-xs">
-                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 select-none">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-ink-600 select-none">
                       <input
                         type="checkbox"
-                        className="w-3.5 h-3.5 accent-indigo-600"
+                        className="w-3.5 h-3.5 accent-seal-600"
                         checked={
                           checkedAnnotationIds.length > 0 &&
                           checkedAnnotationIds.length === paperAnnotations.length
@@ -3383,7 +3383,7 @@ const [aligned_content, set_aligned_content] = useState('')
                       全选
                     </label>
                     {checkedAnnotationIds.length > 0 && (
-                      <span className="text-slate-400">已选 {checkedAnnotationIds.length} 条</span>
+                      <span className="text-ink-400">已选 {checkedAnnotationIds.length} 条</span>
                     )}
                     <div className="ml-auto flex items-center gap-1">
                       <button
@@ -3394,7 +3394,7 @@ const [aligned_content, set_aligned_content] = useState('')
                           }
                         }}
                         disabled={checkedAnnotationIds.length === 0}
-                        className="px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                        className="px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:border-ink-200 disabled:text-ink-400"
                       >
                         删除选中
                       </button>
@@ -3404,7 +3404,7 @@ const [aligned_content, set_aligned_content] = useState('')
                             deleteAnnotations(paperAnnotations.map((a) => a.id))
                           }
                         }}
-                        className="px-2 py-1 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition"
+                        className="px-2 py-1 rounded border border-ink-200 text-ink-500 hover:bg-paper-100 transition"
                       >
                         清空
                       </button>
@@ -3415,7 +3415,7 @@ const [aligned_content, set_aligned_content] = useState('')
 
               <div className="flex-1 overflow-y-auto">
                 {paperAnnotations.length === 0 ? (
-                  <div className="text-center py-12 text-slate-400 text-sm">
+                  <div className="text-center py-12 text-ink-400 text-sm">
                     <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-30" />
                     <p>暂无批注</p>
                     <p className="text-xs mt-1">选中文字后可添加高亮和批注</p>
@@ -3435,7 +3435,7 @@ const [aligned_content, set_aligned_content] = useState('')
                               colorInfo.border
                             } ${
                               isSelected
-                                ? 'ring-2 ring-indigo-300 shadow-md'
+                                ? 'ring-2 ring-seal-300 shadow-md'
                                 : 'hover:shadow-md'
                             }`}
                             onClick={() => {
@@ -3446,7 +3446,7 @@ const [aligned_content, set_aligned_content] = useState('')
                               <div className="flex items-center gap-2">
                                 <input
                                   type="checkbox"
-                                  className="w-3.5 h-3.5 accent-indigo-600 flex-shrink-0"
+                                  className="w-3.5 h-3.5 accent-seal-600 flex-shrink-0"
                                   title="选中后可批量删除"
                                   checked={checkedAnnotationIds.includes(anno.id)}
                                   onClick={(e) => e.stopPropagation()}
@@ -3464,7 +3464,7 @@ const [aligned_content, set_aligned_content] = useState('')
                                 </span>
                                 {/* 锚点标签：让人一眼看出这条挂在英文段还是中文段上 */}
                                 {anno.anchor && (
-                                  <span className="text-[10px] px-1 py-0.5 rounded bg-slate-100 text-slate-500 font-mono whitespace-nowrap">
+                                  <span className="text-[10px] px-1 py-0.5 rounded bg-ink-100 text-ink-500 font-mono whitespace-nowrap">
                                     {anno.anchor.startsWith('cn-') ? '中文' : '英文'} {anno.anchor.slice(3)}
                                   </span>
                                 )}
@@ -3482,7 +3482,7 @@ const [aligned_content, set_aligned_content] = useState('')
                                       }, 0)
                                     }
                                   }}
-                                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white/60 rounded transition"
+                                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-paper-50/60 rounded transition"
                                   title={isEditing ? '完成编辑' : '编辑批注'}
                                 >
                                   {isEditing ? (
@@ -3498,7 +3498,7 @@ const [aligned_content, set_aligned_content] = useState('')
                                       deleteAnnotation(anno.id)
                                     }
                                   }}
-                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-white/60 rounded transition"
+                                  className="p-1 text-ink-400 hover:text-red-600 hover:bg-paper-50/60 rounded transition"
                                   title="删除批注"
                                 >
                                   <X className="w-3 h-3" />
@@ -3506,7 +3506,7 @@ const [aligned_content, set_aligned_content] = useState('')
                               </div>
                             </div>
                             <blockquote className={`mb-3 pl-3 py-1 border-l-4 ${colorInfo.border.split(' ')[0]} ${colorInfo.bg} rounded-r`}>
-                              <p className="text-sm text-slate-600 italic leading-relaxed">
+                              <p className="text-sm text-ink-600 italic leading-relaxed">
                                 "{anno.text}"
                               </p>
                             </blockquote>
@@ -3519,13 +3519,13 @@ const [aligned_content, set_aligned_content] = useState('')
                                   value={anno.note}
                                   onChange={(e) => updateAnnotationNote(anno.id, e.target.value)}
                                   placeholder="输入批注内容（支持Markdown）..."
-                                  className="w-full h-28 p-2 text-xs border border-slate-200 rounded resize-none focus:outline-none focus:border-indigo-400 bg-white"
+                                  className="w-full h-28 p-2 text-xs border border-ink-200 rounded resize-none focus:outline-none focus:border-seal-400 bg-paper-50"
                                 />
-                                <div className="text-xs text-slate-400 mt-1">支持 Markdown 格式 · 自动保存</div>
+                                <div className="text-xs text-ink-400 mt-1">支持 Markdown 格式 · 自动保存</div>
                               </div>
                             ) : (
                               anno.note && (
-                                <div className="text-sm text-slate-700">
+                                <div className="text-sm text-ink-700">
                                   <div
                                     className="prose-sm max-w-none"
                                     dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
@@ -3542,12 +3542,12 @@ const [aligned_content, set_aligned_content] = useState('')
                                     annotationEditRefs.current[anno.id]?.focus()
                                   }, 0)
                                 }}
-                                className="text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+                                className="text-xs text-seal-500 hover:text-seal-700 font-medium"
                               >
                                 + 添加批注内容
                               </button>
                             )}
-                            <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
+                            <div className="mt-2 flex items-center gap-1 text-xs text-ink-400">
                               <Clock className="w-3 h-3" />
                               {formatDate(anno.createdAt)}
                               <ChevronRight className="w-3 h-3 ml-auto" />
@@ -3559,12 +3559,12 @@ const [aligned_content, set_aligned_content] = useState('')
                 )}
               </div>
 
-              <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between flex-shrink-0 bg-slate-50/50">
-                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <div className="px-3 py-2 border-t border-ink-100 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
+                <div className="flex items-center gap-1.5 text-xs text-ink-400">
                   {annotationSaveState.status === 'saving' && (
                     <>
-                      <span className="w-2.5 h-2.5 border border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
-                      <span className="text-indigo-600">保存中...</span>
+                      <span className="w-2.5 h-2.5 border border-ink-300 border-t-seal-500 rounded-full animate-spin" />
+                      <span className="text-seal-600">保存中...</span>
                     </>
                   )}
                   {annotationSaveState.status === 'saved' && (
@@ -3649,7 +3649,7 @@ const [aligned_content, set_aligned_content] = useState('')
       {/* 导入其他文档：和管理页是同一套入口（.md 多选 / 粘贴 / zip），落到同一处 documents/ */}
       {showImportDocModal && (
         <Modal title="导入文档" onClose={() => { if (!importing) setShowImportDocModal(false) }}>
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg mb-5 w-fit">
+          <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-lg mb-5 w-fit">
             {([
               { id: 'file', label: '上传 .md 文件' },
               { id: 'paste', label: '粘贴文本' },
@@ -3660,7 +3660,7 @@ const [aligned_content, set_aligned_content] = useState('')
                 onClick={() => setImportMode(m.id)}
                 disabled={importing}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition disabled:opacity-60 ${
-                  importMode === m.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  importMode === m.id ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
                 }`}
               >
                 {m.label}
@@ -3673,14 +3673,14 @@ const [aligned_content, set_aligned_content] = useState('')
               className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
                 importing
                   ? 'opacity-60 pointer-events-none'
-                  : 'border-slate-200 bg-slate-50 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer'
+                  : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
               }`}
             >
-              {importing ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /> : <Upload className="w-10 h-10 text-slate-400" />}
-              <p className="text-sm text-slate-600 font-medium">
+              {importing ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" /> : <Upload className="w-10 h-10 text-ink-400" />}
+              <p className="text-sm text-ink-600 font-medium">
                 {importing ? '导入中...' : '点击选择 .md / .markdown / .txt 文件'}
               </p>
-              <p className="text-xs text-slate-400">支持多选，标题取文件名</p>
+              <p className="text-xs text-ink-400">支持多选，标题取文件名</p>
               <input
                 type="file"
                 multiple
@@ -3695,25 +3695,25 @@ const [aligned_content, set_aligned_content] = useState('')
           {importMode === 'paste' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">标题 *</label>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">标题 *</label>
                 <input
                   type="text"
                   value={pasteDoc.title}
                   onChange={(e) => setPasteDoc({ ...pasteDoc, title: e.target.value })}
                   placeholder="文档标题"
                   disabled={importing}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Markdown 内容 *</label>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">Markdown 内容 *</label>
                 <textarea
                   value={pasteDoc.content}
                   onChange={(e) => setPasteDoc({ ...pasteDoc, content: e.target.value })}
                   placeholder="在此粘贴 markdown 正文..."
                   rows={10}
                   disabled={importing}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:border-indigo-400 resize-y"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm font-mono focus:outline-none focus:border-seal-400 resize-y"
                 />
               </div>
             </div>
@@ -3724,14 +3724,14 @@ const [aligned_content, set_aligned_content] = useState('')
               className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
                 importing
                   ? 'opacity-60 pointer-events-none'
-                  : 'border-slate-200 bg-slate-50 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer'
+                  : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
               }`}
             >
-              {importing ? <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" /> : <Folder className="w-10 h-10 text-slate-400" />}
-              <p className="text-sm text-slate-600 font-medium">
+              {importing ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" /> : <Folder className="w-10 h-10 text-ink-400" />}
+              <p className="text-sm text-ink-600 font-medium">
                 {importing ? '导入中...' : '点击选择 .zip 压缩包'}
               </p>
-              <p className="text-xs text-slate-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
+              <p className="text-xs text-ink-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
               <input
                 type="file"
                 accept=".zip"
@@ -3742,12 +3742,12 @@ const [aligned_content, set_aligned_content] = useState('')
             </label>
           )}
 
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             {importMode === 'paste' && (
               <button
                 onClick={handlePasteImport}
                 disabled={importing}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 {importing ? '导入中...' : '导入'}
@@ -3756,7 +3756,7 @@ const [aligned_content, set_aligned_content] = useState('')
             <button
               onClick={() => { if (!importing) setShowImportDocModal(false) }}
               disabled={importing}
-              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition disabled:opacity-60"
+              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition disabled:opacity-60"
             >
               取消
             </button>

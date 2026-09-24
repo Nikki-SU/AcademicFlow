@@ -832,22 +832,22 @@ export default function LearnPage() {
     <div className="page-container py-8">
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <GraduationCap className="w-6 h-6 text-indigo-600" />
+          <h1 className="text-xl font-bold text-ink-800 flex items-center gap-2">
+            <GraduationCap className="w-6 h-6 text-seal-600" />
             学习
           </h1>
-          <p className="text-sm text-slate-500 mt-1">PDF 入库转换为 Markdown 时自动生成学习内容，也可手动添加</p>
+          <p className="text-sm text-ink-500 mt-1">PDF 入库转换为 Markdown 时自动生成学习内容，也可手动添加</p>
         </div>
         <button
           onClick={() => setAiGenOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg text-sm font-medium hover:from-indigo-700 hover:to-purple-700 transition shadow-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-lg text-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-sm"
         >
           <Sparkles className="w-4 h-4" />
           AI 补充生成
         </button>
       </div>
 
-      <div className="flex items-center gap-1 mb-6 bg-white rounded-lg border border-slate-200 p-1 w-fit">
+      <div className="flex items-center gap-1 mb-6 bg-paper-50 rounded-lg border border-ink-200 p-1 w-fit">
         {subTabs.map((tab) => {
           const Icon = tab.icon
           return (
@@ -856,8 +856,8 @@ export default function LearnPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition ${
                 activeTab === tab.id
-                  ? 'bg-indigo-50 text-indigo-700'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-seal-50 text-seal-700'
+                  : 'text-ink-500 hover:text-ink-700'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -868,22 +868,22 @@ export default function LearnPage() {
       </div>
 
       {aiGenOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-indigo-600" />
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold text-ink-800 mb-4 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-seal-600" />
               AI 补充生成学习内容
             </h3>
-            <p className="text-sm text-slate-500 mb-4">
+            <p className="text-sm text-ink-500 mb-4">
               从选定文献的 Markdown 内容中自动提取并生成学习卡片
             </p>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-1.5 block">选择文献</label>
+                <label className="text-sm font-medium text-ink-700 mb-1.5 block">选择文献</label>
                 <select
                   value={selectedPaper}
                   onChange={(e) => setSelectedPaper(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   disabled={isAiGenerating}
                 >
                   <option value="">请选择...</option>
@@ -895,7 +895,7 @@ export default function LearnPage() {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">生成类型</label>
+                <label className="text-sm font-medium text-ink-700 mb-2 block">生成类型</label>
                 <div className="space-y-2">
                   {[
                     { key: 'words', label: '单词卡片', icon: Brain },
@@ -905,15 +905,15 @@ export default function LearnPage() {
                     const Icon = item.icon
                     const checked = genTypes[item.key as keyof typeof genTypes]
                     return (
-                      <label key={item.key} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+                      <label key={item.key} className="flex items-center gap-3 p-2 rounded-lg hover:bg-paper-100 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={checked}
                           onChange={(e) => setGenTypes((prev) => ({ ...prev, [item.key]: e.target.checked }))}
-                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                          className="rounded text-seal-600 focus:ring-seal-500"
                         />
-                        <Icon className="w-4 h-4 text-slate-500" />
-                        <span className="text-sm text-slate-700">{item.label}</span>
+                        <Icon className="w-4 h-4 text-ink-500" />
+                        <span className="text-sm text-ink-700">{item.label}</span>
                       </label>
                     )
                   })}
@@ -923,14 +923,14 @@ export default function LearnPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setAiGenOpen(false)}
-                className="flex-1 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                className="flex-1 px-4 py-2 text-sm font-medium text-ink-600 bg-ink-100 hover:bg-ink-200 rounded-lg transition"
               >
                 取消
               </button>
               <button
                 onClick={handleAIGenerate}
                 disabled={isAiGenerating}
-                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex-1 px-4 py-2 text-sm font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Sparkles className={`w-4 h-4 ${isAiGenerating ? 'animate-pulse' : ''}`} />
                 {isAiGenerating ? 'AI-1 生成 / AI-2 审阅中…' : '开始生成'}
@@ -1333,11 +1333,11 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   if (words.length === 0) {
     return (
       <div className="text-center py-16">
-        <Brain className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-        <p className="text-slate-500 mb-4">还没有单词，快来添加吧！</p>
+        <Brain className="w-16 h-16 text-ink-300 mx-auto mb-4" />
+        <p className="text-ink-500 mb-4">还没有单词，快来添加吧！</p>
         <button
           onClick={() => setShowAddModal(true)}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+          className="px-4 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
         >
           添加单词
         </button>
@@ -1350,25 +1350,25 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   if (finished) {
     return (
       <div className="max-w-md mx-auto pt-10">
-        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-          <GraduationCap className="w-14 h-14 text-indigo-500 mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-slate-800 mb-1">
+        <div className="bg-paper-50 rounded-xl border border-ink-200 p-8 text-center">
+          <GraduationCap className="w-14 h-14 text-seal-500 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-ink-800 mb-1">
             {finished.mode === 'learn' ? '本组学习完成' : '本轮复习完成'}
           </h3>
-          <p className="text-sm text-slate-500 mb-6">
+          <p className="text-sm text-ink-500 mb-6">
             共 {finished.queue.length} 词 · 答对 {finished.correctCount} 次 · 答错 {finished.wrongCount} 次
             {finished.masteredCount > 0 ? ` · 新掌握 ${finished.masteredCount} 词` : ''}
           </p>
           <div className="flex gap-3">
             <button
               onClick={() => startSession(finished.mode)}
-              className="flex-1 py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              className="flex-1 py-3 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
             >
               再来一组
             </button>
             <button
               onClick={exitSession}
-              className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+              className="flex-1 py-3 bg-ink-100 text-ink-600 rounded-lg text-sm font-medium hover:bg-ink-200 transition"
             >
               返回单词首页
             </button>
@@ -1390,13 +1390,13 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     return (
       <div className="space-y-4">
         {/* 顶部状态 */}
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="flex items-center justify-between text-sm text-slate-500 mb-2">
+        <div className="bg-paper-50 rounded-xl border border-ink-200 p-4">
+          <div className="flex items-center justify-between text-sm text-ink-500 mb-2">
             <span>
               第 {session.wordIdx + 1}/{eligible.length} 题 · 第 {session.typeIdx + 1}/{settings.questionTypes.length} 轮
             </span>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">
+              <span className="px-2 py-0.5 bg-seal-50 text-seal-700 rounded text-xs font-medium">
                 {question.typeLabel}
               </span>
               {isRetry && <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded text-xs">重做</span>}
@@ -1405,30 +1405,30 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
               )}
             </div>
           </div>
-          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-2 bg-indigo-600 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+          <div className="w-full h-2 bg-ink-100 rounded-full overflow-hidden">
+            <div className="h-2 bg-seal-600 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
 
         {/* 题目卡 */}
-        <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
           <div className="text-center mb-6 min-h-[4rem] flex items-center justify-center">
             {question.isSentence ? (
-              <p className="text-lg text-slate-800 leading-relaxed text-left">
+              <p className="text-lg text-ink-800 leading-relaxed text-left">
                 {question.question.split('_____').map((part, i, arr) => (
                   <span key={i}>
                     {part}
-                    {i < arr.length - 1 && <span className="font-bold text-indigo-600 mx-0.5">_____</span>}
+                    {i < arr.length - 1 && <span className="font-bold text-seal-600 mx-0.5">_____</span>}
                   </span>
                 ))}
               </p>
             ) : (
               <div className="flex items-center justify-center gap-3">
-                <h2 className="text-3xl font-bold text-slate-800 break-all">{question.question}</h2>
+                <h2 className="text-3xl font-bold text-ink-800 break-all">{question.question}</h2>
                 {settings.voiceEnabled && (
                   <button
                     onClick={() => speakEnglish(question.question)}
-                    className="p-2 text-slate-400 hover:text-indigo-600 transition"
+                    className="p-2 text-ink-400 hover:text-seal-600 transition"
                     title="朗读"
                   >
                     <Volume2 className="w-5 h-5" />
@@ -1452,9 +1452,9 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 if (isPickedCorrect) cls += 'bg-green-50 border-green-500 text-green-800'
                 else if (isWrongPick) cls += 'bg-red-50 border-red-500 text-red-800'
                 else if (isMissedCorrect) cls += 'bg-amber-50 border-amber-500 text-amber-800'
-                else cls += 'bg-slate-50 border-slate-200 text-slate-400'
+                else cls += 'bg-paper-100 border-ink-200 text-ink-400'
               } else {
-                cls += 'bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:bg-indigo-50/40 cursor-pointer'
+                cls += 'bg-paper-50 border-ink-300 text-ink-700 hover:border-seal-400 hover:bg-seal-50/40 cursor-pointer'
               }
               return (
                 <button
@@ -1464,10 +1464,10 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   className={cls}
                 >
                   <span className={`shrink-0 w-7 h-7 rounded-full text-center leading-7 text-sm font-bold ${
-                    isPickedCorrect ? 'bg-green-500 text-white'
-                      : isWrongPick ? 'bg-red-500 text-white'
-                      : isMissedCorrect ? 'bg-amber-500 text-white'
-                      : 'bg-slate-100 text-slate-500'
+                    isPickedCorrect ? 'bg-green-500 text-paper-50'
+                      : isWrongPick ? 'bg-red-500 text-paper-50'
+                      : isMissedCorrect ? 'bg-amber-500 text-paper-50'
+                      : 'bg-ink-100 text-ink-500'
                   }`}>
                     {String.fromCharCode(65 + idx)}
                   </span>
@@ -1497,7 +1497,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             <button
               onClick={exitSession}
               disabled={showCard}
-              className="px-4 py-3 bg-slate-100 text-slate-500 rounded-lg text-sm font-medium hover:bg-slate-200 transition disabled:opacity-40"
+              className="px-4 py-3 bg-ink-100 text-ink-500 rounded-lg text-sm font-medium hover:bg-ink-200 transition disabled:opacity-40"
             >
               退出
             </button>
@@ -1509,7 +1509,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             借鉴快速刷题流：点击屏幕任意位置即可继续（大热区），滚动后 250ms 内防误触 */}
         {showCard && currentWord && (
           <div
-            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 cursor-pointer"
+            className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4 cursor-pointer"
             onClick={() => {
               if (Date.now() - cardScrollAtRef.current < 250) return
               setShowCard(false)
@@ -1517,7 +1517,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             }}
           >
             <div
-              className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto"
+              className="bg-paper-50 rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto"
               onScroll={() => { cardScrollAtRef.current = Date.now() }}
             >
               <div className="mb-3 text-center">
@@ -1534,52 +1534,52 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 </span>
               </div>
               <div className="text-center mb-4">
-                <h2 className="text-3xl font-bold text-slate-800">{currentWord.word}</h2>
+                <h2 className="text-3xl font-bold text-ink-800">{currentWord.word}</h2>
                 <div className="flex items-center justify-center gap-3 mt-1">
-                  {currentWord.phonetic && <span className="text-sm text-slate-400">{currentWord.phonetic}</span>}
+                  {currentWord.phonetic && <span className="text-sm text-ink-400">{currentWord.phonetic}</span>}
                   {settings.voiceEnabled && (
                     <button
                       onClick={(e) => { e.stopPropagation(); speakEnglish(currentWord.word) }}
-                      className="text-slate-400 hover:text-indigo-600"
+                      className="text-ink-400 hover:text-seal-600"
                     >
                       <Volume2 className="w-4 h-4" />
                     </button>
                   )}
                 </div>
-                <p className="text-lg text-indigo-600 font-medium mt-2">{currentWord.meaning}</p>
+                <p className="text-lg text-seal-600 font-medium mt-2">{currentWord.meaning}</p>
               </div>
               {currentWord.definitionCn && currentWord.definitionCn !== currentWord.meaning && (
-                <p className="text-sm text-slate-600 mb-2">
+                <p className="text-sm text-ink-600 mb-2">
                   <span className="font-medium">定义：</span>{currentWord.definitionCn}
                 </p>
               )}
               {currentWord.definitionEn && (
-                <p className="text-sm text-slate-500 mb-2">
+                <p className="text-sm text-ink-500 mb-2">
                   <span className="font-medium">EN：</span>{currentWord.definitionEn}
                 </p>
               )}
               {currentWord.exampleEn && (
-                <div className="mt-3 p-3 bg-slate-50 rounded-lg">
-                  <p className="text-sm text-slate-700 italic leading-relaxed">
+                <div className="mt-3 p-3 bg-paper-100 rounded-lg">
+                  <p className="text-sm text-ink-700 italic leading-relaxed">
                     {currentWord.exampleEn.split(
                       new RegExp(`(${currentWord.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i'),
                     ).map((seg, i) =>
                       seg.toLowerCase() === currentWord.word.toLowerCase()
-                        ? <strong key={i} className="text-indigo-600 not-italic">{seg}</strong>
+                        ? <strong key={i} className="text-seal-600 not-italic">{seg}</strong>
                         : seg,
                     )}
                   </p>
-                  {currentWord.exampleZh && <p className="text-sm text-slate-500 mt-1.5">{currentWord.exampleZh}</p>}
+                  {currentWord.exampleZh && <p className="text-sm text-ink-500 mt-1.5">{currentWord.exampleZh}</p>}
                 </div>
               )}
               {/* 主按钮仅为视觉焦点：点击冒泡到 overlay 统一处理（防双触发跳两题） */}
               <button
                 type="button"
-                className="mt-5 w-full py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+                className="mt-5 w-full py-3 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
               >
                 继续下一题
               </button>
-              <p className="mt-2.5 text-center text-xs text-slate-400">
+              <p className="mt-2.5 text-center text-xs text-ink-400">
                 👆 点击屏幕任意位置继续
               </p>
             </div>
@@ -1591,7 +1591,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   // ── 开始页 ──
   const statChips: { label: string; value: number; cls: string }[] = [
-    { label: '全部', value: stats.total, cls: 'text-slate-700' },
+    { label: '全部', value: stats.total, cls: 'text-ink-700' },
     { label: '未学', value: stats.new, cls: 'text-red-500' },
     { label: '学习中', value: stats.learning, cls: 'text-amber-500' },
     { label: '已学', value: stats.learned, cls: 'text-blue-500' },
@@ -1602,35 +1602,35 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   return (
     <div className="space-y-4">
       {/* 统计条 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="bg-paper-50 rounded-xl border border-ink-200 p-4">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           {statChips.map((c) => (
             <div key={c.label} className="text-sm">
-              <span className="text-slate-400">{c.label} </span>
+              <span className="text-ink-400">{c.label} </span>
               <span className={`font-semibold ${c.cls}`}>{c.value}</span>
             </div>
           ))}
           <div className="text-sm ml-auto">
-            <span className="text-slate-400">今日已学 </span>
-            <span className="font-semibold text-indigo-600">{studyStats.todayLearned.length}</span>
+            <span className="text-ink-400">今日已学 </span>
+            <span className="font-semibold text-seal-600">{studyStats.todayLearned.length}</span>
           </div>
         </div>
       </div>
 
       {/* 设置面板 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="bg-paper-50 rounded-xl border border-ink-200 p-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-slate-800">学习设置</h3>
+          <h3 className="text-sm font-medium text-ink-800">学习设置</h3>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-1 text-sm text-indigo-600 hover:bg-indigo-50 px-2.5 py-1 rounded-lg transition"
+              className="flex items-center gap-1 text-sm text-seal-600 hover:bg-seal-50 px-2.5 py-1 rounded-lg transition"
             >
               <Plus className="w-4 h-4" /> 添加单词
             </button>
             <button
               onClick={() => setShowSettings(!showSettings)}
-              className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition"
+              className="flex items-center gap-1 text-sm text-ink-500 hover:text-ink-700 px-2.5 py-1 rounded-lg hover:bg-ink-100 transition"
             >
               <Settings className="w-4 h-4" />
               {showSettings ? '收起' : '展开'}
@@ -1641,8 +1641,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         {showSettings && (
           <div className="mt-4 space-y-5">
             <div>
-              <label className="block text-sm text-slate-600 mb-1">每组词数</label>
-              <p className="text-xs text-slate-400 mb-2">
+              <label className="block text-sm text-ink-600 mb-1">每组词数</label>
+              <p className="text-xs text-ink-400 mb-2">
                 一次学一组，不是每日上限。组内按下面的题型顺序分轮过完，才会换下一组（A-D 全部过完，才轮到 E-H）。
               </p>
               <div className="flex gap-2">
@@ -1651,7 +1651,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                     key={n}
                     onClick={() => setSettings((p) => ({ ...p, queueLength: n }))}
                     className={`px-4 py-1.5 rounded-lg text-sm transition ${
-                      settings.queueLength === n ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      settings.queueLength === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
                     }`}
                   >
                     {n} 个/组
@@ -1661,7 +1661,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             </div>
 
             <div>
-              <label className="block text-sm text-slate-600 mb-2">题型选择（按勾选顺序分轮出题，答错就地重做这道题）</label>
+              <label className="block text-sm text-ink-600 mb-2">题型选择（按勾选顺序分轮出题，答错就地重做这道题）</label>
               <div className="flex flex-wrap gap-2">
                 {WORD_QUESTION_TYPES.map((t) => {
                   const Icon = t.icon
@@ -1670,12 +1670,12 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                     <label
                       key={t.key}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm cursor-pointer transition ${
-                        checked ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-slate-50 border-slate-200 text-slate-500'
+                        checked ? 'bg-seal-50 border-seal-300 text-seal-700' : 'bg-paper-100 border-ink-200 text-ink-500'
                       }`}
                     >
                       <input
                         type="checkbox"
-                        className="accent-indigo-600"
+                        className="accent-seal-600"
                         checked={checked}
                         onChange={(e) => {
                           setSettings((p) => {
@@ -1693,45 +1693,45 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   )
                 })}
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">
+              <p className="text-xs text-ink-400 mt-1.5">
                 定义/例句类题型需要单词含有 definition_cn 或原文例句，缺字段的词会自动跳过该轮
               </p>
             </div>
 
             <div>
-              <label className="block text-sm text-slate-600 mb-2">掌握条件（走满多少轮算掌握）</label>
+              <label className="block text-sm text-ink-600 mb-2">掌握条件（走满多少轮算掌握）</label>
               <div className="flex gap-2">
                 {MASTER_ROUND_OPTIONS.map((n) => (
                   <button
                     key={n}
                     onClick={() => setSettings((p) => ({ ...p, masterRounds: n }))}
                     className={`px-4 py-1.5 rounded-lg text-sm transition ${
-                      settings.masterRounds === n ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      settings.masterRounds === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
                     }`}
                   >
                     {n} 轮
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">
+              <p className="text-xs text-ink-400 mt-1.5">
                 一轮 = 把选中的题型各答对一遍；答错会立刻重做这道题，不计入下一轮
               </p>
             </div>
 
             <div className="flex items-center gap-6 pt-1">
-              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-ink-600 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="accent-indigo-600"
+                  className="accent-seal-600"
                   checked={settings.allowZhan}
                   onChange={(e) => setSettings((p) => ({ ...p, allowZhan: e.target.checked }))}
                 />
                 允许斩词
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-ink-600 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="accent-indigo-600"
+                  className="accent-seal-600"
                   checked={settings.voiceEnabled}
                   onChange={(e) => setSettings((p) => ({ ...p, voiceEnabled: e.target.checked }))}
                 />
@@ -1747,7 +1747,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         <button
           onClick={() => startSession('learn')}
           disabled={stats.new + stats.learning === 0}
-          className="flex-1 py-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          className="flex-1 py-4 bg-seal-600 text-paper-50 rounded-xl hover:bg-seal-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
           <span className="block text-base font-medium">开始学习</span>
           <span className="text-xs opacity-80">
@@ -1757,7 +1757,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         <button
           onClick={() => startSession('review')}
           disabled={stats.due === 0}
-          className="flex-1 py-4 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          className="flex-1 py-4 bg-emerald-600 text-paper-50 rounded-xl hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
           <span className="block text-base font-medium">开始复习</span>
           <span className="text-xs opacity-80">
@@ -1872,25 +1872,25 @@ function PracticePanel({
   const storedMissedList = csvToList(storedMissed)
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+    <div className="bg-paper-50 rounded-xl border border-ink-200 p-6 space-y-5">
       {/* 题面 */}
       <div>
         <div className="flex items-center gap-2 mb-2">
           {directionLabel && (
-            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">{directionLabel}</span>
+            <span className="px-2 py-0.5 bg-seal-50 text-seal-700 rounded text-xs font-medium">{directionLabel}</span>
           )}
-          <span className="text-xs font-medium text-slate-400">{directionLabel ? '原文（请翻译）' : '英文长难句'}</span>
+          <span className="text-xs font-medium text-ink-400">{directionLabel ? '原文（请翻译）' : '英文长难句'}</span>
         </div>
-        <p className="text-lg text-slate-800 leading-relaxed">{question}</p>
+        <p className="text-lg text-ink-800 leading-relaxed">{question}</p>
         {note && <p className="mt-2 text-xs text-amber-600">难点：{note}</p>}
       </div>
 
       {/* 踩分点：默认折叠，可编辑 */}
-      <div className="border border-slate-200 rounded-lg">
+      <div className="border border-ink-200 rounded-lg">
         <div className="flex items-center justify-between px-3 py-2">
           <button
             onClick={() => setShowPoints((v) => !v)}
-            className="flex items-center gap-1.5 text-sm text-slate-600"
+            className="flex items-center gap-1.5 text-sm text-ink-600"
           >
             {showPoints ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             踩分点（{scoringPoints.length}）
@@ -1901,7 +1901,7 @@ function PracticePanel({
               setShowPoints(true)
               setEditingPoints(true)
             }}
-            className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"
+            className="flex items-center gap-1 text-xs text-seal-600 hover:text-seal-700"
           >
             <Pencil className="w-3.5 h-3.5" />
             编辑踩分点
@@ -1915,12 +1915,12 @@ function PracticePanel({
                 onChange={(e) => setPointsDraft(e.target.value)}
                 rows={4}
                 placeholder="一行一条踩分点"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               />
               <div className="flex gap-2 justify-end">
                 <button
                   onClick={() => setEditingPoints(false)}
-                  className="px-3 py-1.5 text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                  className="px-3 py-1.5 text-xs text-ink-500 bg-ink-100 hover:bg-ink-200 rounded-lg transition"
                 >
                   取消
                 </button>
@@ -1930,7 +1930,7 @@ function PracticePanel({
                     setEditingPoints(false)
                     toast.success('踩分点已保存')
                   }}
-                  className="px-3 py-1.5 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition"
+                  className="px-3 py-1.5 text-xs text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition"
                 >
                   保存
                 </button>
@@ -1939,11 +1939,11 @@ function PracticePanel({
           ) : (
             <ul className="px-3 pb-3 space-y-1">
               {scoringPoints.length === 0 && (
-                <li className="text-xs text-slate-400">暂无踩分点，点「编辑踩分点」补充，AI 将据此判分</li>
+                <li className="text-xs text-ink-400">暂无踩分点，点「编辑踩分点」补充，AI 将据此判分</li>
               )}
               {scoringPoints.map((p, i) => (
-                <li key={i} className="text-sm text-slate-600 flex gap-2">
-                  <span className="text-slate-300">{i + 1}.</span>
+                <li key={i} className="text-sm text-ink-600 flex gap-2">
+                  <span className="text-ink-300">{i + 1}.</span>
                   <span>{p}</span>
                 </li>
               ))}
@@ -1954,7 +1954,7 @@ function PracticePanel({
 
       {/* 作答 */}
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1.5">你的译文</label>
+        <label className="block text-sm font-medium text-ink-700 mb-1.5">你的译文</label>
         <textarea
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
@@ -1967,13 +1967,13 @@ function PracticePanel({
           rows={4}
           disabled={grading}
           placeholder={answerPlaceholder}
-          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-slate-50"
+          className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none disabled:bg-paper-100"
         />
         <div className="mt-2 flex items-center gap-3">
           <button
             onClick={handleSubmit}
             disabled={grading || !answer.trim()}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {grading ? (
               <>
@@ -1987,10 +1987,10 @@ function PracticePanel({
               </>
             )}
           </button>
-          <span className="text-xs text-slate-400">Ctrl/Cmd + Enter 快捷提交</span>
+          <span className="text-xs text-ink-400">Ctrl/Cmd + Enter 快捷提交</span>
         </div>
         {grading && (
-          <p className="text-xs text-slate-400 mt-1.5">
+          <p className="text-xs text-ink-400 mt-1.5">
             后端需排队跑 GitHub Actions，通常要 1-3 分钟，请耐心等待（界面不会卡住）。
           </p>
         )}
@@ -2009,17 +2009,17 @@ function PracticePanel({
 
       {/* 本次判分结果 */}
       {result && (
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
+        <div className="rounded-lg border border-seal-100 bg-seal-50/40 p-4 space-y-3">
           <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-indigo-600">{result.score}</span>
-            <span className="text-sm text-slate-500">/ 100</span>
+            <span className="text-2xl font-bold text-seal-600">{result.score}</span>
+            <span className="text-sm text-ink-500">/ 100</span>
           </div>
           {result.hitPoints.length > 0 && (
             <div>
               <p className="text-xs font-medium text-emerald-600 mb-1">命中的踩分点</p>
               <ul className="space-y-0.5">
                 {result.hitPoints.map((p, i) => (
-                  <li key={i} className="text-sm text-slate-700 flex gap-1.5">
+                  <li key={i} className="text-sm text-ink-700 flex gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
                     <span>{p}</span>
                   </li>
@@ -2032,7 +2032,7 @@ function PracticePanel({
               <p className="text-xs font-medium text-red-500 mb-1">漏掉的踩分点</p>
               <ul className="space-y-0.5">
                 {result.missedPoints.map((p, i) => (
-                  <li key={i} className="text-sm text-slate-700 flex gap-1.5">
+                  <li key={i} className="text-sm text-ink-700 flex gap-1.5">
                     <X className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
                     <span>{p}</span>
                   </li>
@@ -2040,18 +2040,18 @@ function PracticePanel({
               </ul>
             </div>
           )}
-          {result.feedback && <p className="text-sm text-slate-600 whitespace-pre-wrap">{result.feedback}</p>}
+          {result.feedback && <p className="text-sm text-ink-600 whitespace-pre-wrap">{result.feedback}</p>}
         </div>
       )}
 
       {/* 无本次结果时，展示落库的上一次判分记录 */}
       {!result && (storedFeedback || storedMissedList.length > 0) && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1.5">
-          <p className="text-xs font-medium text-slate-500">上次判分记录</p>
+        <div className="rounded-lg border border-ink-200 bg-paper-100 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-ink-500">上次判分记录</p>
           {storedMissedList.length > 0 && (
-            <p className="text-sm text-slate-600">漏掉的踩分点：{storedMissedList.join('；')}</p>
+            <p className="text-sm text-ink-600">漏掉的踩分点：{storedMissedList.join('；')}</p>
           )}
-          {storedFeedback && <p className="text-sm text-slate-600 whitespace-pre-wrap">{storedFeedback}</p>}
+          {storedFeedback && <p className="text-sm text-ink-600 whitespace-pre-wrap">{storedFeedback}</p>}
         </div>
       )}
 
@@ -2059,13 +2059,13 @@ function PracticePanel({
       <div>
         <button
           onClick={() => setShowReference((v) => !v)}
-          className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700"
+          className="flex items-center gap-1.5 text-sm text-seal-600 hover:text-seal-700"
         >
           {showReference ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           {showReference ? '收起参考译文' : `查看参考译文（${referenceLabel}）`}
         </button>
         {showReference && (
-          <p className="mt-2 text-sm text-slate-700 leading-relaxed bg-slate-50 rounded-lg p-3 whitespace-pre-wrap">
+          <p className="mt-2 text-sm text-ink-700 leading-relaxed bg-paper-100 rounded-lg p-3 whitespace-pre-wrap">
             {referenceTranslation || '（暂无参考译文）'}
           </p>
         )}
@@ -2094,9 +2094,9 @@ function BatchProgressPanel({
   return (
     <div className="space-y-2">
       {running && (
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+        <div className="bg-paper-50 rounded-xl border border-ink-200 p-4 space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-600">
+            <span className="text-ink-600">
               批量补提中：已完成 {done} / {total} 篇
             </span>
             <button
@@ -2107,14 +2107,14 @@ function BatchProgressPanel({
               停止
             </button>
           </div>
-          {title && <p className="text-xs text-slate-400 truncate">正在处理：{title}</p>}
-          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+          {title && <p className="text-xs text-ink-400 truncate">正在处理：{title}</p>}
+          <div className="w-full h-2 bg-ink-100 rounded-full overflow-hidden">
             <div
-              className="h-2 bg-indigo-600 rounded-full transition-all"
+              className="h-2 bg-seal-600 rounded-full transition-all"
               style={{ width: `${total ? (done / total) * 100 : 0}%` }}
             />
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-ink-400">
             逐篇串行调用后端（GitHub Actions），每篇完成后立即增量落盘；点「停止」不会丢失已完成的部分。
           </p>
         </div>
@@ -2311,21 +2311,21 @@ function SentenceSection({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-3">
-        <div className="text-sm text-slate-500">
+        <div className="text-sm text-ink-500">
           进度：{sentences.length > 0 ? `${safeIndex + 1} / ${sentences.length}` : '0 / 0'}
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleBatchBackfill}
             disabled={batchRunning}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-seal-600 hover:bg-seal-50 rounded-lg transition disabled:opacity-50"
           >
             <History className="w-4 h-4" />
             批量补提历史文献
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-seal-600 hover:bg-seal-50 rounded-lg transition"
           >
             <Plus className="w-4 h-4" />
             手动添加
@@ -2344,8 +2344,8 @@ function SentenceSection({
 
       {sentences.length === 0 || !currentSentence ? (
         <div className="text-center py-16">
-          <Type className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-500 mb-4">
+          <Type className="w-16 h-16 text-ink-300 mx-auto mb-4" />
+          <p className="text-ink-500 mb-4">
             还没有长难句。可点上方「批量补提历史文献」（仅对有 md 的文献生效），或手动添加。
           </p>
         </div>
@@ -2375,7 +2375,7 @@ function SentenceSection({
           <div className="flex items-center justify-center gap-3">
             <button
               onClick={handlePrev}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-sm font-medium hover:bg-paper-100 transition"
             >
               <ChevronLeft className="w-4 h-4" />
               上一张
@@ -2385,7 +2385,7 @@ function SentenceSection({
               className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
                 currentSentence.status === 'mastered'
                   ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  : 'bg-paper-50 border border-ink-200 text-ink-600 hover:bg-paper-100'
               }`}
             >
               <Check className="w-4 h-4" />
@@ -2393,7 +2393,7 @@ function SentenceSection({
             </button>
             <button
               onClick={handleNext}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
             >
               下一张
               <ChevronRight className="w-4 h-4" />
@@ -2571,21 +2571,21 @@ function TranslationSection({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-3">
-        <div className="text-sm text-slate-500">
+        <div className="text-sm text-ink-500">
           进度：{translations.length > 0 ? `${safeIndex + 1} / ${translations.length}` : '0 / 0'}
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleBatchBackfill}
             disabled={batchRunning}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-seal-600 hover:bg-seal-50 rounded-lg transition disabled:opacity-50"
           >
             <History className="w-4 h-4" />
             批量补提历史文献
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-seal-600 hover:bg-seal-50 rounded-lg transition"
           >
             <Plus className="w-4 h-4" />
             手动添加
@@ -2604,8 +2604,8 @@ function TranslationSection({
 
       {translations.length === 0 || !currentItem ? (
         <div className="text-center py-16">
-          <Languages className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-500 mb-4">
+          <Languages className="w-16 h-16 text-ink-300 mx-auto mb-4" />
+          <p className="text-ink-500 mb-4">
             还没有翻译练习。可点上方「批量补提历史文献」（只需文献有摘要，不需要 md），或手动添加。
           </p>
         </div>
@@ -2635,7 +2635,7 @@ function TranslationSection({
           <div className="flex items-center justify-center gap-3">
             <button
               onClick={handlePrev}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-sm font-medium hover:bg-paper-100 transition"
             >
               <ChevronLeft className="w-4 h-4" />
               上一张
@@ -2645,7 +2645,7 @@ function TranslationSection({
               className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
                 currentItem.status === 'completed'
                   ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  : 'bg-paper-50 border border-ink-200 text-ink-600 hover:bg-paper-100'
               }`}
             >
               <Check className="w-4 h-4" />
@@ -2653,7 +2653,7 @@ function TranslationSection({
             </button>
             <button
               onClick={handleNext}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
             >
               下一张
               <ChevronRight className="w-4 h-4" />
@@ -2670,11 +2670,11 @@ function TranslationSection({
 function ModalBackdrop({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-ink-900/50 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+        className="bg-paper-50 rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {children}
@@ -2723,10 +2723,10 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
     <ModalBackdrop onClose={onClose}>
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-slate-800">添加单词</h3>
+          <h3 className="text-lg font-bold text-ink-800">添加单词</h3>
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 transition"
+            className="p-1 text-ink-400 hover:text-ink-600 transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -2734,67 +2734,67 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">单词 *</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">单词 *</label>
             <input
               type="text"
               value={word}
               onChange={(e) => setWord(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
               placeholder="例如：example"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">音标</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">音标</label>
             <input
               type="text"
               value={phonetic}
               onChange={(e) => setPhonetic(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
               placeholder="例如：/pəˈrɒvskaɪt/"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">中文释义 *</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">中文释义 *</label>
             <input
               type="text"
               value={meaning}
               onChange={(e) => setMeaning(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
               placeholder="例如：示例单词"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">例句（英文）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">例句（英文）</label>
             <textarea
               value={exampleEn}
               onChange={(e) => setExampleEn(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder="英文例句"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">例句（中文）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">例句（中文）</label>
             <textarea
               value={exampleZh}
               onChange={(e) => setExampleZh(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder="中文翻译"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">中文定义（选填，用于"定义"类题型）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">中文定义（选填，用于"定义"类题型）</label>
             <input
               type="text"
               value={definitionCn}
               onChange={(e) => setDefinitionCn(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
               placeholder="留空则与中文释义相同"
             />
           </div>
@@ -2803,13 +2803,13 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+              className="flex-1 px-4 py-2.5 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-sm font-medium hover:bg-paper-100 transition"
             >
               取消
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              className="flex-1 px-4 py-2.5 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
             >
               添加
             </button>
@@ -2859,10 +2859,10 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
     <ModalBackdrop onClose={onClose}>
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-slate-800">添加长难句</h3>
+          <h3 className="text-lg font-bold text-ink-800">添加长难句</h3>
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 transition"
+            className="p-1 text-ink-400 hover:text-ink-600 transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -2870,45 +2870,45 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">英文句子 *</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">英文句子 *</label>
             <textarea
               value={en}
               onChange={(e) => setEn(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder="英文长难句"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">中文翻译 *</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">中文翻译 *</label>
             <textarea
               value={zh}
               onChange={(e) => setZh(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder="中文翻译"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">踩分点（选填，一行一条）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">踩分点（选填，一行一条）</label>
             <textarea
               value={points}
               onChange={(e) => setPoints(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder="判分标准，主要写逻辑关系与关键术语"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">难点说明（选填）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">难点说明（选填）</label>
             <input
               type="text"
               value={difficulty}
               onChange={(e) => setDifficulty(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
               placeholder="这句难在哪里"
             />
           </div>
@@ -2917,13 +2917,13 @@ function AddSentenceModal({ onClose, onAdd }: { onClose: () => void; onAdd: (sen
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+              className="flex-1 px-4 py-2.5 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-sm font-medium hover:bg-paper-100 transition"
             >
               取消
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              className="flex-1 px-4 py-2.5 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
             >
               添加
             </button>
@@ -2974,10 +2974,10 @@ function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (
     <ModalBackdrop onClose={onClose}>
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-slate-800">添加翻译练习</h3>
+          <h3 className="text-lg font-bold text-ink-800">添加翻译练习</h3>
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 transition"
+            className="p-1 text-ink-400 hover:text-ink-600 transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -2985,11 +2985,11 @@ function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">翻译方向 *</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">翻译方向 *</label>
             <select
               value={direction}
               onChange={(e) => setDirection(e.target.value as TranslationDirection)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
             >
               <option value="cn2en">中译英（题面中文 → 译文英文）</option>
               <option value="en2cn">英译中（题面英文 → 译文中文）</option>
@@ -2997,34 +2997,34 @@ function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">{sourceLabel} *</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">{sourceLabel} *</label>
             <textarea
               value={source}
               onChange={(e) => setSource(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder={direction === 'cn2en' ? '中文句子' : 'English sentence'}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">{referenceLabel} *</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">{referenceLabel} *</label>
             <textarea
               value={reference}
               onChange={(e) => setReference(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder={direction === 'cn2en' ? 'English reference translation' : '中文参考译文'}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">踩分点（选填，一行一条）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">踩分点（选填，一行一条）</label>
             <textarea
               value={points}
               onChange={(e) => setPoints(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
               placeholder="判分标准，主要写逻辑关系与关键术语"
             />
           </div>
@@ -3033,13 +3033,13 @@ function AddTranslationModal({ onClose, onAdd }: { onClose: () => void; onAdd: (
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+              className="flex-1 px-4 py-2.5 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-sm font-medium hover:bg-paper-100 transition"
             >
               取消
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              className="flex-1 px-4 py-2.5 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition"
             >
               添加
             </button>

@@ -119,7 +119,7 @@ function reasonColor(reason: AttemptReason | undefined): string {
   if (reason === 'ai1_evidence_failed') return 'bg-red-100 text-red-800 border-red-300'
   if (reason === 'ai2_self_correct')
     return 'bg-purple-100 text-purple-800 border-purple-300'
-  return 'bg-slate-100 text-slate-700 border-slate-300'
+  return 'bg-ink-100 text-ink-700 border-ink-300'
 }
 
 /** 单节点渲染 */
@@ -135,8 +135,8 @@ function Node({
   text: string | null
 }) {
   const styleByStatus: Record<NodeStatus, string> = {
-    pending: 'border-slate-200 bg-slate-50 text-slate-400',
-    running: 'border-indigo-300 bg-indigo-50 text-indigo-700',
+    pending: 'border-ink-200 bg-paper-100 text-ink-400',
+    running: 'border-seal-300 bg-seal-50 text-seal-700',
     done: 'border-green-300 bg-green-50 text-green-800',
     error: 'border-red-300 bg-red-50 text-red-800',
   }
@@ -198,7 +198,7 @@ function StageTimeline({
             第 {attempt}/{maxAttempts} 轮 · {reasonLabel(reason)}
           </span>
           {maxAttempts > 1 && attempt < maxAttempts && (
-            <span className="text-[0.6875rem] text-slate-500">
+            <span className="text-[0.6875rem] text-ink-500">
               未通过将自动进入下一轮（最多 {maxAttempts} 轮）
             </span>
           )}

@@ -243,7 +243,7 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
   const menu = document.createElement('div')
   menu.id = 'af-formula-menu'
   menu.className =
-    'fixed z-[9999] bg-white border border-slate-200 rounded-lg shadow-xl py-1 text-sm min-w-[8.75rem]'
+    'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl py-1 text-sm min-w-[8.75rem]'
   const rect = anchor.getBoundingClientRect()
   menu.style.top = `${Math.round(rect.bottom + 6)}px`
   menu.style.left = `${Math.round(rect.left)}px`
@@ -255,8 +255,8 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
   for (const it of items) {
     const btn = document.createElement('button')
     btn.type = 'button'
-    btn.className = 'w-full flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-indigo-50 text-slate-700'
-    btn.innerHTML = `<span>${it.label}</span><span class="text-xs text-slate-400 font-mono">${it.hint}</span>`
+    btn.className = 'w-full flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-seal-50 text-ink-700'
+    btn.innerHTML = `<span>${it.label}</span><span class="text-xs text-ink-400 font-mono">${it.hint}</span>`
     btn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()

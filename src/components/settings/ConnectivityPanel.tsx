@@ -408,13 +408,13 @@ export default function ConnectivityPanel() {
           type="button"
           onClick={runAll}
           disabled={allTesting || !isInitialized}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-indigo-400 bg-indigo-50 text-indigo-700 rounded-md
-                     hover:bg-indigo-100 disabled:text-slate-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:border-slate-200"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-seal-400 bg-seal-50 text-seal-700 rounded-md
+                     hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
         >
           {allTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
           {allTesting ? '全部测试中...' : '🔌 全部测试'}
         </button>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-ink-500">
           {greenCount} / 3 通过 · dispatch 目标:{owner}/{repo}
         </span>
       </div>
@@ -483,15 +483,15 @@ function TestBlock(props: {
   children?: React.ReactNode
 }) {
   const toneClasses: Record<BlockTone, string> = {
-    idle:    'border-slate-200',
-    running: 'border-indigo-300 bg-indigo-50/30',
+    idle:    'border-ink-200',
+    running: 'border-seal-300 bg-seal-50/30',
     ok:      'border-green-200 bg-green-50/40',
     warn:    'border-amber-200 bg-amber-50/40',
     err:     'border-red-200 bg-red-50/40',
   }
   const toneBadge: Record<BlockTone, React.ReactNode> = {
     idle:    null,
-    running: <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">测试中</span>,
+    running: <span className="text-[10px] px-1.5 py-0.5 rounded bg-seal-100 text-seal-700 font-medium">测试中</span>,
     ok:      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">✅ 通过</span>,
     warn:    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">⚠️ 警告</span>,
     err:     <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">❌ 失败</span>,
@@ -501,14 +501,14 @@ function TestBlock(props: {
     <div className={`rounded-md border p-3 space-y-2 ${toneClasses[props.tone]}`}>
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="flex items-start gap-2">
-          <span className="mt-0.5 text-slate-500">{props.icon}</span>
+          <span className="mt-0.5 text-ink-500">{props.icon}</span>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-800">{props.title}</span>
+              <span className="text-sm font-medium text-ink-800">{props.title}</span>
               {toneBadge[props.tone]}
             </div>
             {props.subtitle && (
-              <p className="text-[11px] text-slate-500 mt-0.5">{props.subtitle}</p>
+              <p className="text-[11px] text-ink-500 mt-0.5">{props.subtitle}</p>
             )}
           </div>
         </div>
@@ -516,8 +516,8 @@ function TestBlock(props: {
           type="button"
           onClick={props.onButton}
           disabled={props.buttonDisabled}
-          className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-indigo-300 bg-indigo-50 text-indigo-700
-                     hover:bg-indigo-100 disabled:text-slate-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:border-slate-200"
+          className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-seal-300 bg-seal-50 text-seal-700
+                     hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
         >
           {props.buttonLabel}
         </button>
@@ -535,9 +535,9 @@ function StepTimeline({ steps }: { steps: Step[] }) {
   const statusIcon = (status: StepStatus) => {
     switch (status) {
       case 'pending':
-        return <CircleDashed className="w-3 h-3 text-slate-300" />
+        return <CircleDashed className="w-3 h-3 text-ink-300" />
       case 'running':
-        return <Loader2 className="w-3 h-3 text-indigo-500 animate-spin" />
+        return <Loader2 className="w-3 h-3 text-seal-500 animate-spin" />
       case 'done':
         return <CheckCircle2 className="w-3 h-3 text-green-600" />
       case 'warn':
@@ -556,8 +556,8 @@ function StepTimeline({ steps }: { steps: Step[] }) {
 
   const statusColor = (status: StepStatus) => {
     switch (status) {
-      case 'pending':  return 'text-slate-400'
-      case 'running':  return 'text-indigo-600 font-medium'
+      case 'pending':  return 'text-ink-400'
+      case 'running':  return 'text-seal-600 font-medium'
       case 'done':     return 'text-green-700'
       case 'warn':     return 'text-amber-600 font-medium'
       case 'error':    return 'text-red-600 font-medium'
@@ -576,7 +576,7 @@ function StepTimeline({ steps }: { steps: Step[] }) {
                 ? 'bg-amber-300'
                 : s.status === 'error'
                   ? 'bg-red-300'
-                  : 'bg-slate-200')
+                  : 'bg-ink-200')
           : ''
         return (
           <div key={s.key} className="flex items-start gap-2">
@@ -588,7 +588,7 @@ function StepTimeline({ steps }: { steps: Step[] }) {
               <div className={`text-[11px] leading-tight ${statusColor(s.status)}`}>
                 {s.label}
                 {s.detail && (
-                  <span className="ml-1 text-slate-400 font-normal">{s.detail}</span>
+                  <span className="ml-1 text-ink-400 font-normal">{s.detail}</span>
                 )}
               </div>
             </div>
@@ -608,25 +608,25 @@ function GitHubReportDetail({ report }: { report: FullConnectivityReport }) {
         <ModeDot label="Header 模式" ok={report.headerModeOk} />
         <ModeDot label="Query 模式" ok={report.queryModeOk} />
       </div>
-      <div className="border border-slate-200 rounded-md bg-slate-50 overflow-hidden">
-        <div className="divide-y divide-slate-200 text-[11px] font-mono">
+      <div className="border border-ink-200 rounded-md bg-paper-100 overflow-hidden">
+        <div className="divide-y divide-ink-200 text-[11px] font-mono">
           {report.endpoints.map((ep) => (
             <div key={ep.key} className="flex items-center gap-2 px-3 py-1.5">
               <span className="w-4 text-center shrink-0">
                 {ep.ok ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}
               </span>
-              <span className="text-slate-700 w-40 shrink-0 truncate">{ep.label}</span>
-              <span className="text-slate-400 truncate flex-1 max-w-[11.25rem]">
+              <span className="text-ink-700 w-40 shrink-0 truncate">{ep.label}</span>
+              <span className="text-ink-400 truncate flex-1 max-w-[11.25rem]">
                 {ep.url.replace('https://', '')}
               </span>
-              <span className={ep.ok ? 'text-slate-500' : 'text-red-500'}>
+              <span className={ep.ok ? 'text-ink-500' : 'text-red-500'}>
                 {ep.ok ? `HTTP ${ep.status}` : ep.error || `HTTP ${ep.status || '—'}`}
               </span>
-              <span className="text-slate-400 ml-auto tabular-nums">{ep.latencyMs}ms</span>
+              <span className="text-ink-400 ml-auto tabular-nums">{ep.latencyMs}ms</span>
             </div>
           ))}
         </div>
-        <div className="px-3 py-1.5 bg-white border-t border-slate-200 text-[11px] text-slate-600">
+        <div className="px-3 py-1.5 bg-paper-50 border-t border-ink-200 text-[11px] text-ink-600">
           {report.summary}
         </div>
       </div>
@@ -638,7 +638,7 @@ function ModeDot({ label, ok }: { label: string; ok: boolean }) {
   return (
     <span className="flex items-center gap-1">
       <span className={ok ? 'text-green-600' : 'text-red-600'}>{ok ? '●' : '○'}</span>
-      <span className={ok ? 'text-slate-700' : 'text-slate-500'}>{label}</span>
+      <span className={ok ? 'text-ink-700' : 'text-ink-500'}>{label}</span>
     </span>
   )
 }

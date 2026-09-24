@@ -36,7 +36,7 @@ function reasonColor(reason: AttemptReason): string {
     return 'bg-red-100 text-red-800 border-red-300'
   if (reason === 'ai2_self_correct')
     return 'bg-purple-100 text-purple-800 border-purple-300'
-  return 'bg-slate-100 text-slate-700 border-slate-300'
+  return 'bg-ink-100 text-ink-700 border-ink-300'
 }
 
 function fmtMs(ms: number): string {
@@ -53,14 +53,14 @@ function AttemptHistory({
   return (
     <details
       open={!finalPassed}
-      className="border border-slate-200 rounded-md overflow-hidden"
+      className="border border-ink-200 rounded-md overflow-hidden"
     >
-      <summary className="cursor-pointer px-3 py-2 bg-slate-50 hover:bg-slate-100 text-sm font-medium text-slate-800 flex items-center gap-2">
-        <RotateCcw className="w-4 h-4 text-indigo-600" />
+      <summary className="cursor-pointer px-3 py-2 bg-paper-100 hover:bg-ink-100 text-sm font-medium text-ink-800 flex items-center gap-2">
+        <RotateCcw className="w-4 h-4 text-seal-600" />
         重试历史（共 {attempts.length}/{maxAttempts} 轮
         {finalPassed ? '，最终通过 ✅' : '，最终未通过 ❌'}）
       </summary>
-      <div className="p-2 space-y-1.5 bg-white">
+      <div className="p-2 space-y-1.5 bg-paper-50">
         {attempts.map((a) => {
           const claims = a.ai2Feedback.claims
           const added = claims.filter((c) => c.verdict === 'added').length
@@ -84,10 +84,10 @@ function AttemptHistory({
             <details
               key={a.attempt}
               open={a.attempt === attempts.length && !a.passed}
-              className="border border-slate-200 rounded overflow-hidden"
+              className="border border-ink-200 rounded overflow-hidden"
             >
-              <summary className="cursor-pointer px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-xs flex items-center gap-2 flex-wrap">
-                <ChevronRight className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+              <summary className="cursor-pointer px-2 py-1.5 bg-paper-100 hover:bg-ink-100 text-xs flex items-center gap-2 flex-wrap">
+                <ChevronRight className="w-3.5 h-3.5 text-ink-500 flex-shrink-0" />
                 <span
                   className={`shrink-0 px-1.5 py-0.5 font-mono border rounded ${reasonColor(a.reason)}`}
                 >
@@ -104,11 +104,11 @@ function AttemptHistory({
                     未通过
                   </span>
                 )}
-                <span className="font-mono text-slate-500">
+                <span className="font-mono text-ink-500">
                   AI-1 {a.ai1Invoked ? fmtMs(a.ai1Ms) : '（沿用）'} · AI-2{' '}
                   {fmtMs(a.ai2Ms)}
                 </span>
-                <span className="font-mono text-slate-500">
+                <span className="font-mono text-ink-500">
                   ⊕{added} ✗{contradicted} · {evidenceLine}
                 </span>
                 {ai1EvidenceLine && (
@@ -117,25 +117,25 @@ function AttemptHistory({
                   </span>
                 )}
               </summary>
-              <div className="p-2 space-y-2 bg-white text-xs">
+              <div className="p-2 space-y-2 bg-paper-50 text-xs">
                 {/* AI-1 输出（本轮版本） */}
                 <div>
-                  <div className="font-medium text-slate-700 mb-1">
+                  <div className="font-medium text-ink-700 mb-1">
                     AI-1 输出
                     {!a.ai1Invoked && (
-                      <span className="ml-1 text-[0.6875rem] font-normal text-slate-500">
+                      <span className="ml-1 text-[0.6875rem] font-normal text-ink-500">
                         （本轮 AI-2 自纠，AI-1 输出沿用上一轮）
                       </span>
                     )}
                   </div>
-                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded whitespace-pre-wrap leading-relaxed max-h-[10rem] overflow-y-auto">
+                  <pre className="p-2 bg-paper-100 border border-ink-200 rounded whitespace-pre-wrap leading-relaxed max-h-[10rem] overflow-y-auto">
                     {a.ai1Output}
                   </pre>
                 </div>
 
                 {/* AI-2 反馈摘要 */}
                 {a.ai2Feedback.summary && (
-                  <div className="p-2 bg-slate-50 border-l-2 border-indigo-400 text-slate-700 leading-relaxed">
+                  <div className="p-2 bg-paper-100 border-l-2 border-seal-400 text-ink-700 leading-relaxed">
                     <span className="font-medium">AI-2 评价：</span>
                     {a.ai2Feedback.summary}
                   </div>
@@ -144,7 +144,7 @@ function AttemptHistory({
                 {/* claims 简表 */}
                 {claims.length > 0 && (
                   <div>
-                    <div className="font-medium text-slate-700 mb-1">
+                    <div className="font-medium text-ink-700 mb-1">
                       claims 明细（{claims.length} 条）
                     </div>
                     <ul className="space-y-1">
@@ -170,7 +170,7 @@ function AttemptHistory({
                           // normalizeVerdict 已在读取时降级为 supported，这里无需再列 case。
                           default:
                             tag = '?'
-                            tagColor = 'text-slate-500'
+                            tagColor = 'text-ink-500'
                         }
                         return (
                           <li
@@ -182,7 +182,7 @@ function AttemptHistory({
                             >
                               {tag}
                             </span>
-                            <span className="text-slate-800 break-words">
+                            <span className="text-ink-800 break-words">
                               {c.claim}
                               {evidenceFailed && (
                                 <span className="ml-1 text-red-700 font-mono">

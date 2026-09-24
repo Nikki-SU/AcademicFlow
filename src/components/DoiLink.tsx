@@ -27,11 +27,11 @@ export function DoiLink({
   className = '',
   onClick,
 }: DoiLinkProps) {
-  if (!doi || !doi.trim()) return <span className="text-slate-400">—</span>
+  if (!doi || !doi.trim()) return <span className="text-ink-400">—</span>
 
   const normalized = normalizeDoi(doi)
   if (!normalized.valid || !normalized.doi) {
-    return <span className="text-slate-400" title={doi}>—</span>
+    return <span className="text-ink-400" title={doi}>—</span>
   }
 
   const href = `https://doi.org/${normalized.doi}`
@@ -54,7 +54,7 @@ export function DoiLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`text-indigo-600 hover:text-indigo-800 hover:underline ${className}`}
+      className={`text-seal-600 hover:text-seal-800 hover:underline ${className}`}
       onClick={onClick}
       title={href}
     >

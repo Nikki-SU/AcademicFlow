@@ -139,21 +139,21 @@ export function PdfQuickUploadModal(props: {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink-900/40 p-4">
+      <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
-            <Upload className="w-5 h-5 text-indigo-600" />
+          <div className="w-10 h-10 rounded-lg bg-seal-50 flex items-center justify-center">
+            <Upload className="w-5 h-5 text-seal-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className="font-semibold text-slate-800">PDF 上传入库</h4>
-            <p className="text-xs text-slate-500 truncate">
+            <h4 className="font-semibold text-ink-800">PDF 上传入库</h4>
+            <p className="text-xs text-ink-500 truncate">
               {pendingPdf
                 ? `${pendingPdf.name} · ${Math.round(pendingPdf.size / 1024)} KB`
                 : '请选择 PDF 文件'}
             </p>
           </div>
-          <button onClick={handleClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+          <button onClick={handleClose} className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-lg transition">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -161,10 +161,10 @@ export function PdfQuickUploadModal(props: {
         {/* 第一步：选 PDF */}
         {!pendingPdf && (
           <label className="block cursor-pointer">
-            <div className="border-2 border-dashed border-slate-200 rounded-lg p-8 text-center hover:border-indigo-400 hover:bg-indigo-50/30 transition">
-              <Upload className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-              <p className="text-sm text-slate-600">点击选择 PDF 文件</p>
-              <p className="text-xs text-slate-400 mt-1">支持拖拽到此区域（或点选）</p>
+            <div className="border-2 border-dashed border-ink-200 rounded-lg p-8 text-center hover:border-seal-400 hover:bg-seal-50/30 transition">
+              <Upload className="w-10 h-10 mx-auto mb-3 text-ink-300" />
+              <p className="text-sm text-ink-600">点击选择 PDF 文件</p>
+              <p className="text-xs text-ink-400 mt-1">支持拖拽到此区域（或点选）</p>
               <input
                 ref={fileRef}
                 type="file"
@@ -184,7 +184,7 @@ export function PdfQuickUploadModal(props: {
         {pendingPdf && (
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
+              <label className="block text-xs font-medium text-ink-600 mb-1">
                 DOI <span className="text-red-500">*</span>
               </label>
               <div className="flex gap-2">
@@ -193,26 +193,26 @@ export function PdfQuickUploadModal(props: {
                   value={doi}
                   onChange={(e) => setDoi(e.target.value)}
                   placeholder="10.1039/c3cs60076a"
-                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="flex-1 px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   autoFocus
                 />
                 <button
                   onClick={tryAutoFill}
                   disabled={!doi.trim() || autoResolving}
-                  className="px-3 py-2 text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 rounded-lg transition whitespace-nowrap"
+                  className="px-3 py-2 text-xs text-seal-600 bg-seal-50 hover:bg-seal-100 disabled:opacity-50 rounded-lg transition whitespace-nowrap"
                 >
                   {autoResolving ? '解析...' : '自动获取'}
                 </button>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">标题（可选）</label>
+              <label className="block text-xs font-medium text-ink-600 mb-1">标题（可选）</label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="留空用文件名"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
 
@@ -223,18 +223,18 @@ export function PdfQuickUploadModal(props: {
             <div className="flex items-center justify-between gap-2 mt-5">
               <button
                 onClick={() => { setPendingPdf(null); if (fileRef.current) fileRef.current.value = '' }}
-                className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700 transition"
+                className="px-3 py-2 text-sm text-ink-500 hover:text-ink-700 transition"
               >
                 ← 重新选择
               </button>
               <div className="flex gap-2">
-                <button onClick={handleClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition">
+                <button onClick={handleClose} className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition">
                   取消
                 </button>
                 <button
                   onClick={handleConfirm}
                   disabled={!doi.trim()}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 disabled:opacity-50 rounded-lg transition"
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 disabled:opacity-50 rounded-lg transition"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   入库并上传
@@ -260,7 +260,7 @@ export function PdfQuickUploadButton(props: {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition"
+        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-seal-600 bg-seal-50 hover:bg-seal-100 rounded-md transition"
       >
         {children ?? (<><Plus className="w-3.5 h-3.5" />上传 PDF</>)}
       </button>

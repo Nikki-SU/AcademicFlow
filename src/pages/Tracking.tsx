@@ -99,16 +99,16 @@ interface TrackedPaper {
 const DEFAULT_SEARCH_SITES: SearchSite[] = [
   { id: 'cnki', name: '中国知网', urlTemplate: 'https://kns.cnki.net/kns8s/defaultresult/index?kw={query}', color: 'bg-red-50 text-red-600' },
   { id: 'xmol', name: 'X-MOL', urlTemplate: 'https://www.x-mol.com/paper/search/q?option={query}', color: 'bg-blue-50 text-blue-600' },
-  { id: 'scholar', name: 'Google Scholar', urlTemplate: 'https://scholar.google.com/scholar?q={query}', color: 'bg-slate-50 text-slate-600' },
-  { id: 'pubmed', name: 'PubMed', urlTemplate: 'https://pubmed.ncbi.nlm.nih.gov/?term={query}', color: 'bg-indigo-50 text-indigo-600' },
-  { id: 'arxiv', name: 'arXiv', urlTemplate: 'https://arxiv.org/search/?query={query}&searchtype=all', color: 'bg-slate-100 text-slate-600' },
+  { id: 'scholar', name: 'Google Scholar', urlTemplate: 'https://scholar.google.com/scholar?q={query}', color: 'bg-paper-100 text-ink-600' },
+  { id: 'pubmed', name: 'PubMed', urlTemplate: 'https://pubmed.ncbi.nlm.nih.gov/?term={query}', color: 'bg-seal-50 text-seal-600' },
+  { id: 'arxiv', name: 'arXiv', urlTemplate: 'https://arxiv.org/search/?query={query}&searchtype=all', color: 'bg-ink-100 text-ink-600' },
 ]
 
 const TRACKING_SOURCES = [
-  { label: 'CrossRef', count: 0, color: 'text-slate-400' },
-  { label: 'OpenAlex', count: 0, color: 'text-slate-400' },
-  { label: 'arXiv', count: 0, color: 'text-slate-400' },
-  { label: 'RSS', count: 0, color: 'text-slate-400' },
+  { label: 'CrossRef', count: 0, color: 'text-ink-400' },
+  { label: 'OpenAlex', count: 0, color: 'text-ink-400' },
+  { label: 'arXiv', count: 0, color: 'text-ink-400' },
+  { label: 'RSS', count: 0, color: 'text-ink-400' },
 ]
 
 const DEMO_TRACKED_PAPERS: TrackedPaper[] = []
@@ -163,7 +163,7 @@ export default function TrackingPage() {
   const [editingSearchSite, setEditingSearchSite] = useState<SearchSite | null>(null)
   const [searchFormName, setSearchFormName] = useState('')
   const [searchFormUrlTemplate, setSearchFormUrlTemplate] = useState('')
-  const [searchFormColor, setSearchFormColor] = useState('bg-indigo-50 text-indigo-600')
+  const [searchFormColor, setSearchFormColor] = useState('bg-seal-50 text-seal-600')
   const searchDropdownRef = useRef<HTMLDivElement>(null)
 
   // ---------- 立即追踪 ----------
@@ -230,7 +230,7 @@ export default function TrackingPage() {
               id: r[0] || '',
               name: r[1] || '',
               urlTemplate: r[2] || '',
-              color: r[3] || 'bg-indigo-50 text-indigo-600',
+              color: r[3] || 'bg-seal-50 text-seal-600',
             }))
           },
         )
@@ -572,7 +572,7 @@ export default function TrackingPage() {
     setEditingSearchSite(null)
     setSearchFormName('')
     setSearchFormUrlTemplate('')
-    setSearchFormColor('bg-indigo-50 text-indigo-600')
+    setSearchFormColor('bg-seal-50 text-seal-600')
     setShowSearchManager(true)
   }
 
@@ -712,7 +712,7 @@ export default function TrackingPage() {
   // ============================================================
 
   const colorOptions = [
-    'bg-indigo-50 text-indigo-600',
+    'bg-seal-50 text-seal-600',
     'bg-blue-50 text-blue-600',
     'bg-red-50 text-red-600',
     'bg-orange-50 text-orange-600',
@@ -721,7 +721,7 @@ export default function TrackingPage() {
     'bg-teal-50 text-teal-600',
     'bg-purple-50 text-purple-600',
     'bg-pink-50 text-pink-600',
-    'bg-slate-50 text-slate-600',
+    'bg-paper-100 text-ink-600',
   ]
 
   return (
@@ -729,8 +729,8 @@ export default function TrackingPage() {
       {/* 顶栏 */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">文献追踪</h1>
-          <p className="text-sm text-slate-500 mt-1">关键词追踪、期刊订阅、学术搜索</p>
+          <h1 className="text-xl font-bold text-ink-800">文献追踪</h1>
+          <p className="text-sm text-ink-500 mt-1">关键词追踪、期刊订阅、学术搜索</p>
         </div>
       </div>
 
@@ -740,21 +740,21 @@ export default function TrackingPage() {
         {/* ============================================================ */}
         <div className="lg:col-span-2 space-y-6">
           {/* ---------- 今日追踪卡片 ---------- */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-50 rounded-lg">
-                  <Bell className="w-5 h-5 text-indigo-600" />
+                <div className="p-2 bg-seal-50 rounded-lg">
+                  <Bell className="w-5 h-5 text-seal-600" />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-slate-800">今日追踪</h2>
-                  <p className="text-xs text-slate-500">下次自动追踪：08:00</p>
+                  <h2 className="font-semibold text-ink-800">今日追踪</h2>
+                  <p className="text-xs text-ink-500">下次自动追踪：08:00</p>
                 </div>
               </div>
               <button
                 onClick={handleTrackNow}
                 disabled={isTracking}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
+                className="flex items-center gap-2 px-4 py-2 bg-seal-600 text-paper-50 text-sm font-medium rounded-lg hover:bg-seal-700 disabled:opacity-50 transition"
               >
                 {isTracking ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -767,14 +767,14 @@ export default function TrackingPage() {
 
             {/* 配置统计 */}
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="p-3 bg-indigo-50 rounded-lg">
+              <div className="p-3 bg-seal-50 rounded-lg">
                 <div className="flex items-center gap-2">
-                  <Hash className="w-4 h-4 text-indigo-600" />
-                  <span className="text-xs text-indigo-600 font-medium">关键词组</span>
+                  <Hash className="w-4 h-4 text-seal-600" />
+                  <span className="text-xs text-seal-600 font-medium">关键词组</span>
                 </div>
-                <div className="mt-1 text-2xl font-bold text-indigo-700">
+                <div className="mt-1 text-2xl font-bold text-seal-700">
                   {enabledKeywordGroupCount}
-                  <span className="text-sm font-normal text-indigo-400 ml-1">/ {keywordGroups.length}</span>
+                  <span className="text-sm font-normal text-seal-400 ml-1">/ {keywordGroups.length}</span>
                 </div>
               </div>
               <div className="p-3 bg-emerald-50 rounded-lg">
@@ -792,18 +792,18 @@ export default function TrackingPage() {
             {/* 追踪源统计 */}
             <div className="grid grid-cols-4 gap-3 text-center">
               {TRACKING_SOURCES.map((source) => (
-                <div key={source.label} className="p-3 bg-slate-50 rounded-lg">
+                <div key={source.label} className="p-3 bg-paper-100 rounded-lg">
                   <div className={`text-lg font-bold ${source.color}`}>{source.count}</div>
-                  <div className="text-xs text-slate-500">{source.label}</div>
+                  <div className="text-xs text-ink-500">{source.label}</div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* ---------- 学术搜索框 ---------- */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
-              <Globe className="w-5 h-5 text-indigo-600" />
+          <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
+            <h2 className="font-semibold text-ink-800 mb-4 flex items-center gap-2">
+              <Globe className="w-5 h-5 text-seal-600" />
               学术搜索
             </h2>
             <div className="flex gap-2" ref={searchDropdownRef}>
@@ -811,17 +811,17 @@ export default function TrackingPage() {
               <div className="relative">
                 <button
                   onClick={() => setShowSearchDropdown(!showSearchDropdown)}
-                  className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm hover:border-indigo-400 transition bg-white"
+                  className="flex items-center gap-2 px-3 py-2 border border-ink-300 rounded-lg text-sm hover:border-seal-400 transition bg-paper-50"
                 >
-                  <div className={`w-7 h-7 rounded-md flex items-center justify-center ${selectedSearchSite?.color || 'bg-slate-50 text-slate-600'}`}>
+                  <div className={`w-7 h-7 rounded-md flex items-center justify-center ${selectedSearchSite?.color || 'bg-paper-100 text-ink-600'}`}>
                     <Search className="w-3.5 h-3.5" />
                   </div>
-                  <span className="text-slate-700 max-w-24 truncate">{selectedSearchSite?.name}</span>
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                  <span className="text-ink-700 max-w-24 truncate">{selectedSearchSite?.name}</span>
+                  <ChevronDown className="w-4 h-4 text-ink-400" />
                 </button>
 
                 {showSearchDropdown && (
-                  <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                  <div className="absolute top-full left-0 mt-1 w-64 bg-paper-50 border border-ink-200 rounded-lg shadow-lg z-50 overflow-hidden">
                     <div className="max-h-72 overflow-y-auto py-1">
                       {searchSites.map((site) => (
                         <button
@@ -830,8 +830,8 @@ export default function TrackingPage() {
                             setSelectedSearchSiteId(site.id)
                             setShowSearchDropdown(false)
                           }}
-                          className={`w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-slate-50 transition ${
-                            selectedSearchSiteId === site.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700'
+                          className={`w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-paper-100 transition ${
+                            selectedSearchSiteId === site.id ? 'bg-seal-50 text-seal-700' : 'text-ink-700'
                           }`}
                         >
                           <div className={`w-7 h-7 rounded-md flex items-center justify-center ${site.color}`}>
@@ -839,18 +839,18 @@ export default function TrackingPage() {
                           </div>
                           <span className="flex-1 text-left truncate">{site.name}</span>
                           {selectedSearchSiteId === site.id && (
-                            <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                            <CheckCircle2 className="w-4 h-4 text-seal-600" />
                           )}
                         </button>
                       ))}
                     </div>
-                    <div className="border-t border-slate-100 p-2">
+                    <div className="border-t border-ink-100 p-2">
                       <button
                         onClick={() => {
                           setShowSearchDropdown(false)
                           openAddSearchSite()
                         }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 rounded-md transition"
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-seal-600 hover:bg-seal-50 rounded-md transition"
                       >
                         <Settings className="w-4 h-4" />
                         管理搜索源
@@ -868,31 +868,31 @@ export default function TrackingPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   placeholder="输入搜索关键词..."
-                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="flex-1 px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
                 <button
                   onClick={handleSearch}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition"
+                  className="flex items-center gap-2 px-4 py-2 bg-seal-600 text-paper-50 text-sm font-medium rounded-lg hover:bg-seal-700 transition"
                 >
                   <Search className="w-4 h-4" />
                   搜索
                 </button>
               </div>
             </div>
-            <p className="text-xs text-slate-400 mt-2">
+            <p className="text-xs text-ink-400 mt-2">
               提示：按 Enter 快速搜索，在新标签页打开结果
             </p>
           </div>
 
           {/* ---------- 追踪结果 ---------- */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-indigo-600" />
+          <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
+            <h2 className="font-semibold text-ink-800 mb-4 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-seal-600" />
               追踪结果
             </h2>
 
             {trackedPapers.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
+              <div className="text-center py-12 text-ink-400">
                 <Rss className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p className="text-sm font-medium">今日暂无新文献</p>
                 <p className="text-xs mt-1">配置关键词组或期刊后自动追踪</p>
@@ -902,35 +902,35 @@ export default function TrackingPage() {
                 {trackedPapers.map((paper) => (
                   <div
                     key={paper.id}
-                    className="p-4 border border-slate-200 rounded-lg hover:border-indigo-200 hover:bg-indigo-50/30 transition"
+                    className="p-4 border border-ink-200 rounded-lg hover:border-seal-200 hover:bg-seal-50/30 transition"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-slate-800 text-sm leading-snug mb-2">
+                        <h3 className="font-medium text-ink-800 text-sm leading-snug mb-2">
                           {paper.title}
                         </h3>
-                        <p className="text-xs text-slate-500 mb-1.5">
+                        <p className="text-xs text-ink-500 mb-1.5">
                           {paper.authors}
                         </p>
-                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-ink-400">
                           <span>{paper.year}</span>
-                          <span className="text-slate-300">·</span>
-                          <span className="text-indigo-600">{paper.journal}</span>
+                          <span className="text-ink-300">·</span>
+                          <span className="text-seal-600">{paper.journal}</span>
                           {paper.doi && (
                             <>
-                              <span className="text-slate-300">·</span>
+                              <span className="text-ink-300">·</span>
                               <DoiLink doi={paper.doi} mode="label" showIcon className="text-xs inline-flex items-center gap-0.5" />
                             </>
                           )}
-                          <span className="text-slate-300">·</span>
-                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">
+                          <span className="text-ink-300">·</span>
+                          <span className="px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded">
                             {paper.source}
                           </span>
                         </div>
                       </div>
                       <button
                         onClick={() => handleAddPaperToLibrary(paper)}
-                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition"
+                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs font-medium rounded-lg hover:bg-seal-700 transition"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         入库
@@ -948,9 +948,9 @@ export default function TrackingPage() {
         {/* ============================================================ */}
         <div className="space-y-6">
           {/* ---------- 快速入库 ---------- */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <h3 className="font-semibold text-slate-800 text-sm mb-3 flex items-center gap-2">
-              <Plus className="w-4 h-4 text-indigo-600" />
+          <div className="bg-paper-50 rounded-xl border border-ink-200 p-5">
+            <h3 className="font-semibold text-ink-800 text-sm mb-3 flex items-center gap-2">
+              <Plus className="w-4 h-4 text-seal-600" />
               快速入库
             </h3>
             <div className="space-y-2">
@@ -960,12 +960,12 @@ export default function TrackingPage() {
                 onChange={(e) => setDoiInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddByDoi()}
                 placeholder="输入 DOI 或 DOI 链接..."
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
               <button
                 onClick={handleAddByDoi}
                 disabled={isAdding || !doiInput.trim()}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 disabled:opacity-50 transition"
               >
                 {isAdding ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -975,21 +975,21 @@ export default function TrackingPage() {
                 通过 DOI 入库
               </button>
             </div>
-            <p className="text-xs text-slate-400 mt-2">
+            <p className="text-xs text-ink-400 mt-2">
               支持 doi:10.xxx、https://doi.org/10.xxx 等格式
             </p>
           </div>
 
           {/* ---------- 关键词组（可折叠） ---------- */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="bg-paper-50 rounded-xl border border-ink-200 overflow-hidden">
             <button
               onClick={() => setKeywordGroupsCollapsed(!keywordGroupsCollapsed)}
-              className="w-full flex items-center justify-between p-5 hover:bg-slate-50 transition"
+              className="w-full flex items-center justify-between p-5 hover:bg-paper-100 transition"
             >
-              <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
-                <Tag className="w-4 h-4 text-indigo-600" />
+              <h3 className="font-semibold text-ink-800 text-sm flex items-center gap-2">
+                <Tag className="w-4 h-4 text-seal-600" />
                 关键词组
-                <span className="text-xs font-normal text-slate-400">
+                <span className="text-xs font-normal text-ink-400">
                   ({keywordGroups.length})
                 </span>
               </h3>
@@ -999,28 +999,28 @@ export default function TrackingPage() {
                     e.stopPropagation()
                     openAddKeywordGroup()
                   }}
-                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                   title="新建关键词组"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
                 {keywordGroupsCollapsed ? (
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                  <ChevronRight className="w-4 h-4 text-ink-400" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                  <ChevronDown className="w-4 h-4 text-ink-400" />
                 )}
               </div>
             </button>
 
             {!keywordGroupsCollapsed && (
-              <div className="px-5 pb-5 border-t border-slate-100">
+              <div className="px-5 pb-5 border-t border-ink-100">
                 {keywordGroups.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400">
+                  <div className="text-center py-6 text-ink-400">
                     <Tag className="w-8 h-8 mx-auto mb-2 opacity-30" />
                     <p className="text-xs">尚未配置关键词组</p>
                     <button
                       onClick={openAddKeywordGroup}
-                      className="mt-2 text-xs text-indigo-600 hover:underline"
+                      className="mt-2 text-xs text-seal-600 hover:underline"
                     >
                       立即添加
                     </button>
@@ -1032,8 +1032,8 @@ export default function TrackingPage() {
                         key={group.id}
                         className={`p-3 border rounded-lg transition ${
                           group.enabled
-                            ? 'border-slate-200 bg-white'
-                            : 'border-slate-200 bg-slate-50 opacity-60'
+                            ? 'border-ink-200 bg-paper-50'
+                            : 'border-ink-200 bg-paper-100 opacity-60'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-2">
@@ -1041,29 +1041,29 @@ export default function TrackingPage() {
                             <button
                               onClick={() => toggleKeywordGroup(group.id)}
                               className={`w-8 h-4.5 rounded-full transition relative flex-shrink-0 ${
-                                group.enabled ? 'bg-indigo-600' : 'bg-slate-300'
+                                group.enabled ? 'bg-seal-600' : 'bg-ink-300'
                               }`}
                             >
                               <div
-                                className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
+                                className={`absolute top-0.5 w-3.5 h-3.5 bg-paper-50 rounded-full shadow transition-transform ${
                                   group.enabled ? 'translate-x-4' : 'translate-x-0.5'
                                 }`}
                               />
                             </button>
-                            <span className="font-medium text-sm text-slate-800 truncate">
+                            <span className="font-medium text-sm text-ink-800 truncate">
                               {group.name}
                             </span>
                           </div>
                           <div className="flex items-center gap-0.5 flex-shrink-0">
                             <button
                               onClick={() => openEditKeywordGroup(group)}
-                              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => handleDeleteKeywordGroup(group.id)}
-                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                              className="p-1 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -1073,13 +1073,13 @@ export default function TrackingPage() {
                           {group.keywords.slice(0, 5).map((kw, idx) => (
                             <span
                               key={idx}
-                              className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-xs rounded-full"
+                              className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded-full"
                             >
                               {kw}
                             </span>
                           ))}
                           {group.keywords.length > 5 && (
-                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full">
+                            <span className="px-1.5 py-0.5 bg-ink-100 text-ink-500 text-xs rounded-full">
                               +{group.keywords.length - 5}
                             </span>
                           )}
@@ -1093,15 +1093,15 @@ export default function TrackingPage() {
           </div>
 
           {/* ---------- 期刊追踪（可折叠） ---------- */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="bg-paper-50 rounded-xl border border-ink-200 overflow-hidden">
             <button
               onClick={() => setJournalsCollapsed(!journalsCollapsed)}
-              className="w-full flex items-center justify-between p-5 hover:bg-slate-50 transition"
+              className="w-full flex items-center justify-between p-5 hover:bg-paper-100 transition"
             >
-              <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
-                <BookMarked className="w-4 h-4 text-indigo-600" />
+              <h3 className="font-semibold text-ink-800 text-sm flex items-center gap-2">
+                <BookMarked className="w-4 h-4 text-seal-600" />
                 期刊追踪
-                <span className="text-xs font-normal text-slate-400">
+                <span className="text-xs font-normal text-ink-400">
                   ({journals.length})
                 </span>
               </h3>
@@ -1111,28 +1111,28 @@ export default function TrackingPage() {
                     e.stopPropagation()
                     openAddJournal()
                   }}
-                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                   title="添加期刊"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
                 {journalsCollapsed ? (
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                  <ChevronRight className="w-4 h-4 text-ink-400" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                  <ChevronDown className="w-4 h-4 text-ink-400" />
                 )}
               </div>
             </button>
 
             {!journalsCollapsed && (
-              <div className="px-5 pb-5 border-t border-slate-100">
+              <div className="px-5 pb-5 border-t border-ink-100">
                 {journals.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400">
+                  <div className="text-center py-6 text-ink-400">
                     <Newspaper className="w-8 h-8 mx-auto mb-2 opacity-30" />
                     <p className="text-xs">尚未添加期刊</p>
                     <button
                       onClick={openAddJournal}
-                      className="mt-2 text-xs text-indigo-600 hover:underline"
+                      className="mt-2 text-xs text-seal-600 hover:underline"
                     >
                       立即添加
                     </button>
@@ -1144,42 +1144,42 @@ export default function TrackingPage() {
                         key={journal.id}
                         className={`flex items-center justify-between p-2.5 rounded-lg transition ${
                           journal.enabled
-                            ? 'hover:bg-slate-50'
-                            : 'opacity-60 hover:bg-slate-50'
+                            ? 'hover:bg-paper-100'
+                            : 'opacity-60 hover:bg-paper-100'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <button
                             onClick={() => toggleJournal(journal.id)}
                             className={`w-8 h-4.5 rounded-full transition relative flex-shrink-0 ${
-                              journal.enabled ? 'bg-indigo-600' : 'bg-slate-300'
+                              journal.enabled ? 'bg-seal-600' : 'bg-ink-300'
                             }`}
                           >
                             <div
-                              className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
+                              className={`absolute top-0.5 w-3.5 h-3.5 bg-paper-50 rounded-full shadow transition-transform ${
                                 journal.enabled ? 'translate-x-4' : 'translate-x-0.5'
                               }`}
                             />
                           </button>
                           <div className="min-w-0">
-                            <div className="font-medium text-sm text-slate-800 truncate">
+                            <div className="font-medium text-sm text-ink-800 truncate">
                               {journal.name}
                             </div>
                             {journal.issn && (
-                              <div className="text-xs text-slate-400">{journal.issn}</div>
+                              <div className="text-xs text-ink-400">{journal.issn}</div>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center gap-0.5 flex-shrink-0">
                           <button
                             onClick={() => openEditJournal(journal)}
-                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                            className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleDeleteJournal(journal.id)}
-                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                            className="p-1 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1198,22 +1198,22 @@ export default function TrackingPage() {
       {/* 关键词组编辑弹窗 */}
       {/* ============================================================ */}
       {showKeywordModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between p-5 border-b border-slate-200">
-              <h3 className="font-semibold text-slate-800">
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between p-5 border-b border-ink-200">
+              <h3 className="font-semibold text-ink-800">
                 {editingKeywordGroup ? '编辑关键词组' : '新建关键词组'}
               </h3>
               <button
                 onClick={() => setShowKeywordModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 transition"
+                className="p-1 text-ink-400 hover:text-ink-600 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">
                   关键词组名称
                 </label>
                 <input
@@ -1221,24 +1221,24 @@ export default function TrackingPage() {
                   value={keywordFormName}
                   onChange={(e) => setKeywordFormName(e.target.value)}
                   placeholder="如：学术研究方法"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">
                   关键词
                 </label>
                 {keywordFormKeywords.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 border border-slate-200 rounded-lg bg-slate-50 min-h-10">
+                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 border border-ink-200 rounded-lg bg-paper-100 min-h-10">
                     {keywordFormKeywords.map((kw, idx) => (
                       <span
                         key={idx}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-seal-100 text-seal-700 text-xs rounded-full"
                       >
                         {kw}
                         <button
                           onClick={() => removeKeywordTag(idx)}
-                          className="hover:text-indigo-900"
+                          className="hover:text-seal-900"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -1257,23 +1257,23 @@ export default function TrackingPage() {
                     }
                   }}
                   placeholder="输入关键词后按回车添加"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
-                <p className="text-xs text-slate-400 mt-1.5">
+                <p className="text-xs text-ink-400 mt-1.5">
                   输入关键词后按 Enter 添加，点击标签上的 × 删除
                 </p>
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 p-5 border-t border-slate-200">
+            <div className="flex items-center justify-end gap-2 p-5 border-t border-ink-200">
               <button
                 onClick={() => setShowKeywordModal(false)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
               >
                 取消
               </button>
               <button
                 onClick={handleSaveKeywordGroup}
-                className="px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition font-medium"
+                className="px-4 py-2 text-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition font-medium"
               >
                 {editingKeywordGroup ? '保存' : '创建'}
               </button>
@@ -1286,22 +1286,22 @@ export default function TrackingPage() {
       {/* 期刊编辑弹窗 */}
       {/* ============================================================ */}
       {showJournalModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between p-5 border-b border-slate-200">
-              <h3 className="font-semibold text-slate-800">
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between p-5 border-b border-ink-200">
+              <h3 className="font-semibold text-ink-800">
                 {editingJournal ? '编辑期刊' : '添加期刊'}
               </h3>
               <button
                 onClick={() => setShowJournalModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 transition"
+                className="p-1 text-ink-400 hover:text-ink-600 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">
                   期刊名称 <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -1309,12 +1309,12 @@ export default function TrackingPage() {
                   value={journalFormName}
                   onChange={(e) => setJournalFormName(e.target.value)}
                   placeholder="如：Sample Journal"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  <label className="block text-sm font-medium text-ink-700 mb-1.5">
                     ISSN
                   </label>
                   <input
@@ -1322,11 +1322,11 @@ export default function TrackingPage() {
                     value={journalFormIssn}
                     onChange={(e) => setJournalFormIssn(e.target.value)}
                     placeholder="可选"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  <label className="block text-sm font-medium text-ink-700 mb-1.5">
                     出版社
                   </label>
                   <input
@@ -1334,12 +1334,12 @@ export default function TrackingPage() {
                     value={journalFormPublisher}
                     onChange={(e) => setJournalFormPublisher(e.target.value)}
                     placeholder="可选"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">
                   RSS 地址
                 </label>
                 <input
@@ -1347,20 +1347,20 @@ export default function TrackingPage() {
                   value={journalFormRssUrl}
                   onChange={(e) => setJournalFormRssUrl(e.target.value)}
                   placeholder="可选，用于RSS订阅追踪"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 p-5 border-t border-slate-200">
+            <div className="flex items-center justify-end gap-2 p-5 border-t border-ink-200">
               <button
                 onClick={() => setShowJournalModal(false)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
               >
                 取消
               </button>
               <button
                 onClick={handleSaveJournal}
-                className="px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition font-medium"
+                className="px-4 py-2 text-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition font-medium"
               >
                 {editingJournal ? '保存' : '添加'}
               </button>
@@ -1373,20 +1373,20 @@ export default function TrackingPage() {
       {/* 搜索源管理弹窗 */}
       {/* ============================================================ */}
       {showSearchManager && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between p-5 border-b border-slate-200">
-              <h3 className="font-semibold text-slate-800">管理搜索源</h3>
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-ink-200">
+              <h3 className="font-semibold text-ink-800">管理搜索源</h3>
               <div className="flex items-center gap-2">
                 <button
                   onClick={resetSearchSites}
-                  className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-md transition"
+                  className="px-3 py-1.5 text-xs text-ink-500 hover:text-ink-700 hover:bg-ink-100 rounded-md transition"
                 >
                   恢复默认
                 </button>
                 <button
                   onClick={() => setShowSearchManager(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition"
+                  className="p-1 text-ink-400 hover:text-ink-600 transition"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1396,29 +1396,29 @@ export default function TrackingPage() {
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               {/* 已有搜索源列表 */}
               <div className="space-y-2">
-                <h4 className="text-sm font-medium text-slate-700">已有搜索源</h4>
+                <h4 className="text-sm font-medium text-ink-700">已有搜索源</h4>
                 {searchSites.map((site) => (
                   <div
                     key={site.id}
-                    className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+                    className="flex items-center gap-3 p-3 border border-ink-200 rounded-lg hover:bg-paper-100 transition"
                   >
                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${site.color}`}>
                       <Search className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm text-slate-800">{site.name}</div>
-                      <div className="text-xs text-slate-500 truncate">{site.urlTemplate}</div>
+                      <div className="font-medium text-sm text-ink-800">{site.name}</div>
+                      <div className="text-xs text-ink-500 truncate">{site.urlTemplate}</div>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => openEditSearchSite(site)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteSearchSite(site.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                        className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1428,13 +1428,13 @@ export default function TrackingPage() {
               </div>
 
               {/* 新增/编辑表单 */}
-              <div className="border-t border-slate-200 pt-4">
-                <h4 className="text-sm font-medium text-slate-700 mb-3">
+              <div className="border-t border-ink-200 pt-4">
+                <h4 className="text-sm font-medium text-ink-700 mb-3">
                   {editingSearchSite ? '编辑搜索源' : '添加搜索源'}
                 </h4>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                    <label className="block text-xs font-medium text-ink-600 mb-1">
                       网站名称
                     </label>
                     <input
@@ -1442,11 +1442,11 @@ export default function TrackingPage() {
                       value={searchFormName}
                       onChange={(e) => setSearchFormName(e.target.value)}
                       placeholder="如：百度学术"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                      className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                    <label className="block text-xs font-medium text-ink-600 mb-1">
                       搜索网址
                     </label>
                     <input
@@ -1456,16 +1456,16 @@ export default function TrackingPage() {
                       placeholder={editingSearchSite
                         ? '搜索URL模板（含 {query}）'
                         : '去搜索网站搜一个词，把网址粘贴到这里'}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                      className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                     />
                     {!editingSearchSite && (
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-ink-400 mt-1">
                         系统会自动识别搜索参数（如 ?q= 或 ?wd=），无需手动处理
                       </p>
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                    <label className="block text-xs font-medium text-ink-600 mb-1.5">
                       图标颜色
                     </label>
                     <div className="flex flex-wrap gap-2">
@@ -1475,8 +1475,8 @@ export default function TrackingPage() {
                           onClick={() => setSearchFormColor(color)}
                           className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${color} ${
                             searchFormColor === color
-                              ? 'ring-2 ring-offset-1 ring-indigo-500'
-                              : 'hover:ring-1 hover:ring-slate-300'
+                              ? 'ring-2 ring-offset-1 ring-seal-500'
+                              : 'hover:ring-1 hover:ring-ink-300'
                           }`}
                         >
                           <Search className="w-4 h-4" />
@@ -1488,19 +1488,19 @@ export default function TrackingPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 p-5 border-t border-slate-200">
+            <div className="flex items-center justify-end gap-2 p-5 border-t border-ink-200">
               <button
                 onClick={() => {
                   setEditingSearchSite(null)
                   setShowSearchManager(false)
                 }}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
               >
                 关闭
               </button>
               <button
                 onClick={handleSaveSearchSite}
-                className="px-4 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition font-medium"
+                className="px-4 py-2 text-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition font-medium"
               >
                 {editingSearchSite ? '保存修改' : '添加搜索源'}
               </button>

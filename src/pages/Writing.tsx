@@ -508,29 +508,29 @@ function renderMarkdown(text: string): string {
 
   const inlineCodeRegex = /`([^`]+)`/g
   html = html.replace(inlineCodeRegex, (_, code) => {
-    return `<code class="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-xs font-mono text-indigo-600">${escapeHtml(code)}</code>`
+    return `<code class="bg-ink-100 text-ink-700 px-1.5 py-0.5 rounded text-xs font-mono text-seal-600">${escapeHtml(code)}</code>`
   })
 
-  html = html.replace(/^###### (.*)$/gm, '<h6 class="text-sm font-semibold text-slate-700 mt-4 mb-2">$1</h6>')
-  html = html.replace(/^##### (.*)$/gm, '<h5 class="text-base font-semibold text-slate-700 mt-4 mb-2">$1</h5>')
-  html = html.replace(/^#### (.*)$/gm, '<h4 class="text-lg font-semibold text-slate-800 mt-5 mb-2">$1</h4>')
-  html = html.replace(/^### (.*)$/gm, '<h3 class="text-xl font-semibold text-slate-800 mt-6 mb-3">$1</h3>')
-  html = html.replace(/^## (.*)$/gm, '<h2 class="text-2xl font-bold text-slate-800 mt-6 mb-3 pb-2 border-b border-slate-200">$1</h2>')
-  html = html.replace(/^# (.*)$/gm, '<h1 class="text-3xl font-bold text-slate-900 mt-2 mb-4 pb-3 border-b-2 border-indigo-200">$1</h1>')
+  html = html.replace(/^###### (.*)$/gm, '<h6 class="text-sm font-semibold text-ink-700 mt-4 mb-2">$1</h6>')
+  html = html.replace(/^##### (.*)$/gm, '<h5 class="text-base font-semibold text-ink-700 mt-4 mb-2">$1</h5>')
+  html = html.replace(/^#### (.*)$/gm, '<h4 class="text-lg font-semibold text-ink-800 mt-5 mb-2">$1</h4>')
+  html = html.replace(/^### (.*)$/gm, '<h3 class="text-xl font-semibold text-ink-800 mt-6 mb-3">$1</h3>')
+  html = html.replace(/^## (.*)$/gm, '<h2 class="text-2xl font-bold text-ink-800 mt-6 mb-3 pb-2 border-b border-ink-200">$1</h2>')
+  html = html.replace(/^# (.*)$/gm, '<h1 class="text-3xl font-bold text-ink-900 mt-2 mb-4 pb-3 border-b-2 border-seal-200">$1</h1>')
 
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-800">$1</strong>')
-  html = html.replace(/\*(.+?)\*/g, '<em class="italic text-slate-700">$1</em>')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-ink-800">$1</strong>')
+  html = html.replace(/\*(.+?)\*/g, '<em class="italic text-ink-700">$1</em>')
 
   html = html.replace(/^> (.*)$/gm, (_, content) => {
-    return `<blockquote class="border-l-4 border-indigo-300 pl-4 py-1 my-3 bg-indigo-50/50 text-slate-600 italic rounded-r">${content}</blockquote>`
+    return `<blockquote class="border-l-4 border-seal-300 pl-4 py-1 my-3 bg-seal-50/50 text-ink-600 italic rounded-r">${content}</blockquote>`
   })
 
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
-    return `<div class="my-4"><img src="${src}" alt="${alt}" class="max-w-full h-auto rounded-lg border border-slate-200 shadow-sm" /><p class="text-sm text-slate-500 mt-2 text-center font-medium">${alt}</p></div>`
+    return `<div class="my-4"><img src="${src}" alt="${alt}" class="max-w-full h-auto rounded-lg border border-ink-200 shadow-sm" /><p class="text-sm text-ink-500 mt-2 text-center font-medium">${alt}</p></div>`
   })
 
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline underline-offset-2">${text}</a>`
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-seal-600 hover:text-seal-800 underline underline-offset-2">${text}</a>`
   })
 
   const lines = html.split('\n')
@@ -544,7 +544,7 @@ function renderMarkdown(text: string): string {
 
   const flushPara = () => {
     if (paraBuffer.length > 0) {
-      result.push(`<p class="my-3 text-slate-700 leading-relaxed">${paraBuffer.join(' ')}</p>`)
+      result.push(`<p class="my-3 text-ink-700 leading-relaxed">${paraBuffer.join(' ')}</p>`)
       paraBuffer = []
     }
   }
@@ -555,17 +555,17 @@ function renderMarkdown(text: string): string {
       const rowHtml = tableRows
         .map((row) => {
           const cells = row.split('|').filter((c) => c.trim())
-          return `<tr class="border-b border-slate-200 hover:bg-slate-50 transition-colors">${cells
-            .map((c) => `<td class="px-4 py-2.5 text-sm text-slate-700">${c.trim()}</td>`)
+          return `<tr class="border-b border-ink-200 hover:bg-paper-100 transition-colors">${cells
+            .map((c) => `<td class="px-4 py-2.5 text-sm text-ink-700">${c.trim()}</td>`)
             .join('')}</tr>`
         })
         .join('')
       result.push(
-        `<div class="my-4 overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+        `<div class="my-4 overflow-x-auto rounded-lg border border-ink-200 shadow-sm">
           <table class="w-full text-left">
-            <thead class="bg-slate-50">
-              <tr class="border-b-2 border-slate-200">
-                ${headerCells.map((c) => `<th class="px-4 py-2.5 text-sm font-semibold text-slate-700">${c.trim()}</th>`).join('')}
+            <thead class="bg-paper-100">
+              <tr class="border-b-2 border-ink-200">
+                ${headerCells.map((c) => `<th class="px-4 py-2.5 text-sm font-semibold text-ink-700">${c.trim()}</th>`).join('')}
               </tr>
             </thead>
             <tbody>${rowHtml}</tbody>
@@ -588,7 +588,7 @@ function renderMarkdown(text: string): string {
       if (inOl) { result.push('</ol>'); inOl = false }
       const idx = parseInt(trimmed.replace('__CODE_BLOCK_', '').replace('__', ''))
       const code = codeBlocks[idx] || ''
-      result.push(`<pre class="my-4 p-4 bg-slate-900 text-slate-100 rounded-lg overflow-x-auto text-sm font-mono shadow-inner"><code>${escapeHtml(code.trim())}</code></pre>`)
+      result.push(`<pre class="my-4 p-4 bg-ink-900 text-ink-100 rounded-lg overflow-x-auto text-sm font-mono shadow-inner"><code>${escapeHtml(code.trim())}</code></pre>`)
       continue
     }
 
@@ -617,7 +617,7 @@ function renderMarkdown(text: string): string {
     if (ulMatch) {
       flushPara()
       if (inOl) { result.push('</ol>'); inOl = false }
-      if (!inUl) { result.push('<ul class="my-3 space-y-1.5 list-disc list-outside pl-6 text-slate-700">'); inUl = true }
+      if (!inUl) { result.push('<ul class="my-3 space-y-1.5 list-disc list-outside pl-6 text-ink-700">'); inUl = true }
       result.push(`<li>${ulMatch[1]}</li>`)
       continue
     }
@@ -626,7 +626,7 @@ function renderMarkdown(text: string): string {
     if (olMatch) {
       flushPara()
       if (inUl) { result.push('</ul>'); inUl = false }
-      if (!inOl) { result.push('<ol class="my-3 space-y-1.5 list-decimal list-outside pl-6 text-slate-700">'); inOl = true }
+      if (!inOl) { result.push('<ol class="my-3 space-y-1.5 list-decimal list-outside pl-6 text-ink-700">'); inOl = true }
       result.push(`<li>${olMatch[1]}</li>`)
       continue
     }
@@ -2902,9 +2902,9 @@ export default function WritingPage() {
   const RightPanelIcon = PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
 
   return (
-    <div ref={containerRef} className="h-full flex bg-slate-50 relative overflow-hidden">
+    <div ref={containerRef} className="h-full flex bg-paper-100 relative overflow-hidden">
       <aside
-        className={`bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300 ${
+        className={`bg-paper-50 border-r border-ink-200 flex flex-col flex-shrink-0 transition-all duration-300 ${
           navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-64 opacity-100'
         }`}
       >
@@ -2915,25 +2915,25 @@ export default function WritingPage() {
               projectsExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
-            <div className="flex items-center gap-0.5 pl-1 pr-2 py-1.5 border-b border-slate-200 flex-shrink-0">
+            <div className="flex items-center gap-0.5 pl-1 pr-2 py-1.5 border-b border-ink-200 flex-shrink-0">
               <button
                 onClick={() => setProjectsExpanded(!projectsExpanded)}
-                className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-slate-50 transition"
+                className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-paper-100 transition"
                 title={projectsExpanded ? '收起项目' : '展开项目'}
               >
                 {projectsExpanded ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                  <ChevronDown className="w-3.5 h-3.5 text-ink-400 flex-shrink-0" />
                 ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                  <ChevronRight className="w-3.5 h-3.5 text-ink-400 flex-shrink-0" />
                 )}
-                <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                <span className="text-sm font-semibold text-slate-800 truncate">
+                <FileText className="w-4 h-4 text-seal-600 flex-shrink-0" />
+                <span className="text-sm font-semibold text-ink-800 truncate">
                   {projectsExpanded ? '项目导航' : activeProject?.title || '项目导航'}
                 </span>
               </button>
               <button
                 onClick={() => setShowNewProjectInput(!showNewProjectInput)}
-                className="p-1 flex-shrink-0 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                className="p-1 flex-shrink-0 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                 title="新建项目"
               >
                 <Plus className="w-4 h-4" />
@@ -2943,7 +2943,7 @@ export default function WritingPage() {
             {projectsExpanded && (
               <>
                 {(showNewProjectInput || activeProject) && (
-                  <div className="px-3 py-2 border-b border-slate-100 flex-shrink-0 space-y-2">
+                  <div className="px-3 py-2 border-b border-ink-100 flex-shrink-0 space-y-2">
                     {showNewProjectInput && (
                       <div className="flex gap-1">
                         <input
@@ -2959,11 +2959,11 @@ export default function WritingPage() {
                           }}
                           placeholder="输入项目名称"
                           autoFocus
-                          className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                          className="flex-1 px-2 py-1 text-sm border border-ink-200 rounded focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                         />
                         <button
                           onClick={handleCreateProject}
-                          className="px-2 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 transition"
+                          className="px-2 py-1 bg-seal-600 text-paper-50 text-xs rounded hover:bg-seal-700 transition"
                         >
                           创建
                         </button>
@@ -2972,7 +2972,7 @@ export default function WritingPage() {
                     {activeProject && (
                       <button
                         onClick={() => openProjectLitModal(activeProject.projectId)}
-                        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 rounded-md transition"
+                        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-seal-600 bg-seal-50/60 hover:bg-seal-100 rounded-md transition"
                         title="给当前项目补充文献（项目内临时知识库）"
                       >
                         <BookPlus className="w-3.5 h-3.5" />
@@ -2984,10 +2984,10 @@ export default function WritingPage() {
                 <div className="flex-auto min-h-0 overflow-y-auto">
                   {projects.length === 0 && !isLoading && (
                     <div className="p-4 text-center">
-                      <div className="text-sm text-slate-500 mb-2">暂无项目</div>
+                      <div className="text-sm text-ink-500 mb-2">暂无项目</div>
                       <button
                         onClick={() => setShowNewProjectInput(true)}
-                        className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                        className="text-xs text-seal-600 hover:text-seal-700 font-medium"
                       >
                         点击创建第一个项目
                       </button>
@@ -2997,13 +2997,13 @@ export default function WritingPage() {
                     <button
                       key={p.projectId}
                       onClick={() => setActiveProjectId(p.projectId)}
-                      className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${
-                        activeProjectId === p.projectId ? 'bg-indigo-50/60 border-l-2 border-l-indigo-600' : ''
+                      className={`w-full text-left px-3 py-2.5 border-b border-ink-100 hover:bg-paper-100 transition ${
+                        activeProjectId === p.projectId ? 'bg-seal-50/60 border-l-2 border-l-seal-600' : ''
                       }`}
                     >
-                      <div className="text-sm font-medium text-slate-700 truncate">{p.title}</div>
+                      <div className="text-sm font-medium text-ink-700 truncate">{p.title}</div>
                       <div className="flex items-center justify-end mt-1">
-                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <span className="text-xs text-ink-400 flex items-center gap-1">
                           <BookOpen className="w-3 h-3" />
                           {getProjectLitCount(p.projectId)}篇
                         </span>
@@ -3017,23 +3017,23 @@ export default function WritingPage() {
 
           {/* ── 堆叠面板 2/3：文献检索（只搜库内） ── */}
           <div
-            className={`border-t border-slate-200 flex flex-col ${
+            className={`border-t border-ink-200 flex flex-col ${
               libSearchExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
             <button
               onClick={() => setLibSearchExpanded(!libSearchExpanded)}
-              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
               title={libSearchExpanded ? '收起文献检索' : '展开文献检索'}
             >
               {libSearchExpanded ? (
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
               ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronRight className="w-3.5 h-3.5 text-ink-400" />
               )}
-              <Search className="w-3.5 h-3.5 text-indigo-600" />
+              <Search className="w-3.5 h-3.5 text-seal-600" />
               文献检索
-              <span className="ml-auto text-slate-400 font-normal">
+              <span className="ml-auto text-ink-400 font-normal">
                 {libSearch.trim() ? librarySearchResults.length : availablePapers.length}
               </span>
             </button>
@@ -3041,32 +3041,32 @@ export default function WritingPage() {
               <div className="flex-auto min-h-0 flex flex-col">
                 <div className="flex-shrink-0 px-2 pb-1.5">
                   <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-ink-400" />
                     <input
                       type="text"
                       value={libSearch}
                       onChange={(e) => setLibSearch(e.target.value)}
                       placeholder="标题 / 作者 / 期刊 / 关键词 / 摘要"
-                      className="w-full pl-7 pr-6 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      className="w-full pl-7 pr-6 py-1.5 text-xs border border-ink-200 rounded-md focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                     />
                     {libSearch && (
                       <button
                         onClick={() => setLibSearch('')}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600"
                         title="清空"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     )}
                   </div>
-                  <div className="mt-1 text-[0.625rem] text-slate-400 leading-snug">
+                  <div className="mt-1 text-[0.625rem] text-ink-400 leading-snug">
                     只搜你的文献库。库外文献用 AI 助手的「找文献」。
                     {isLoadingTitleCn && ' 正在读取中文标题…'}
                   </div>
                 </div>
                 <div className="flex-auto min-h-0 overflow-y-auto px-2 pb-2 space-y-1.5">
                   {libSearch.trim() && librarySearchResults.length === 0 && (
-                    <div className="text-[0.6875rem] text-slate-400 text-center py-3">
+                    <div className="text-[0.6875rem] text-ink-400 text-center py-3">
                       没找到匹配的文献
                     </div>
                   )}
@@ -3084,31 +3084,31 @@ export default function WritingPage() {
                     return (
                       <div
                         key={paper.doi}
-                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 hover:border-indigo-200 transition"
+                        className="rounded-md border border-ink-200 bg-paper-50 px-2 py-1.5 hover:border-seal-200 transition"
                       >
                         {titleCn && (
-                          <div className="text-xs font-medium text-slate-700 leading-snug">
+                          <div className="text-xs font-medium text-ink-700 leading-snug">
                             <HighlightedSnippet text={titleCn} query={q} />
                           </div>
                         )}
                         <div
                           className={`text-[0.6875rem] leading-snug ${
-                            titleCn ? 'text-slate-500' : 'text-slate-700 font-medium'
+                            titleCn ? 'text-ink-500' : 'text-ink-700 font-medium'
                           }`}
                         >
                           <HighlightedSnippet text={paper.title} query={q} />
                         </div>
-                        <div className="mt-0.5 text-[0.625rem] text-slate-400 truncate">
+                        <div className="mt-0.5 text-[0.625rem] text-ink-400 truncate">
                           <HighlightedSnippet text={meta} query={q} />
                         </div>
                         {extra && (
-                          <div className="mt-1 text-[0.625rem] text-slate-500 leading-snug">
+                          <div className="mt-1 text-[0.625rem] text-ink-500 leading-snug">
                             <HighlightedSnippet text={extra} query={q} />
                           </div>
                         )}
                         <button
                           onClick={() => handleCopyDoiLink(paper.doi)}
-                          className="mt-1 flex items-center gap-1 text-[0.625rem] text-indigo-600 hover:text-indigo-700"
+                          className="mt-1 flex items-center gap-1 text-[0.625rem] text-seal-600 hover:text-seal-700"
                           title={doiLinkOf(paper.doi)}
                         >
                           <Copy className="w-3 h-3" />
@@ -3124,39 +3124,39 @@ export default function WritingPage() {
 
           {/* ── 堆叠面板 3/3：大纲（收起后只剩标题行） ── */}
           <div
-            className={`border-t border-slate-200 flex flex-col ${
+            className={`border-t border-ink-200 flex flex-col ${
               outlineExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
             <button
               onClick={() => setOutlineExpanded(!outlineExpanded)}
-              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
               title={outlineExpanded ? '收起大纲' : '展开大纲'}
             >
               {outlineExpanded ? (
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
               ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronRight className="w-3.5 h-3.5 text-ink-400" />
               )}
-              <ListTree className="w-3.5 h-3.5 text-indigo-600" />
+              <ListTree className="w-3.5 h-3.5 text-seal-600" />
               大纲
-              <span className="ml-auto text-slate-400 font-normal">{outline.length}</span>
+              <span className="ml-auto text-ink-400 font-normal">{outline.length}</span>
             </button>
             {outlineExpanded && (
               <div className="flex-auto min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
                 {outline.length === 0 && (
-                  <div className="text-xs text-slate-400 text-center py-3">暂无大纲</div>
+                  <div className="text-xs text-ink-400 text-center py-3">暂无大纲</div>
                 )}
                 {outline.map((item, idx) => (
                   <button
                     key={idx}
                     onClick={() => jumpToHeading(idx)}
-                    className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-indigo-50 hover:text-indigo-700 transition truncate ${
+                    className={`w-full text-left px-2 py-1.5 rounded text-xs hover:bg-seal-50 hover:text-seal-700 transition truncate ${
                       item.level === 1
-                        ? 'font-semibold text-slate-700'
+                        ? 'font-semibold text-ink-700'
                         : item.level === 2
-                          ? 'font-medium text-slate-600'
-                          : 'text-slate-500'
+                          ? 'font-medium text-ink-600'
+                          : 'text-ink-500'
                     }`}
                     style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
                     title={item.text}
@@ -3172,7 +3172,7 @@ export default function WritingPage() {
 
       <button
         onClick={() => setNavCollapsed(!navCollapsed)}
-        className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-slate-200 rounded-r-lg p-1 shadow-md hover:bg-slate-50 transition text-slate-400 hover:text-indigo-600"
+        className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-paper-50 border border-ink-200 rounded-r-lg p-1 shadow-md hover:bg-paper-100 transition text-ink-400 hover:text-seal-600"
         style={{ left: navCollapsed ? '0' : '16rem' }}
         title={navCollapsed ? '展开项目导航' : '折叠项目导航'}
       >
@@ -3206,38 +3206,38 @@ export default function WritingPage() {
           <Fragment key={p.side}>
             {p.side === 'right' && (
               <div
-                className={`flex-shrink-0 flex items-center justify-center cursor-col-resize bg-slate-100 hover:bg-indigo-100 transition-colors z-10 ${
-                  isDragging ? 'bg-indigo-200' : ''
+                className={`flex-shrink-0 flex items-center justify-center cursor-col-resize bg-ink-100 hover:bg-seal-100 transition-colors z-10 ${
+                  isDragging ? 'bg-seal-200' : ''
                 }`}
                 style={{ width: '0.375rem' }}
                 onMouseDown={handleDragStart}
               >
-                <GripVertical className="w-3 h-3 text-slate-400" />
+                <GripVertical className="w-3 h-3 text-ink-400" />
               </div>
             )}
 
             <div
-              className={`flex flex-col min-w-0 bg-white ${
-                p.side === 'right' ? 'border-l border-slate-200' : ''
+              className={`flex flex-col min-w-0 bg-paper-50 ${
+                p.side === 'right' ? 'border-l border-ink-200' : ''
               }`}
               style={{
                 width: p.side === 'left' ? `${panelRatio}%` : `calc(${100 - panelRatio}% - 0.375rem)`,
               }}
             >
-              <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center gap-2 flex-shrink-0">
+              <div className="bg-paper-50 border-b border-ink-200 px-3 py-2 flex items-center gap-2 flex-shrink-0">
                 <div className="relative" ref={p.dropdownRef}>
                   <button
                     onClick={() => p.setShowDropdown(!p.showDropdown)}
-                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center gap-2"
+                    className="px-3 py-1.5 bg-paper-100 border border-ink-200 rounded-lg text-left hover:border-seal-300 transition flex items-center gap-2"
                   >
-                    <p.icon className="w-4 h-4 text-indigo-600" />
-                    <span className="text-sm font-medium text-slate-700">
+                    <p.icon className="w-4 h-4 text-seal-600" />
+                    <span className="text-sm font-medium text-ink-700">
                       {PANEL_MODES.find((m) => m.value === p.mode)?.label}
                     </span>
-                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${p.showDropdown ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-3.5 h-3.5 text-ink-400 transition-transform ${p.showDropdown ? 'rotate-180' : ''}`} />
                   </button>
                   {p.showDropdown && (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden min-w-36">
+                    <div className="absolute top-full left-0 mt-1 bg-paper-50 border border-ink-200 rounded-lg shadow-lg z-30 overflow-hidden min-w-36">
                       {PANEL_MODES.map((mode) => {
                         const Icon = mode.icon
                         const active = p.mode === mode.value
@@ -3257,18 +3257,18 @@ export default function WritingPage() {
                               }
                               p.setShowDropdown(false)
                             }}
-                            className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                              active ? 'bg-indigo-50/50' : ''
+                            className={`w-full px-3 py-2 text-left hover:bg-paper-100 transition flex items-center gap-2 ${
+                              active ? 'bg-seal-50/50' : ''
                             }`}
                           >
-                            <Icon className={`w-4 h-4 ${active ? 'text-indigo-600' : 'text-slate-500'}`} />
-                            <span className={`text-sm ${active ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                            <Icon className={`w-4 h-4 ${active ? 'text-seal-600' : 'text-ink-500'}`} />
+                            <span className={`text-sm ${active ? 'text-seal-700 font-medium' : 'text-ink-700'}`}>
                               {mode.label}
                             </span>
                             {mode.hint && (
-                              <span className="text-[0.625rem] text-slate-400">{mode.hint}</span>
+                              <span className="text-[0.625rem] text-ink-400">{mode.hint}</span>
                             )}
-                            {active && <Check className="w-4 h-4 text-indigo-600 ml-auto" />}
+                            {active && <Check className="w-4 h-4 text-seal-600 ml-auto" />}
                           </button>
                         )
                       })}
@@ -3277,8 +3277,8 @@ export default function WritingPage() {
                 </div>
                 {p.side === 'left' && activeProject && (
                   <>
-                    <ChevronRight className="w-4 h-4 text-slate-300" />
-                    <span className="text-sm font-semibold text-slate-700 truncate max-w-40">
+                    <ChevronRight className="w-4 h-4 text-ink-300" />
+                    <span className="text-sm font-semibold text-ink-700 truncate max-w-40">
                       {activeProject.title}
                     </span>
                   </>
@@ -3287,10 +3287,10 @@ export default function WritingPage() {
 
           {p.mode === 'editor' && (
             <>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border-b border-slate-200 flex-shrink-0">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-paper-50 border-b border-ink-200 flex-shrink-0">
                 <button
                   onClick={() => setShowCitationModal(true)}
-                  className="flex-shrink-0 whitespace-nowrap p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition flex items-center gap-1"
+                  className="flex-shrink-0 whitespace-nowrap p-1.5 text-seal-600 hover:bg-seal-50 rounded transition flex items-center gap-1"
                   title="插入引用 (Ctrl+Shift+K)"
                 >
                   <BookMarked className="w-4 h-4" />
@@ -3304,11 +3304,11 @@ export default function WritingPage() {
                     <span className="text-green-600 flex items-center gap-1 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       已保存
-                      {lastSaved && <span className="text-slate-400 font-normal">{formatTime(lastSaved)}</span>}
+                      {lastSaved && <span className="text-ink-400 font-normal">{formatTime(lastSaved)}</span>}
                     </span>
                   )}
                   {saveStatus === 'saving' && (
-                    <span className="text-slate-500 flex items-center gap-1">
+                    <span className="text-ink-500 flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5 animate-pulse" />
                       保存中...
                     </span>
@@ -3322,14 +3322,14 @@ export default function WritingPage() {
                 </div>
                 <button
                   onClick={exportMarkdown}
-                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition shadow-sm"
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-seal-600 text-paper-50 rounded-lg text-xs font-medium hover:bg-seal-700 transition shadow-sm"
                 >
                   <Download className="w-3.5 h-3.5" />
                   导出
                 </button>
               </div>
 
-              <div className="flex-1 min-h-0 flex bg-white">
+              <div className="flex-1 min-h-0 flex bg-paper-50">
                 <div className="flex-1 min-w-0 h-full">
                   <VditorEditor
                     ref={p.editorRef}
@@ -3367,7 +3367,7 @@ export default function WritingPage() {
                 )}
               </div>
 
-              <div className="px-4 py-1.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
+              <div className="px-4 py-1.5 bg-paper-100/80 border-t border-ink-200 flex items-center justify-between text-xs text-ink-400 flex-shrink-0">
                 <span>所见即所得编辑器 · 支持插入引用 / 公式 / 图片（图片自动内嵌）</span>
                 <span className="font-mono">{wordCount} 字</span>
               </div>
@@ -3384,13 +3384,13 @@ export default function WritingPage() {
 
           {p.mode === 'ai' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="px-3 py-2 border-b border-slate-100 bg-white">
+              <div className="px-3 py-2 border-b border-ink-100 bg-paper-50">
                 <div className="flex items-center gap-1 mb-2">
-                  <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-indigo-50 rounded-lg">
-                    <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                    <span className="text-[0.6875rem] font-medium text-indigo-700">AI-1 生成</span>
+                  <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-seal-50 rounded-lg">
+                    <Bot className="w-3.5 h-3.5 text-seal-600" />
+                    <span className="text-[0.6875rem] font-medium text-seal-700">AI-1 生成</span>
                   </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+                  <ChevronRight className="w-3.5 h-3.5 text-ink-300" />
                   <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-emerald-50 rounded-lg">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     <span className="text-[0.6875rem] font-medium text-emerald-700">AI-2 审阅</span>
@@ -3398,46 +3398,46 @@ export default function WritingPage() {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-ink-600 flex items-center gap-1.5">
                     <Zap className="w-3.5 h-3.5 text-amber-500" />
                     可信检索
                   </span>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => setTrustedSearch(!trustedSearch)}
-                      className="text-indigo-600"
+                      className="text-seal-600"
                     >
                       {trustedSearch ? (
                         <ToggleRight className="w-9 h-5" />
                       ) : (
-                        <ToggleLeft className="w-9 h-5 text-slate-300" />
+                        <ToggleLeft className="w-9 h-5 text-ink-300" />
                       )}
                     </button>
                   </div>
                 </div>
-                <div className="mt-1.5 text-[0.625rem] text-slate-400 leading-relaxed">
+                <div className="mt-1.5 text-[0.625rem] text-ink-400 leading-relaxed">
                   AI-1 生成内容并标注原文引用，AI-2 核查事实准确性
                 </div>
 
                 {trustedSearch && (
                   <div className="mt-2" ref={citationScopeRef}>
-                    <div className="text-xs font-medium text-slate-600 mb-1.5">引用范围</div>
+                    <div className="text-xs font-medium text-ink-600 mb-1.5">引用范围</div>
                     <div className="relative">
                       <button
                         onClick={() => setShowCitationScopeDropdown(!showCitationScopeDropdown)}
-                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between text-xs"
+                        className="w-full px-3 py-1.5 bg-paper-100 border border-ink-200 rounded-lg text-left hover:border-seal-300 transition flex items-center justify-between text-xs"
                       >
-                        <span className="text-slate-700 truncate">
+                        <span className="text-ink-700 truncate">
                           {CITATION_SCOPES.find((s) => s.value === citationScope)?.label}
                           {citationScope === 'project' && activeProject && ` (${activeProject.title})`}
                           {citationScope === 'selected' && selectedPaperIds.length > 0 && ` (${selectedPaperIds.length}篇)`}
                           {citationScope === 'books' && selectedBookIds.length > 0 && ` (${selectedBookIds.length}本)`}
                           {citationScope === 'chapters' && selectedChapterIds.length > 0 && ` (${selectedChapterIds.length}章)`}
                         </span>
-                        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${showCitationScopeDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-3.5 h-3.5 text-ink-400 flex-shrink-0 transition-transform ${showCitationScopeDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       {showCitationScopeDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-paper-50 border border-ink-200 rounded-lg shadow-lg z-30 overflow-hidden">
                           {CITATION_SCOPES.map((scope) => (
                             <button
                               key={scope.value}
@@ -3452,15 +3452,15 @@ export default function WritingPage() {
                                   setShowChapterSelector(true)
                                 }
                               }}
-                              className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center justify-between ${
-                                citationScope === scope.value ? 'bg-indigo-50/50' : ''
+                              className={`w-full px-3 py-2 text-left hover:bg-paper-100 transition flex items-center justify-between ${
+                                citationScope === scope.value ? 'bg-seal-50/50' : ''
                               }`}
                             >
-                              <span className={`text-xs ${citationScope === scope.value ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                              <span className={`text-xs ${citationScope === scope.value ? 'text-seal-700 font-medium' : 'text-ink-700'}`}>
                                 {scope.label}
                               </span>
                               {citationScope === scope.value && (
-                                <Check className="w-4 h-4 text-indigo-600" />
+                                <Check className="w-4 h-4 text-seal-600" />
                               )}
                             </button>
                           ))}
@@ -3477,7 +3477,7 @@ export default function WritingPage() {
                         ) : (
                           <div className="space-y-1 max-h-40 overflow-y-auto">
                             {projectCitations.map((cit, idx) => (
-                              <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                              <div key={idx} className="text-[0.6875rem] text-ink-600 bg-paper-100 rounded px-2 py-1.5 truncate">
                                 {cit.title}
                               </div>
                             ))}
@@ -3488,10 +3488,10 @@ export default function WritingPage() {
 
                     {citationScope === 'selected' && selectedPaperIds.length > 0 && (
                       <div className="mt-2">
-                        <div className="text-[0.625rem] text-slate-500 mb-1">已选文献</div>
+                        <div className="text-[0.625rem] text-ink-500 mb-1">已选文献</div>
                         <div className="space-y-1 max-h-40 overflow-y-auto">
                           {citations.filter(c => selectedPaperIds.includes(c.doi)).map((cit, idx) => (
-                            <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                            <div key={idx} className="text-[0.6875rem] text-ink-600 bg-paper-100 rounded px-2 py-1.5 truncate">
                               {cit.title}
                             </div>
                           ))}
@@ -3501,10 +3501,10 @@ export default function WritingPage() {
 
                     {citationScope === 'books' && selectedBookIds.length > 0 && (
                       <div className="mt-2">
-                        <div className="text-[0.625rem] text-slate-500 mb-1">已选图书</div>
+                        <div className="text-[0.625rem] text-ink-500 mb-1">已选图书</div>
                         <div className="space-y-1 max-h-40 overflow-y-auto">
                           {bookReferences.filter(b => selectedBookIds.includes(b.doi)).map((book, idx) => (
-                            <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5 truncate">
+                            <div key={idx} className="text-[0.6875rem] text-ink-600 bg-paper-100 rounded px-2 py-1.5 truncate">
                               {book.title}
                             </div>
                           ))}
@@ -3514,13 +3514,13 @@ export default function WritingPage() {
 
                     {citationScope === 'chapters' && selectedBook && (
                       <div className="mt-2">
-                        <div className="text-[0.625rem] text-slate-500 mb-1">
+                        <div className="text-[0.625rem] text-ink-500 mb-1">
                           {selectedBook.title}
                         </div>
                         {selectedChapterIds.length > 0 ? (
                           <div className="space-y-1 max-h-40 overflow-y-auto">
                             {selectedBook.chapters.filter(ch => selectedChapterIds.includes(ch.id)).map((ch, idx) => (
-                              <div key={idx} className="text-[0.6875rem] text-slate-600 bg-slate-50 rounded px-2 py-1.5">
+                              <div key={idx} className="text-[0.6875rem] text-ink-600 bg-paper-100 rounded px-2 py-1.5">
                                 {ch.title}
                               </div>
                             ))}
@@ -3543,14 +3543,14 @@ export default function WritingPage() {
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50/30">
+              <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-paper-100/30">
                 {messages.length === 0 && (
                   <div className="text-center py-10">
-                    <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100 flex items-center justify-center shadow-inner">
-                      <Sparkles className="w-7 h-7 text-indigo-400" />
+                    <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-seal-50 to-seal-100 flex items-center justify-center shadow-inner">
+                      <Sparkles className="w-7 h-7 text-seal-400" />
                     </div>
-                    <p className="text-sm font-medium text-slate-600">AI 双引擎助手</p>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-sm font-medium text-ink-600">AI 双引擎助手</p>
+                    <p className="text-xs text-ink-400 mt-1">
                       AI-1 生成 + AI-2 审阅，确保内容可信
                     </p>
                     {trustedSearch && (
@@ -3570,8 +3570,8 @@ export default function WritingPage() {
                     <div
                       className={`max-w-[92%] rounded-2xl px-3 py-2.5 text-sm ${
                         msg.role === 'user'
-                          ? 'bg-indigo-600 text-white rounded-br-md shadow-sm'
-                          : 'bg-white text-slate-700 rounded-bl-md border border-slate-200 shadow-sm'
+                          ? 'bg-seal-600 text-paper-50 rounded-br-md shadow-sm'
+                          : 'bg-paper-50 text-ink-700 rounded-bl-md border border-ink-200 shadow-sm'
                       }`}
                     >
                       {msg.role === 'assistant' ? (
@@ -3593,8 +3593,8 @@ export default function WritingPage() {
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                           />
                           {msg.citations && msg.citations.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-slate-100">
-                              <div className="text-[0.6875rem] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
+                            <div className="mt-3 pt-3 border-t border-ink-100">
+                              <div className="text-[0.6875rem] font-semibold text-ink-500 mb-2 flex items-center gap-1.5">
                                 <div className="w-4 h-4 bg-emerald-100 rounded-full flex items-center justify-center">
                                   <BookMarked className="w-2.5 h-2.5 text-emerald-600" />
                                 </div>
@@ -3604,13 +3604,13 @@ export default function WritingPage() {
                                 {msg.citations.map((cit, idx) => (
                                   <div
                                     key={idx}
-                                    className="p-2.5 bg-slate-50/80 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition"
+                                    className="p-2.5 bg-paper-100/80 rounded-lg border border-ink-200 hover:border-seal-200 hover:bg-seal-50/30 transition"
                                   >
-                                    <div className="text-xs font-semibold text-slate-700 leading-snug flex items-start gap-1.5">
-                                      <span className="text-indigo-600 font-mono flex-shrink-0">[{idx + 1}]</span>
+                                    <div className="text-xs font-semibold text-ink-700 leading-snug flex items-start gap-1.5">
+                                      <span className="text-seal-600 font-mono flex-shrink-0">[{idx + 1}]</span>
                                       <span className="line-clamp-2">{cit.title}</span>
                                     </div>
-                                    <div className="text-[0.6875rem] text-slate-500 mt-1.5 ml-5">
+                                    <div className="text-[0.6875rem] text-ink-500 mt-1.5 ml-5">
                                       {cit.authors} ({cit.year}) · {cit.journal}
                                     </div>
                                     <div className="flex items-center gap-3 mt-1.5 ml-5">
@@ -3622,7 +3622,7 @@ export default function WritingPage() {
                                       />
                                       <button
                                         onClick={() => handleCopyDoiLink(cit.doi)}
-                                        className="text-[0.6875rem] text-slate-400 hover:text-indigo-600 transition flex items-center gap-1"
+                                        className="text-[0.6875rem] text-ink-400 hover:text-seal-600 transition flex items-center gap-1"
                                         title={doiLinkOf(cit.doi)}
                                       >
                                         <Copy className="w-3 h-3" />
@@ -3630,7 +3630,7 @@ export default function WritingPage() {
                                       </button>
                                       <button
                                         onClick={() => insertCitation(cit.doi)}
-                                        className="text-[0.6875rem] text-slate-400 hover:text-indigo-600 transition flex items-center gap-1"
+                                        className="text-[0.6875rem] text-ink-400 hover:text-seal-600 transition flex items-center gap-1"
                                         title="把这条文献的 DOI 标记插到正文光标处"
                                       >
                                         <Plus className="w-3 h-3" />
@@ -3645,7 +3645,7 @@ export default function WritingPage() {
                           {msg.reviewStatus === 'pass' && (
                             <button
                               onClick={() => handleCopyContent(msg.content)}
-                              className="w-full mt-2 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-100 transition flex items-center justify-center gap-1"
+                              className="w-full mt-2 py-1.5 bg-seal-50 text-seal-600 rounded-lg text-xs font-medium hover:bg-seal-100 transition flex items-center justify-center gap-1"
                             >
                               <Copy className="w-3 h-3" />
                               复制内容
@@ -3661,31 +3661,31 @@ export default function WritingPage() {
 
                 {aiBusy && (
                   <div className="flex justify-start">
-                    <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 border border-slate-200 shadow-sm">
+                    <div className="bg-paper-50 rounded-2xl rounded-bl-md px-4 py-3 border border-ink-200 shadow-sm">
                       <div className="flex items-center gap-2">
                         {isAiGenerating ? (
                           <>
-                            <div className="w-6 h-6 bg-indigo-100 rounded-md flex items-center justify-center">
-                              <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                            <div className="w-6 h-6 bg-seal-100 rounded-md flex items-center justify-center">
+                              <Bot className="w-3.5 h-3.5 text-seal-600" />
                             </div>
-                            <span className="text-xs text-slate-600">AI-1 生成中...</span>
+                            <span className="text-xs text-ink-600">AI-1 生成中...</span>
                           </>
                         ) : (
                           <>
                             <div className="w-6 h-6 bg-emerald-100 rounded-md flex items-center justify-center">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                             </div>
-                            <span className="text-xs text-slate-600">AI-2 审阅中...</span>
+                            <span className="text-xs text-ink-600">AI-2 审阅中...</span>
                           </>
                         )}
                         <div className="flex gap-1 ml-2">
-                          <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                          <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                          <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                          <span className="w-1.5 h-1.5 bg-seal-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-1.5 h-1.5 bg-seal-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="w-1.5 h-1.5 bg-seal-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                         </div>
                         {/* 后端要排队跑 Actions + 多轮大模型调用，分钟级属正常；给个计时免得以为卡死 */}
                         <span
-                          className="ml-1 text-[0.625rem] text-slate-400 tabular-nums"
+                          className="ml-1 text-[0.625rem] text-ink-400 tabular-nums"
                           title="后端要排队跑 GitHub Actions + 多轮大模型调用，等几分钟是正常的"
                         >
                           已等 {Math.floor(aiElapsed / 60)} 分 {String(aiElapsed % 60).padStart(2, '0')} 秒
@@ -3698,7 +3698,7 @@ export default function WritingPage() {
                 <div ref={chatEndRef} />
               </div>
 
-              <div className="p-3 border-t border-slate-200 bg-white">
+              <div className="p-3 border-t border-ink-200 bg-paper-50">
                 {trustedSearch && (
                   <div className="mb-2 flex items-center gap-1.5 text-[0.625rem] text-emerald-600">
                     <Zap className="w-3 h-3" />
@@ -3718,8 +3718,8 @@ export default function WritingPage() {
                         onClick={() => toggleQuickAction(action.key)}
                         className={`px-2.5 py-1 text-xs rounded-full border transition flex items-center gap-1 ${
                           active
-                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
+                            ? 'bg-seal-600 border-seal-600 text-paper-50 shadow-sm'
+                            : 'bg-paper-100 border-ink-200 text-ink-600 hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700'
                         }`}
                         title={action.template}
                       >
@@ -3736,8 +3736,8 @@ export default function WritingPage() {
                         key={action.label}
                         className={`inline-flex items-center text-xs rounded-full border transition ${
                           active
-                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700'
+                            ? 'bg-seal-600 border-seal-600 text-paper-50 shadow-sm'
+                            : 'bg-paper-100 border-ink-200 text-ink-600 hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700'
                         }`}
                       >
                         <button
@@ -3750,7 +3750,7 @@ export default function WritingPage() {
                         <button
                           onClick={() => handleDeleteAction(action.label)}
                           className={`pr-1.5 pl-0.5 py-1 transition ${
-                            active ? 'text-indigo-200 hover:text-white' : 'text-slate-300 hover:text-red-500'
+                            active ? 'text-seal-200 hover:text-paper-50' : 'text-ink-300 hover:text-red-500'
                           }`}
                           title="删除该指令"
                         >
@@ -3761,7 +3761,7 @@ export default function WritingPage() {
                   })}
                   <button
                     onClick={() => setShowActionModal(true)}
-                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"
+                    className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-full transition"
                     title="添加自定义指令（可直接写 prompt，也可让 AI 按需求生成）"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -3784,7 +3784,7 @@ export default function WritingPage() {
                                 rows={3}
                                 autoFocus={i === 0}
                                 placeholder={param.placeholder}
-                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y"
+                                className="w-full px-3 py-2 text-sm border border-ink-200 rounded-xl focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50 resize-y"
                               />
                             ) : (
                               <input
@@ -3802,7 +3802,7 @@ export default function WritingPage() {
                                   }
                                 }}
                                 placeholder={param.placeholder}
-                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                                className="w-full px-3 py-2 text-sm border border-ink-200 rounded-xl focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50"
                               />
                             ),
                           )
@@ -3813,7 +3813,7 @@ export default function WritingPage() {
                               rows={3}
                               autoFocus
                               placeholder="这条指令的提示词…"
-                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y"
+                              className="w-full px-3 py-2 text-sm border border-ink-200 rounded-xl focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50 resize-y"
                             />
                           )}
                     </div>
@@ -3822,7 +3822,7 @@ export default function WritingPage() {
                       disabled={
                         isAiGenerating || isAiReviewing || !!actionIncomplete || !composeActionPrompt()
                       }
-                      className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl text-sm hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                      className="px-3 py-2 bg-gradient-to-r from-seal-600 to-seal-700 text-paper-50 rounded-xl text-sm hover:from-seal-700 hover:to-seal-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                       title={actionIncomplete ? '把这条指令要的空填完' : '发送时自动拼成完整提示词'}
                     >
                       <Send className="w-4 h-4" />
@@ -3832,7 +3832,7 @@ export default function WritingPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={handleOpenFolder}
-                      className="flex items-center gap-1.5 px-3 py-2 text-[0.6875rem] bg-slate-50 border border-slate-200 text-slate-600 rounded-xl hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex-shrink-0"
+                      className="flex items-center gap-1.5 px-3 py-2 text-[0.6875rem] bg-paper-100 border border-ink-200 text-ink-600 rounded-xl hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700 transition flex-shrink-0"
                       title="从文件夹导入文献"
                     >
                       <FolderOpen className="w-4 h-4" />
@@ -3850,19 +3850,19 @@ export default function WritingPage() {
                       }}
                       rows={2}
                       placeholder="给 AI 一个需求…（Enter 发送，Shift+Enter 换行）"
-                      className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50 resize-y min-h-[2.375rem] max-h-[10rem]"
+                      className="flex-1 px-3 py-2 text-sm border border-ink-200 rounded-xl focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50 resize-y min-h-[2.375rem] max-h-[10rem]"
                     />
                     <button
                       onClick={() => handleSendMessage()}
                       disabled={isAiGenerating || isAiReviewing || !inputValue.trim()}
-                      className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl text-sm hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                      className="px-3 py-2 bg-gradient-to-r from-seal-600 to-seal-700 text-paper-50 rounded-xl text-sm hover:from-seal-700 hover:to-seal-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                     >
                       <Send className="w-4 h-4" />
                     </button>
                   </div>
                 )}
                 {activeAction && (
-                  <div className="mt-1.5 text-[0.625rem] text-slate-400">
+                  <div className="mt-1.5 text-[0.625rem] text-ink-400">
                     {actionIncomplete ? '填完这条指令要的空才能发' : '发送时自动拼成完整提示词'}
                   </div>
                 )}
@@ -3878,43 +3878,43 @@ export default function WritingPage() {
 
           {p.mode === 'library' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-3 border-b border-slate-100">
+              <div className="p-3 border-b border-ink-100">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
                   <input
                     type="text"
                     value={citationSearch}
                     onChange={(e) => setCitationSearch(e.target.value)}
                     placeholder="搜索文献..."
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50"
                   />
                 </div>
-                <div className="mt-2 text-[0.6875rem] text-slate-400 flex items-center gap-1.5">
+                <div className="mt-2 text-[0.6875rem] text-ink-400 flex items-center gap-1.5">
                   <FileCode className="w-3 h-3" />
                   文献数据存储在 GitHub 仓库的 data/citations.csv
                 </div>
                 <button
                   onClick={() => setShowAddCitationForm(!showAddCitationForm)}
-                  className="mt-2 w-full py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-100 transition flex items-center justify-center gap-1.5"
+                  className="mt-2 w-full py-1.5 bg-seal-50 text-seal-600 rounded-lg text-xs font-medium hover:bg-seal-100 transition flex items-center justify-center gap-1.5"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   添加文献
                 </button>
                 {showAddCitationForm && (
-                  <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <div className="mt-2 p-3 bg-paper-100 rounded-lg border border-ink-200 space-y-2">
                     <input
                       type="text"
                       value={newCitation.title}
                       onChange={(e) => setNewCitation((prev) => ({ ...prev, title: e.target.value }))}
                       placeholder="标题 *"
-                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      className="w-full px-2.5 py-1.5 text-xs border border-ink-200 rounded focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                     />
                     <input
                       type="text"
                       value={newCitation.authors}
                       onChange={(e) => setNewCitation((prev) => ({ ...prev, authors: e.target.value }))}
                       placeholder="作者"
-                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      className="w-full px-2.5 py-1.5 text-xs border border-ink-200 rounded focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                     />
                     <div className="flex gap-2">
                       <input
@@ -3922,14 +3922,14 @@ export default function WritingPage() {
                         value={newCitation.year}
                         onChange={(e) => setNewCitation((prev) => ({ ...prev, year: e.target.value }))}
                         placeholder="年份"
-                        className="w-20 px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                        className="w-20 px-2.5 py-1.5 text-xs border border-ink-200 rounded focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                       />
                       <input
                         type="text"
                         value={newCitation.journal}
                         onChange={(e) => setNewCitation((prev) => ({ ...prev, journal: e.target.value }))}
                         placeholder="期刊"
-                        className="flex-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-ink-200 rounded focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                       />
                     </div>
                     <input
@@ -3937,13 +3937,13 @@ export default function WritingPage() {
                       value={newCitation.doi}
                       onChange={(e) => setNewCitation((prev) => ({ ...prev, doi: e.target.value }))}
                       placeholder="DOI *"
-                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                      className="w-full px-2.5 py-1.5 text-xs border border-ink-200 rounded focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                     />
                     <div className="flex gap-2">
                       <button
                         onClick={handleAddCitation}
                         disabled={!newCitation.title.trim() || !newCitation.doi.trim()}
-                        className="flex-1 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-1 py-1.5 bg-seal-600 text-paper-50 rounded text-xs font-medium hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         添加
                       </button>
@@ -3952,7 +3952,7 @@ export default function WritingPage() {
                           setShowAddCitationForm(false)
                           setNewCitation({ title: '', authors: '', year: '', journal: '', doi: '' })
                         }}
-                        className="px-3 py-1.5 bg-slate-200 text-slate-600 rounded text-xs font-medium hover:bg-slate-300 transition"
+                        className="px-3 py-1.5 bg-ink-200 text-ink-600 rounded text-xs font-medium hover:bg-ink-300 transition"
                       >
                         取消
                       </button>
@@ -3964,27 +3964,27 @@ export default function WritingPage() {
                 {scopedCitations.map((cit, idx) => (
                   <div
                     key={idx}
-                    className="p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 hover:shadow-sm transition cursor-pointer group relative"
+                    className="p-3 bg-paper-50 rounded-lg border border-ink-200 hover:border-seal-200 hover:shadow-sm transition cursor-pointer group relative"
                   >
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         handleDeleteCitation(cit.doi)
                       }}
-                      className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition"
+                      className="absolute top-2 right-2 p-1 text-ink-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
-                    <div className="text-sm font-semibold text-slate-700 line-clamp-2 leading-snug pr-6">
+                    <div className="text-sm font-semibold text-ink-700 line-clamp-2 leading-snug pr-6">
                       {cit.title}
                     </div>
-                    <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[0.625rem] font-medium">
+                    <div className="text-xs text-ink-500 mt-2 flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 bg-seal-50 text-seal-600 rounded text-[0.625rem] font-medium">
                         {cit.year}
                       </span>
                       <span className="truncate">{cit.journal}</span>
                     </div>
-                    <div className="text-xs text-slate-400 mt-1 truncate">
+                    <div className="text-xs text-ink-400 mt-1 truncate">
                       {cit.authors}
                     </div>
                     <div className="mt-2 flex items-center justify-between">
@@ -4000,7 +4000,7 @@ export default function WritingPage() {
                           e.stopPropagation()
                           insertCitation(cit.doi)
                         }}
-                        className="text-[0.6875rem] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition font-medium"
+                        className="text-[0.6875rem] px-2 py-0.5 bg-seal-50 text-seal-600 rounded hover:bg-seal-100 transition font-medium"
                       >
                         插入引用
                       </button>
@@ -4008,34 +4008,34 @@ export default function WritingPage() {
                   </div>
                 ))}
               </div>
-              <div className="p-3 border-t border-slate-200 bg-slate-50/50 space-y-2">
+              <div className="p-3 border-t border-ink-200 bg-paper-100/50 space-y-2">
                 <button
                   onClick={handleOpenFolder}
-                  className="w-full py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center justify-center gap-1.5"
+                  className="w-full py-2 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-xs font-medium hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700 transition flex items-center justify-center gap-1.5"
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
                   从文件夹导入
                 </button>
                 <button
                   onClick={() => setShowBibtexInput(!showBibtexInput)}
-                  className="w-full py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition flex items-center justify-center gap-1.5"
+                  className="w-full py-2 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-xs font-medium hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700 transition flex items-center justify-center gap-1.5"
                 >
                   <Clipboard className="w-3.5 h-3.5" />
                   粘贴 BibTeX
                 </button>
                 {showBibtexInput && (
-                  <div className="p-2 bg-white rounded-lg border border-slate-200 space-y-2">
+                  <div className="p-2 bg-paper-50 rounded-lg border border-ink-200 space-y-2">
                     <textarea
                       value={bibtexText}
                       onChange={(e) => setBibtexText(e.target.value)}
                       placeholder="粘贴 BibTeX 内容..."
                       rows={4}
-                      className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 resize-none"
+                      className="w-full px-2 py-1.5 text-xs border border-ink-200 rounded focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100 resize-none"
                     />
                     <div className="flex gap-2">
                       <button
                         onClick={handleImportBibtex}
-                        className="flex-1 py-1 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 transition"
+                        className="flex-1 py-1 bg-seal-600 text-paper-50 rounded text-xs font-medium hover:bg-seal-700 transition"
                       >
                         导入
                       </button>
@@ -4044,7 +4044,7 @@ export default function WritingPage() {
                           setShowBibtexInput(false)
                           setBibtexText('')
                         }}
-                        className="px-3 py-1 bg-slate-200 text-slate-600 rounded text-xs font-medium hover:bg-slate-300 transition"
+                        className="px-3 py-1 bg-ink-200 text-ink-600 rounded text-xs font-medium hover:bg-ink-300 transition"
                       >
                         取消
                       </button>
@@ -4057,18 +4057,18 @@ export default function WritingPage() {
 
           {p.mode === 'knowledge' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-3 border-b border-slate-100">
+              <div className="p-3 border-b border-ink-100">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
                   <input
                     type="text"
                     placeholder="搜索知识库..."
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50/50"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50"
                   />
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-3">
-                <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+                <div className="text-xs font-semibold text-ink-500 mb-2 px-1 flex items-center gap-1.5">
                   <BookText className="w-3.5 h-3.5" />
                   图书
                 </div>
@@ -4080,20 +4080,20 @@ export default function WritingPage() {
                   ].map((book, idx) => (
                     <div
                       key={idx}
-                      className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-start gap-2"
+                      className="p-2.5 bg-paper-50 rounded-lg border border-ink-200 hover:border-seal-200 transition cursor-pointer flex items-start gap-2"
                     >
                       <div className="w-8 h-10 bg-gradient-to-br from-amber-100 to-amber-200 rounded flex items-center justify-center flex-shrink-0">
                         <BookText className="w-4 h-4 text-amber-700" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium text-slate-700 line-clamp-1">{book.title}</div>
-                        <div className="text-[0.6875rem] text-slate-500 mt-0.5">{book.author} ({book.year})</div>
+                        <div className="text-xs font-medium text-ink-700 line-clamp-1">{book.title}</div>
+                        <div className="text-[0.6875rem] text-ink-500 mt-0.5">{book.author} ({book.year})</div>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <div className="text-xs font-semibold text-slate-500 mb-2 px-1 flex items-center gap-1.5">
+                <div className="text-xs font-semibold text-ink-500 mb-2 px-1 flex items-center gap-1.5">
                   <Newspaper className="w-3.5 h-3.5" />
                   综述文章
                 </div>
@@ -4101,12 +4101,12 @@ export default function WritingPage() {
                   {citations.slice(0, 2).map((cit, idx) => (
                     <div
                       key={idx}
-                      className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer"
+                      className="p-2.5 bg-paper-50 rounded-lg border border-ink-200 hover:border-seal-200 transition cursor-pointer"
                     >
-                      <div className="text-xs font-medium text-slate-700 line-clamp-2 leading-snug">
+                      <div className="text-xs font-medium text-ink-700 line-clamp-2 leading-snug">
                         {cit.title}
                       </div>
-                      <div className="text-[0.6875rem] text-slate-500 mt-1">
+                      <div className="text-[0.6875rem] text-ink-500 mt-1">
                         {cit.journal} ({cit.year})
                       </div>
                     </div>
@@ -4124,7 +4124,7 @@ export default function WritingPage() {
                 <div>
                   <button
                     onClick={() => setShowNewTemplateForm(!showNewTemplateForm)}
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 rounded-lg transition"
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-seal-600 bg-seal-50/60 hover:bg-seal-100 rounded-lg transition"
                   >
                     {showNewTemplateForm ? (
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -4135,20 +4135,20 @@ export default function WritingPage() {
                   </button>
 
                   {showNewTemplateForm && (
-                    <div className="mt-2 p-2.5 space-y-2 bg-slate-50 rounded-lg">
+                    <div className="mt-2 p-2.5 space-y-2 bg-paper-100 rounded-lg">
                       <input
                         type="text"
                         value={newTemplateName}
                         onChange={(e) => setNewTemplateName(e.target.value)}
                         placeholder="期刊名称，如 Nature Communications"
-                        className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                        className="w-full px-2 py-1.5 text-xs border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                       />
                       <textarea
                         value={newTemplateGuidelines}
                         onChange={(e) => setNewTemplateGuidelines(e.target.value)}
                         rows={4}
                         placeholder="投稿须知原文（可选）。粘了就可以让 AI 按须知定 documentclass / 引用样式 / 双栏等；不粘就直接建骨架，之后在代码板里改。"
-                        className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg resize-none focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                        className="w-full px-2 py-1.5 text-xs border border-ink-200 rounded-lg resize-none focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                       />
                       <div className="flex gap-2">
                         <button
@@ -4158,7 +4158,7 @@ export default function WritingPage() {
                             !newTemplateName.trim() ||
                             !newTemplateGuidelines.trim()
                           }
-                          className="flex-1 py-1.5 bg-indigo-600 text-white rounded-lg text-[0.6875rem] font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                          className="flex-1 py-1.5 bg-seal-600 text-paper-50 rounded-lg text-[0.6875rem] font-medium hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                         >
                           {isCreatingTemplate ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
@@ -4170,7 +4170,7 @@ export default function WritingPage() {
                         <button
                           onClick={createTemplateManually}
                           disabled={isCreatingTemplate || !newTemplateName.trim()}
-                          className="flex-1 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex-1 py-1.5 bg-paper-50 border border-ink-200 text-ink-700 rounded-lg text-[0.6875rem] font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           只建骨架
                         </button>
@@ -4181,7 +4181,7 @@ export default function WritingPage() {
                           texTemplateInputRef.current?.click()
                         }}
                         disabled={isCreatingTemplate}
-                        className="w-full py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        className="w-full py-1.5 bg-paper-50 border border-ink-200 text-ink-700 rounded-lg text-[0.6875rem] font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                         title="上传期刊官方的 sample .tex，直接解析出 documentclass / 宏包 / 引用样式，比让 AI 从投稿须知里猜准"
                       >
                         <Upload className="w-3 h-3" />
@@ -4190,19 +4190,19 @@ export default function WritingPage() {
                       <button
                         onClick={() => texPackageInputRef.current?.click()}
                         disabled={isCreatingTemplate}
-                        className="w-full py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        className="w-full py-1.5 bg-paper-50 border border-ink-200 text-ink-700 rounded-lg text-[0.6875rem] font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                         title="上传出版社给的整包投稿模板（.zip，含 sample .tex + .cls/.sty/.bst + 图片/字体）。后端会解包成期刊模板，附属文件一并收好"
                       >
                         <Package className="w-3 h-3" />
                         上传投稿包 .zip 解包建模板
                       </button>
                       {!newTemplateName.trim() && (
-                        <p className="text-[0.625rem] text-slate-400 leading-relaxed">
+                        <p className="text-[0.625rem] text-ink-400 leading-relaxed">
                           不填期刊名就用文件名当模板名。
                         </p>
                       )}
                       {templateCreateStatus && (
-                        <p className="text-[0.625rem] text-slate-400 leading-relaxed">
+                        <p className="text-[0.625rem] text-ink-400 leading-relaxed">
                           {templateCreateStatus}
                         </p>
                       )}
@@ -4211,15 +4211,15 @@ export default function WritingPage() {
                 </div>
 
                 {/* 编译器的能力边界：写清楚内置了什么，省得用户猜 */}
-                <p className="text-[0.625rem] text-slate-400 leading-relaxed bg-slate-50 rounded-lg p-2">
+                <p className="text-[0.625rem] text-ink-400 leading-relaxed bg-paper-100 rounded-lg p-2">
                   编译器是随站点分发的 XeLaTeX 运行时（不联网，约 110MB，首次编译加载一次）。
                   已内置基础宏包 amsmath / graphicx / hyperref / geometry / xcolor / longtable /
                   etoolbox / fontspec，常用宏包 booktabs、natbib、amssymb、tabularx、multirow、
                   caption / subcaption / microtype，文档类{' '}
-                  <b className="font-medium text-slate-500">IEEEtran</b>、
-                  <b className="font-medium text-slate-500">elsarticle</b>、
-                  <b className="font-medium text-slate-500">acmart</b>、
-                  <b className="font-medium text-slate-500">revtex4-2</b>，
+                  <b className="font-medium text-ink-500">IEEEtran</b>、
+                  <b className="font-medium text-ink-500">elsarticle</b>、
+                  <b className="font-medium text-ink-500">acmart</b>、
+                  <b className="font-medium text-ink-500">revtex4-2</b>，
                   中文走 xeCJK + Noto Serif SC（正文里有汉字就自动接管，拉丁文仍用文档类自己的字体）。
                   其它宏包可以自己导入：在右边编译器顶部点「宏包」，把 .sty / .cls 选进来，
                   导入一次之后每次编译自动带上。
@@ -4230,13 +4230,13 @@ export default function WritingPage() {
                 </p>
 
                 <div>
-                  <div className="text-xs font-medium text-slate-600 mb-1.5">目标期刊模板</div>
+                  <div className="text-xs font-medium text-ink-600 mb-1.5">目标期刊模板</div>
                   <div className="relative">
                     <select
                       value={selectedTemplateId}
                       onChange={(e) => setSelectedTemplateId(e.target.value)}
                       disabled={templates.length === 0}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none pr-8 disabled:bg-slate-100 disabled:text-slate-400"
+                      className="w-full px-3 py-2 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50 appearance-none pr-8 disabled:bg-ink-100 disabled:text-ink-400"
                     >
                       {templates.length === 0 && <option value="">未创建期刊模板</option>}
                       {templates.map((t) => (
@@ -4245,10 +4245,10 @@ export default function WritingPage() {
                         </option>
                       ))}
                     </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400 pointer-events-none" />
                   </div>
                   {templates.length === 0 && (
-                    <p className="mt-1.5 text-[0.6875rem] text-slate-400 leading-relaxed">
+                    <p className="mt-1.5 text-[0.6875rem] text-ink-400 leading-relaxed">
                       点上面的「新建期刊模板」：粘投稿须知让 AI 提取，或先建一份骨架 ——
                       建完会自动载入代码板，改到能编译再「保存回模板」。
                     </p>
@@ -4259,7 +4259,7 @@ export default function WritingPage() {
                   <button
                     onClick={loadTemplateIntoLatexBoard}
                     disabled={!currentTemplate}
-                    className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 bg-seal-600 text-paper-50 rounded-lg text-xs font-medium hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                   >
                     <FolderOpen className="w-3.5 h-3.5" />
                     载入到代码板
@@ -4267,7 +4267,7 @@ export default function WritingPage() {
                   <button
                     onClick={saveLatexToTemplate}
                     disabled={!currentTemplate || !latexCode.trim()}
-                    className="flex-1 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 bg-paper-50 border border-ink-200 text-ink-700 rounded-lg text-xs font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                   >
                     <Save className="w-3.5 h-3.5" />
                     保存回模板
@@ -4280,7 +4280,7 @@ export default function WritingPage() {
                     texTemplateInputRef.current?.click()
                   }}
                   disabled={!currentTemplate || isCreatingTemplate}
-                  className="w-full py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-[0.6875rem] font-medium hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  className="w-full py-1.5 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-[0.6875rem] font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                   title="用一份新的 .tex 覆盖当前模板：documentclass / 宏包 / 引用样式 / 正文骨架都按它重新解析，原文并存进模板"
                 >
                   <Upload className="w-3 h-3" />
@@ -4288,8 +4288,8 @@ export default function WritingPage() {
                 </button>
 
                 {currentTemplate && (
-                  <div className="p-2.5 bg-slate-50 rounded-lg text-[0.6875rem] text-slate-500 leading-relaxed">
-                    <div className="font-medium text-slate-600 mb-0.5">
+                  <div className="p-2.5 bg-paper-100 rounded-lg text-[0.6875rem] text-ink-500 leading-relaxed">
+                    <div className="font-medium text-ink-600 mb-0.5">
                       {currentTemplate.short_name || currentTemplate.name}
                     </div>
                     <div>
@@ -4308,15 +4308,15 @@ export default function WritingPage() {
                   </div>
                 )}
 
-                <div className="border-t border-slate-100 pt-3 space-y-2">
+                <div className="border-t border-ink-100 pt-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-600">让 AI 改 LaTeX 代码</span>
+                    <span className="text-xs font-medium text-ink-600">让 AI 改 LaTeX 代码</span>
                     <button
                       onClick={() => setTrustedSearch(!trustedSearch)}
                       className={`flex items-center gap-1 text-[0.6875rem] px-1.5 py-0.5 rounded transition ${
                         trustedSearch
-                          ? 'text-indigo-600 hover:bg-indigo-50'
-                          : 'text-slate-400 hover:bg-slate-50'
+                          ? 'text-seal-600 hover:bg-seal-50'
+                          : 'text-ink-400 hover:bg-paper-100'
                       }`}
                       title="开启后会把模板的投稿须知原文作为 ground truth 交给 AI，AI-2 会核查每条改动的依据"
                     >
@@ -4333,12 +4333,12 @@ export default function WritingPage() {
                     onChange={(e) => setTemplateInstruction(e.target.value)}
                     rows={3}
                     placeholder="例如：改成双栏排版；摘要压到 200 字以内；标题全部小写"
-                    className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg resize-none focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                    className="w-full px-2.5 py-2 text-xs border border-ink-200 rounded-lg resize-none focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
                   />
                   <button
                     onClick={refineLatexCode}
                     disabled={isRefiningLatex}
-                    className="w-full py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-xs font-medium hover:from-indigo-700 hover:to-indigo-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                    className="w-full py-2 bg-gradient-to-r from-seal-600 to-seal-700 text-paper-50 rounded-lg text-xs font-medium hover:from-seal-700 hover:to-seal-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                   >
                     {isRefiningLatex ? (
                       <>
@@ -4353,7 +4353,7 @@ export default function WritingPage() {
                     )}
                   </button>
                   {refineStatus && (
-                    <p className="text-[0.625rem] text-slate-400 leading-relaxed">{refineStatus}</p>
+                    <p className="text-[0.625rem] text-ink-400 leading-relaxed">{refineStatus}</p>
                   )}
                 </div>
               </div>
@@ -4364,17 +4364,17 @@ export default function WritingPage() {
           {p.mode === 'typesetting' && (
             <div className="flex-1 flex flex-row min-h-0 overflow-hidden">
               {/* 左半：LaTeX 代码板 */}
-              <div className="flex-1 min-w-0 min-h-0 flex flex-col border-r border-slate-200">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex-shrink-0">
-                  <FileCode className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
-                  <span className="text-xs font-semibold text-slate-700 flex-shrink-0">
+              <div className="flex-1 min-w-0 min-h-0 flex flex-col border-r border-ink-200">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-paper-100 border-b border-ink-200 flex-shrink-0">
+                  <FileCode className="w-3.5 h-3.5 text-seal-600 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-ink-700 flex-shrink-0">
                     LaTeX 代码板
                   </span>
                   <div className="flex-1 min-w-0" />
                   <button
                     onClick={() => void generateLatexFromMarkdown()}
                     disabled={isGeneratingLatex}
-                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-white bg-indigo-600 rounded hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-paper-50 bg-seal-600 rounded hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     title="把左侧 markdown 正文交给 AI 转成 LaTeX（注意：正文会被发送到 AI 服务）"
                   >
                     {isGeneratingLatex ? (
@@ -4387,7 +4387,7 @@ export default function WritingPage() {
                   <button
                     onClick={runLatexLocalUpdate}
                     disabled={isGeneratingLatex || !latexCode.trim()}
-                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-indigo-700 bg-indigo-50 rounded hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-seal-700 bg-seal-50 rounded hover:bg-seal-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     title="把 md 里改过的文字逐字更正到 LaTeX 对应位置；只有改不动的地方才交给 AI。改文字请走这条路，别整篇重转。"
                   >
                     改字同步到 LaTeX
@@ -4395,7 +4395,7 @@ export default function WritingPage() {
                   <button
                     onClick={() => handleCopyContent(latexCode)}
                     disabled={!latexCode}
-                    className="flex-shrink-0 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40"
+                    className="flex-shrink-0 p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
                     title="复制 LaTeX 源码"
                   >
                     <Copy className="w-3.5 h-3.5" />
@@ -4403,14 +4403,14 @@ export default function WritingPage() {
                   <button
                     onClick={downloadLatexSource}
                     disabled={!latexCode}
-                    className="flex-shrink-0 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition disabled:opacity-40"
+                    className="flex-shrink-0 p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
                     title="下载 .tex"
                   >
                     <Download className="w-3.5 h-3.5" />
                   </button>
                 </div>
                 {latexGenStatus && (
-                  <div className="px-3 py-1 text-[0.625rem] text-indigo-600 bg-indigo-50/60 border-b border-indigo-100 flex-shrink-0 truncate">
+                  <div className="px-3 py-1 text-[0.625rem] text-seal-600 bg-seal-50/60 border-b border-seal-100 flex-shrink-0 truncate">
                     {latexGenStatus}
                   </div>
                 )}
@@ -4419,32 +4419,32 @@ export default function WritingPage() {
                   onChange={(e) => setLatexCode(e.target.value)}
                   spellCheck={false}
                   placeholder="这里是 LaTeX 源码。点上方「由正文生成」，或在左侧「期刊模板」里点「载入到代码板」。"
-                  className="flex-1 min-h-0 w-full resize-none p-3 font-mono text-[0.6875rem] leading-relaxed text-slate-800 bg-white focus:outline-none"
+                  className="flex-1 min-h-0 w-full resize-none p-3 font-mono text-[0.6875rem] leading-relaxed text-ink-800 bg-paper-50 focus:outline-none"
                 />
               </div>
 
               {/* 右半：编译器（浏览器内 XeLaTeX WASM，真编译） */}
               <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex-shrink-0">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-paper-100 border-b border-ink-200 flex-shrink-0">
                   <Play className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                  <span className="text-xs font-semibold text-slate-700 flex-shrink-0">编译器</span>
+                  <span className="text-xs font-semibold text-ink-700 flex-shrink-0">编译器</span>
                   {compileStatus && (
-                    <span className="text-[0.625rem] text-slate-400 truncate">{compileStatus}</span>
+                    <span className="text-[0.625rem] text-ink-400 truncate">{compileStatus}</span>
                   )}
                   <div className="flex-1 min-w-0" />
                   <button
                     onClick={() => setShowPackagesPanel((v) => !v)}
                     className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[0.6875rem] transition ${
                       showPackagesPanel
-                        ? 'bg-indigo-100 text-indigo-700'
-                        : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'
+                        ? 'bg-seal-100 text-seal-700'
+                        : 'text-ink-500 hover:text-seal-600 hover:bg-seal-50'
                     }`}
                     title="导入 .sty / .cls 宏包，编译时自动带上"
                   >
                     <Package className="w-3 h-3" />
                     宏包
                     {latexPackages.length > 0 && (
-                      <span className="text-[0.625rem] text-indigo-600">
+                      <span className="text-[0.625rem] text-seal-600">
                         {latexPackages.length}
                       </span>
                     )}
@@ -4452,7 +4452,7 @@ export default function WritingPage() {
                   {pdfUrl && (
                     <button
                       onClick={downloadCompiledPdf}
-                      className="flex-shrink-0 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+                      className="flex-shrink-0 p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
                       title="下载 PDF"
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -4461,7 +4461,7 @@ export default function WritingPage() {
                   <button
                     onClick={compileInCloud}
                     disabled={isCloudCompiling || isCompiling}
-                    className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-seal-700 bg-seal-50 border border-seal-200 rounded hover:bg-seal-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     title="正式编译（后端）：在你自己的私库里跑 GitHub Actions + 官方 TeX Live 镜像，宏包最全、版本最新；代价是提交源码并等排队（几分钟）"
                   >
                     {isCloudCompiling ? (
@@ -4474,7 +4474,7 @@ export default function WritingPage() {
                   <button
                     onClick={compileCurrentLatex}
                     disabled={isCompiling || isCloudCompiling}
-                    className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-white bg-emerald-600 rounded hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-paper-50 bg-emerald-600 rounded hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     title="预览（前端）：在本机浏览器里跑 XeLaTeX（首次要先下约 110MB 运行时，之后走缓存），几秒出 PDF、不联网、源码不出本机；但宏包被运行时钉死"
                   >
                     {isCompiling ? (
@@ -4488,13 +4488,13 @@ export default function WritingPage() {
 
                 {/* 云端编译的 Actions 运行页 —— 第一次跑大概率要看着它调，给个直达链接 */}
                 {cloudRunUrl && (
-                  <div className="flex-shrink-0 px-3 py-1 text-[0.625rem] text-slate-400 border-b border-slate-100 truncate">
+                  <div className="flex-shrink-0 px-3 py-1 text-[0.625rem] text-ink-400 border-b border-ink-100 truncate">
                     运行页：{' '}
                     <a
                       href={cloudRunUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-indigo-600 hover:underline"
+                      className="text-seal-600 hover:underline"
                     >
                       {cloudRunUrl}
                     </a>
@@ -4503,17 +4503,17 @@ export default function WritingPage() {
 
                 {/* 导入宏包：运行时只内置了常用宏包，用户自己的 .sty/.cls 从这里进来 */}
                 {showPackagesPanel && (
-                  <div className="flex-shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-2 space-y-2 max-h-56 overflow-y-auto">
-                    <p className="text-[0.625rem] text-slate-500 leading-relaxed">
+                  <div className="flex-shrink-0 border-b border-ink-200 bg-paper-100 px-3 py-2 space-y-2 max-h-56 overflow-y-auto">
+                    <p className="text-[0.625rem] text-ink-500 leading-relaxed">
                       编译器自带常用宏包与 IEEEtran / elsarticle / acmart / revtex4-2。
                       没带的（冷门宏包、自己写的 .sty）从这里导入：
-                      文件存进本项目目录，<span className="text-slate-600">之后每次编译自动挂上</span>，导入一次长期可用。
+                      文件存进本项目目录，<span className="text-ink-600">之后每次编译自动挂上</span>，导入一次长期可用。
                     </p>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <button
                         onClick={() => packageFileInputRef.current?.click()}
                         disabled={isImportingPackages || !activeProjectId}
-                        className="flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-white bg-indigo-600 rounded hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-paper-50 bg-seal-600 rounded hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isImportingPackages ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -4525,21 +4525,21 @@ export default function WritingPage() {
                       <button
                         onClick={() => packageFolderInputRef.current?.click()}
                         disabled={isImportingPackages || !activeProjectId}
-                        className="flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-ink-700 bg-paper-50 border border-ink-200 rounded hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         title="整包拖进来更省事：一个宏包常有好几个 .sty/.def/.cfg"
                       >
                         <FolderOpen className="w-3 h-3" />
                         选择文件夹
                       </button>
                       {isLoadingPackages && (
-                        <span className="text-[0.625rem] text-slate-400 flex items-center gap-1">
+                        <span className="text-[0.625rem] text-ink-400 flex items-center gap-1">
                           <Loader2 className="w-3 h-3 animate-spin" />
                           读取中
                         </span>
                       )}
                     </div>
                     {packageStatus && (
-                      <pre className="text-[0.625rem] text-slate-500 whitespace-pre-wrap leading-relaxed">
+                      <pre className="text-[0.625rem] text-ink-500 whitespace-pre-wrap leading-relaxed">
                         {packageStatus}
                       </pre>
                     )}
@@ -4548,13 +4548,13 @@ export default function WritingPage() {
                         {latexPackages.map((pkg) => (
                           <li
                             key={pkg.name}
-                            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-white group"
+                            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-paper-50 group"
                           >
-                            <FileCode className="w-3 h-3 text-indigo-500 flex-shrink-0" />
-                            <span className="text-[0.625rem] font-mono text-slate-700 truncate">
+                            <FileCode className="w-3 h-3 text-seal-500 flex-shrink-0" />
+                            <span className="text-[0.625rem] font-mono text-ink-700 truncate">
                               {pkg.name}
                             </span>
-                            <span className="text-[0.625rem] text-slate-400 flex-shrink-0">
+                            <span className="text-[0.625rem] text-ink-400 flex-shrink-0">
                               {pkg.size < 1024
                                 ? `${pkg.size} B`
                                 : `${(pkg.size / 1024).toFixed(0)} KB`}
@@ -4562,7 +4562,7 @@ export default function WritingPage() {
                             <div className="flex-1" />
                             <button
                               onClick={() => handleDeletePackage(pkg.name)}
-                              className="flex-shrink-0 p-0.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                              className="flex-shrink-0 p-0.5 text-ink-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
                               title={`删除 ${pkg.name}`}
                             >
                               <Trash2 className="w-3 h-3" />
@@ -4572,7 +4572,7 @@ export default function WritingPage() {
                       </ul>
                     ) : (
                       !isLoadingPackages && (
-                        <p className="text-[0.625rem] text-slate-400">
+                        <p className="text-[0.625rem] text-ink-400">
                           这个项目还没导入宏包。整包文件夹拖进来最省事。
                         </p>
                       )
@@ -4580,7 +4580,7 @@ export default function WritingPage() {
                   </div>
                 )}
 
-                <div className="flex-1 min-h-0 bg-slate-100 overflow-hidden">
+                <div className="flex-1 min-h-0 bg-ink-100 overflow-hidden">
                   {compileError ? (
                     <div className="h-full flex flex-col">
                       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border-b border-red-100 flex-shrink-0">
@@ -4605,8 +4605,8 @@ export default function WritingPage() {
                     <iframe src={pdfUrl} title="编译结果 PDF" className="w-full h-full border-0" />
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center text-center px-6">
-                      <Play className="w-8 h-8 text-slate-300 mb-2" />
-                      <p className="text-xs text-slate-400 leading-relaxed">
+                      <Play className="w-8 h-8 text-ink-300 mb-2" />
+                      <p className="text-xs text-ink-400 leading-relaxed">
                         点「预览（前端）」在本机浏览器里跑 XeLaTeX
                         <br />
                         出来的是真 PDF，不联网、不上传
@@ -4623,12 +4623,12 @@ export default function WritingPage() {
       </div>
 
       {showCitationModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <BookMarked className="w-5 h-5 text-indigo-600" />
-                <h3 className="text-base font-semibold text-slate-800">插入引用</h3>
+                <BookMarked className="w-5 h-5 text-seal-600" />
+                <h3 className="text-base font-semibold text-ink-800">插入引用</h3>
               </div>
               <button
                 onClick={() => {
@@ -4636,18 +4636,18 @@ export default function WritingPage() {
                   setSelectedCitations([])
                   setCitationSearch('')
                 }}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="px-4 py-3 border-b border-slate-100">
+            <div className="px-4 py-3 border-b border-ink-100">
               <div className="flex gap-1 mb-2">
                 <button
                   onClick={() => setCitationSource('local')}
                   className={`px-2.5 py-1 text-xs rounded-full transition ${
-                    citationSource === 'local' ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-slate-500 hover:bg-slate-100'
+                    citationSource === 'local' ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
                   }`}
                 >
                   本地文献
@@ -4655,7 +4655,7 @@ export default function WritingPage() {
                 <button
                   onClick={() => setCitationSource('online')}
                   className={`px-2.5 py-1 text-xs rounded-full transition flex items-center gap-1 ${
-                    citationSource === 'online' ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-slate-500 hover:bg-slate-100'
+                    citationSource === 'online' ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
                   }`}
                 >
                   <Search className="w-3 h-3" />
@@ -4663,7 +4663,7 @@ export default function WritingPage() {
                 </button>
               </div>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
                 <input
                   type="text"
                   value={citationSource === 'local' ? citationSearch : onlineQuery}
@@ -4678,18 +4678,18 @@ export default function WritingPage() {
                       ? '搜索文献标题、作者、期刊或 DOI...'
                       : '输入中文或英文关键词，回车在 Crossref 检索...'
                   }
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   autoFocus
                 />
               </div>
               {citationSource === 'online' ? (
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-[0.6875rem] text-slate-400">数据源：Crossref（摘要缺的用 OpenAlex 补）</span>
+                  <span className="text-[0.6875rem] text-ink-400">数据源：Crossref（摘要缺的用 OpenAlex 补）</span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleSummarizeOnline}
                       disabled={isSummarizingOnline || isSearchingOnline || onlineResults.length === 0}
-                      className="px-2.5 py-1 text-xs bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                      className="px-2.5 py-1 text-xs bg-ink-100 text-ink-600 rounded-lg hover:bg-seal-50 hover:text-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                       title="让 AI 给当前这批结果各写一句中文小结（走一次后端 AI，通常一分钟上下）"
                     >
                       {isSummarizingOnline ? (
@@ -4702,7 +4702,7 @@ export default function WritingPage() {
                     <button
                       onClick={handleOnlineSearch}
                       disabled={isSearchingOnline || !onlineQuery.trim()}
-                      className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                      className="px-2.5 py-1 text-xs bg-seal-600 text-paper-50 rounded-lg hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                     >
                       {isSearchingOnline && <Loader2 className="w-3 h-3 animate-spin" />}
                       检索
@@ -4710,8 +4710,8 @@ export default function WritingPage() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-2 text-[0.6875rem] text-slate-400">
-                  快捷键：<kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono">Ctrl+Shift+K</kbd>
+                <div className="mt-2 text-[0.6875rem] text-ink-400">
+                  快捷键：<kbd className="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600 font-mono">Ctrl+Shift+K</kbd>
                 </div>
               )}
             </div>
@@ -4720,7 +4720,7 @@ export default function WritingPage() {
               {citationSource === 'online' ? (
                 <>
                   {onlineResults.length === 0 && (
-                    <div className="text-center py-8 text-sm text-slate-400">
+                    <div className="text-center py-8 text-sm text-ink-400">
                       {isSearchingOnline ? '检索中…' : '输入关键词后点「检索」，结果可一键导入引用列表'}
                     </div>
                   )}
@@ -4731,18 +4731,18 @@ export default function WritingPage() {
                       <div
                         key={result.doi}
                         className={`p-3 rounded-lg border transition ${
-                          isSelected ? 'border-indigo-400 bg-indigo-50/60' : 'border-slate-200'
+                          isSelected ? 'border-seal-400 bg-seal-50/60' : 'border-ink-200'
                         }`}
                       >
-                        <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                        <div className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
                           {result.title}
                         </div>
-                        <div className="text-xs text-slate-500 mt-1.5 truncate">
+                        <div className="text-xs text-ink-500 mt-1.5 truncate">
                           {result.authors} ({result.year})
                         </div>
-                        <div className="text-xs text-slate-400 truncate mt-0.5">{result.journal}</div>
+                        <div className="text-xs text-ink-400 truncate mt-0.5">{result.journal}</div>
                         {onlineSummaries[result.doi] && (
-                          <p className="mt-2 text-xs text-indigo-800 bg-indigo-50/70 rounded px-2 py-1.5 leading-relaxed">
+                          <p className="mt-2 text-xs text-seal-800 bg-seal-50/70 rounded px-2 py-1.5 leading-relaxed">
                             <span className="font-medium">中文小结：</span>
                             {onlineSummaries[result.doi]}
                           </p>
@@ -4750,10 +4750,10 @@ export default function WritingPage() {
                         {result.abstract && (
                           // 摘要动辄上千字，展开会把列表撑爆 —— 折在 details 里，要看再点开
                           <details className="mt-2">
-                            <summary className="text-[0.6875rem] text-slate-400 cursor-pointer hover:text-indigo-600">
+                            <summary className="text-[0.6875rem] text-ink-400 cursor-pointer hover:text-seal-600">
                               摘要
                             </summary>
-                            <p className="mt-1 text-xs text-slate-500 leading-relaxed">{result.abstract}</p>
+                            <p className="mt-1 text-xs text-ink-500 leading-relaxed">{result.abstract}</p>
                           </details>
                         )}
                         <div className="mt-2 flex items-center justify-between">
@@ -4769,8 +4769,8 @@ export default function WritingPage() {
                               }}
                               className={`px-2 py-1 text-[0.6875rem] rounded transition flex items-center gap-1 ${
                                 isSelected
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
+                                  ? 'bg-seal-600 text-paper-50'
+                                  : 'bg-ink-100 text-ink-600 hover:bg-seal-50 hover:text-seal-700'
                               }`}
                             >
                               {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
@@ -4779,7 +4779,7 @@ export default function WritingPage() {
                           ) : (
                             <button
                               onClick={() => handleImportOnlineResult(result)}
-                              className="px-2 py-1 text-[0.6875rem] bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition flex items-center gap-1"
+                              className="px-2 py-1 text-[0.6875rem] bg-seal-50 text-seal-700 rounded hover:bg-seal-100 transition flex items-center gap-1"
                             >
                               <Plus className="w-3 h-3" />
                               导入
@@ -4793,7 +4793,7 @@ export default function WritingPage() {
               ) : (
                 <>
                   {scopedCitations.length === 0 && (
-                    <div className="text-center py-8 text-sm text-slate-400">
+                    <div className="text-center py-8 text-sm text-ink-400">
                       未找到匹配的文献
                     </div>
                   )}
@@ -4811,24 +4811,24 @@ export default function WritingPage() {
                         }}
                         className={`p-3 rounded-lg border cursor-pointer transition ${
                           isSelected
-                            ? 'border-indigo-400 bg-indigo-50/60'
-                            : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                            ? 'border-seal-400 bg-seal-50/60'
+                            : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
                         }`}
                       >
                         <div className="flex items-start gap-2">
                           <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                            isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                            isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
                           }`}>
-                            {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                            {isSelected && <Check className="w-3.5 h-3.5 text-paper-50" />}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-slate-700 line-clamp-2 leading-snug">
+                            <div className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
                               {cit.title}
                             </div>
-                            <div className="text-xs text-slate-500 mt-1.5 truncate">
+                            <div className="text-xs text-ink-500 mt-1.5 truncate">
                               {cit.authors} ({cit.year})
                             </div>
-                            <div className="text-xs text-slate-400 truncate mt-0.5">
+                            <div className="text-xs text-ink-400 truncate mt-0.5">
                               {cit.journal}
                             </div>
                             <div className="text-[0.6875rem] mt-1">
@@ -4843,9 +4843,9 @@ export default function WritingPage() {
               )}
             </div>
 
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
-              <div className="text-xs text-slate-500">
-                已选择 <span className="font-semibold text-indigo-600">{selectedCitations.length}</span> 篇
+            <div className="px-4 py-3 border-t border-ink-200 bg-paper-100/50 flex items-center justify-between">
+              <div className="text-xs text-ink-500">
+                已选择 <span className="font-semibold text-seal-600">{selectedCitations.length}</span> 篇
               </div>
               <div className="flex gap-2">
                 <button
@@ -4854,14 +4854,14 @@ export default function WritingPage() {
                     setSelectedCitations([])
                     setCitationSearch('')
                   }}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                  className="px-3 py-1.5 text-sm text-ink-600 hover:bg-ink-200 rounded-lg transition"
                 >
                   取消
                 </button>
                 <button
                   onClick={insertSelectedCitations}
                   disabled={selectedCitations.length === 0}
-                  className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  className="px-4 py-1.5 bg-seal-600 text-paper-50 text-sm rounded-lg hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   插入引用
                 </button>
@@ -4872,12 +4872,12 @@ export default function WritingPage() {
       )}
 
       {showProjectLitModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-semibold text-slate-800">选择项目文献</h3>
-                <p className="text-[0.6875rem] text-slate-400 mt-0.5">
+                <h3 className="text-base font-semibold text-ink-800">选择项目文献</h3>
+                <p className="text-[0.6875rem] text-ink-400 mt-0.5">
                   这些文献会成为该项目的临时知识库，随时可以再加
                 </p>
               </div>
@@ -4887,28 +4887,28 @@ export default function WritingPage() {
                   setProjectLitTargetId(null)
                   setProjectLitSelected([])
                 }}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="px-4 py-2 border-b border-slate-100">
+            <div className="px-4 py-2 border-b border-ink-100">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-400" />
                 <input
                   type="text"
                   value={projectLitSearch}
                   onChange={(e) => setProjectLitSearch(e.target.value)}
                   placeholder="搜索文献库（标题 / 作者 / 期刊 / DOI）..."
-                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400"
                 />
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {availablePapers.length === 0 && (
-                <div className="text-center py-8 text-sm text-slate-400">
+                <div className="text-center py-8 text-sm text-ink-400">
                   文献库为空，请先到文献管理页添加文献
                 </div>
               )}
@@ -4932,21 +4932,21 @@ export default function WritingPage() {
                       }}
                       className={`p-2.5 rounded-lg border cursor-pointer transition ${
                         isSelected
-                          ? 'border-indigo-400 bg-indigo-50/60'
-                          : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                          ? 'border-seal-400 bg-seal-50/60'
+                          : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
                       }`}
                     >
                       <div className="flex items-start gap-2">
                         <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                          isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                          isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
                         }`}>
-                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                          {isSelected && <Check className="w-3 h-3 text-paper-50" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                          <div className="text-xs font-semibold text-ink-700 line-clamp-2 leading-snug">
                             {p.title}
                           </div>
-                          <div className="text-[0.6875rem] text-slate-500 mt-1 truncate">
+                          <div className="text-[0.6875rem] text-ink-500 mt-1 truncate">
                             {p.journal} ({p.year})
                           </div>
                         </div>
@@ -4956,9 +4956,9 @@ export default function WritingPage() {
                 })}
             </div>
 
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                已选 <span className="font-semibold text-indigo-600">{projectLitSelected.length}</span> 篇
+            <div className="px-4 py-3 border-t border-ink-200 bg-paper-100/50 flex items-center justify-between">
+              <span className="text-xs text-ink-500">
+                已选 <span className="font-semibold text-seal-600">{projectLitSelected.length}</span> 篇
               </span>
               <div className="flex gap-2">
                 <button
@@ -4967,14 +4967,14 @@ export default function WritingPage() {
                     setProjectLitTargetId(null)
                     setProjectLitSelected([])
                   }}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                  className="px-3 py-1.5 text-sm text-ink-600 hover:bg-ink-200 rounded-lg transition"
                 >
                   跳过
                 </button>
                 <button
                   onClick={handleAddProjectLiterature}
                   disabled={projectLitSelected.length === 0}
-                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-1.5 text-sm bg-seal-600 text-paper-50 rounded-lg hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   添加
                 </button>
@@ -4985,21 +4985,21 @@ export default function WritingPage() {
       )}
 
       {citeGate && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h3 className="text-base font-semibold text-slate-800">引用体检没通过</h3>
-                  <p className="text-[0.6875rem] text-slate-500 mt-0.5">
+                  <h3 className="text-base font-semibold text-ink-800">引用体检没通过</h3>
+                  <p className="text-[0.6875rem] text-ink-500 mt-0.5">
                     生成前先看一眼更好 —— 这些引用编译出来会在 PDF 上显示成 [?]
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setCiteGate(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -5008,7 +5008,7 @@ export default function WritingPage() {
             <div className="p-4 space-y-4 overflow-y-auto">
               {citeGate.malformed.length > 0 && (
                 <div>
-                  <div className="text-xs font-medium text-slate-700 mb-1.5">
+                  <div className="text-xs font-medium text-ink-700 mb-1.5">
                     写法不对，识别不出 DOI 的引用标记（{citeGate.malformed.length} 处）
                   </div>
                   <div className="space-y-1">
@@ -5021,7 +5021,7 @@ export default function WritingPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-[0.6875rem] text-slate-500 mt-1.5">
+                  <p className="text-[0.6875rem] text-ink-500 mt-1.5">
                     在正文里搜到这些标记，改成 <code className="font-mono">[@doi:10.xxxx/xxxx]</code> 的写法。
                   </p>
                 </div>
@@ -5029,7 +5029,7 @@ export default function WritingPage() {
 
               {citeGate.unresolved.length > 0 && (
                 <div>
-                  <div className="text-xs font-medium text-slate-700 mb-1.5">
+                  <div className="text-xs font-medium text-ink-700 mb-1.5">
                     查不到文献条目的 DOI（{citeGate.unresolved.length} / {citeGate.total.length} 条）
                   </div>
                   <div className="space-y-1">
@@ -5043,14 +5043,14 @@ export default function WritingPage() {
                           href={`https://doi.org/${d}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[0.6875rem] text-indigo-600 hover:underline flex-shrink-0"
+                          className="text-[0.6875rem] text-seal-600 hover:underline flex-shrink-0"
                         >
                           打开 DOI
                         </a>
                       </div>
                     ))}
                   </div>
-                  <p className="text-[0.6875rem] text-slate-500 mt-1.5">
+                  <p className="text-[0.6875rem] text-ink-500 mt-1.5">
                     可能是 DOI 写错了，也可能是 CrossRef 暂时查不到。点开确认一下；
                     确认没问题的话，生成后需要在 .bib 里手动补这一条。
                   </p>
@@ -5058,14 +5058,14 @@ export default function WritingPage() {
               )}
             </div>
 
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between gap-2">
+            <div className="px-4 py-3 border-t border-ink-200 bg-paper-100/50 flex items-center justify-between gap-2">
               <button
                 onClick={() => {
                   const all = [...citeGate.malformed, ...citeGate.unresolved]
                   navigator.clipboard?.writeText(all.join('\n'))
                   toast.success(`已复制 ${all.length} 条到剪贴板`)
                 }}
-                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded-lg transition flex items-center gap-1.5"
+                className="px-3 py-1.5 text-xs text-ink-600 hover:bg-ink-200 rounded-lg transition flex items-center gap-1.5"
               >
                 <Copy className="w-3.5 h-3.5" />
                 复制全部
@@ -5073,7 +5073,7 @@ export default function WritingPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setCiteGate(null)}
-                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+                  className="px-3 py-1.5 text-sm bg-seal-600 text-paper-50 rounded-lg hover:bg-seal-700 transition"
                 >
                   我先去改正文
                 </button>
@@ -5082,7 +5082,7 @@ export default function WritingPage() {
                     setCiteGate(null)
                     void generateLatexFromMarkdown({ skipCiteGate: true })
                   }}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                  className="px-3 py-1.5 text-sm text-ink-600 hover:bg-ink-200 rounded-lg transition"
                 >
                   仍然生成
                 </button>
@@ -5093,18 +5093,18 @@ export default function WritingPage() {
       )}
 
       {showActionModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+            <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-semibold text-slate-800">添加自定义快捷指令</h3>
-                <p className="text-[0.6875rem] text-slate-400 mt-0.5">
+                <h3 className="text-base font-semibold text-ink-800">添加自定义快捷指令</h3>
+                <p className="text-[0.6875rem] text-ink-400 mt-0.5">
                   可以直接写 prompt，也可以给一句需求让 AI 生成
                 </p>
               </div>
               <button
                 onClick={() => setShowActionModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -5112,19 +5112,19 @@ export default function WritingPage() {
 
             <div className="p-4 space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">给一句需求，让 AI 生成 prompt</label>
+                <label className="block text-xs font-medium text-ink-600 mb-1">给一句需求，让 AI 生成 prompt</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={actionRequirement}
                     onChange={(e) => setActionRequirement(e.target.value)}
                     placeholder="例如：帮我把一段中文摘要改写成期刊风格"
-                    className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                    className="flex-1 px-3 py-2 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400"
                   />
                   <button
                     onClick={handleGeneratePrompt}
                     disabled={isGeneratingPrompt || !actionRequirement.trim()}
-                    className="px-3 py-2 text-xs bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 flex-shrink-0"
+                    className="px-3 py-2 text-xs bg-seal-50 text-seal-700 rounded-lg hover:bg-seal-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 flex-shrink-0"
                   >
                     {isGeneratingPrompt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
                     AI 生成
@@ -5133,39 +5133,39 @@ export default function WritingPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">指令名称</label>
+                <label className="block text-xs font-medium text-ink-600 mb-1">指令名称</label>
                 <input
                   type="text"
                   value={newActionLabel}
                   onChange={(e) => setNewActionLabel(e.target.value)}
                   placeholder="例如：改写成期刊风格"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
+                  className="w-full px-3 py-2 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">指令内容（点一下就会填进输入框）</label>
+                <label className="block text-xs font-medium text-ink-600 mb-1">指令内容（点一下就会填进输入框）</label>
                 <textarea
                   value={newActionPrompt}
                   onChange={(e) => setNewActionPrompt(e.target.value)}
                   rows={5}
                   placeholder="发送给 AI 的提示词..."
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400 resize-y"
+                  className="w-full px-3 py-2 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 resize-y"
                 />
               </div>
             </div>
 
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end gap-2">
+            <div className="px-4 py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end gap-2">
               <button
                 onClick={() => setShowActionModal(false)}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                className="px-3 py-1.5 text-sm text-ink-600 hover:bg-ink-200 rounded-lg transition"
               >
                 取消
               </button>
               <button
                 onClick={handleSaveAction}
                 disabled={!newActionLabel.trim() || !newActionPrompt.trim()}
-                className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-sm bg-seal-600 text-paper-50 rounded-lg hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 保存
               </button>
@@ -5175,13 +5175,13 @@ export default function WritingPage() {
       )}
 
       {showPaperSelector && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-800">选择指定文献</h3>
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-ink-800">选择指定文献</h3>
               <button
                 onClick={() => setShowPaperSelector(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -5201,21 +5201,21 @@ export default function WritingPage() {
                     }}
                     className={`p-2.5 rounded-lg border cursor-pointer transition ${
                       isSelected
-                        ? 'border-indigo-400 bg-indigo-50/60'
-                        : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                        ? 'border-seal-400 bg-seal-50/60'
+                        : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
                     }`}
                   >
                     <div className="flex items-start gap-2">
                       <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                        isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
                       }`}>
-                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                        {isSelected && <Check className="w-3 h-3 text-paper-50" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                        <div className="text-xs font-semibold text-ink-700 line-clamp-2 leading-snug">
                           {cit.title}
                         </div>
-                        <div className="text-[0.6875rem] text-slate-500 mt-1">
+                        <div className="text-[0.6875rem] text-ink-500 mt-1">
                           {cit.journal} ({cit.year})
                         </div>
                       </div>
@@ -5224,10 +5224,10 @@ export default function WritingPage() {
                 )
               })}
             </div>
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end">
+            <div className="px-4 py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end">
               <button
                 onClick={() => setShowPaperSelector(false)}
-                className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium"
+                className="px-4 py-1.5 bg-seal-600 text-paper-50 text-sm rounded-lg hover:bg-seal-700 transition font-medium"
               >
                 确定 ({selectedPaperIds.length}篇)
               </button>
@@ -5237,20 +5237,20 @@ export default function WritingPage() {
       )}
 
       {showBookSelector && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-800">选择指定图书</h3>
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-ink-800">选择指定图书</h3>
               <button
                 onClick={() => setShowBookSelector(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {bookReferences.length === 0 ? (
-                <div className="text-center py-8 text-sm text-slate-400">
+                <div className="text-center py-8 text-sm text-ink-400">
                   暂无图书文献
                 </div>
               ) : (
@@ -5268,21 +5268,21 @@ export default function WritingPage() {
                       }}
                       className={`p-2.5 rounded-lg border cursor-pointer transition ${
                         isSelected
-                          ? 'border-indigo-400 bg-indigo-50/60'
-                          : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                          ? 'border-seal-400 bg-seal-50/60'
+                          : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
                       }`}
                     >
                       <div className="flex items-start gap-2">
                         <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                          isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                          isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
                         }`}>
-                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                          {isSelected && <Check className="w-3 h-3 text-paper-50" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-semibold text-slate-700 line-clamp-2 leading-snug">
+                          <div className="text-xs font-semibold text-ink-700 line-clamp-2 leading-snug">
                             {book.title}
                           </div>
-                          <div className="text-[0.6875rem] text-slate-500 mt-1">
+                          <div className="text-[0.6875rem] text-ink-500 mt-1">
                             {book.authors} ({book.year})
                           </div>
                           <div className="text-[0.625rem] text-amber-600 mt-0.5">
@@ -5295,10 +5295,10 @@ export default function WritingPage() {
                 })
               )}
             </div>
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end">
+            <div className="px-4 py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end">
               <button
                 onClick={() => setShowBookSelector(false)}
-                className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium"
+                className="px-4 py-1.5 bg-seal-600 text-paper-50 text-sm rounded-lg hover:bg-seal-700 transition font-medium"
               >
                 确定 ({selectedBookIds.length}本)
               </button>
@@ -5308,19 +5308,19 @@ export default function WritingPage() {
       )}
 
       {showChapterSelector && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-800">选择章节</h3>
+        <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
+            <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-ink-800">选择章节</h3>
               <button
                 onClick={() => setShowChapterSelector(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition"
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50">
-              <div className="text-xs font-medium text-slate-600 mb-1">选择图书</div>
+            <div className="px-4 py-2 border-b border-ink-100 bg-paper-100/50">
+              <div className="text-xs font-medium text-ink-600 mb-1">选择图书</div>
               <div className="flex flex-wrap gap-1.5">
                 {bookReferences.map((book) => (
                   <button
@@ -5331,8 +5331,8 @@ export default function WritingPage() {
                     }}
                     className={`px-2 py-1 text-[0.6875rem] rounded-lg transition ${
                       selectedBookForChapters === book.doi
-                        ? 'bg-indigo-100 text-indigo-700 font-medium border border-indigo-200'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-200'
+                        ? 'bg-seal-100 text-seal-700 font-medium border border-seal-200'
+                        : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-200'
                     }`}
                   >
                     {book.title.length > 15 ? book.title.slice(0, 15) + '...' : book.title}
@@ -5342,11 +5342,11 @@ export default function WritingPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {!selectedBookForChapters ? (
-                <div className="text-center py-8 text-sm text-slate-400">
+                <div className="text-center py-8 text-sm text-ink-400">
                   请先选择一本图书
                 </div>
               ) : selectedBook?.chapters.length === 0 ? (
-                <div className="text-center py-8 text-sm text-slate-400">
+                <div className="text-center py-8 text-sm text-ink-400">
                   该书暂无章节
                 </div>
               ) : (
@@ -5364,21 +5364,21 @@ export default function WritingPage() {
                       }}
                       className={`p-2.5 rounded-lg border cursor-pointer transition ${
                         isSelected
-                          ? 'border-indigo-400 bg-indigo-50/60'
-                          : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                          ? 'border-seal-400 bg-seal-50/60'
+                          : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
                       }`}
                     >
                       <div className="flex items-start gap-2">
                         <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                          isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                          isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
                         }`}>
-                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                          {isSelected && <Check className="w-3 h-3 text-paper-50" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-semibold text-slate-700 leading-snug">
+                          <div className="text-xs font-semibold text-ink-700 leading-snug">
                             {chapter.title}
                           </div>
-                          <div className="text-[0.6875rem] text-slate-500 mt-1">
+                          <div className="text-[0.6875rem] text-ink-500 mt-1">
                             第 {chapter.pageStart} - {chapter.pageEnd} 页
                           </div>
                         </div>
@@ -5388,11 +5388,11 @@ export default function WritingPage() {
                 })
               )}
             </div>
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/50 flex justify-end">
+            <div className="px-4 py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end">
               <button
                 onClick={() => setShowChapterSelector(false)}
                 disabled={!selectedBookForChapters || selectedChapterIds.length === 0}
-                className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-1.5 bg-seal-600 text-paper-50 text-sm rounded-lg hover:bg-seal-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 确定 ({selectedChapterIds.length}章)
               </button>

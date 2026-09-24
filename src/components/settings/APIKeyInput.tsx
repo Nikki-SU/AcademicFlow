@@ -56,8 +56,8 @@ function APIKeyInput({ label, value, onChange, placeholder, hint, disabled, fiel
 
   return (
     <div className="space-y-1.5">
-      <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-        <Key className="w-3.5 h-3.5 text-slate-500" />
+      <label className="flex items-center gap-1.5 text-sm font-medium text-ink-700">
+        <Key className="w-3.5 h-3.5 text-ink-500" />
         {label}
       </label>
       <div className="relative">
@@ -79,16 +79,16 @@ function APIKeyInput({ label, value, onChange, placeholder, hint, disabled, fiel
             textSecurity: visible ? 'none' : 'disc',
             fontFamily: visible ? 'ui-monospace, monospace' : 'text-security-disc, ui-monospace, monospace',
           } as CSSProperties}
-          className="w-full px-3 py-2 pr-20 text-sm font-mono border border-slate-300 rounded-md
-                     focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                     disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed
-                     placeholder:text-slate-400"
+          className="w-full px-3 py-2 pr-20 text-sm font-mono border border-ink-300 rounded-md
+                     focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent
+                     disabled:bg-paper-100 disabled:text-ink-400 disabled:cursor-not-allowed
+                     placeholder:text-ink-400"
         />
         <div className="absolute inset-y-0 right-2 flex items-center gap-1">
           <button
             type="button"
             onClick={() => setVisible((v) => !v)}
-            className="p-1 text-slate-500 hover:text-slate-800 rounded"
+            className="p-1 text-ink-500 hover:text-ink-800 rounded"
             title={visible ? '隐藏' : '显示'}
           >
             {visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -97,7 +97,7 @@ function APIKeyInput({ label, value, onChange, placeholder, hint, disabled, fiel
             type="button"
             onClick={handleCopy}
             disabled={!value}
-            className="p-1 text-slate-500 hover:text-slate-800 disabled:text-slate-300
+            className="p-1 text-ink-500 hover:text-ink-800 disabled:text-ink-300
                        disabled:cursor-not-allowed rounded"
             title="复制"
           >
@@ -109,7 +109,7 @@ function APIKeyInput({ label, value, onChange, placeholder, hint, disabled, fiel
           </button>
         </div>
       </div>
-      {hint && <p className="text-xs text-slate-500">{hint}</p>}
+      {hint && <p className="text-xs text-ink-500">{hint}</p>}
     </div>
   )
 }

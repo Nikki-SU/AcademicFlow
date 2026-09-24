@@ -73,53 +73,53 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-2 py-1 rounded-md bg-slate-50 hover:bg-slate-100 transition"
+        className="flex items-center gap-2 px-2 py-1 rounded-md bg-paper-100 hover:bg-ink-100 transition"
       >
         <div
-          className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-300 flex items-center justify-center text-[14px] leading-none shrink-0 shadow-inner"
+          className="w-6 h-6 rounded-full bg-paper-100 border border-ink-200 flex items-center justify-center text-[14px] leading-none shrink-0"
           title={user?.login ?? '未登录'}
         >
           🕊️
         </div>
         {orientation === 'landscape' && (
-          <span className="text-xs text-slate-600">@{user?.login}</span>
+          <span className="text-xs text-ink-600">@{user?.login}</span>
         )}
         <div className={`px-1.5 py-0.5 rounded text-xs font-medium ${
           isExpiringSoon && daysUntilExpire !== null && daysUntilExpire >= 0
             ? 'bg-red-100 text-red-700'
             : daysUntilExpire !== null && daysUntilExpire < 0
-              ? 'bg-slate-200 text-slate-500'
-              : 'bg-indigo-100 text-indigo-700'
+              ? 'bg-ink-200 text-ink-500'
+              : 'bg-seal-100 text-seal-700'
         }`}>
           {'PAT'}
         </div>
         {daysUntilExpire !== null && (
-          <span className={`text-xs ${isExpiringSoon && daysUntilExpire >= 0 ? 'text-red-600' : 'text-slate-400'}`}>
+          <span className={`text-xs ${isExpiringSoon && daysUntilExpire >= 0 ? 'text-red-600' : 'text-ink-400'}`}>
             {daysUntilExpire >= 0 ? `(${daysUntilExpire}天)` : '(已过期)'}
           </span>
         )}
-        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+        <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
+        <div className="absolute right-0 top-full mt-1 w-48 bg-paper-50 rounded-lg shadow-card border border-ink-200 py-1 z-50">
           <a
             href={authUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-2 px-3 py-2 text-sm text-ink-600 hover:bg-paper-100"
           >
             <ExternalLink className="w-4 h-4" />
             查看/管理 GitHub 授权
           </a>
           <button
             onClick={handleReLogin}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-ink-600 hover:bg-paper-100"
           >
             <RefreshCw className="w-4 h-4" />
             重新登录
           </button>
-          <div className="border-t border-slate-100 my-1" />
+          <div className="border-t border-ink-100 my-1" />
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
@@ -172,11 +172,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
      * 主内容区再自己滚动。这样页面里直接写 h-full 就能撑满，
      * 不需要再各自算 calc(100vh - 3rem) —— 那个算法一旦多出 PAT 横幅就会算错。
      */
-    <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
+    <div className="h-screen bg-paper-100 flex flex-col overflow-hidden">
       {/* PAT 过期横幅 */}
       {showExpiryBanner && user && (
         <div className={`px-4 py-2 text-sm flex items-center justify-center gap-2 ${
-          daysUntilExpire < 0 ? 'bg-slate-200 text-slate-600' : 'bg-red-50 text-red-700'
+          daysUntilExpire < 0 ? 'bg-ink-200 text-ink-600' : 'bg-red-50 text-red-700'
         }`}>
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>
@@ -194,16 +194,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* 顶部导航栏 */}
-      <header className="bg-white border-b border-slate-200 z-50 flex-shrink-0">
+      <header className="bg-paper-50 border-b border-ink-200 z-50 flex-shrink-0">
         <div className="page-container">
           <div className="flex items-center justify-between h-12">
             {/* Logo */}
             <Link to="/tracking" className="flex items-center gap-2 flex-shrink-0 mr-6">
-              <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
-                <span className="text-white text-xs font-bold">AF</span>
+              <div className="w-7 h-7 bg-seal-600 rounded-lg flex items-center justify-center">
+                <span className="text-paper-50 text-xs font-bold">AF</span>
               </div>
               {orientation === 'landscape' && (
-                <span className="font-semibold text-slate-800 text-sm">AcademicFlow</span>
+                <span className="font-semibold text-ink-800 text-sm">AcademicFlow</span>
               )}
             </Link>
 
@@ -218,8 +218,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     to={tab.path}
                     className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition ${
                       isActive
-                        ? 'bg-indigo-50 text-indigo-700'
-                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                        ? 'bg-seal-50 text-seal-700'
+                        : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -235,8 +235,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 to="/settings"
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition ${
                   currentPath === '/settings'
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                    ? 'bg-seal-50 text-seal-700'
+                    : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
                 }`}
                 title="设置"
               >
@@ -256,7 +256,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               ) : (
                 <Link
                   to="/auth"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-md transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-seal-600 hover:bg-seal-50 rounded-md transition"
                 >
                   <User className="w-3.5 h-3.5" />
                   登录
@@ -274,22 +274,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* 全局 Token 失效 modal */}
       {authError && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink-900/50">
+          <div className="bg-paper-50 rounded-xl shadow-lift max-w-md w-full mx-4 p-6">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-red-100 rounded-full">
                 <AlertTriangle className="w-5 h-5 text-red-600" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-slate-800">GitHub 授权失败</h3>
-                <p className="mt-2 text-sm text-slate-600">{authError}</p>
-                <p className="mt-2 text-xs text-slate-500">
+                <h3 className="text-lg font-semibold text-ink-800">GitHub 授权失败</h3>
+                <p className="mt-2 text-sm text-ink-600">{authError}</p>
+                <p className="mt-2 text-xs text-ink-500">
                   在重新登录前，所有写入 GitHub 私库的操作已被冻结，防止数据丢失。
                 </p>
               </div>
               <button
                 onClick={() => clearGlobalAuthError()}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-ink-400 hover:text-ink-600"
                 aria-label="关闭"
               >
                 <X className="w-5 h-5" />
@@ -298,13 +298,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={() => clearGlobalAuthError()}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
               >
                 稍后处理
               </button>
               <button
                 onClick={handleReLogin}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg transition"
+                className="px-4 py-2 text-sm bg-seal-600 text-paper-50 hover:bg-seal-700 rounded-lg transition"
               >
                 重新登录
               </button>

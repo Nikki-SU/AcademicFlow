@@ -56,7 +56,7 @@ function formatFetchedAt(ts: number): string {
 function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
   if (!canFetch) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-500">
+      <div className="flex items-center gap-2 px-3 py-2 bg-paper-100 border border-ink-200 rounded-md text-xs text-ink-500">
         <Wallet className="w-4 h-4" />
         <span>普通模式需先配置硅基流动 API Key 才能显示余额</span>
       </div>
@@ -65,8 +65,8 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
 
   if (isLoading && !account) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-600">
-        <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+      <div className="flex items-center gap-2 px-3 py-2 bg-paper-100 border border-ink-200 rounded-md text-xs text-ink-600">
+        <Loader2 className="w-4 h-4 animate-spin text-seal-600" />
         <span>正在查询硅基流动余额…</span>
       </div>
     )
@@ -88,7 +88,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
             href="https://cloud.siliconflow.cn/account/balance"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-white border border-amber-300 rounded hover:bg-amber-100 text-amber-800 font-medium"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-paper-50 border border-amber-300 rounded hover:bg-amber-100 text-amber-800 font-medium"
           >
             前往账户中心
             <ExternalLink className="w-3 h-3" />
@@ -139,7 +139,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
         </span>
       )}
       {account.status && account.status !== 'normal' && (
-        <span className="px-1.5 py-0.5 bg-white/60 border border-current rounded text-[0.6875rem] font-mono">
+        <span className="px-1.5 py-0.5 bg-paper-50/60 border border-current rounded text-[0.6875rem] font-mono">
           状态 {account.status}
         </span>
       )}
@@ -151,7 +151,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
         onClick={onRefresh}
         disabled={isLoading}
         title="刷新余额"
-        className="flex-shrink-0 p-1 rounded hover:bg-white/50 disabled:opacity-50"
+        className="flex-shrink-0 p-1 rounded hover:bg-paper-50/50 disabled:opacity-50"
       >
         {isLoading ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -164,7 +164,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
           href="https://cloud.siliconflow.cn/account/balance"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-white border border-red-400 text-red-700 rounded font-medium hover:bg-red-100"
+          className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-paper-50 border border-red-400 text-red-700 rounded font-medium hover:bg-red-100"
         >
           去充值
           <ExternalLink className="w-3 h-3" />

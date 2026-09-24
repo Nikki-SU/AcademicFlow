@@ -258,12 +258,12 @@ function ModelSelector({ label, role, value, onChange, icon, accentColor }: Mode
   }, [])
 
   const accentClasses = accentColor === 'indigo'
-    ? { bg: 'bg-indigo-100', text: 'text-indigo-600', hover: 'hover:border-indigo-300', badge: 'bg-indigo-600' }
+    ? { bg: 'bg-seal-100', text: 'text-seal-600', hover: 'hover:border-seal-300', badge: 'bg-seal-600' }
     : { bg: 'bg-emerald-100', text: 'text-emerald-600', hover: 'hover:border-emerald-300', badge: 'bg-emerald-600' }
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <div className="text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1.5">
+      <div className="text-xs font-medium text-ink-600 mb-1.5 flex items-center gap-1.5">
         <span className={`w-5 h-5 rounded ${accentClasses.bg} flex items-center justify-center text-[0.625rem] font-bold ${accentClasses.text}`}>
           {role === 'ai1' ? '1' : '2'}
         </span>
@@ -272,21 +272,21 @@ function ModelSelector({ label, role, value, onChange, icon, accentColor }: Mode
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={`w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-left transition flex items-center justify-between ${accentClasses.hover}`}
+        className={`w-full px-3 py-2 bg-paper-50 border border-ink-200 rounded-lg text-left transition flex items-center justify-between ${accentClasses.hover}`}
       >
         <div className="flex items-center gap-2 min-w-0">
           <div className={`w-6 h-6 ${accentClasses.bg} rounded-md flex items-center justify-center flex-shrink-0`}>
             {icon}
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-700 truncate">{currentModel?.label}</div>
-            <div className="text-[0.625rem] text-slate-400 truncate">{currentModel?.desc}</div>
+            <div className="text-xs font-medium text-ink-700 truncate">{currentModel?.label}</div>
+            <div className="text-[0.625rem] text-ink-400 truncate">{currentModel?.desc}</div>
           </div>
         </div>
-        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-4 h-4 text-ink-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-paper-50 border border-ink-200 rounded-lg shadow-lg z-30 overflow-hidden">
           {filteredModels.map((model) => (
             <button
               key={model.value}
@@ -295,24 +295,24 @@ function ModelSelector({ label, role, value, onChange, icon, accentColor }: Mode
                 onChange(model.value)
                 setOpen(false)
               }}
-              className={`w-full px-3 py-2 text-left hover:bg-slate-50 transition flex items-center gap-2 ${
-                value === model.value ? 'bg-indigo-50/50' : ''
+              className={`w-full px-3 py-2 text-left hover:bg-paper-100 transition flex items-center gap-2 ${
+                value === model.value ? 'bg-seal-50/50' : ''
               }`}
             >
               <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
-                value === model.value ? accentClasses.badge : 'bg-slate-100'
+                value === model.value ? accentClasses.badge : 'bg-ink-100'
               }`}>
-                <Bot className={`w-3.5 h-3.5 ${value === model.value ? 'text-white' : 'text-slate-500'}`} />
+                <Bot className={`w-3.5 h-3.5 ${value === model.value ? 'text-paper-50' : 'text-ink-500'}`} />
               </div>
               <div className="min-w-0 flex-1">
                 <div className={`text-xs font-medium truncate ${
-                  value === model.value ? 'text-indigo-700' : 'text-slate-700'
+                  value === model.value ? 'text-seal-700' : 'text-ink-700'
                 }`}>
                   {model.label}
                 </div>
-                <div className="text-[0.625rem] text-slate-400 truncate">{model.desc}</div>
+                <div className="text-[0.625rem] text-ink-400 truncate">{model.desc}</div>
               </div>
-              {value === model.value && <Check className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
+              {value === model.value && <Check className="w-4 h-4 text-seal-600 flex-shrink-0" />}
             </button>
           ))}
         </div>
@@ -373,10 +373,10 @@ function SearchableMultiSelect({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-          {type === 'literature' ? <BookMarked className="w-3.5 h-3.5 text-indigo-600" /> : <BookOpen className="w-3.5 h-3.5 text-indigo-600" />}
+        <div className="text-xs font-semibold text-ink-700 flex items-center gap-1.5">
+          {type === 'literature' ? <BookMarked className="w-3.5 h-3.5 text-seal-600" /> : <BookOpen className="w-3.5 h-3.5 text-seal-600" />}
           {title}
-          <span className="text-slate-400 font-normal">
+          <span className="text-ink-400 font-normal">
             ({selectedIds.length} / {items.length} 已选)
           </span>
         </div>
@@ -384,33 +384,33 @@ function SearchableMultiSelect({
           <button
             type="button"
             onClick={onSelectAll}
-            className="text-[0.625rem] text-indigo-600 hover:text-indigo-800 font-medium"
+            className="text-[0.625rem] text-seal-600 hover:text-seal-800 font-medium"
           >
             全选
           </button>
-          <span className="text-slate-300">|</span>
+          <span className="text-ink-300">|</span>
           <button
             type="button"
             onClick={onClear}
-            className="text-[0.625rem] text-slate-500 hover:text-slate-700 font-medium"
+            className="text-[0.625rem] text-ink-500 hover:text-ink-700 font-medium"
           >
             清空
           </button>
         </div>
       </div>
       <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-400" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={searchPlaceholder}
-          className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          className="w-full pl-8 pr-3 py-1.5 text-xs border border-ink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
         />
       </div>
-      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+      <div className="max-h-48 overflow-y-auto border border-ink-200 rounded-lg divide-y divide-ink-100">
         {filteredItems.length === 0 ? (
-          <div className="py-8 text-center text-xs text-slate-400">{emptyText}</div>
+          <div className="py-8 text-center text-xs text-ink-400">{emptyText}</div>
         ) : (
           filteredItems.map((item) => {
             const isSelected = selectedIds.includes(item.id)
@@ -420,26 +420,26 @@ function SearchableMultiSelect({
                 type="button"
                 onClick={() => onToggle(item.id)}
                 className={`w-full px-3 py-2 text-left transition flex items-start gap-2.5 ${
-                  isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
+                  isSelected ? 'bg-seal-50/60' : 'hover:bg-paper-100'
                 }`}
               >
                 <div className={`w-4 h-4 mt-0.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                  isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                  isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
                 }`}>
-                  {isSelected && <Check className="w-3 h-3 text-white" />}
+                  {isSelected && <Check className="w-3 h-3 text-paper-50" />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className={`text-xs font-medium line-clamp-2 leading-snug ${
-                    isSelected ? 'text-indigo-800' : 'text-slate-700'
+                    isSelected ? 'text-seal-800' : 'text-ink-700'
                   }`}>
                     {type === 'literature' ? (item as LiteratureItem).title : (item as BookItem).title}
                   </div>
-                  <div className="text-[0.625rem] text-slate-500 mt-0.5 truncate">
+                  <div className="text-[0.625rem] text-ink-500 mt-0.5 truncate">
                     {type === 'literature'
                       ? `${(item as LiteratureItem).authors} (${(item as LiteratureItem).year})`
                       : `${(item as BookItem).authors} · ${(item as BookItem).publisher}`}
                   </div>
-                  <div className="text-[0.625rem] text-slate-400 truncate">
+                  <div className="text-[0.625rem] text-ink-400 truncate">
                     {type === 'literature' ? (item as LiteratureItem).journal : (item as BookItem).isbn}
                   </div>
                 </div>
@@ -473,8 +473,8 @@ function ChapterSelector({
 
   if (selectedBooks.length === 0) {
     return (
-      <div className="py-6 text-center text-xs text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-        <ListTree className="w-6 h-6 mx-auto mb-1.5 text-slate-300" />
+      <div className="py-6 text-center text-xs text-ink-400 bg-paper-100 rounded-lg border border-dashed border-ink-200">
+        <ListTree className="w-6 h-6 mx-auto mb-1.5 text-ink-300" />
         请先从"指定图书"中选择至少一本图书
       </div>
     )
@@ -482,10 +482,10 @@ function ChapterSelector({
 
   return (
     <div className="space-y-3">
-      <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-        <ListTree className="w-3.5 h-3.5 text-indigo-600" />
+      <div className="text-xs font-semibold text-ink-700 flex items-center gap-1.5">
+        <ListTree className="w-3.5 h-3.5 text-seal-600" />
         章节选择
-        <span className="text-slate-400 font-normal">
+        <span className="text-ink-400 font-normal">
           ({selectedChapterIds.length} 章已选)
         </span>
       </div>
@@ -494,30 +494,30 @@ function ChapterSelector({
           const bookChapters = book.chapters
 
           return (
-            <div key={book.id} className="border border-slate-200 rounded-lg overflow-hidden">
-              <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                <div className="text-xs font-medium text-slate-700 truncate flex-1">
+            <div key={book.id} className="border border-ink-200 rounded-lg overflow-hidden">
+              <div className="px-3 py-2 bg-paper-100 border-b border-ink-200 flex items-center justify-between">
+                <div className="text-xs font-medium text-ink-700 truncate flex-1">
                   {book.title}
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                   <button
                     type="button"
                     onClick={() => onSelectAllChapters(book.id)}
-                    className="text-[0.625rem] text-indigo-600 hover:text-indigo-800 font-medium"
+                    className="text-[0.625rem] text-seal-600 hover:text-seal-800 font-medium"
                   >
                     全选
                   </button>
-                  <span className="text-slate-300">|</span>
+                  <span className="text-ink-300">|</span>
                   <button
                     type="button"
                     onClick={() => onClearChapters(book.id)}
-                    className="text-[0.625rem] text-slate-500 hover:text-slate-700 font-medium"
+                    className="text-[0.625rem] text-ink-500 hover:text-ink-700 font-medium"
                   >
                     清空
                   </button>
                 </div>
               </div>
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-ink-100">
                 {bookChapters.map((chapter) => {
                   const isSelected = selectedChapterIds.includes(chapter.id)
                   return (
@@ -526,20 +526,20 @@ function ChapterSelector({
                       type="button"
                       onClick={() => onToggleChapter(chapter.id)}
                       className={`w-full px-3 py-1.5 text-left transition flex items-center gap-2 ${
-                        isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
+                        isSelected ? 'bg-seal-50/60' : 'hover:bg-paper-100'
                       }`}
                     >
                       <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                        isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
                       }`}>
-                        {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                        {isSelected && <Check className="w-2.5 h-2.5 text-paper-50" />}
                       </div>
                       <span className={`text-[0.6875rem] flex-1 truncate ${
-                        isSelected ? 'text-indigo-800 font-medium' : 'text-slate-600'
+                        isSelected ? 'text-seal-800 font-medium' : 'text-ink-600'
                       }`}>
                         {chapter.number} {chapter.title}
                       </span>
-                      <span className="text-[0.625rem] text-slate-400 flex-shrink-0">{chapter.pageRange}</span>
+                      <span className="text-[0.625rem] text-ink-400 flex-shrink-0">{chapter.pageRange}</span>
                     </button>
                   )
                 })}
@@ -603,22 +603,22 @@ function CitationScopeModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm">
+      <div className="bg-paper-50 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-ink-200 flex items-center justify-between flex-shrink-0">
           <div>
-            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-              <Filter className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-semibold text-ink-800 flex items-center gap-2">
+              <Filter className="w-4 h-4 text-seal-600" />
               引用范围设置
             </h3>
-            <p className="text-[0.6875rem] text-slate-500 mt-0.5">
+            <p className="text-[0.6875rem] text-ink-500 mt-0.5">
               选择 AI 可信检索时可参考的文献来源范围
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition"
+            className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-md transition"
           >
             <X className="w-4 h-4" />
           </button>
@@ -626,7 +626,7 @@ function CitationScopeModal({
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="space-y-1.5">
-            <div className="text-xs font-medium text-slate-600">范围类型</div>
+            <div className="text-xs font-medium text-ink-600">范围类型</div>
             <div className="grid grid-cols-1 gap-1.5">
               {SCOPE_OPTIONS.map((option) => {
                 const Icon = option.icon
@@ -638,19 +638,19 @@ function CitationScopeModal({
                     onClick={() => onScopeChange(option.value as CitationScope)}
                     className={`w-full px-3 py-2.5 rounded-lg text-left transition flex items-center gap-2.5 border ${
                       isSelected
-                        ? 'bg-indigo-50 border-indigo-400 text-indigo-800'
-                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                        ? 'bg-seal-50 border-seal-400 text-seal-800'
+                        : 'bg-paper-50 border-ink-200 hover:border-ink-300 text-ink-700'
                     }`}
                   >
                     <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${
-                      isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                      isSelected ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-500'
                     }`}>
                       <Icon className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium">{option.label}</div>
                     </div>
-                    {isSelected && <Check className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
+                    {isSelected && <Check className="w-4 h-4 text-seal-600 flex-shrink-0" />}
                   </button>
                 )
               })}
@@ -697,22 +697,22 @@ function CitationScopeModal({
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between flex-shrink-0">
-          <div className="text-xs text-slate-500">
-            已选范围：<span className="font-semibold text-indigo-600">{getSelectedCount()}</span>
+        <div className="px-5 py-3 border-t border-ink-200 bg-paper-100 flex items-center justify-between flex-shrink-0">
+          <div className="text-xs text-ink-500">
+            已选范围：<span className="font-semibold text-seal-600">{getSelectedCount()}</span>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition"
+              className="px-3 py-1.5 text-xs font-medium text-ink-600 bg-paper-50 border border-ink-300 rounded-md hover:bg-paper-100 transition"
             >
               取消
             </button>
             <button
               type="button"
               onClick={onConfirm}
-              className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition shadow-sm"
+              className="px-3 py-1.5 text-xs font-medium text-paper-50 bg-seal-600 rounded-md hover:bg-seal-700 transition shadow-sm"
             >
               确定
             </button>
@@ -880,16 +880,16 @@ export default function TrustedRetrievalPanel({
   const ScopeIcon = SCOPE_OPTIONS.find((o) => o.value === citationScope)?.icon || Library
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-indigo-50/80 to-white">
+    <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-ink-100 bg-gradient-to-r from-seal-50/80 to-paper-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center">
-              <ShieldCheck className="w-4 h-4 text-indigo-600" />
+            <div className="w-7 h-7 bg-seal-100 rounded-lg flex items-center justify-center">
+              <ShieldCheck className="w-4 h-4 text-seal-600" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-800">AI 双引擎 · 可信检索</div>
-              <div className="text-[0.625rem] text-slate-500">
+              <div className="text-sm font-semibold text-ink-800">AI 双引擎 · 可信检索</div>
+              <div className="text-[0.625rem] text-ink-500">
                 AI-1 生成 + 引用标注 · AI-2 事实核查
               </div>
             </div>
@@ -900,22 +900,22 @@ export default function TrustedRetrievalPanel({
             className="flex items-center gap-1.5 transition"
           >
             {trustedSearch ? (
-              <ToggleRight className="w-7 h-7 text-indigo-600" />
+              <ToggleRight className="w-7 h-7 text-seal-600" />
             ) : (
-              <ToggleLeft className="w-7 h-7 text-slate-300" />
+              <ToggleLeft className="w-7 h-7 text-ink-300" />
             )}
           </button>
         </div>
       </div>
 
       <div className={`transition-all duration-300 ${trustedSearch ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-        <div className="px-4 py-3 grid grid-cols-2 gap-3 border-b border-slate-100">
+        <div className="px-4 py-3 grid grid-cols-2 gap-3 border-b border-ink-100">
           <ModelSelector
             label="生成位 AI-1"
             role="ai1"
             value={ai1Model}
             onChange={(v) => onAi1ModelChange?.(v)}
-            icon={<Sparkles className="w-3.5 h-3.5 text-indigo-600" />}
+            icon={<Sparkles className="w-3.5 h-3.5 text-seal-600" />}
             accentColor="indigo"
           />
           <ModelSelector
@@ -929,29 +929,29 @@ export default function TrustedRetrievalPanel({
         </div>
 
         <div className="px-4 py-3 space-y-2">
-          <div className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5 text-indigo-600" />
+          <div className="text-xs font-medium text-ink-600 flex items-center gap-1.5">
+            <Filter className="w-3.5 h-3.5 text-seal-600" />
             引用范围
           </div>
           <button
             type="button"
             onClick={handleOpenModal}
-            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-left hover:border-indigo-300 transition flex items-center justify-between group"
+            className="w-full px-3 py-2 bg-paper-50 border border-ink-200 rounded-lg text-left hover:border-seal-300 transition flex items-center justify-between group"
           >
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-6 h-6 bg-indigo-100 rounded-md flex items-center justify-center flex-shrink-0">
-                <ScopeIcon className="w-3.5 h-3.5 text-indigo-600" />
+              <div className="w-6 h-6 bg-seal-100 rounded-md flex items-center justify-center flex-shrink-0">
+                <ScopeIcon className="w-3.5 h-3.5 text-seal-600" />
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-medium text-slate-700 truncate">
+                <div className="text-xs font-medium text-ink-700 truncate">
                   {getScopeLabel()}
                 </div>
-                <div className="text-[0.625rem] text-slate-400 truncate">
+                <div className="text-[0.625rem] text-ink-400 truncate">
                   点击设置 AI 可参考的文献范围
                 </div>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all" />
+            <ChevronRight className="w-4 h-4 text-ink-400 group-hover:text-seal-500 group-hover:translate-x-0.5 transition-all" />
           </button>
         </div>
 

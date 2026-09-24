@@ -77,7 +77,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* tab */}
-      <div className="px-3 pt-2.5 border-b border-slate-100 bg-white">
+      <div className="px-3 pt-2.5 border-b border-ink-100 bg-paper-50">
         <div className="flex gap-1">
           {tabs.map((t) => {
             const Icon = t.icon
@@ -87,19 +87,19 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                 key={t.key}
                 onClick={() => setKind(t.key)}
                 className={`px-2.5 py-1.5 text-xs rounded-lg transition flex items-center gap-1.5 ${
-                  active ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-slate-500 hover:bg-slate-100'
+                  active ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
                 {t.label}
-                <span className={`text-[0.625rem] ${active ? 'text-indigo-500' : 'text-slate-400'}`}>
+                <span className={`text-[0.625rem] ${active ? 'text-seal-500' : 'text-ink-400'}`}>
                   {counts[t.key]}
                 </span>
               </button>
             )
           })}
         </div>
-        <p className="text-[0.6875rem] text-slate-400 py-1.5 leading-snug">
+        <p className="text-[0.6875rem] text-ink-400 py-1.5 leading-snug">
           点条目跳到正文对应位置；勾选只记在当前会话。
         </p>
       </div>
@@ -124,10 +124,10 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                   <img
                     src={img.src}
                     alt={img.alt}
-                    className="max-h-32 w-auto max-w-full rounded border border-slate-200 bg-white object-contain"
+                    className="max-h-32 w-auto max-w-full rounded border border-ink-200 bg-paper-50 object-contain"
                   />
-                  <div className="mt-1.5 text-xs text-slate-600">
-                    <span className="text-slate-400">图注：</span>
+                  <div className="mt-1.5 text-xs text-ink-600">
+                    <span className="text-ink-400">图注：</span>
                     {img.alt || <span className="text-amber-600">（空 —— 图注缺了？）</span>}
                   </div>
                 </Row>
@@ -151,13 +151,13 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                   badge="表"
                   onJump={() => onJump('table', t.index, t.rows[0]?.join(' ') ?? '')}
                 >
-                  <div className="overflow-x-auto rounded border border-slate-200">
+                  <div className="overflow-x-auto rounded border border-ink-200">
                     <table className="text-[0.6875rem] border-collapse">
                       <tbody>
                         {t.rows.map((row, ri) => (
-                          <tr key={ri} className={ri === 0 ? 'bg-slate-50 font-medium' : ''}>
+                          <tr key={ri} className={ri === 0 ? 'bg-paper-100 font-medium' : ''}>
                             {row.map((cell, ci) => (
-                              <td key={ci} className="border border-slate-200 px-2 py-1 text-slate-700 whitespace-nowrap">
+                              <td key={ci} className="border border-ink-200 px-2 py-1 text-ink-700 whitespace-nowrap">
                                 {cell}
                               </td>
                             ))}
@@ -166,7 +166,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                       </tbody>
                     </table>
                   </div>
-                  <div className="mt-1 text-[0.6875rem] text-slate-400">
+                  <div className="mt-1 text-[0.6875rem] text-ink-400">
                     {t.rows.length - 1} 行数据 · 原文第 {t.startLine + 1}–{t.endLine + 1} 行
                   </div>
                 </Row>
@@ -195,7 +195,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                     className="overflow-x-auto py-1 text-center"
                     dangerouslySetInnerHTML={{ __html: renderKatex(f.tex, f.kind === 'block') }}
                   />
-                  <div className="font-mono text-[0.625rem] text-slate-400 mt-1 break-all" title={f.tex}>
+                  <div className="font-mono text-[0.625rem] text-ink-400 mt-1 break-all" title={f.tex}>
                     {f.tex}
                   </div>
                 </Row>
@@ -208,7 +208,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
 }
 
 function Empty({ text }: { text: string }) {
-  return <p className="text-center text-sm text-slate-400 py-10">{text}</p>
+  return <p className="text-center text-sm text-ink-400 py-10">{text}</p>
 }
 
 function Row({
@@ -231,26 +231,26 @@ function Row({
   return (
     <div
       className={`p-2.5 rounded-lg border transition ${
-        done ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white'
+        done ? 'border-emerald-200 bg-emerald-50/40' : 'border-ink-200 bg-paper-50'
       }`}
     >
       <div className="flex items-center gap-1.5 mb-1.5">
         <button
           onClick={onToggle}
           className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition ${
-            done ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 hover:border-indigo-400'
+            done ? 'bg-emerald-500 border-emerald-500' : 'border-ink-300 hover:border-seal-400'
           }`}
           title="标记已核对"
         >
-          {done && <Check className="w-3 h-3 text-white" />}
+          {done && <Check className="w-3 h-3 text-paper-50" />}
         </button>
-        <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+        <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
           #{index + 1} · {badge}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={onJump}
-            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+            className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
             title="跳到正文这一处"
           >
             <Crosshair className="w-3.5 h-3.5" />
@@ -258,7 +258,7 @@ function Row({
           {onEdit && (
             <button
               onClick={onEdit}
-              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition"
+              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
               title="就地改这一条"
             >
               <Pencil className="w-3.5 h-3.5" />

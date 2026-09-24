@@ -32,7 +32,7 @@ export function renderMarkdownToHtml(
   }
   renderer.link = (token: Tokens.Link) => {
     const titleAttr = token.title ? ` title="${escapeHtml(token.title)}"` : ''
-    return `<a href="${token.href}" target="_blank" rel="noopener noreferrer"${titleAttr} class="text-indigo-600 hover:text-indigo-800 underline underline-offset-2">${token.text}</a>`
+    return `<a href="${token.href}" target="_blank" rel="noopener noreferrer"${titleAttr} class="text-seal-600 hover:text-seal-800 underline underline-offset-2">${token.text}</a>`
   }
 
   marked.use({ renderer })

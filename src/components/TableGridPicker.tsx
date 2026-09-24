@@ -54,7 +54,7 @@ export default function TableGridPicker({ onSelect }: TableGridPickerProps) {
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 rounded-md hover:bg-slate-100 transition text-slate-600 hover:text-slate-800"
+        className="p-2 rounded-md hover:bg-ink-100 transition text-ink-600 hover:text-ink-800"
         title="插入表格"
       >
         <Grid3x3 className="w-5 h-5" />
@@ -62,7 +62,7 @@ export default function TableGridPicker({ onSelect }: TableGridPickerProps) {
 
       {isOpen && (
         <div
-          className="absolute left-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-slate-200 p-3 z-50"
+          className="absolute left-0 top-full mt-1 bg-paper-50 rounded-lg shadow-lg border border-ink-200 p-3 z-50"
           onMouseLeave={handleMouseLeave}
         >
           <div
@@ -84,8 +84,8 @@ export default function TableGridPicker({ onSelect }: TableGridPickerProps) {
                   onClick={handleCellClick}
                   className={`rounded-sm cursor-pointer transition-colors ${
                     isHighlighted
-                      ? 'bg-indigo-500'
-                      : 'bg-slate-200 hover:bg-slate-300'
+                      ? 'bg-seal-500'
+                      : 'bg-ink-200 hover:bg-ink-300'
                   }`}
                   style={{ width: `${CELL_SIZE}rem`, height: `${CELL_SIZE}rem` }}
                 />
@@ -93,7 +93,7 @@ export default function TableGridPicker({ onSelect }: TableGridPickerProps) {
             })}
           </div>
 
-          <div className="mt-2 text-center text-sm text-slate-600 whitespace-nowrap">
+          <div className="mt-2 text-center text-sm text-ink-600 whitespace-nowrap">
             {hoveredRows > 0 && hoveredCols > 0 ? (
               <span>插入 {hoveredRows} 行 × {hoveredCols} 列的表格</span>
             ) : (
