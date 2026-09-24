@@ -86,6 +86,14 @@ jobs:
         run: |
           set -euo pipefail
           PKG="projects/$PROJECT/latex-packages"
+          # 清掉上一轮留下的产物再编。
+          # main.log 是会被提交回仓库的（失败时要给用户看日志），于是 runner 一检出
+          # 就带着上一轮的旧日志；latexmk 启动时会先读它、据此决定先跑 bibtex 还是
+          # xelatex —— 旧日志里写着 "No file main.bbl"，latexmk 就会在还没有 .aux 的
+          # 时候先去跑 bibtex，bibtex 报 "I found no \bibstyle command" 直接中断，
+          # 真正的 xelatex 一次都没跑。清干净再编，编译才是幂等的。
+          rm -f "$DIR"/main.aux "$DIR"/main.log "$DIR"/main.blg "$DIR"/main.bbl \
+                "$DIR"/main.xdv "$DIR"/main.pdf "$DIR"/main.fdb_latexmk "$DIR"/main.fls
           # TEXINPUTS 末尾的冒号表示「再追加引擎默认搜索路径」，所以只加不减。
           # // 表示递归子目录 —— 用户导入的宏包常常是「一个包好几个 .sty/.def」。
           TEX_INPUTS=".:/work/$DIR//:"
