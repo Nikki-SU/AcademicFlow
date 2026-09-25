@@ -66,7 +66,7 @@ async function doUpload(props: UploadLogicProps) {
         // 按标题自动推断一级（原创研究）/ 二级（综述）；之后可在编辑弹窗手改
         tier: inferPaperTier(finalTitle),
         hasGraphicalAbstract: false, addedAt: now, pdfAddedAt: now,
-        source: 'PDF', trackingGroup: '', mdStatus: 'none',
+        source: 'PDF', trackingGroup: '', mdStatus: 'none', correspondingAuthor: '',
       }
       await saveLiteratures([...lits, newLit])
       toast.success(`已入库：${finalTitle}`)

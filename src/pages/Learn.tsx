@@ -586,7 +586,30 @@ interface GradeResult {
   score: number
   hitPoints: string[]
   missedPoints: string[]
+  /** 每个漏掉的踩分点扣了多少分（AI 给；键 = 踩分点原文） */
+  pointDeductions: Record<string, number>
   feedback: string
+}
+
+/** 把 AI 回的 point_deductions 归一化成「踩分点 → 扣分」映射（兼容对象/数组两种写法） */
+function parsePointDeductions(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {}
+  const put = (point: unknown, deduction: unknown) => {
+    const key = typeof point === 'string' ? point.trim() : ''
+    const num = Number(deduction)
+    if (key && Number.isFinite(num) && num > 0) out[key] = Math.round(num)
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (item && typeof item === 'object') {
+        const o = item as Record<string, unknown>
+        put(o.point ?? o.scoring_point ?? o.name, o.deduction ?? o.deduct ?? o.score)
+      }
+    }
+  } else if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) put(k, v)
+  }
+  return out
 }
 
 /** 解析判分 JSON（容错去 ```json 包裹 / 截首尾花括号），失败抛可读错误 */
@@ -609,13 +632,16 @@ function parseGradeJSON(raw: string): GradeResult {
     score: Number.isFinite(scoreNum) ? Math.max(0, Math.min(100, Math.round(scoreNum))) : 0,
     hitPoints: toStringArray(parsed.hit_points),
     missedPoints: toStringArray(parsed.missed_points),
+    pointDeductions: parsePointDeductions(parsed.point_deductions),
     feedback: typeof parsed.feedback === 'string' ? parsed.feedback.trim() : '',
   }
 }
 
 /**
  * 调用 AI 判分 —— 单次调用即可（不走双引擎）。
- * AI 只负责按给定的踩分点清单打分，返回命中/漏掉的踩分点。
+ * AI 负责按给定的踩分点清单打分，返回命中/漏掉的踩分点，
+ * 并对**每个漏掉的点单独给出扣了多少分**（不同踩分点权重本就不一样，
+ * 关键术语漏了比修饰成分漏了严重得多，所以扣分不能一律等权）。
  */
 async function gradeTranslationWithAI(params: {
   question: string
@@ -639,7 +665,8 @@ async function gradeTranslationWithAI(params: {
         role: 'system',
         content:
           '你是学术翻译阅卷老师。你的职责只有判分：严格按给定的「踩分点」核对学生的译文，' +
-          '指出命中了哪些、漏掉了哪些，并给出 0-100 的综合得分和简短中文反馈。' +
+          '指出命中了哪些、漏掉了哪些，对每个漏掉的点给出具体扣分（各点权重可以不同），' +
+          '并给出 0-100 的综合得分和简短中文反馈。' +
           '不得自行新增或改写踩分点，也不得重写学生译文。只输出 JSON。',
       },
       {
@@ -661,11 +688,15 @@ async function gradeTranslationWithAI(params: {
           '',
           '请严格按上述踩分点核对，并只返回如下 JSON（不要 markdown 代码块包裹）：',
           '{',
-          '  "score": 0-100 的整数,',
+          '  "score": 0-100 的整数（= 100 减去所有扣分之和，四舍五入）,',
           '  "hit_points": ["命中的踩分点，逐字取自上面的清单"],',
           '  "missed_points": ["漏掉或表达不到位的踩分点，同样取自清单"],',
+          '  "point_deductions": [{"point": "漏掉的踩分点原文（逐字取自清单）", "deduction": 扣的分数（整数，>0）}],',
           '  "feedback": "一段中文反馈，说明扣分原因与改进建议"',
           '}',
+          '',
+          '扣分要求：每个漏掉的踩分点都要出现在 point_deductions 里；关键术语/逻辑关系的缺失扣得多，',
+          '修饰成分、表述不够地道扣得少；各点扣分之和应等于 100 - score。命中的点不要出现在 point_deductions 里。',
         ].join('\n'),
       },
     ],
@@ -1240,6 +1271,8 @@ interface WordStudySettings {
   questionTypes: WordQuestionType[]
   allowZhan: boolean
   voiceEnabled: boolean
+  /** 每日目标（词数）：学满就收尾，当天不再自动续组 */
+  dailyGoal: number
 }
 
 const DEFAULT_WORD_SETTINGS: WordStudySettings = {
@@ -1249,7 +1282,11 @@ const DEFAULT_WORD_SETTINGS: WordStudySettings = {
   questionTypes: [...ALL_QUESTION_TYPES],
   allowZhan: true,
   voiceEnabled: true,
+  dailyGoal: 20,
 }
+
+/** 「每日目标」可选的词数 */
+const DAILY_GOAL_OPTIONS = [10, 20, 30, 50]
 
 /** 「掌握条件」可选的轮数（走满这么多轮才算掌握） */
 const MASTER_ROUND_OPTIONS = [3, 5, 7]
@@ -1399,12 +1436,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         : []
       const ql = p.wordQueueLength
       const mr = p.wordMasterRounds
+      const dg = p.wordDailyGoal
       setSettings((prev) => ({
         queueLength: ql !== undefined && [5, 7, 9].includes(ql) ? ql : prev.queueLength,
         masterRounds: mr !== undefined && MASTER_ROUND_OPTIONS.includes(mr) ? mr : prev.masterRounds,
         questionTypes: mergedTypes.length > 0 ? mergedTypes : prev.questionTypes,
         allowZhan: typeof p.wordAllowZhan === 'boolean' ? p.wordAllowZhan : prev.allowZhan,
         voiceEnabled: typeof p.wordVoiceEnabled === 'boolean' ? p.wordVoiceEnabled : prev.voiceEnabled,
+        dailyGoal: dg !== undefined && dg > 0 ? dg : prev.dailyGoal,
       }))
       setSettingsLoaded(true)
     }).catch(() => setSettingsLoaded(true))
@@ -1419,6 +1458,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       wordQuestionTypes: settings.questionTypes,
       wordAllowZhan: settings.allowZhan,
       wordVoiceEnabled: settings.voiceEnabled,
+      wordDailyGoal: settings.dailyGoal,
     })
   }, [settings, settingsLoaded])
 
@@ -1540,13 +1580,20 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   /**
    * 一组学完 → 自动起下一组；起不来（今天确实没有可学的词了）才落到完成页。
    * 放在 effect 里是为了拿到这次提交后的最新 words。
+   *
+   * 今日目标（dailyGoal）达成也在这里收尾 —— 学满目标就不再自动续组，
+   * 但用户仍可在完成页手动「再来一组」多学。
    */
   useEffect(() => {
     if (!pendingAuto) return
     const mode = pendingAuto
     setPendingAuto(null)
+    if (studyStats.todayLearned.length >= settings.dailyGoal) {
+      setFinished(lastSessionRef.current)
+      return
+    }
     if (!beginSession(mode, words)) setFinished(lastSessionRef.current)
-  }, [pendingAuto, words, beginSession])
+  }, [pendingAuto, words, beginSession, studyStats.todayLearned.length, settings.dailyGoal])
 
   /** 选中即判定（无确认按钮）：对 → 短暂高亮后自动下一题；错 → 弹单词卡 */
   const submitAnswer = useCallback((option: string) => {
@@ -1735,9 +1782,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           <h3 className="text-xl font-bold text-ink-800 mb-1">
             {finished.mode === 'learn' ? '今日学习完成' : '今日复习完成'}
           </h3>
-          <p className="text-sm text-ink-500 mb-6">
-            已学完今天所有可学的词（最后 {finished.queue.length} 词：答对 {finished.correctCount} 次 · 答错 {finished.wrongCount} 次
-            {finished.masteredCount > 0 ? ` · 新掌握 ${finished.masteredCount} 词` : ''}）
+          <p className="text-sm text-ink-500 mb-2">
+            {studyStats.todayLearned.length >= settings.dailyGoal
+              ? `今日目标达成：已学 ${studyStats.todayLearned.length} / ${settings.dailyGoal} 词`
+              : `今天可学的词已学完（今日已学 ${studyStats.todayLearned.length} 词）`}
+          </p>
+          <p className="text-xs text-ink-400 mb-6">
+            最后一组 {finished.queue.length} 词：答对 {finished.correctCount} 次 · 答错 {finished.wrongCount} 次
+            {finished.masteredCount > 0 ? ` · 新掌握 ${finished.masteredCount} 词` : ''}
           </p>
           <div className="flex gap-3">
             <button
@@ -2130,6 +2182,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           <div className="text-sm ml-auto">
             <span className="text-ink-400">今日已学 </span>
             <span className="font-semibold text-seal-600">{studyStats.todayLearned.length}</span>
+            <span className="text-ink-400"> / {settings.dailyGoal}</span>
           </div>
         </div>
       </div>
@@ -2172,6 +2225,27 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                     }`}
                   >
                     {n} 个/组
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-ink-600 mb-1">每日目标</label>
+              <p className="text-xs text-ink-400 mb-2">
+                学满这个词数就收尾（一组接一组自动往下学，不会中途停下来问你），当天不再自动续组；
+                想多学可以自己在完成页点「再来一组」。
+              </p>
+              <div className="flex gap-2">
+                {DAILY_GOAL_OPTIONS.map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setSettings((p) => ({ ...p, dailyGoal: n }))}
+                    className={`px-4 py-1.5 rounded-lg text-sm transition ${
+                      settings.dailyGoal === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                    }`}
+                  >
+                    {n} 词/天
                   </button>
                 ))}
               </div>
@@ -2419,10 +2493,17 @@ function PracticePanel({
 
   const storedMissedList = csvToList(storedMissed)
   const pointCount = scoringPoints.length
-  /** 每个踩分点等权计分：漏掉一个即扣这么多 */
+  /** 等权兜底：AI 没给这一点扣分时用（漏一个即扣这么多） */
   const perPointScore = pointCount > 0 ? Math.round(100 / pointCount) : 0
   const missedSet = new Set(result?.missedPoints || [])
   const hitSet = new Set(result?.hitPoints || [])
+  /** AI 是否给出过逐点扣分 —— 有就按它显示，没有才退回等权 */
+  const hasAiDeductions = Object.keys(result?.pointDeductions || {}).length > 0
+  /** 单个踩分点的扣分：优先 AI 的逐点扣分 */
+  const deductionOf = (point: string): number => {
+    const ai = result?.pointDeductions?.[point]
+    return typeof ai === 'number' && ai > 0 ? ai : perPointScore
+  }
   /** 卡片里的「应该怎么做」：方向性方法论 + 这次漏掉的点 */
   const methodHint = (() => {
     const base = directionLabel === '中译英'
@@ -2521,7 +2602,11 @@ function PracticePanel({
               <span className="text-sm text-ink-500">/ 100</span>
             </div>
             <span className="text-xs text-ink-400">
-              {pointCount > 0 ? `${pointCount} 个踩分点，漏一个扣 ${perPointScore} 分` : '本题未设踩分点'}
+              {pointCount === 0
+                ? '本题未设踩分点'
+                : hasAiDeductions
+                  ? `${pointCount} 个踩分点，按各点权重扣分`
+                  : `${pointCount} 个踩分点，漏一个扣 ${perPointScore} 分`}
             </span>
           </div>
           {result.hitPoints.length > 0 && (
@@ -2607,7 +2692,11 @@ function PracticePanel({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-xs font-medium text-ink-400">
-                    踩分点{pointCount > 0 ? `（${pointCount} 个 · 漏一个扣 ${perPointScore} 分）` : ''}
+                    踩分点
+                    {pointCount > 0 &&
+                      (hasAiDeductions
+                        ? `（${pointCount} 个 · 扣分由 AI 按各点权重判定）`
+                        : `（${pointCount} 个 · 漏一个扣 ${perPointScore} 分）`)}
                   </p>
                   <button
                     onClick={() => {
@@ -2656,6 +2745,7 @@ function PracticePanel({
                     {scoringPoints.map((p, i) => {
                       const missed = missedSet.has(p)
                       const hit = hitSet.has(p)
+                      const deduction = deductionOf(p)
                       return (
                         <li key={i} className="text-sm flex gap-2 items-start">
                           {missed ? (
@@ -2667,11 +2757,16 @@ function PracticePanel({
                           )}
                           <span className={missed ? 'text-red-600' : 'text-ink-700'}>
                             {p}
-                            {missed && perPointScore > 0 && <span className="text-xs text-red-400 ml-1">-{perPointScore}</span>}
+                            {missed && deduction > 0 && <span className="text-xs text-red-400 ml-1">-{deduction}</span>}
                           </span>
                         </li>
                       )
                     })}
+                    {hasAiDeductions && result && (
+                      <li className="text-xs text-ink-400 pt-1">
+                        本次各点扣分合计 {100 - result.score} 分
+                      </li>
+                    )}
                   </ul>
                 )}
               </div>

@@ -34,6 +34,12 @@ export interface Literature {
   source: string
   trackingGroup: string
   mdStatus: MdStatus
+  /**
+   * 通讯作者。Crossref 元数据里没有这个标记，所以它**只能从 PDF/md 里抽**：
+   * 转换流程跑完 MinerU 后由后端识别首页作者块（`*` / "Correspondence to" / 通讯邮箱）
+   * 写进 CSV。没转过 PDF 的文献这里就是空串，界面上就不显示通讯那一行。
+   */
+  correspondingAuthor: string
 }
 
 const LITERATURES_PATH = 'literatures/literatures.csv'
@@ -41,7 +47,7 @@ const LITERATURE_HEADERS = [
   'doi', 'title', 'journal', 'year', 'authors', 'keywords',
   'abstract_en', 'abstract_cn', 'tier', 'has_graphical_abstract',
   'added_at', 'pdf_added_at', 'source', 'tracking_group',
-  'md_status',
+  'md_status', 'corresponding_author',
 ]
 
 export function doiToSlug(doi: string): string {
@@ -161,7 +167,7 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
 
   if (!rows || rows.length <= 1) return []
 
-  const EXPECTED_COLS = LITERATURE_HEADERS.length // 15
+  const EXPECTED_COLS = LITERATURE_HEADERS.length // 16
   const results: Literature[] = []
   const dirtyRows: number[] = []
 
@@ -185,15 +191,15 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
         fixedRow = [...r, ...Array(EXPECTED_COLS - r.length).fill('')]
       } else {
         // 列数过多 → 中间字段被逗号拆散
-        // 策略：从后往前保留最后 7 列是可靠的
-        // （tier, has_graphical_abstract, added_at, pdf_added_at, source, tracking_group, md_status）
+        // 策略：从后往前保留最后 8 列是可靠的
+        // （tier, has_graphical_abstract, added_at, pdf_added_at, source, tracking_group, md_status, corresponding_author）
         // 合并中间被拆散的字段（authors, keywords, abstract_en, abstract_cn）
-        const tail7 = r.slice(-7)
+        const tail8 = r.slice(-8)
         const head3 = r.slice(0, 3) // doi, title, journal — 通常不会被拆散
         const year = r[3] || ''
-        // positions 4 to r.length-7 全部合并成 authors
-        const mergedMiddle = r.slice(4, r.length - 7).join(', ')
-        fixedRow = [...head3, year, mergedMiddle, '', '', '', ...tail7]
+        // positions 4 to r.length-8 全部合并成 authors
+        const mergedMiddle = r.slice(4, r.length - 8).join(', ')
+        fixedRow = [...head3, year, mergedMiddle, '', '', '', ...tail8]
         if (fixedRow.length !== EXPECTED_COLS) {
           dirtyRows.push(rowNum)
           console.warn(`[loadLiteratures] row ${rowNum}: 列数不匹配 (${r.length} vs ${EXPECTED_COLS})，修复后 ${fixedRow.length} 列，跳过`)
@@ -229,6 +235,7 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
       source: fixedRow[12] || '',
       trackingGroup: fixedRow[13] || '',
       mdStatus: finalStatus,
+      correspondingAuthor: fixedRow[15] || '',
     })
   })
 
@@ -275,6 +282,9 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
       source: gh.source,
       trackingGroup: gh.trackingGroup,
       mdStatus: gh.mdStatus, // ✅ 关键：永远不覆盖 Bot 的 md_status
+      // 通讯作者同样是 Bot 从 md 里抽的：前端这一侧为空（例如页面加载后 Bot 才写完）时
+      // 保留 GitHub 上的值，别把它抹掉；前端填了值（用户手改）才以后者为准。
+      correspondingAuthor: lit.correspondingAuthor || gh.correspondingAuthor,
     }
   })
 
@@ -299,6 +309,7 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
         lit.source,
         lit.trackingGroup,
         lit.mdStatus || 'none',
+        lit.correspondingAuthor || '',
       ],
     )
     console.log(`[saveLiteratures] OK — ${toWrite.length} 条写入 (状态字段来自 GitHub)`)

@@ -25,6 +25,8 @@ export interface LearningProgress {
   wordQuestionTypes?: string[]
   wordAllowZhan?: boolean
   wordVoiceEnabled?: boolean
+  /** 每日学习目标（词数）—— 学满就收尾展示完成页，当天不再自动续组 */
+  wordDailyGoal?: number
   sentenceCurrentIndex?: number
   translationCurrentIndex?: number
   todayLearned?: string[]
@@ -134,6 +136,9 @@ function parseProgressMd(md: string): LearningProgress {
       case 'word_voice_enabled':
         result.wordVoiceEnabled = value === 'true'
         break
+      case 'word_daily_goal':
+        result.wordDailyGoal = parseInt(value, 10) || 0
+        break
       case 'sentence_current_index':
         result.sentenceCurrentIndex = parseInt(value, 10) || 0
         break
@@ -168,6 +173,7 @@ function serializeProgressMd(p: LearningProgress): string {
   if (p.wordQuestionTypes !== undefined) lines.push(`- word_question_types: ${p.wordQuestionTypes.join(',')}`)
   if (p.wordAllowZhan !== undefined) lines.push(`- word_allow_zhan: ${p.wordAllowZhan}`)
   if (p.wordVoiceEnabled !== undefined) lines.push(`- word_voice_enabled: ${p.wordVoiceEnabled}`)
+  if (p.wordDailyGoal !== undefined) lines.push(`- word_daily_goal: ${p.wordDailyGoal}`)
   if (p.sentenceCurrentIndex !== undefined) lines.push(`- sentence_current_index: ${p.sentenceCurrentIndex}`)
   if (p.translationCurrentIndex !== undefined) lines.push(`- translation_current_index: ${p.translationCurrentIndex}`)
   if (p.todayLearned !== undefined) lines.push(`- today_learned: ${p.todayLearned.join(',')}`)

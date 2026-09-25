@@ -49,7 +49,7 @@ import {
 } from '../services/learningData'
 import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
 import { normalizeDoi, getCitationEntries, cleanAbstract } from '../services/citation'
-import { abbreviateJournal, loadJournalAbbrevMap, saveJournalAbbrev } from '../services/journalAbbrev'
+import { abbreviateJournal, loadJournalAbbrevMap, saveJournalAbbrev, mergeJournalAbbrevs, lookupJournalAbbrevsWithAI } from '../services/journalAbbrev'
 import {
   FolderCog,
   BookMarked,
@@ -140,6 +140,11 @@ interface Paper {
    */
   abstractEn: string
   abstractCn: string
+  /**
+   * 通讯作者。Crossref 元数据里没有，只能从 PDF/md 抽取 ——
+   * 转换流程跑完由后端写进 CSV。为空时界面就不显示通讯那一行。
+   */
+  correspondingAuthor: string
 }
 
 /** UI 层期刊模板项 —— 包装后端 JournalTemplate，加派生字段方便显示 */
@@ -234,6 +239,7 @@ function literatureToPaper(lit: Literature): Paper {
     trackingGroup: lit.trackingGroup,
     abstractEn: lit.abstractEn || '',
     abstractCn: lit.abstractCn || '',
+    correspondingAuthor: lit.correspondingAuthor || '',
   }
 }
 
@@ -257,30 +263,21 @@ function paperToLiterature(paper: Paper): Literature {
     // 追踪分组与文献分类是两回事，原样带回，不要被分类覆盖
     trackingGroup: paper.trackingGroup || '',
     mdStatus: paper.mdStatus || 'none',
+    correspondingAuthor: paper.correspondingAuthor || '',
   }
 }
 
 /**
- * 从 authors 字符串里拆出「一作」和「通讯作者」。
- * authors 形如 "San Zhang, Si Li, Wu Wang"，也可能带 `*` 标记通讯。
- * - 一作 = 第一个作者
- * - 通讯 = 带 * 的那个（多个取最后一个）；没有 * 时取最后一个；只有一个作者时为 null
+ * 从 authors 字符串里取出「一作」，并剥掉可能存在的 `*` 通讯标记。
+ * authors 形如 "San Zhang, Si Li, Wu Wang"。
+ * 通讯作者**不在这里猜**：它只能由转换流程从 PDF/md 里抽出来（见 Paper.correspondingAuthor）。
  */
-function splitFirstAndCorresponding(authors: string): { first: string; corresponding: string | null } {
+function splitFirstAuthor(authors: string): string {
   const parts = (authors || '')
     .split(',')
-    .map((a) => a.trim())
+    .map((a) => a.replace(/\*/g, '').trim())
     .filter(Boolean)
-  if (parts.length === 0) return { first: '', corresponding: null }
-  const cleaned = parts.map((a) => a.replace(/\*/g, '').trim())
-  const starredIdx = parts.reduce<number[]>((acc, a, i) => {
-    if (a.includes('*')) acc.push(i)
-    return acc
-  }, [])
-  const first = cleaned[0]
-  if (cleaned.length === 1) return { first, corresponding: null }
-  const idx = starredIdx.length > 0 ? starredIdx[starredIdx.length - 1] : cleaned.length - 1
-  return { first, corresponding: cleaned[idx] || null }
+  return parts[0] || ''
 }
 
 /** 文献分类色块调色板：按文献内分类下标取色，让相邻分类颜色不同 */
@@ -738,6 +735,33 @@ export default function ManagementPage() {
     loadJournalAbbrevMap().then(setJournalAbbrevMap).catch(() => {})
   }, [])
 
+  /**
+   * 第一次见到某个期刊 → 用 AI 查它的**约定俗成**缩写，结果落进覆盖表。
+   *
+   * 为什么必须查而不是本地推：机械取首字母给出的是 Angewandte Chemie International
+   * Edition → ACIE，而学术界写的是 Angew. Chem. Int. Ed. —— 列表里显示错缩写等于摆错信息。
+   *
+   * 只在本会话尝试一次（abbrevTriedRef）；一次请求带上所有没查过的期刊（后端通道单次
+   * 往返是分钟级，逐本查太慢）。没登录 / 没配 AI / 查不出来都静默退回启发式缩写。
+   */
+  const abbrevTriedRef = useRef(false)
+  useEffect(() => {
+    if (abbrevTriedRef.current || papers.length === 0) return
+    const known = new Set(Object.keys(journalAbbrevMap))
+    const missing = [...new Set(papers.map((p) => p.journal.trim()).filter((j) => j && !known.has(j)))]
+    abbrevTriedRef.current = true
+    if (missing.length === 0) return
+    const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+    lookupJournalAbbrevsWithAI(missing, ai1)
+      .then(async (found) => {
+        const hits = Object.entries(found).filter(([, v]) => v.trim())
+        if (hits.length === 0) return
+        setJournalAbbrevMap(await mergeJournalAbbrevs(Object.fromEntries(hits)))
+        toast.success(`已自动查询 ${hits.length} 个期刊的标准缩写`)
+      })
+      .catch(() => { /* 查不到就用启发式缩写，不打扰用户 */ })
+  }, [papers, journalAbbrevMap])
+
   /** 把 taskQueue 的 running 任务进度实时同步到对应 paper（卡片上的内联进度条需要） */
   useEffect(() => {
     const runningOrPending = taskQueue.tasks.filter(
@@ -1173,6 +1197,8 @@ export default function ManagementPage() {
         // 这样即便没有 md，摘要翻译练习也有题面/参考答案可用
         abstractEn: (meta.abstract || '').trim(),
         abstractCn: '',
+        // 通讯作者不在元数据里，得等这篇转过 PDF 后由后端从 md 抽出
+        correspondingAuthor: '',
       }
       const updated = [paper, ...papers]
       setPapers(updated)
@@ -1231,6 +1257,7 @@ export default function ManagementPage() {
       trackingGroup: '',
       abstractEn: newPaper.abstractEn.trim(),
       abstractCn: newPaper.abstractCn.trim(),
+      correspondingAuthor: '',
     }
     const updated = [paper, ...papers]
     setPapers(updated)
@@ -2687,7 +2714,8 @@ export default function ManagementPage() {
                   </div>
                 )}
                 {pagedPapers.map((paper) => {
-                  const { first, corresponding } = splitFirstAndCorresponding(paper.authors)
+                  const first = splitFirstAuthor(paper.authors)
+                  const corresponding = paper.correspondingAuthor.trim()
                   const abbrev = journalAbbrevMap[paper.journal] ?? abbreviateJournal(paper.journal)
                   return (
                     <div
@@ -2737,9 +2765,9 @@ export default function ManagementPage() {
                           <h3 className="text-sm font-medium text-ink-800 line-clamp-2 min-w-0">{paper.title}</h3>
                         </div>
 
-                        {/* 作者：一作 / 通讯各一行 */}
+                        {/* 作者：一作 / 通讯各一行（通讯由 PDF 转换时从 md 里抽出） */}
                         <div className="text-xs text-ink-500">
-                          <div>一作 {first}</div>
+                          <div>一作 {first || '—'}</div>
                           {corresponding && <div>★ {corresponding}</div>}
                         </div>
 
@@ -3801,6 +3829,16 @@ export default function ManagementPage() {
                     value={editingPaper.authors}
                     onChange={(e) => setEditingPaper({ ...editingPaper, authors: e.target.value })}
                     placeholder="多个作者用逗号分隔"
+                    className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink-700 mb-1.5">通讯作者</label>
+                  <input
+                    type="text"
+                    value={editingPaper.correspondingAuthor}
+                    onChange={(e) => setEditingPaper({ ...editingPaper, correspondingAuthor: e.target.value })}
+                    placeholder="PDF 转换后自动从全文抽取；也可在这里手改"
                     className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   />
                 </div>

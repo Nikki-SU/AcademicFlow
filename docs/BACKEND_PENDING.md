@@ -12,15 +12,15 @@
 
 **除下表标注 ⚠️ 的两个文件外，前端嵌入副本与私库线上逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
 
-> ⚠️ **例外（2026-09-25）**：`ai_call.mjs`（60744 B）与 `paper_convert.mjs`（101421 B）
+> ⚠️ **例外（2026-09-25）**：`ai_call.mjs`（60744 B）与 `paper_convert.mjs`（106346 B）
 > 这两个前端副本都已经改好，但**私库线上还是旧版**。**在推私库之前不要点「重装后端」**。
-> 详见 §8、§9、§10。
+> 详见 §8、§9、§10、§11。
 
 | 文件 | 字节 | 本轮变化 |
 |------|------|---------|
 | `scripts/ai_call.mjs` | 60744 | ⚠️ 加了 `input_path` 落盘读取（§8）；**私库待推** |
 | `scripts/dual_engine_runner.mjs` | 29183 | ✅ 之前前端**根本没有**这个文件；现已补进安装清单并修了超时/预算；【源材料】改为共享稳定前缀 |
-| `scripts/paper_convert.mjs` | 101421 | ⚠️ 提词 prompt 加 `example_zh` + `morphemes`、CSV 加两批同名列、新增词素表汇总（§9、§10）；**私库待推** |
+| `scripts/paper_convert.mjs` | 106346 | ⚠️ 提词 prompt 加 `example_zh` + `morphemes`、CSV 加两批同名列、新增词素表汇总（§9、§10）、**新增通讯作者抽取**（§11）；**私库待推** |
 | `scripts/blocks.mjs` | 14196 | 一致 |
 | `workflows/ai_call.yml` | 2572 | ✅ job timeout 15 → 25 分钟 |
 | `workflows/paper_convert.yml` | 2450 | 一致 |
@@ -420,4 +420,60 @@ markdown 再带标注拼一遍）——一篇长稿轻松超过 64KB。
 ### 10.5 后续动作
 
 与 §8 / §9 同一次推送：`paper_convert.mjs` push 私库 `main` → 跑 `ai_connectivity_test` →
+用 §3.3 脚本核对逐字节一致。**顺序不能反。**
+
+---
+
+## 11. 通讯作者抽取（`literatures.csv` 加列）—— ⚠️ 私库待推（与 §9/§10 同一份 `paper_convert.mjs`）
+
+### 11.1 问题
+
+Crossref / OpenAlex 的元数据只有作者列表，**没有**通讯作者标记。而通讯作者是投稿 cover letter 的
+收件人、后续联系要用的那位，**猜错比不显示更糟**。它只明确存在于 PDF 原文里：
+带 `*` 的作者、或 "Correspondence to / Corresponding author" 那一行、或首页给出的通讯邮箱。
+
+所以这件事**只能从 PDF/md 里抽**，而 md 是转换流程的产物 —— 放后端是唯一不慢的位置
+（前端逐篇调 AI 要按分钟等）。
+
+### 11.2 修法
+
+`paper_convert.mjs` 在节点 3.6（长难句提取）之后新增节点 **3.7 `runCorrespondingAuthorExtraction`**：
+
+- **输入**：MinerU 转出的 `full.md` 的**开头 6000 字符**（首页作者块一定在最前面；
+  截太长只会把正文/参考文献里的 "Correspondence" 条目也喂进去）
+- **判定线索**（写进 prompt，按可靠度从高到低）：作者列表里带 `*`/`†` 且文中有
+  "Corresponding author / Correspondence to / To whom correspondence should be addressed / E-mail:"
+  的 → 明确署名 "Corresponding author: XXX" 的 → 首页通讯邮箱所属的那位
+- **写死一条**："以上线索都没有 → 返回空数组，**不要把最后一位作者当成通讯作者**"
+- **输出**：`{corresponding_authors: [...], emails: [...], evidence: "..."}`，解析用新增的
+  `parseJsonObject`（去代码围栏 + 截首尾花括号）
+- **落库**：`literatures.csv` 末尾新列 `corresponding_author`，多人用 `; ` 连接；
+  认不出来保持空串（前端只是不显示「通讯」那一行）
+- **失败不阻断主流程**：和 words / sentences 一样 try-catch 包住，抽不到就跳过
+- 复用 `'words'` 阶段的思考模式（机械抽取，默认 off），不新增设置项
+
+### 11.3 CSV 列契约（四处必须同步）
+
+`corresponding_author` **追加在 `md_status` 之后（末尾）**，旧行缺列给空串：
+
+1. `src/services/literatureData.ts`：`LITERATURE_HEADERS` 加列；`Literature` 加
+   `correspondingAuthor`；`loadLiteratures` 读 `fixedRow[15]`、`EXPECTED_COLS` 16、
+   列数修复的 `tail7` → `tail8`；`saveLiteratures` 写第 16 列，
+   并在 merge 里加「前端为空时保留 GitHub 上的值」（同 `md_status` 的道理）
+2. `src/constants/skeleton.ts`：`CSV_HEADERS.literatures` 补齐为
+   `...tracking_group,md_status,corresponding_author`（原来只有 14 列、没有 `md_status`，
+   新库里 runner 的 `updateLocalCsvField(doi,'md_status',...)` 会找不到列 —— 顺手补上）
+3. `src/pages/Management.tsx`：`Paper` 加 `correspondingAuthor`、
+   `literatureToPaper` / `paperToLiterature` 双向映射、编辑弹窗手改入口；
+   列表里**不再用启发式猜通讯**（原 `splitFirstAndCorresponding` 已换成只取一作的 `splitFirstAuthor`）
+4. 私库 `paper_convert.mjs`：`CORRESPONDING_AUTHOR_PROMPT` / `parseJsonObject` /
+   `ensureLocalCsvColumn` / `runCorrespondingAuthorExtraction` + main 里 3.7 的调用
+
+> **兼容旧库**：`ensureLocalCsvColumn('literatures/literatures.csv','corresponding_author')`
+> 会在写值之前先确认列存在，没有就在末尾补上（旧行补空）—— 所以已经在用的库不需要手工改表头。
+
+### 11.4 后续动作
+
+与 §8 / §9 / §10 同一次推送：
+`paper_convert.mjs`（现 106346 B）push 私库 `main` → 跑 `ai_connectivity_test` →
 用 §3.3 脚本核对逐字节一致。**顺序不能反。**
