@@ -119,6 +119,39 @@ function renderKatex(tex: string, display: boolean): string {
   }
 }
 
+/** data:image/...;base64,... → Blob（有些浏览器的剪贴板只给 HTML，不给文件项） */
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  const m = dataUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i)
+  if (!m) return null
+  const bin = atob(m[2])
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new Blob([bytes], { type: m[1] })
+}
+
+/**
+ * 从剪贴板里取一张图片。
+ *
+ * 三条路都要走一遍：截图工具（Win+Shift+S）通常给 `files`；
+ * Chrome 里复制网页图片给的是 `items` 里的 file 项；
+ * 还有一部分来源（「复制图片」的桌面应用、部分浏览器的复制图片）**只把图塞在 text/html 里**，
+ * 这时只能从 `<img src="data:...">` 里挖。挖不到的返回 null —— 调用方据此放行走普通文本粘贴。
+ */
+function imageFromClipboard(dt: DataTransfer | null): File | Blob | null {
+  if (!dt) return null
+  for (const f of Array.from(dt.files ?? [])) {
+    if (f.type.startsWith('image/')) return f
+  }
+  for (const it of Array.from(dt.items ?? [])) {
+    if (it.kind === 'file' && it.type.startsWith('image/')) {
+      const f = it.getAsFile()
+      if (f) return f
+    }
+  }
+  const m = dt.getData('text/html')?.match(/<img[^>]+src="(data:image\/[^"]+)"/i)
+  return m ? dataUrlToBlob(m[1]) : null
+}
+
 /** 公式看板：**就是 KaTeX 的渲染结果**（与正文/预览同一个引擎、同一个版本）—— 不自己画一遍 */
 function FormulaBoard({
   tex,
@@ -168,6 +201,12 @@ export default function FormulaSidebar({
   const [replaceAll, setReplaceAll] = useState(false)
   const [favorites, setFavorites] = useState<FormulaFavorite[]>([])
   const [ocrLoading, setOcrLoading] = useState(false)
+  /** 拖拽状态（高亮整块投放区） */
+  const [dragOver, setDragOver] = useState(false)
+  /** 给粘贴监听用的「是否正在识别」—— 用 ref 是为了不让监听因为 loading 变化反复重挂 */
+  const ocrLoadingRef = useRef(false)
+  /** dragenter/dragleave 的进出台阶（见 handleDragLeave） */
+  const dragDepthRef = useRef(0)
   const [ocrModel, setOcrModel] = useState<SimpleTexModel>('standard')
   const [findQuery, setFindQuery] = useState('')
   /** 底部工具条当前分类：默认「结构」—— 找结构是最费scroll的事，让它一进来就在眼前 */
@@ -179,6 +218,14 @@ export default function FormulaSidebar({
   const fileRef = useRef<HTMLInputElement>(null)
 
   const projectFormulas = useMemo(() => parseFormulas(md), [md])
+
+  /**
+   * 正文一变，公式下标就整体错位了（删掉第 1 个，原来第 2 个就变成了第 1 个）。
+   * 勾选留着就会指向**另一条**公式 —— 批量删除删错东西比删不掉糟得多，所以直接清空。
+   */
+  useEffect(() => {
+    setPicked(new Set())
+  }, [md])
 
   /** 被改公式在全文里出现了几处（复用它才谈得上「替换全部」） */
   const duplicateCount = useMemo(() => {
@@ -212,7 +259,13 @@ export default function FormulaSidebar({
   const isFavorited = (latex: string) =>
     favorites.some((f) => f.latex.trim() === latex.trim())
 
-  const handleOcr = async (file: File | Blob) => {
+  /** 识图：文件选择框 / 截图 Ctrl+V / 拖拽 三条路都走这里 */
+  const runOcr = async (file: File | Blob) => {
+    if (ocrLoadingRef.current) {
+      toast.message('上一张还在识别…')
+      return
+    }
+    ocrLoadingRef.current = true
     setOcrLoading(true)
     try {
       const cred = await loadSimpleTexCredentials()
@@ -222,8 +275,66 @@ export default function FormulaSidebar({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
+      ocrLoadingRef.current = false
       setOcrLoading(false)
     }
+  }
+
+  /**
+   * 截图 → Ctrl+V 直接识别。
+   *
+   * 监听挂在整个文档上而不是侧栏上：用户截完图，焦点八成还停在正文工具栏那个「插入公式」
+   * 按钮上，只挂侧栏的话这一下就白按了。侧栏关掉监听随之注销，所以劫持范围就是
+   * **「侧栏打开且停在生成公式 tab 的这段时间」**。
+   *
+   * 只有剪贴板里**确实是图片**才拦截 —— 往输入框粘 LaTeX 文本、粘别的文字一律照常。
+   */
+  useEffect(() => {
+    if (tab !== 'create') return
+    const onPaste = (e: ClipboardEvent) => {
+      const img = imageFromClipboard(e.clipboardData)
+      if (!img) return
+      e.preventDefault()
+      void runOcr(img)
+    }
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+    // 依赖只放 tab 与 ocrModel：runOcr 里除这两个之外全是 ref / setState / 模块函数，
+    // 所以这个闭包不会读到过期值（用 ocrLoading 当依赖反而会让监听反复重挂）。
+  }, [tab, ocrModel])
+
+  /** 拖拽上传：只在侧栏这块区域接手（正文编辑器自己的图片拖放不抢） */
+  const dragHasImage = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.items ?? []).some((i) => i.type.startsWith('image/'))
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!dragHasImage(e)) return
+    e.preventDefault()
+    dragDepthRef.current++
+    setDragOver(true)
+  }
+
+  const handleDragLeave = () => {
+    // dragleave 在「从根进入子元素」时也会冒上来，不计数的话高亮会闪
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragOver(false)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    // 必须 preventDefault，否则浏览器不认为这里可投放，drop 根本不会触发
+    if (dragHasImage(e)) e.preventDefault()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    dragDepthRef.current = 0
+    setDragOver(false)
+    const img = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'))
+    if (!img) {
+      toast.error('拖进来的是图片才能识别公式')
+      return
+    }
+    void runOcr(img)
   }
 
   const handleFavoriteToggle = async (latex: string, display: 'inline' | 'block') => {
@@ -343,6 +454,21 @@ export default function FormulaSidebar({
     .map((f, index) => ({ ...f, index }))
     .filter((f) => !findQuery.trim() || f.tex.toLowerCase().includes(findQuery.trim().toLowerCase()))
 
+  /** 当前可见（筛选后）的公式下标 —— 全选的语义就是「全选我看得见这些」 */
+  const visibleIndexes = useMemo(() => filteredFind.map((f) => f.index), [filteredFind])
+  const allVisiblePicked =
+    visibleIndexes.length > 0 && visibleIndexes.every((i) => picked.has(i))
+
+  /** 全选 / 全不选（只作用于当前筛选结果；没筛选就是全文） */
+  const toggleSelectAllVisible = () => {
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (allVisiblePicked) visibleIndexes.forEach((i) => next.delete(i))
+      else visibleIndexes.forEach((i) => next.add(i))
+      return next
+    })
+  }
+
   const togglePicked = (index: number) => {
     setPicked((prev) => {
       const next = new Set(prev)
@@ -352,12 +478,28 @@ export default function FormulaSidebar({
     })
   }
 
-  const deletePicked = () => {
-    const list = [...picked]
-    if (list.length === 0) return
+  /** 真正执行删除（确认之后走这里） */
+  const doDeletePicked = (list: number[]) => {
     onDelete(list)
     setPicked(new Set())
     toast.success(`已删除 ${list.length} 个公式`)
+  }
+
+  /**
+   * 批量删除。条数多的时候先确认一次 —— 正文里删公式没有撤销，
+   * 而「全选」让一次删几十个变得很容易，误点的代价太高。少的时候别啰嗦。
+   */
+  const deletePicked = () => {
+    const list = [...picked]
+    if (list.length === 0) return
+    if (list.length >= 5) {
+      toast.warning(`确定删掉这 ${list.length} 个公式？`, {
+        description: '会从正文里直接移除，删完不易恢复',
+        action: { label: '确认删除', onClick: () => doDeletePicked(list) },
+      })
+      return
+    }
+    doDeletePicked(list)
   }
 
   const charGroupButtons = useMemo(() => {
@@ -366,7 +508,21 @@ export default function FormulaSidebar({
   }, [charGroup])
 
   return (
-    <div className="w-80 flex-shrink-0 border-l border-ink-200 bg-paper-100/70 flex flex-col overflow-hidden">
+    <div
+      className={`w-80 flex-shrink-0 border-l flex flex-col overflow-hidden relative transition-colors ${
+        dragOver ? 'border-seal-400 bg-seal-50/70' : 'border-ink-200 bg-paper-100/70'
+      }`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* 拖拽时的投放提示：pointer-events-none，别把 drop 事件挡掉 */}
+      {dragOver && (
+        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center m-1 rounded-lg border-2 border-dashed border-seal-400 bg-seal-50/85">
+          <span className="text-xs font-medium text-seal-700">松手，把这张图识别成公式</span>
+        </div>
+      )}
       {/* 头部 */}
       <div className="px-3 py-2 border-b border-ink-200 flex items-center justify-between bg-paper-50">
         <div className="flex items-center gap-1">
@@ -412,37 +568,45 @@ export default function FormulaSidebar({
               </div>
             )}
 
-            {/* 识图：一个按钮，模型选择跟在旁边 */}
-            <div className="flex items-center gap-1.5">
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) handleOcr(f)
-                  e.target.value = ''
-                }}
-              />
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={ocrLoading}
-                className="flex-1 min-w-0 px-2 py-2 text-xs border border-dashed border-ink-300 rounded-lg text-ink-500 hover:border-seal-300 hover:text-seal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
-                title="上传图片或截图，自动识别成公式"
-              >
-                {ocrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-                {ocrLoading ? '识别中…' : '识图'}
-              </button>
-              <select
-                value={ocrModel}
-                onChange={(e) => setOcrModel(e.target.value as SimpleTexModel)}
-                className="text-[0.6875rem] border border-ink-200 rounded px-1 py-1.5 bg-paper-50 text-ink-500"
-                title="识别精度 / 速度"
-              >
-                <option value="standard">标准</option>
-                <option value="turbo">轻量</option>
-              </select>
+            {/* 识图：按钮 / 截图直接 Ctrl+V / 拖进来，三条路都进 runOcr */}
+            <div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) void runOcr(f)
+                    e.target.value = ''
+                  }}
+                />
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  disabled={ocrLoading}
+                  className="flex-1 min-w-0 px-2 py-2 text-xs border border-dashed border-ink-300 rounded-lg text-ink-500 hover:border-seal-300 hover:text-seal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  title="选图片文件识别成公式（也可以直接截图后 Ctrl+V，或把图片拖进来）"
+                >
+                  {ocrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                  {ocrLoading ? '识别中…' : '识图'}
+                </button>
+                <select
+                  value={ocrModel}
+                  onChange={(e) => setOcrModel(e.target.value as SimpleTexModel)}
+                  className="text-[0.6875rem] border border-ink-200 rounded px-1 py-1.5 bg-paper-50 text-ink-500"
+                  title="识别精度 / 速度"
+                >
+                  <option value="standard">标准</option>
+                  <option value="turbo">轻量</option>
+                </select>
+              </div>
+              {/* 把「截图 → Ctrl+V」写在脸上：藏起来的快捷键等于没有 */}
+              <p className="mt-1 text-[0.6875rem] text-ink-400">
+                截图后直接 <kbd className="px-1 rounded border border-ink-200 bg-paper-50 text-ink-500">Ctrl</kbd>
+                +<kbd className="px-1 rounded border border-ink-200 bg-paper-50 text-ink-500">V</kbd>{' '}
+                贴进来就能识别，也可以把图片拖到这块栏里
+              </p>
             </div>
 
             {/* 输入框 —— 唯一的编辑入口。看板只是它的渲染结果，别把编辑藏进「高级」里 */}
@@ -536,7 +700,23 @@ export default function FormulaSidebar({
                 className="w-full pl-8 pr-2 py-1.5 text-xs border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400"
               />
             </div>
-            <div className="mt-1.5 text-[0.6875rem] text-ink-400">全文 {projectFormulas.length} 个公式</div>
+            <div className="mt-1.5 flex items-center gap-2 text-[0.6875rem] text-ink-400">
+              <label className="flex items-center gap-1 cursor-pointer select-none text-ink-500 hover:text-ink-700">
+                <input
+                  type="checkbox"
+                  checked={allVisiblePicked}
+                  disabled={visibleIndexes.length === 0}
+                  onChange={toggleSelectAllVisible}
+                  className="w-3.5 h-3.5 rounded border-ink-300 accent-seal-600 focus:ring-seal-500 disabled:opacity-40"
+                  title="全选当前列表（筛选后就是筛选结果），然后可以一次删掉"
+                />
+                全选{findQuery.trim() ? '筛选结果' : ''}（{visibleIndexes.length}）
+              </label>
+              <span className="ml-auto">
+                全文 {projectFormulas.length} 个公式
+                {picked.size > 0 ? ` · 已选 ${picked.size}` : ''}
+              </span>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
@@ -594,7 +774,7 @@ export default function FormulaSidebar({
                 onClick={() => setPicked(new Set())}
                 className="ml-auto px-2 py-1 text-[0.6875rem] text-ink-500 hover:text-ink-700"
               >
-                取消
+                取消选择
               </button>
               <button
                 onClick={deletePicked}
