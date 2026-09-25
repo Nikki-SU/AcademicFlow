@@ -3189,28 +3189,6 @@ export default function ManagementPage() {
               </button>
             </div>
 
-            <div
-              onDragOver={(e) => {
-                e.preventDefault()
-                setIsDragOverBook(true)
-              }}
-              onDragLeave={() => setIsDragOverBook(false)}
-              onDrop={(e) => {
-                e.preventDefault()
-                setIsDragOverBook(false)
-                handleBookUpload(e.dataTransfer.files)
-              }}
-              className={`border-2 border-dashed rounded-xl p-6 text-center transition ${
-                isDragOverBook
-                  ? 'border-seal-400 bg-seal-50/50'
-                  : 'border-ink-200 bg-paper-50 hover:border-seal-200 hover:bg-seal-50/30'
-              }`}
-            >
-              <p className="text-sm text-ink-500">
-                拖拽 PDF 图书到此处上传，自动转换为 Markdown。<span className="text-seal-600 font-medium">超过200页自动按180页切分</span>
-              </p>
-            </div>
-
             {filteredBooks.length > 0 ? (
               <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
                 {filteredBooks.map((book) => (
