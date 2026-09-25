@@ -2160,7 +2160,7 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="page-container py-8 grid gap-6 items-start grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_clamp(18rem,24vw,26rem)]">
+    <div className="page-container py-8 grid gap-6 items-start grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_clamp(12rem,13vw,15rem)]">
       {/* ──── 左侧主内容 ──── */}
       <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between mb-6">

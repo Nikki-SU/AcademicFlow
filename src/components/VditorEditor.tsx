@@ -481,6 +481,8 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   const defaultCodeLang = useSettingsStore((s) => s.defaultCodeLang ?? 'python')
   const defaultCodeLangRef = useRef(defaultCodeLang)
   defaultCodeLangRef.current = defaultCodeLang
+  /** 间隔上色（斑马纹）：块级背景交替，长文里不容易看串行。设置页可关 */
+  const zebra = useSettingsStore((s) => s.editorZebra ?? true)
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
   const onReadyRef = useRef(onReady)
@@ -1009,7 +1011,9 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     el.style.opacity = disabled ? '0.85' : ''
   }, [disabled])
 
-  return <div ref={containerRef} className={className} />
+  // zebra 只加一个类名在容器上（样式见 index.css）：块级背景交替由 CSS 的
+  // nth-child 完成，DOM 一变颜色自己就跟着重排，不需要再挂 MutationObserver。
+  return <div ref={containerRef} className={`${className}${zebra ? ' af-editor-zebra' : ''}`} />
 })
 
 export default VditorEditor

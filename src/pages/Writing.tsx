@@ -42,6 +42,7 @@ import {
   Upload,
   Trash2,
   CloudUpload,
+  Square,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getAllTemplates, createTemplate, updateTemplate, listTemplateAssets, loadTemplateAsset } from '../services/journal-templates'
@@ -73,6 +74,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import type { JournalTemplate } from '../types'
 import { DoiLink } from '../components/DoiLink'
 import { runDualEngine } from '../services/ai/dual-engine'
+import { abortError, isAbortError } from '../services/ai/abort'
 import { loadAiSourceText } from '../services/literatureData'
 import {
   loadProjects,
@@ -330,6 +332,17 @@ function stripNotInSource(text: string): string {
     })
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
+}
+
+/**
+ * 从一句需求里取一个能放在按钮上的短名字。
+ *
+ * 快捷指令的按钮就那么宽，把整句需求当名字会直接被截断 ——
+ * 所以只取第一个短句、再截到 8 个字（用户随时可以在弹窗里改）。
+ */
+function shortActionName(requirement: string): string {
+  const head = requirement.split(/[，。；：、,.!?！？\s]/).filter(Boolean)[0] || requirement.trim()
+  return head.slice(0, 8)
 }
 
 /**
@@ -939,6 +952,8 @@ export default function WritingPage() {
   const rightEditorRef = useRef<VditorEditorHandle>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const aiInputRef = useRef<HTMLTextAreaElement>(null)
+  /** 当前 AI 助手指令的取消句柄：点「停止」立刻不再接收后端输出（详见 ai/abort.ts） */
+  const aiAbortRef = useRef<AbortController | null>(null)
   const leftDropdownRef = useRef<HTMLDivElement>(null)
   const rightDropdownRef = useRef<HTMLDivElement>(null)
   const citationScopeRef = useRef<HTMLDivElement>(null)
@@ -1472,6 +1487,10 @@ export default function WritingPage() {
     setIsAiGenerating(true)
     setIsAiReviewing(false)
 
+    // 「停止」的句柄：从读文献正文那一秒就能停，不必等进了 AI 轮询才有反应
+    const controller = new AbortController()
+    aiAbortRef.current = controller
+
     // 预先插入 AI 助手占位消息，方便后续按 id 增量更新内容/审阅状态
     const genMsgId = String(Date.now() + 1)
     const genMsg: AIMessage = {
@@ -1537,6 +1556,9 @@ export default function WritingPage() {
         }
       }
 
+      // 取正文期间用户可能已经点了「停止」—— 那就别再往下发 AI 请求了
+      if (controller.signal.aborted) throw abortError()
+
       // 正文取完了，接下来是 AI 的活 —— 把占位文案换回来
       setMessages((prev) =>
         prev.map((m) => (m.id === genMsgId ? { ...m, content: '正在调用 AI-1 生成内容…' } : m)),
@@ -1568,6 +1590,7 @@ export default function WritingPage() {
         // 后端默认 5 轮（= 最多 10 次大模型调用，每次都要把整份源材料再传一遍）。
         // 这只是"AI-2 打回后自动重写"的机会数，通过就停；降到 2 轮，最坏 4 次调用。
         maxAttempts: 2,
+        signal: controller.signal,
         onProgress: (event) => {
           // AI-1 完成后立即把生成内容回填到消息（提升体感速度）
           if (event.stage === 'ai1_done' && event.ai1Output) {
@@ -1630,21 +1653,37 @@ export default function WritingPage() {
         )
       )
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
       setIsAiGenerating(false)
       setIsAiReviewing(false)
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === genMsgId
-            ? {
-                ...m,
-                content: `**AI 服务调用失败**\n\n${msg}\n\n请检查设置页的 AI 配置后重试。`,
-                reviewStatus: 'fail' as const,
-              }
-            : m
+      if (isAbortError(err)) {
+        // 用户主动停止：不是失败，别报错也别让人以为配置有问题
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === genMsgId ? { ...m, content: '_（已停止）_', reviewStatus: undefined } : m,
+          ),
         )
-      )
+      } else {
+        const msg = err instanceof Error ? err.message : String(err)
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === genMsgId
+              ? {
+                  ...m,
+                  content: `**AI 服务调用失败**\n\n${msg}\n\n请检查设置页的 AI 配置后重试。`,
+                  reviewStatus: 'fail' as const,
+                }
+              : m
+          )
+        )
+      }
+    } finally {
+      if (aiAbortRef.current === controller) aiAbortRef.current = null
     }
+  }
+
+  /** 停止 AI 助手当前这条指令：前端立刻不再接收后端输出，并让后端也停下（省额度） */
+  const stopAi = () => {
+    aiAbortRef.current?.abort()
   }
 
   /**
@@ -1864,7 +1903,7 @@ export default function WritingPage() {
       if (!generated) throw new Error('AI 未返回内容')
       setNewActionPrompt(generated)
       if (!newActionLabel.trim()) {
-        setNewActionLabel(requirement.slice(0, 12))
+        setNewActionLabel(shortActionName(requirement))
       }
     } catch (err) {
       console.error('[Writing] 生成 prompt 失败:', err)
@@ -3779,6 +3818,14 @@ export default function WritingPage() {
                         >
                           已等 {Math.floor(aiElapsed / 60)} 分 {String(aiElapsed % 60).padStart(2, '0')} 秒
                         </span>
+                        <button
+                          onClick={stopAi}
+                          className="ml-1 flex items-center gap-0.5 px-1.5 py-0.5 text-[0.625rem] rounded border border-ink-200 text-ink-500 hover:border-red-300 hover:text-red-600 transition flex-shrink-0"
+                          title="停止：不再接收这次回答，并让后端也停下"
+                        >
+                          <Square className="w-2.5 h-2.5" />
+                          停止
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -3831,8 +3878,8 @@ export default function WritingPage() {
                       >
                         <button
                           onClick={() => toggleQuickAction(key)}
-                          className="pl-2.5 pr-1 py-1"
-                          title={action.prompt}
+                          className="pl-2.5 pr-1 py-1 max-w-[10rem] truncate"
+                          title={`${action.label}\n\n${action.prompt}`}
                         >
                           {action.label}
                         </button>

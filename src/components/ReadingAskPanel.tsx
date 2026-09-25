@@ -29,10 +29,12 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Square,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { callWebSearch, type WebSearchSource } from '../services/ai/web-search'
 import { runDualEngine } from '../services/ai/dual-engine'
+import { isAbortError } from '../services/ai/abort'
 import { useSettingsStore } from '../stores/settings'
 import { loadReadingChat, saveReadingChat, type DocRef } from '../services/readingDocData'
 import { renderMarkdownToHtml } from '../services/markdown-renderer'
@@ -183,6 +185,8 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
   const endRef = useRef<HTMLDivElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const skipSaveRef = useRef(false)
+  /** 当前提问的取消句柄：点「停止」就 abort，前端立刻不再收后端输出 */
+  const abortRef = useRef<AbortController | null>(null)
 
   const docKey = docRef ? `${docRef.kind}:${docRef.id}` : ''
 
@@ -267,6 +271,10 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       setBusy(true)
       setStage('联网检索中…')
 
+      const controller = new AbortController()
+      abortRef.current = controller
+      const signal = controller.signal
+
       try {
         if (useTrusted) {
           const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
@@ -290,6 +298,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
               ].filter(Boolean).join('\n\n'),
               maxUses: 3,
               thinking: webSearchThinking,
+              signal,
             })
             webSources = search.sources
             if (search.content.trim()) {
@@ -302,6 +311,8 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
               ].filter(Boolean).join('\n\n')
             }
           } catch (err) {
+            // 用户点了「停止」不是检索失败，别吞掉它去跑下一步
+            if (isAbortError(err)) throw err
             // 检索失败不该让整个提问失败 —— 退回「只依据正文」的可信检索
             console.warn('[ReadingAsk] 可信检索的联网检索失败，退回只依据正文:', err)
             toast.warning('联网检索失败，本次只依据正文做可信检索')
@@ -323,6 +334,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             ai1,
             ai2,
             maxAttempts: 3,
+            signal,
             onProgress: (ev) => {
               if (ev.stage === 'ai2_running' || ev.stage === 'ai2_self_correct_running') {
                 setStage(`AI-2 审阅中（第 ${ev.attempt}/${ev.maxAttempts} 轮）…`)
@@ -357,6 +369,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             system: sys,
             user: userContent,
             thinking: webSearchThinking,
+            signal,
           })
 
           setMessages((prev) => [
@@ -370,25 +383,45 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
           ])
         }
       } catch (err: any) {
-        const msg = err?.message || String(err)
-        console.error('[ReadingAsk] 提问失败:', err)
-        toast.error(`提问失败：${msg}`)
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `a_${Date.now()}`,
-            role: 'assistant',
-            content: `⚠️ 提问失败：${msg}`,
-            createdAt: Date.now(),
-          },
-        ])
+        if (isAbortError(err)) {
+          // 用户主动停止：不是错误，给一条简短记录即可
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_${Date.now()}`,
+              role: 'assistant',
+              content: '_（已停止）_',
+              createdAt: Date.now(),
+            },
+          ])
+        } else {
+          const msg = err?.message || String(err)
+          console.error('[ReadingAsk] 提问失败:', err)
+          toast.error(`提问失败：${msg}`)
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_${Date.now()}`,
+              role: 'assistant',
+              content: `⚠️ 提问失败：${msg}`,
+              createdAt: Date.now(),
+            },
+          ])
+        }
       } finally {
+        if (abortRef.current === controller) abortRef.current = null
         setBusy(false)
         setStage('')
       }
     },
     [busy, docRef, docMarkdown, docTitle, historyContext],
   )
+
+  /** 停止本次提问：前端立刻不再接收后端输出，并让后端也停下（省额度） */
+  const stop = useCallback(() => {
+    abortRef.current?.abort()
+    setStage('正在停止…')
+  }, [])
 
   /** 预设问法 1：查这个词的学术含义 —— 需要外部知识，走联网检索（可信检索关） */
   const askAcademicMeaning = () => {
@@ -521,7 +554,15 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
         {busy && (
           <div className="flex items-center gap-2 text-xs text-ink-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            {stage || '处理中…'}
+            <span className="flex-1 min-w-0 truncate">{stage || '处理中…'}</span>
+            <button
+              onClick={stop}
+              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-ink-200 text-ink-500 hover:border-red-300 hover:text-red-600 transition flex-shrink-0"
+              title="停止：不再接收本次回答，并让后端也停下"
+            >
+              <Square className="w-3 h-3" />
+              停止
+            </button>
           </div>
         )}
         <div ref={endRef} />

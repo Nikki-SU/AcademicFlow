@@ -13,6 +13,7 @@
 import type { AIThinkingMode } from '../../types'
 import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
+import { abortError, cancelRemoteAiRun } from './abort'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -58,30 +59,43 @@ export async function callWebSearch(req: WebSearchRequest): Promise<WebSearchRes
   if (req.maxUses) inputJson.max_uses = req.maxUses
   if (req.thinking) inputJson.thinking = req.thinking
 
+  const dispatchedAt = new Date().toISOString()
   await dispatchAiCall(taskId, 'web_search', inputJson, outputPath, 1, owner, repoName, token)
+
+  // 用户点「停止」：停轮询 + 尽力取消后端 run（详见 ai/abort.ts）
+  const onAbort = () => cancelRemoteAiRun(owner, repoName, token, dispatchedAt)
+  if (req.signal) {
+    if (req.signal.aborted) onAbort()
+    else req.signal.addEventListener('abort', onAbort, { once: true })
+  }
 
   // 联网比普通 chat 慢（先检索再写），预算给到 15 分钟
   const maxAttempts = 300 // 3s × 300
-  for (let i = 0; i < maxAttempts; i++) {
-    if (req.signal?.aborted) throw new DOMException('用户取消', 'AbortError')
-    await new Promise((r) => setTimeout(r, 3000))
-    if (req.signal?.aborted) throw new DOMException('用户取消', 'AbortError')
+  try {
+    for (let i = 0; i < maxAttempts; i++) {
+      if (req.signal?.aborted) throw abortError()
+      await new Promise((r) => setTimeout(r, 3000))
+      if (req.signal?.aborted) throw abortError()
 
-    try {
-      const raw = await readRepoTextFile(owner, repoName, outputPath, token)
-      if (!raw) continue
-      const parsed = JSON.parse(raw.content)
-      if (parsed.error) throw new Error(`后端联网检索失败: ${parsed.error}`)
-      // 后端是先写 output_path 再 commit，文件出现即写全；done 只是双重保险
-      if (!parsed.done) continue
-      return {
-        content: parsed.content || '',
-        sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+      try {
+        const raw = await readRepoTextFile(owner, repoName, outputPath, token)
+        if (!raw) continue
+        const parsed = JSON.parse(raw.content)
+        if (parsed.error) throw new Error(`后端联网检索失败: ${parsed.error}`)
+        // 后端是先写 output_path 再 commit，文件出现即写全；done 只是双重保险
+        if (!parsed.done) continue
+        return {
+          content: parsed.content || '',
+          sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+        }
+      } catch (e: any) {
+        if (e?.message?.includes('后端联网检索失败')) throw e
+        // 文件还没 commit 出来，或 JSON 还没写全 → 继续等
       }
-    } catch (e: any) {
-      if (e?.message?.includes('后端联网检索失败')) throw e
-      // 文件还没 commit 出来，或 JSON 还没写全 → 继续等
     }
+    throw new Error('联网检索超时（15 分钟未返回）')
+  } finally {
+    // 任务结束后不再响应 abort，免得 UI 清理时误伤下一次的 run
+    req.signal?.removeEventListener('abort', onAbort)
   }
-  throw new Error('联网检索超时（15 分钟未返回）')
 }

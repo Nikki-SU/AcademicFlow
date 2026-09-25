@@ -44,6 +44,10 @@ dist-ssr
 .trae-html-share-packages/
 .uploads/
 
+# 后端 runner 的明文工作副本（从 skeleton.ts 的 base64 解出来的，改完要重新编码回去）。
+# 必须忽略：AcademicFlow 是公开仓库，runner 源码只能待在私库（见 docs/BACKEND_PENDING.md §3.4）
+.decode/
+
 # 多任务隔离：每个 Trae 任务在这里有自己的 git worktree（见 TRAE_PROMPT.md「多任务隔离」）
 # 必须忽略 —— 否则主工作区的 `git add -A` 会把别的任务未提交的改动一起卷进提交
 .worktrees/

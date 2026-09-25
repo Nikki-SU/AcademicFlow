@@ -276,6 +276,8 @@ export interface SettingsData {
   sentenceGenCount: number
   /** 编辑器插入代码块时的默认语言（空串 = 纯文本） */
   defaultCodeLang: string
+  /** 编辑器间隔上色（斑马纹）：长文里不容易看串行，可开关 */
+  editorZebra: boolean
   /**
    * 各阶段思考模式（runner 从 settings/global.md 读取后拼进请求体）
    * 按阶段分开设置：清理/打标/翻译是机械任务，关掉思考可让输出预算全部留给正文；
@@ -363,6 +365,8 @@ export interface DualEngineRunParams {
   ai1?: AISlotConfig
   ai2?: AISlotConfig
   onProgress?: DualEngineProgressCallback
+  /** 用户点「停止」时 abort：前端立刻不再轮询，并尽力取消后端 run */
+  signal?: AbortSignal
 }
 
 /** 后台任务类型（taskQueue.ts 使用） */

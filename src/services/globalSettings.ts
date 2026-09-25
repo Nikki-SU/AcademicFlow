@@ -29,6 +29,8 @@ export interface GlobalSettingsData {
   sentenceGenCount: number
   /** 编辑器插入代码块时的默认语言 */
   defaultCodeLang: string
+  /** 编辑器间隔上色（斑马纹）开关 */
+  editorZebra: boolean
   /** 各阶段思考模式（runner 直接读这个文件，拼进请求体）—— off | low | high | max */
   thinkingClean: string
   thinkingTag: string
@@ -119,6 +121,9 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
       case 'default_code_lang':
         result.defaultCodeLang = value
         break
+      case 'editor_zebra':
+        result.editorZebra = value === 'true'
+        break
       case 'ai_thinking_clean':
         result.thinkingClean = value
         break
@@ -182,6 +187,7 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - word_gen_count: ${s.wordGenCount}
 - sentence_gen_count: ${s.sentenceGenCount}
 - default_code_lang: ${s.defaultCodeLang}
+- editor_zebra: ${s.editorZebra}
 
 ## 追踪
 - daily_push_time: 08:00

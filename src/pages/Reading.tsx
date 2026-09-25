@@ -14,11 +14,9 @@ import {
   FileText,
   Filter,
   Save,
-  Clock,
   X,
   ChevronRight,
   ChevronDown,
-  Check,
   Edit3,
   Plus,
   Languages,
@@ -3441,130 +3439,84 @@ const [aligned_content, set_aligned_content] = useState('')
                         const colorInfo = getColorInfo(anno.color)
                         const isSelected = selectedAnnotationId === anno.id
                         const isEditing = editingAnnotationId === anno.id
+                        /** 点批注文字进编辑 —— 不给额外图标，符合直觉（见 UX_DETAILS） */
+                        const startEdit = () => {
+                          setEditingAnnotationId(anno.id)
+                          setTimeout(() => {
+                            annotationEditRefs.current[anno.id]?.focus()
+                          }, 0)
+                        }
                         return (
                           <div
                             key={anno.id}
                             id={`annotation-item-${anno.id}`}
-                            className={`p-3 rounded-lg border-l-4 cursor-pointer transition-all ${
-                              colorInfo.border
-                            } ${
-                              isSelected
-                                ? 'ring-2 ring-seal-300 shadow-md'
-                                : 'hover:shadow-md'
+                            className={`p-2.5 rounded-lg border-l-4 transition-all ${colorInfo.border} ${
+                              isSelected ? 'ring-2 ring-seal-300 shadow-md' : 'hover:shadow-md'
                             }`}
-                            onClick={() => {
-                              scrollToAnnotation(anno)
-                            }}
                           >
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  className="w-3.5 h-3.5 accent-seal-600 flex-shrink-0"
-                                  title="选中后可批量删除"
-                                  checked={checkedAnnotationIds.includes(anno.id)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) =>
-                                    setCheckedAnnotationIds((prev) =>
-                                      e.target.checked
-                                        ? [...prev, anno.id]
-                                        : prev.filter((x) => x !== anno.id),
-                                    )
-                                  }
-                                />
-                                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colorInfo.dot}`} />
-                                <span className={`text-xs font-medium ${colorInfo.text}`}>
-                                  {colorInfo.label}批注
-                                </span>
-                                {/* 锚点标签：让人一眼看出这条挂在英文段还是中文段上 */}
-                                {anno.anchor && (
-                                  <span className="text-[10px] px-1 py-0.5 rounded bg-ink-100 text-ink-500 font-mono whitespace-nowrap">
-                                    {anno.anchor.startsWith('cn-') ? '中文' : '英文'} {anno.anchor.slice(3)}
-                                  </span>
+                            <div className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 w-3.5 h-3.5 accent-seal-600 flex-shrink-0 cursor-pointer"
+                                title="勾选后可批量删除"
+                                checked={checkedAnnotationIds.includes(anno.id)}
+                                onChange={(e) =>
+                                  setCheckedAnnotationIds((prev) =>
+                                    e.target.checked
+                                      ? [...prev, anno.id]
+                                      : prev.filter((x) => x !== anno.id),
+                                  )
+                                }
+                              />
+                              <div className="flex-1 min-w-0">
+                                {/* 原文：点它跳到正文里的对应位置 */}
+                                <p
+                                  onClick={() => scrollToAnnotation(anno)}
+                                  className="text-xs text-ink-500 italic leading-relaxed cursor-pointer hover:text-ink-800"
+                                  title="跳到正文中的位置"
+                                >
+                                  {anno.text}
+                                </p>
+                                {/* 批注：点它就地编辑，不再另给编辑按钮 */}
+                                {isEditing ? (
+                                  <textarea
+                                    ref={(el) => {
+                                      annotationEditRefs.current[anno.id] = el
+                                    }}
+                                    value={anno.note}
+                                    onChange={(e) => updateAnnotationNote(anno.id, e.target.value)}
+                                    onBlur={() => setEditingAnnotationId(null)}
+                                    placeholder="写批注…（支持 Markdown，自动保存）"
+                                    className="mt-1.5 w-full h-24 p-2 text-xs border border-ink-200 rounded resize-none focus:outline-none focus:border-seal-400 bg-paper-50"
+                                  />
+                                ) : (
+                                  <div
+                                    onClick={startEdit}
+                                    className="mt-1 text-sm text-ink-700 cursor-text rounded"
+                                    title="点击编辑批注"
+                                  >
+                                    {anno.note ? (
+                                      <div
+                                        className="prose-sm max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
+                                      />
+                                    ) : (
+                                      <span className="text-xs text-ink-400">点击写批注</span>
+                                    )}
+                                  </div>
                                 )}
                               </div>
-                              <div className="flex items-center gap-0.5">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (isEditing) {
-                                      setEditingAnnotationId(null)
-                                    } else {
-                                      setEditingAnnotationId(anno.id)
-                                      setTimeout(() => {
-                                        annotationEditRefs.current[anno.id]?.focus()
-                                      }, 0)
-                                    }
-                                  }}
-                                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-paper-50/60 rounded transition"
-                                  title={isEditing ? '完成编辑' : '编辑批注'}
-                                >
-                                  {isEditing ? (
-                                    <Check className="w-3 h-3" />
-                                  ) : (
-                                    <Edit3 className="w-3 h-3" />
-                                  )}
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (confirm('确定删除这条批注吗？')) {
-                                      deleteAnnotation(anno.id)
-                                    }
-                                  }}
-                                  className="p-1 text-ink-400 hover:text-red-600 hover:bg-paper-50/60 rounded transition"
-                                  title="删除批注"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-                            <blockquote className={`mb-3 pl-3 py-1 border-l-4 ${colorInfo.border.split(' ')[0]} ${colorInfo.bg} rounded-r`}>
-                              <p className="text-sm text-ink-600 italic leading-relaxed">
-                                "{anno.text}"
-                              </p>
-                            </blockquote>
-                            {isEditing ? (
-                              <div onClick={(e) => e.stopPropagation()}>
-                                <textarea
-                                  ref={(el) => {
-                                    annotationEditRefs.current[anno.id] = el
-                                  }}
-                                  value={anno.note}
-                                  onChange={(e) => updateAnnotationNote(anno.id, e.target.value)}
-                                  placeholder="输入批注内容（支持Markdown）..."
-                                  className="w-full h-28 p-2 text-xs border border-ink-200 rounded resize-none focus:outline-none focus:border-seal-400 bg-paper-50"
-                                />
-                                <div className="text-xs text-ink-400 mt-1">支持 Markdown 格式 · 自动保存</div>
-                              </div>
-                            ) : (
-                              anno.note && (
-                                <div className="text-sm text-ink-700">
-                                  <div
-                                    className="prose-sm max-w-none"
-                                    dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
-                                  />
-                                </div>
-                              )
-                            )}
-                            {!isEditing && !anno.note && (
                               <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setEditingAnnotationId(anno.id)
-                                  setTimeout(() => {
-                                    annotationEditRefs.current[anno.id]?.focus()
-                                  }, 0)
+                                onClick={() => {
+                                  if (confirm('确定删除这条批注吗？')) {
+                                    deleteAnnotation(anno.id)
+                                  }
                                 }}
-                                className="text-xs text-seal-500 hover:text-seal-700 font-medium"
+                                className="p-0.5 text-ink-300 hover:text-red-600 rounded transition flex-shrink-0"
+                                title="删除批注"
                               >
-                                + 添加批注内容
+                                <X className="w-3 h-3" />
                               </button>
-                            )}
-                            <div className="mt-2 flex items-center gap-1 text-xs text-ink-400">
-                              <Clock className="w-3 h-3" />
-                              {formatDate(anno.createdAt)}
-                              <ChevronRight className="w-3 h-3 ml-auto" />
                             </div>
                           </div>
                         )

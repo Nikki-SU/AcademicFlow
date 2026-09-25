@@ -89,6 +89,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   sentenceGenCount: 8,
   /** 写代码块默认用 Python —— 这个项目的主要用户是科研场景 */
   defaultCodeLang: 'python',
+  /** 编辑器间隔上色默认开：长文写作时不容易看串行（阅读页正文的斑马纹也是默认开） */
+  editorZebra: true,
   // 思考模式默认：四个阶段全部关掉（输出预算全给正文，且省钱）。
   // 用户仍可在设置里逐阶段手动开启并调强度 —— 默认值只决定"没动过时"的行为。
   thinkingClean: 'off',
@@ -122,6 +124,7 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
   { field: 'sentenceGenCount', key: SETTING_KEYS.SENTENCE_GEN_COUNT },
   { field: 'defaultCodeLang', key: SETTING_KEYS.DEFAULT_CODE_LANG },
+  { field: 'editorZebra', key: SETTING_KEYS.EDITOR_ZEBRA },
   { field: 'ai2ProviderMode', key: SETTING_KEYS.AI_2_PROVIDER_MODE },
   { field: 'thinkingClean', key: SETTING_KEYS.THINKING_CLEAN },
   { field: 'thinkingTag', key: SETTING_KEYS.THINKING_TAG },
@@ -293,6 +296,7 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         wordGenCount: s.wordGenCount,
         sentenceGenCount: s.sentenceGenCount,
         defaultCodeLang: s.defaultCodeLang,
+        editorZebra: s.editorZebra,
         thinkingClean: s.thinkingClean,
         thinkingTag: s.thinkingTag,
         thinkingTranslate: s.thinkingTranslate,
@@ -418,6 +422,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           if (loaded.defaultCodeLang !== undefined) {
             patch.defaultCodeLang = String(loaded.defaultCodeLang)
           }
+          if (loaded.editorZebra !== undefined) patch.editorZebra = loaded.editorZebra
           // 思考模式：非法值回退默认，避免手改坏 global.md 后 runner 收到脏参数
           if (loaded.thinkingClean !== undefined) patch.thinkingClean = normalizeThinking(loaded.thinkingClean, DEFAULT_SETTINGS.thinkingClean)
           if (loaded.thinkingTag !== undefined) patch.thinkingTag = normalizeThinking(loaded.thinkingTag, DEFAULT_SETTINGS.thinkingTag)
@@ -751,6 +756,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           wordGenCount: merged.wordGenCount,
           sentenceGenCount: merged.sentenceGenCount,
           defaultCodeLang: merged.defaultCodeLang,
+          editorZebra: merged.editorZebra,
           thinkingClean: merged.thinkingClean,
           thinkingTag: merged.thinkingTag,
           thinkingTranslate: merged.thinkingTranslate,

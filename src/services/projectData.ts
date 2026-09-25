@@ -109,6 +109,14 @@ export interface QuickAction {
 
 const QUICK_ACTIONS_PATH = 'settings/quick-actions.md'
 
+/** 按钮上的名字必须短 —— 超过这个长度的一律不认为是「名称」（见 loadQuickActions） */
+const MAX_ACTION_LABEL = 24
+
+/** 名称的形态判据：短、且不是一整句话（句末标点出现即视为描述） */
+function looksLikeActionLabel(s: string): boolean {
+  return s.length > 0 && s.length <= MAX_ACTION_LABEL && !/[。！？；]/.test(s)
+}
+
 export async function loadQuickActions(): Promise<QuickAction[]> {
   const result = await readMdFile(QUICK_ACTIONS_PATH)
   const content = result?.content || ''
@@ -117,8 +125,17 @@ export async function loadQuickActions(): Promise<QuickAction[]> {
   for (const section of sections) {
     const nl = section.indexOf('\n')
     const label = (nl === -1 ? section : section.slice(0, nl)).trim()
-    const prompt = (nl === -1 ? '' : section.slice(nl + 1)).trim()
-    if (label && prompt) actions.push({ label, prompt })
+    const body = (nl === -1 ? '' : section.slice(nl + 1)).trim()
+    if (!label) continue
+    // prompt 正文里若出现 `## 小标题`，上面的切分会把它当成一条新指令 ——
+    // 那个「名称」是一整句话，按钮上根本显示不下（实测踩过）。
+    // 判定不像名称的，当成上一条的续文拼回去（这正是它原来的位置）。
+    if (!looksLikeActionLabel(label) && actions.length > 0) {
+      const prev = actions[actions.length - 1]
+      prev.prompt = `${prev.prompt}\n\n## ${label}${body ? `\n${body}` : ''}`.trim()
+      continue
+    }
+    if (body) actions.push({ label, prompt: body })
   }
   return actions
 }

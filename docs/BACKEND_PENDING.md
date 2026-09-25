@@ -4,17 +4,20 @@
 > 前端通过 Contents API 把 base64 嵌在 `src/constants/skeleton.ts` 里的副本「安装」进去。
 > 本文档记三件事：**现在两边是否一致**、**改后端必须遵守什么**、**还剩什么没做**。
 >
-> 最后更新：2026-09-24
+> 最后更新：2026-09-25
 
 ---
 
-## 0. 当前状态（2026-09-21）
+## 0. 当前状态（2026-09-21，⚠️ 见下方例外）
 
-**前端嵌入副本与私库线上：全部逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
+**除 `ai_call.mjs` 外，前端嵌入副本与私库线上逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
+
+> ⚠️ **例外（2026-09-25）**：`ai_call.mjs` 前端副本已加 `input_path` 分支（60744 B），
+> 但私库线上还是 60112 B 的旧版。**在推私库之前不要点「重装后端」**。详见 §8。
 
 | 文件 | 字节 | 本轮变化 |
 |------|------|---------|
-| `scripts/ai_call.mjs` | 60112 | ✅ 之前前端落后 5.8KB（缺 `thinkingParams`），已拉齐 |
+| `scripts/ai_call.mjs` | 60744 | ⚠️ 加了 `input_path` 落盘读取（§8）；**私库待推** |
 | `scripts/dual_engine_runner.mjs` | 29183 | ✅ 之前前端**根本没有**这个文件；现已补进安装清单并修了超时/预算；【源材料】改为共享稳定前缀 |
 | `scripts/paper_convert.mjs` | 97061 | ✅ 之前前端本地版比线上新（续跑修复没推上去）；现已推上去并加了长难句提取 |
 | `scripts/blocks.mjs` | 14196 | 一致 |
@@ -303,3 +306,39 @@ kpathsea 的大小写折叠只在 texmf 树上生效，编译目录里不兜这�
 有缺陷的 `wileyNJD-Chicago`。已在对应模板的 `meta.md` 里记了一笔，重装后需重做。
 
 > 这也是 7.6 那个修法放在**前端代码**而不是模板数据里的原因：数据侧的修复活不过一次重装。
+
+---
+
+## 8. 大输入落盘（`ai_call` 支持 `input_path`）—— ⚠️ 私库待推
+
+### 8.1 问题
+
+前端「由正文生成 LaTeX」这类长文场景，`runDualEngine` 的 `inputJson` 里含
+`sourceMaterial`（整篇 markdown）**加上** `ai1Instruction`（`buildAI1UserPrompt` 会把同一篇
+markdown 再带标注拼一遍）——一篇长稿轻松超过 64KB。
+`repository_dispatch` 的 `client_payload` 有 **64KB 硬上限**，超了 GitHub 直接 422
+`client_payload is too large`，任务根本不会起。
+
+### 8.2 修法
+
+- **前端** `src/services/workflowClient.ts` `dispatchAiCall()`：
+  `JSON.stringify` 后 ≤ 48KB 走原路（内联 `input_json`，行为零变化）；
+  超了就把 `input_json` 写到 `temp/ai/incoming/<task_id>.json`（`writeRepoTextFile`，
+  自动带 rebase 重试），dispatch 只带 `input_path`。
+- **后端** `.github/scripts/ai_call.mjs`：`input_json` 为空且给了 `input_path` 时，
+  从自己 checkout 里 `readFileSync(path.join(REPO_ROOT, payload.input_path))` 读并 `JSON.parse`。
+  之后 `input` 的取值改成 `resolvedInputJson`，其余逻辑一行未动。
+
+### 8.3 现状与后续动作
+
+`src/constants/skeleton.ts` 里内嵌的 `ai_call.mjs` 副本**已经改好并校验字节一致**
+（60112 → 60744 B，含 `input_path` 分支）。
+但**私库 `Nikki-SU/academicflow-workspace@main` 的线上版本还没推**，所以：
+
+1. 把改好的 `ai_call.mjs` push 到私库 `main`（**必须 main**）；
+2. 跑一次 `ai_connectivity_test` 确认没改坏；
+3. 用 §3.3 的脚本核对前端嵌入副本与线上**逐字节一致**。
+
+> ⚠️ 顺序不能反：**先推私库、再确认副本**。若在副本比线上新时点「重装后端」，
+> `writePipelineFiles` 是无条件覆盖，会把线上打回没有 `input_path` 的旧版 ——
+> 届时长文生成又会 422。

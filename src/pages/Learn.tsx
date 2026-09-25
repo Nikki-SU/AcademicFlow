@@ -32,6 +32,7 @@ import type { WordData, SentenceData, TranslationData, TranslationDirection } fr
 import { loadProgress, updateProgress } from '../services/learningProgress'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { callAI } from '../services/ai/client'
+import { isAbortError } from '../services/ai/abort'
 import { loadLiteratures, loadAiSourceText, type Literature } from '../services/literatureData'
 
 type TabId = 'words' | 'sentences' | 'translation'
@@ -515,6 +516,9 @@ async function runBatchExtraction(
         ctl.onFailure(lit.title || lit.doi, r.reason || '未知失败')
       }
     } catch (err) {
+      // 用户点了「停止」→ 我们 abort 了这篇正在跑的 AI 任务。这不是这篇文献失败，
+      // 整轮就此收尾（已完成的部分已经增量落盘）。
+      if (ctl.shouldStop()) return { processed, failed, stopped: true }
       failed++
       ctl.onFailure(lit.title || lit.doi, err instanceof Error ? err.message : String(err))
     }
@@ -532,6 +536,8 @@ export default function LearnPage() {
   const [genTypes, setGenTypes] = useState({ words: true, sentences: true, translation: true })
   const [literatures, setLiteratures] = useState<Literature[]>([])
   const [isAiGenerating, setIsAiGenerating] = useState(false)
+  /** 「AI 补充生成」的取消句柄 */
+  const aiGenAbortRef = useRef<AbortController | null>(null)
 
   const [words, setWords] = useState<WordData[]>(DEFAULT_WORDS)
   const [sentences, setSentences] = useState<SentenceData[]>(DEFAULT_SENTENCES)
@@ -696,6 +702,9 @@ export default function LearnPage() {
     }
 
     setIsAiGenerating(true)
+    // 「停止」用它断掉正在进行的两段式生成，不再接收后端输出
+    const controller = new AbortController()
+    aiGenAbortRef.current = controller
     try {
       // 1. 解析双引擎配置
       const { ai1, ai2 } = settingsState.getDualEngineConfig()
@@ -736,6 +745,7 @@ export default function LearnPage() {
         ai1Instruction,
         ai1,
         ai2,
+        signal: controller.signal,
       })
 
       // 5. 解析 AI-1 输出的 JSON
@@ -821,9 +831,14 @@ export default function LearnPage() {
       toast.success(`AI 生成完成（${addedCount} 条），${reviewNote}`)
       setAiGenOpen(false)
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.info('已停止 AI 生成')
+        return
+      }
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`AI 生成失败：${msg}`)
     } finally {
+      aiGenAbortRef.current = null
       setIsAiGenerating(false)
     }
   }
@@ -922,10 +937,10 @@ export default function LearnPage() {
             </div>
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setAiGenOpen(false)}
+                onClick={() => { if (isAiGenerating) { aiGenAbortRef.current?.abort(); return } setAiGenOpen(false) }}
                 className="flex-1 px-4 py-2 text-sm font-medium text-ink-600 bg-ink-100 hover:bg-ink-200 rounded-lg transition"
               >
-                取消
+                {isAiGenerating ? '停止' : '取消'}
               </button>
               <button
                 onClick={handleAIGenerate}
@@ -2152,6 +2167,8 @@ function SentenceSection({
   const [batchTitle, setBatchTitle] = useState('')
   const [batchFailures, setBatchFailures] = useState<string[]>([])
   const stopRef = useRef(false)
+  /** 正在跑的那一篇的取消句柄：点「停止」要能立刻断掉它，而不是等它跑完 */
+  const batchAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -2242,13 +2259,18 @@ function SentenceSection({
         if (!sourceMaterial.trim()) {
           return { ok: false, reason: '未读到 md 正文（loadAiSourceText 为空）' }
         }
+        // 这一篇的取消句柄：点「停止」立刻断掉正在跑的这篇，而不是等它跑完
+        const controller = new AbortController()
+        batchAbortRef.current = controller
         const result = await runDualEngine({
           taskType: 'faithfulness_check',
           sourceMaterial,
           ai1Instruction: instruction,
           ai1,
           ai2,
+          signal: controller.signal,
         })
+        batchAbortRef.current = null
         const parsed = parseLearningJSON(result.ai1Output || '')
         const now = Date.now()
         const newItems: SentenceData[] = parsed.sentences
@@ -2339,7 +2361,7 @@ function SentenceSection({
         total={batchTotal}
         title={batchTitle}
         failures={batchFailures}
-        onStop={() => { stopRef.current = true }}
+        onStop={() => { stopRef.current = true; batchAbortRef.current?.abort() }}
       />
 
       {sentences.length === 0 || !currentSentence ? (
@@ -2426,6 +2448,8 @@ function TranslationSection({
   const [batchTitle, setBatchTitle] = useState('')
   const [batchFailures, setBatchFailures] = useState<string[]>([])
   const stopRef = useRef(false)
+  /** 正在跑的那一篇的取消句柄：点「停止」要能立刻断掉它，而不是等它跑完 */
+  const batchAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -2518,13 +2542,18 @@ function TranslationSection({
           { words: false, sentences: false, translation: true, wordCount: 0, sentenceCount: 0 },
           { en, cn },
         )
+        // 这一篇的取消句柄：点「停止」立刻断掉正在跑的这篇，而不是等它跑完
+        const controller = new AbortController()
+        batchAbortRef.current = controller
         const result = await runDualEngine({
           taskType: 'faithfulness_check',
           sourceMaterial,
           ai1Instruction: instruction,
           ai1,
           ai2,
+          signal: controller.signal,
         })
+        batchAbortRef.current = null
         const parsed = parseLearningJSON(result.ai1Output || '')
         const pointsByDirection: Partial<Record<TranslationDirection, string[]>> = {}
         for (const t of parsed.translations) {
@@ -2599,7 +2628,7 @@ function TranslationSection({
         total={batchTotal}
         title={batchTitle}
         failures={batchFailures}
-        onStop={() => { stopRef.current = true }}
+        onStop={() => { stopRef.current = true; batchAbortRef.current?.abort() }}
       />
 
       {translations.length === 0 || !currentItem ? (

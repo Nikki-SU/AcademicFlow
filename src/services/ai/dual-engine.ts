@@ -19,6 +19,7 @@ import type {
 } from '../../types'
 import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
+import { abortError, cancelRemoteAiRun } from './abort'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -54,10 +55,13 @@ async function pollResultFile(
   repo: string,
   token: string,
   onProgress?: DualEngineProgressCallback,
+  signal?: AbortSignal,
 ): Promise<DualEngineResult> {
   const maxAttempts = 520 // 3s × 520 = 26min
   for (let i = 0; i < maxAttempts; i++) {
+    if (signal?.aborted) throw abortError()
     await new Promise((r) => setTimeout(r, 3000))
+    if (signal?.aborted) throw abortError()
     try {
       const result = await readRepoTextFile(owner, repo, outputPath, token)
       if (result) {
@@ -120,10 +124,27 @@ export async function runDualEngine(
   })
 
   // dispatch
+  const dispatchedAt = new Date().toISOString()
   await dispatchAiCall(taskId, 'dual_engine', inputJson, outputPath, 1, owner, repoName, token)
 
+  // 用户点「停止」→ 除了不再轮询，还尽力把后端那个 run 也取消掉（省额度）。
+  // 用 removeEventListener 收尾：任务正常结束后就不再响应 abort，
+  // 免得 UI 清理时触发一次 abort 反而误伤下一次任务的 run。
+  const onAbort = () => cancelRemoteAiRun(owner, repoName, token, dispatchedAt)
+  if (params.signal) {
+    if (params.signal.aborted) onAbort()
+    else params.signal.addEventListener('abort', onAbort, { once: true })
+  }
+
   // poll 结果
-  const result = await pollResultFile(outputPath, owner, repoName, token, params.onProgress)
+  let result: DualEngineResult
+  try {
+    result = await pollResultFile(
+      outputPath, owner, repoName, token, params.onProgress, params.signal,
+    )
+  } finally {
+    params.signal?.removeEventListener('abort', onAbort)
+  }
 
   // finished
   params.onProgress?.({

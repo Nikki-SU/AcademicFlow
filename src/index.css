@@ -130,3 +130,62 @@
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
 }
 
+/*
+ * 有序 / 无序列表的项目符号
+ * -------------------------------------------------
+ * Tailwind Preflight 里有 `ol, ul, menu { list-style: none }`，把序号一起清掉了。
+ * Vditor 只补回了 `ul { list-style-type: disc }`，`ol` 从没补过 —— 于是在编辑器里
+ * 有序列表就是一段缩进过的普通文字（渲染视图没有序号，源码里的 `1.` 又要等光标
+ * 进到那一块才露出来），看起来就是「有序列表不能用」。阅读页正文（.prose-reader）
+ * 两种列表都没补，同一套问题。
+ *
+ * 这里按层补回项目符号；嵌套层级用不同样式（与 Vditor 对 ul 的处理对齐）。
+ * 任务列表（.vditor-task）自带 `list-style: none !important`，不受影响。
+ */
+.vditor-reset ol,
+.prose-reader ol {
+  list-style-type: decimal;
+}
+.vditor-reset ol ol,
+.prose-reader ol ol {
+  list-style-type: lower-alpha;
+}
+.vditor-reset ol ol ol,
+.prose-reader ol ol ol {
+  list-style-type: lower-roman;
+}
+.vditor-reset ul,
+.prose-reader ul {
+  list-style-type: disc;
+}
+.vditor-reset ul ul,
+.prose-reader ul ul {
+  list-style-type: circle;
+}
+.vditor-reset ul ul ul,
+.prose-reader ul ul ul {
+  list-style-type: square;
+}
+/* Preflight 同时把 padding 清零了；Vditor 补了 2em，阅读页正文要自己补 */
+.prose-reader ol,
+.prose-reader ul {
+  padding-left: 1.5rem;
+}
+
+/*
+ * 编辑器「间隔上色」（斑马纹）—— 写作页正文编辑器与阅读页边栏笔记共用同一套。
+ * -------------------------------------------------
+ * 目的：长文里块与块之间的边界不靠数行也能看出来，不容易看串行。
+ *
+ * 为什么用 CSS 的 nth-child 而不是 JS 标类：IR 模式下每敲一个字 DOM 都会重排，
+ * JS 标类要跟着 MutationObserver 反复跑，既慢又和 Vditor 的渲染抢时序；
+ * nth-child 是「查的时候才算」的，DOM 一变颜色自己就重排。
+ *
+ * 只染**块级顶层元素**的背景（正文容器 .vditor-reset 的直接子元素）：
+ * 行内元素、代码块内部的高亮、批注高亮各自有自己的底色，不参与交替。
+ */
+.af-editor-zebra .vditor-reset > *:nth-child(even) {
+  background-color: rgba(15, 23, 42, 0.045);
+  border-radius: 0.25rem;
+}
+

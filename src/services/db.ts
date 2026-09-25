@@ -68,6 +68,8 @@ export const SETTING_KEYS = {
   SENTENCE_GEN_COUNT: 'sentence_gen_count',
   /** 编辑器插入代码块时的默认语言 */
   DEFAULT_CODE_LANG: 'default_code_lang',
+  /** 编辑器间隔上色（斑马纹）开关 */
+  EDITOR_ZEBRA: 'editor_zebra',
   // 思考模式（按阶段）—— off | low | high | max
   THINKING_CLEAN: 'ai_thinking_clean',
   THINKING_TAG: 'ai_thinking_tag',

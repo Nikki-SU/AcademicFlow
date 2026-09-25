@@ -9,6 +9,7 @@
 import type { AIRequest, AIResponse } from '../../types'
 import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
+import { abortError, cancelRemoteAiRun } from './abort'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -68,13 +69,9 @@ async function pollResult(
 ): Promise<AIResponse> {
   const maxAttempts = 200 // 3s × 200 = 10min
   for (let i = 0; i < maxAttempts; i++) {
-    if (signal?.aborted) {
-      throw new DOMException('用户取消', 'AbortError')
-    }
+    if (signal?.aborted) throw abortError()
     await new Promise((r) => setTimeout(r, 3000))
-    if (signal?.aborted) {
-      throw new DOMException('用户取消', 'AbortError')
-    }
+    if (signal?.aborted) throw abortError()
     try {
       const raw = await readRepoTextFile(owner, repo, outputPath, token)
       if (raw) {
@@ -120,8 +117,20 @@ export async function callAI(req: AIRequest): Promise<AIResponse> {
   // 推理模式：不传 = 后端什么都不发，沿用模型默认行为
   if (req.thinking) inputJson.thinking = req.thinking
 
+  const dispatchedAt = new Date().toISOString()
   await dispatchAiCall(taskId, 'chat', inputJson, outputPath, 1, owner, repoName, token)
-  return pollResult(outputPath, owner, repoName, token, req.signal)
+
+  // 用户点「停止」：停轮询 + 尽力取消后端 run（详见 ai/abort.ts）
+  const onAbort = () => cancelRemoteAiRun(owner, repoName, token, dispatchedAt)
+  if (req.signal) {
+    if (req.signal.aborted) onAbort()
+    else req.signal.addEventListener('abort', onAbort, { once: true })
+  }
+  try {
+    return await pollResult(outputPath, owner, repoName, token, req.signal)
+  } finally {
+    req.signal?.removeEventListener('abort', onAbort)
+  }
 }
 
 /** 带 AbortSignal 的 AI 调用（长任务支持取消） */

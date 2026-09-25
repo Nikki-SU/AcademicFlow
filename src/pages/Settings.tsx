@@ -621,6 +621,21 @@ function Settings() {
               <p className="text-xs text-ink-400">
                 点工具栏「代码块」时预选的语言；插入前还可以改成别的。
               </p>
+
+              <label className="mt-4 flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-seal-600"
+                  checked={store.editorZebra ?? true}
+                  onChange={(e) => updateSettings({ editorZebra: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-ink-700">间隔上色（斑马纹）</span>
+                  <span className="block text-xs text-ink-400">
+                    块与块之间交替底色，长文里不容易看串行。写作页正文与阅读页侧栏笔记一致生效。
+                  </span>
+                </span>
+              </label>
             </SubBlock>
           </SettingsGroup>
 

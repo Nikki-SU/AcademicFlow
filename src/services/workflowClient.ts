@@ -7,7 +7,7 @@
  *   三者同名，零映射。
  */
 
-import { dispatchWorkflow, readRepoTextFile, githubFetch } from './github'
+import { dispatchWorkflow, readRepoTextFile, writeRepoTextFile, githubFetch } from './github'
 import type { PipelineStage } from '../stores/taskQueue'
 
 export interface PipelineProgress {
@@ -65,6 +65,21 @@ export async function dispatchBookConvert(
   await dispatchWorkflow('book_convert', { book_id: bookId, title, pdf_path }, owner, repo, token)
 }
 
+/**
+ * repository_dispatch 的 client_payload 硬上限是 64 KB（超了 GitHub 直接 422
+ * `client_payload is too large`，任务根本不会起）。留出 JSON 外层包装的余量。
+ */
+const DISPATCH_PAYLOAD_LIMIT = 48 * 1024
+
+/**
+ * 触发 ai_call。
+ *
+ * input_json 里装的是整篇正文级别的源材料（写作页转 LaTeX、可信检索都是），
+ * 一篇长稿轻易超过 64 KB —— 内联进 client_payload 就会被 GitHub 拒掉。
+ * 所以超过阈值时改走「大输入落盘」：先把 input_json 写进仓库，
+ * dispatch 只带 input_path，后端从自己的 checkout 里读（见 ai_call.mjs）。
+ * 小输入仍然内联，保持链路最短。
+ */
 export async function dispatchAiCall(
   task_id: string,
   task_type: string,
@@ -75,11 +90,20 @@ export async function dispatchAiCall(
   repo: string,
   token: string,
 ): Promise<void> {
-  await dispatchWorkflow(
-    'ai_call',
-    { task_id, task_type, input_json, output_path, ai_engine },
-    owner, repo, token,
+  const base = { task_id, task_type, output_path, ai_engine }
+  const inlinePayload = { ...base, input_json }
+
+  if (JSON.stringify(inlinePayload).length <= DISPATCH_PAYLOAD_LIMIT) {
+    await dispatchWorkflow('ai_call', inlinePayload, owner, repo, token)
+    return
+  }
+
+  const inputPath = `temp/ai/incoming/${task_id}.json`
+  await writeRepoTextFile(
+    owner, repo, inputPath, JSON.stringify(input_json),
+    token, `chore(ai): stash oversized input for ${task_id}`,
   )
+  await dispatchWorkflow('ai_call', { ...base, input_path: inputPath }, owner, repo, token)
 }
 
 export async function dispatchMineruConnectivityTest(
@@ -151,6 +175,55 @@ export async function getLatestRun(
     created_at: candidate.created_at,
     updated_at: candidate.updated_at,
   }
+}
+
+/** 取消一个 run（用户点「停止」用）。失败只返回 false，不抛 —— 停止本身不该因为取消失败而失败 */
+export async function cancelRun(
+  id: number,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<boolean> {
+  try {
+    const res = await githubFetch(
+      `/repos/${owner}/${repo}/actions/runs/${id}/cancel`,
+      token,
+      { method: 'POST' },
+    )
+    if (!res.ok) console.warn(`[cancelRun] #${id} HTTP ${res.status}`)
+    return res.ok
+  } catch (e) {
+    console.warn(`[cancelRun] #${id} 异常:`, e)
+    return false
+  }
+}
+
+/**
+ * 取消「某个 dispatch 之后新建的、同名 workflow 的 run」。
+ *
+ * run 出现在列表里有一点延迟（dispatch 刚发出时可能还查不到），所以退避重试几次；
+ * 全程只做尽力而为，找不到就放弃。
+ */
+export async function cancelLatestRun(
+  eventType: WorkflowEvent,
+  owner: string,
+  repo: string,
+  token: string,
+  sinceIso?: string,
+): Promise<boolean> {
+  const active = ['queued', 'requested', 'waiting', 'pending', 'in_progress']
+  for (let i = 0; i < 3; i++) {
+    const run = await getLatestRun(eventType, owner, repo, token, sinceIso)
+    if (run && active.includes(run.status)) {
+      const ok = await cancelRun(run.id, owner, repo, token)
+      if (ok) {
+        console.log(`[cancelLatestRun] ${eventType} #${run.id} 已请求取消`)
+        return true
+      }
+    }
+    if (i < 2) await new Promise((r) => setTimeout(r, 2000))
+  }
+  return false
 }
 
 export async function getRun(
