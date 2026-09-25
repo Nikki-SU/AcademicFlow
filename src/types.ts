@@ -274,6 +274,8 @@ export interface SettingsData {
   wordGenCount: number
   /** 长难句提取数量（学习页 AI 提取每篇文献的长难句条数，范围 3-30，默认 8） */
   sentenceGenCount: number
+  /** 编辑器插入代码块时的默认语言（空串 = 纯文本） */
+  defaultCodeLang: string
   /**
    * 各阶段思考模式（runner 从 settings/global.md 读取后拼进请求体）
    * 按阶段分开设置：清理/打标/翻译是机械任务，关掉思考可让输出预算全部留给正文；

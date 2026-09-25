@@ -30,6 +30,8 @@ export interface ExtractedGuidelines {
   packages: string[]
   /** BibTeX 引用样式 */
   bibtex_style: string
+  /** 正文引用命令（natbib 语义）：cite / citep / citet / citealp */
+  citation_command?: string
   /** 是否双栏 */
   two_column: boolean
   /** 字号（pt） */
@@ -109,6 +111,7 @@ export async function extractGuidelinesWithAI(params: {
     '  "document_options": "文档类选项，如 twocolumn,12pt 等",',
     '  "packages": ["需要的宏包列表，如 amsmath, graphicx, booktabs 等"],',
     '  "bibtex_style": "BibTeX 引用样式，如 unsrt / apalike / ieeetr / plain / IEEEtran 等。如果不确定，用 unsrt",',
+    '  "citation_command": "正文引用命令，只能是 cite / citep / citet / citealp 之一。方括号数字制（如 [1]）用 cite；圆括号作者-年（如 (Smith, 2020)）用 citep；叙述式作者-年（如 Smith (2020)）用 citet；作者-年不带括号用 citealp。判断不了就用 cite",',
     '  "two_column": true/false,',
     '  "font_size": 正文字号（数字，单位 pt）,',
     '  "margins": {"top": "上边距，如 2.5cm", "bottom": "下边距", "left": "左边距", "right": "右边距"},',
@@ -130,6 +133,7 @@ export async function extractGuidelinesWithAI(params: {
     '5. bibtex_style：根据期刊常用样式推断，不确定时用 unsrt。',
     '6. packages：只列必要的宏包，如 amsmath, graphicx, amssymb, booktabs, hyperref。',
     '7. key_points：列出 5-10 个最重要的格式要点，让用户能快速核对。',
+    '8. citation_command：判断依据是投稿须知里正文引用的写法（不是参考文献表的样式）。',
   ].join('\n')
 
   // 调用双引擎（AI-1 提取 + AI-2 核查 + 引证锚定 + 分层归因重试）
@@ -181,6 +185,7 @@ function parseExtractionResult(rawOutput: string): ExtractedGuidelines {
       document_options: parsed.document_options ? String(parsed.document_options) : undefined,
       packages: Array.isArray(parsed.packages) ? parsed.packages.map(String) : [],
       bibtex_style: String(parsed.bibtex_style || 'unsrt'),
+      citation_command: parsed.citation_command ? String(parsed.citation_command) : undefined,
       two_column: Boolean(parsed.two_column),
       font_size: Number(parsed.font_size) || 12,
       margins: parsed.margins || undefined,

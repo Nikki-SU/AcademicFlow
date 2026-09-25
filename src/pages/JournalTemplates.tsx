@@ -190,6 +190,7 @@ function JournalTemplatesPage() {
       setFormDocumentOptions(result.document_options || '')
       setFormPackages(result.packages.join('\n'))
       setFormBibtexStyle(result.bibtex_style)
+      setFormCitationCommand(result.citation_command || 'cite')
       setFormTwoColumn(result.two_column)
       setFormFontSize(result.font_size)
       setFormTitleNote(result.title_format_note || '')

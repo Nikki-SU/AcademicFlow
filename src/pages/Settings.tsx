@@ -34,6 +34,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
+import { CODE_LANGS } from '../constants/codeLangs'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
 import type { AIProviderMode, AIThinkingMode, AISlotThinking } from '../types'
 import { AI_PROVIDERS } from '../types'
@@ -598,6 +599,28 @@ function Settings() {
                 </span>
               </div>
               <p className="text-xs text-ink-400">数量越多，耗时与 token 消耗越大。例句必须逐字来自原文献。</p>
+            </SubBlock>
+
+            <SubBlock title="编辑器偏好" hint="写作页与阅读笔记共用">
+              <div className="flex items-center gap-3">
+                <label className="whitespace-nowrap text-sm font-medium text-ink-700">
+                  代码块默认语言
+                </label>
+                <select
+                  value={store.defaultCodeLang ?? 'python'}
+                  onChange={(e) => updateSettings({ defaultCodeLang: e.target.value })}
+                  className="flex-1 rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                >
+                  {CODE_LANGS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-xs text-ink-400">
+                点工具栏「代码块」时预选的语言；插入前还可以改成别的。
+              </p>
             </SubBlock>
           </SettingsGroup>
 

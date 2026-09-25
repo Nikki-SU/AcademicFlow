@@ -161,3 +161,45 @@ export function toRepoPath(src: string, docPath: string): string {
   if (src.startsWith(`${dir}/`)) return src
   return `${dir}/${src}`
 }
+
+/**
+ * 把正文里遗留的 base64 内嵌图搬到仓库，换成语义路径。
+ *
+ * 逐张上传、成功一张换一张：任何一张失败就原样留着 ——
+ * 迁移绝不能因为一次网络抖动把图弄丢。
+ */
+export async function migrateBase64Images(
+  md: string,
+  docPath: string,
+  sub?: string,
+): Promise<{ md: string; migrated: number }> {
+  const re = /!\[([^\]]*)\]\((data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\)/gi
+  const matches = Array.from(md.matchAll(re))
+  if (matches.length === 0) return { md, migrated: 0 }
+
+  let out = md
+  let migrated = 0
+
+  for (const m of matches) {
+    const [full, alt, dataUrl] = m
+    try {
+      const blob = await (await fetch(dataUrl)).blob()
+      const ext = (/^data:image\/([a-z0-9.+-]+)/i.exec(dataUrl)?.[1] ?? 'png').replace(
+        'jpeg',
+        'jpg',
+      )
+      const repoPath = await uploadEditorImage({
+        docPath,
+        file: blob,
+        fileName: `${alt || 'image'}.${ext}`,
+        sub,
+      })
+      out = out.replace(full, `![${alt}](${repoPath})`)
+      migrated++
+    } catch {
+      // 单张失败就跳过，base64 原样保留
+    }
+  }
+
+  return { md: out, migrated }
+}

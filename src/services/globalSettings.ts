@@ -27,6 +27,8 @@ export interface GlobalSettingsData {
   wordGenCount: number
   /** 长难句提取数量（学习页 AI 提取，范围 3-30） */
   sentenceGenCount: number
+  /** 编辑器插入代码块时的默认语言 */
+  defaultCodeLang: string
   /** 各阶段思考模式（runner 直接读这个文件，拼进请求体）—— off | low | high | max */
   thinkingClean: string
   thinkingTag: string
@@ -114,6 +116,9 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
         if (!isNaN(n)) result.sentenceGenCount = Math.min(30, Math.max(3, n))
         break
       }
+      case 'default_code_lang':
+        result.defaultCodeLang = value
+        break
       case 'ai_thinking_clean':
         result.thinkingClean = value
         break
@@ -176,6 +181,7 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - mineru_debug_mode: ${s.mineruDebugMode}
 - word_gen_count: ${s.wordGenCount}
 - sentence_gen_count: ${s.sentenceGenCount}
+- default_code_lang: ${s.defaultCodeLang}
 
 ## 追踪
 - daily_push_time: 08:00

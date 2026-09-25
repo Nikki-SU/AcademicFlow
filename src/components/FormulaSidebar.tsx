@@ -3,9 +3,10 @@
  * ------------------------------------------------------------
  * 打开方式：正文工具栏点「插入公式」。
  * 两个 tab：
- *   生成公式 —— 从上到下：识图输入 → 复用已有 → 稀有字符 → 行内/行间 →
- *               渲染看板 → LaTeX 源码 → 确认
- *   查找公式 —— 列出全文所有公式，方便逐个跳过去改（校对场景的入口）
+ *   生成公式 —— 识图 → 字符/结构 → 行内/行间 → 渲染看板 → 源码 → 确认。
+ *               只管写新公式，内容短到不需要滚动（小侧栏最忌上下翻）。
+ *   已有公式 —— 搜索 + 滑动点选，**点一下就直接复用**（插到光标处），
+ *               收藏（跨项目）置顶。
  *
  * 复用规则（按需求）：
  *   - 「本项目」= 当前正文里已经写过的公式（实时扫描 md，不额外存）
@@ -24,7 +25,6 @@ import {
   Pencil,
   X,
   Search,
-  Repeat,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -260,7 +260,7 @@ export default function FormulaSidebar({
               tab === 'find' ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
             }`}
           >
-            查找公式
+            已有公式
           </button>
         </div>
         <button
@@ -347,65 +347,7 @@ export default function FormulaSidebar({
             </p>
           </section>
 
-          {/* 2. 复用已有公式 */}
-          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
-            <div className="text-xs font-medium text-ink-600 mb-2 flex items-center gap-1">
-              <Repeat className="w-3.5 h-3.5 text-seal-500" />
-              复用已有公式
-              <span className="text-[0.625rem] font-normal text-ink-400 ml-auto">收藏 = 跨项目可用</span>
-            </div>
-
-            {favorites.length > 0 && (
-              <div className="mb-2">
-                <div className="text-[0.625rem] text-amber-600 mb-1 flex items-center gap-1">
-                  <Star className="w-3 h-3" />
-                  我的收藏（{favorites.length}）
-                </div>
-                <div className="space-y-1">
-                  {favorites.map((f) => (
-                    <ReuseRow
-                      key={f.id}
-                      tex={f.latex}
-                      kind={f.display}
-                      onLoad={() => {
-                        setTex(f.latex)
-                        setKind(f.display)
-                        setEditingIndex(null)
-                      }}
-                      starred
-                      onToggleStar={() => handleFavoriteToggle(f.latex, f.display)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="text-[0.625rem] text-ink-500 mb-1">
-              本项目公式（{projectFormulas.length}）
-            </div>
-            {projectFormulas.length === 0 ? (
-              <p className="text-[0.6875rem] text-ink-400 py-1">正文里还没有公式</p>
-            ) : (
-              <div className="space-y-1 max-h-52 overflow-y-auto">
-                {projectFormulas.slice(0, 60).map((f, i) => (
-                  <ReuseRow
-                    key={`${f.start}-${i}`}
-                    tex={f.tex}
-                    kind={f.kind}
-                    onLoad={() => {
-                      setTex(f.tex)
-                      setKind(f.kind)
-                      setEditingIndex(null)
-                    }}
-                    starred={isFavorited(f.tex)}
-                    onToggleStar={() => handleFavoriteToggle(f.tex, f.kind)}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* 3. 稀有字符 */}
+          {/* 2. 稀有字符 */}
           <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
             <div className="text-xs font-medium text-ink-600 mb-2">字符 / 结构（键盘上没有的）</div>
             <div className="space-y-1.5 max-h-44 overflow-y-auto">
@@ -493,7 +435,7 @@ export default function FormulaSidebar({
           </button>
         </div>
       ) : (
-        /* ── 查找公式：全文公式清单，方便逐个跳过去改 ── */
+        /* ── 已有公式：搜索 + 滑动点选，点一下就复用 ── */
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="p-2.5 border-b border-ink-200 bg-paper-50">
             <div className="relative">
@@ -506,63 +448,58 @@ export default function FormulaSidebar({
               />
             </div>
             <div className="mt-1.5 text-[0.6875rem] text-ink-400">
-              全文共 {projectFormulas.length} 个公式（含行内 / 行间）
+              点任意一条直接插入到光标处 · 全文 {projectFormulas.length} 个公式
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
-            {filteredFind.length === 0 && (
-              <p className="text-center text-xs text-ink-400 py-8">没有匹配的公式</p>
+            {favorites.length > 0 && (
+              <>
+                <div className="text-[0.625rem] text-amber-600 flex items-center gap-1">
+                  <Star className="w-3 h-3" />
+                  我的收藏（跨项目 · {favorites.length}）
+                </div>
+                {favorites.map((f) => (
+                  <FormulaRow
+                    key={f.id}
+                    tex={f.latex}
+                    kind={f.display}
+                    badge="收藏"
+                    onReuse={() => onInsert(f.latex, f.display)}
+                    starred
+                    onToggleStar={() => handleFavoriteToggle(f.latex, f.display)}
+                  />
+                ))}
+                <div className="text-[0.625rem] text-ink-500 pt-1.5">
+                  正文里的公式（{projectFormulas.length}）
+                </div>
+              </>
             )}
-            {filteredFind.map((f) => (
-              <div key={f.index} className="bg-paper-50 rounded-lg border border-ink-200 p-2">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
-                    #{f.index + 1} · {f.kind === 'block' ? '行间' : '行内'}
-                  </span>
-                  <div className="ml-auto flex items-center gap-1">
-                    <button
-                      onClick={() => onJump(f.index, f.tex)}
-                      className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                      title="跳到正文这一处"
-                    >
-                      <Crosshair className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setTab('create')
-                        setTex(f.tex)
-                        setKind(f.kind)
-                        setEditingIndex(f.index)
-                        setEditOriginalTex(f.tex)
-                        setGlobalReplace(true)
-                      }}
-                      className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                      title="改这一条（只替换这一处）"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleFavoriteToggle(f.tex, f.kind)}
-                      className="p-1 rounded transition hover:bg-amber-50"
-                      title={isFavorited(f.tex) ? '取消收藏' : '收藏（跨项目可用）'}
-                    >
-                      {isFavorited(f.tex) ? (
-                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                      ) : (
-                        <StarOff className="w-3.5 h-3.5 text-ink-400" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <div
-                  className="overflow-x-auto py-1 text-center"
-                  dangerouslySetInnerHTML={{ __html: renderKatex(f.tex, f.kind === 'block') }}
+            {filteredFind.length === 0 ? (
+              <p className="text-center text-xs text-ink-400 py-8">
+                {projectFormulas.length === 0 ? '正文里还没有公式' : '没有匹配的公式'}
+              </p>
+            ) : (
+              filteredFind.map((f) => (
+                <FormulaRow
+                  key={`${f.start}-${f.index}`}
+                  tex={f.tex}
+                  kind={f.kind}
+                  badge={`#${f.index + 1} · ${f.kind === 'block' ? '行间' : '行内'}`}
+                  onReuse={() => onInsert(f.tex, f.kind)}
+                  onJump={() => onJump(f.index, f.tex)}
+                  onEdit={() => {
+                    setTab('create')
+                    setTex(f.tex)
+                    setKind(f.kind)
+                    setEditingIndex(f.index)
+                    setEditOriginalTex(f.tex)
+                    setGlobalReplace(true)
+                  }}
+                  starred={isFavorited(f.tex)}
+                  onToggleStar={() => handleFavoriteToggle(f.tex, f.kind)}
                 />
-                <div className="font-mono text-[0.625rem] text-ink-400 truncate" title={f.tex}>
-                  {f.tex}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       )}
@@ -570,39 +507,76 @@ export default function FormulaSidebar({
   )
 }
 
-/** 复用区的一行：渲染预览 + 载入 + 收藏星标 */
-function ReuseRow({
+/**
+ * 已有公式里的一行：**点预览即复用**（插到光标处）。
+ * 右侧是次要动作：跳转 / 改这一条 / 收藏。
+ */
+function FormulaRow({
   tex,
   kind,
-  onLoad,
+  badge,
+  onReuse,
+  onJump,
+  onEdit,
   starred,
   onToggleStar,
 }: {
   tex: string
   kind: 'inline' | 'block'
-  onLoad: () => void
+  badge: string
+  onReuse: () => void
+  onJump?: () => void
+  onEdit?: () => void
   starred: boolean
   onToggleStar: () => void
 }) {
   return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1 rounded border border-ink-100 hover:border-seal-200 hover:bg-seal-50/40 transition">
-      <button onClick={onLoad} className="flex-1 min-w-0 text-left" title="载入到源码框（可再改）">
-        <div
-          className="overflow-x-auto text-center"
-          dangerouslySetInnerHTML={{ __html: renderKatex(tex, kind === 'block') }}
-        />
-      </button>
+    <div className="bg-paper-50 rounded-lg border border-ink-200 p-2">
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
+          {badge}
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          {onJump && (
+            <button
+              onClick={onJump}
+              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
+              title="跳到正文这一处"
+            >
+              <Crosshair className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
+              title="改这一条（只替换这一处）"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={onToggleStar}
+            className="p-1 rounded transition hover:bg-amber-50"
+            title={starred ? '取消收藏' : '收藏（跨项目可用）'}
+          >
+            {starred ? (
+              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+            ) : (
+              <StarOff className="w-3.5 h-3.5 text-ink-400" />
+            )}
+          </button>
+        </div>
+      </div>
       <button
-        onClick={onToggleStar}
-        className="p-1 rounded hover:bg-amber-50 flex-shrink-0"
-        title={starred ? '取消收藏' : '收藏（跨项目可用）'}
-      >
-        {starred ? (
-          <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-        ) : (
-          <StarOff className="w-3.5 h-3.5 text-ink-400" />
-        )}
-      </button>
+        onClick={onReuse}
+        className="w-full overflow-x-auto py-1 text-center rounded hover:bg-seal-50/60 transition"
+        title="点击复用：插入到正文光标处"
+        dangerouslySetInnerHTML={{ __html: renderKatex(tex, kind === 'block') }}
+      />
+      <div className="font-mono text-[0.625rem] text-ink-400 truncate" title={tex}>
+        {tex}
+      </div>
     </div>
   )
 }

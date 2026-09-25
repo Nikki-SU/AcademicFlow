@@ -110,3 +110,23 @@
   min-height: var(--toolbar-height);
 }
 
+/*
+ * 行内代码：等宽 + 底色，跟正文区分开。
+ * 必须排除 [data-type] —— IR 模式下公式的源码标记同样是 <code>，
+ * 一起套上底色会让公式看起来像代码。代码块内部的 .hljs 由 VSCode 配色接管。
+ */
+.vditor-reset code:not([data-type]):not(.hljs) {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+  background: #f1f2f4;
+  color: #24292f;
+}
+
+/* 代码块：整块等宽、深色底（配色来自 vs2015，即 VSCode 深色） */
+.vditor-reset pre.vditor-ir__marker--pre,
+.vditor-reset pre code.hljs {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+}
+

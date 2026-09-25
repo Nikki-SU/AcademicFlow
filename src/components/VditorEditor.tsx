@@ -19,11 +19,15 @@ import { toast } from 'sonner'
 import {
   blobUrlToRepoPath,
   isRepoImagePath,
+  migrateBase64Images,
   parseImageSize,
   repoImageBlobUrl,
   toRepoPath,
   uploadEditorImage,
 } from '../services/editorImages'
+import { useSettingsStore } from '../stores/settings'
+import { CODE_LANGS } from '../constants/codeLangs'
+import { editTable, type TableOp } from '../services/formula'
 
 export type VditorMode = 'ir' | 'wysiwyg' | 'sv'
 
@@ -303,6 +307,147 @@ function imageAlt(name: string): string {
   return name.replace(/[[\]()]/g, '').trim() || 'image'
 }
 
+/** 代码块图标直接复用 Vditor 图标表里的 code，不另做一套 */
+const CODE_ICON = '<svg><use xlink:href="#vditor-icon-code"></use></svg>'
+
+/** 网格选择器的上限；再多也没人靠点选，直接手写更快 */
+const TABLE_GRID_MAX = 10
+
+/**
+ * 生成一张纯空表格。
+ * Vditor 内置的表格按钮会往单元格里塞 foo / bar 之类的占位文字，
+ * 每次插完都要先把它们删干净 —— 这里只留空格，光标点进去就能写。
+ */
+function buildEmptyTable(rows: number, cols: number): string {
+  const cell = `|${'  |'.repeat(cols)}`
+  const sep = `|${' --- |'.repeat(cols)}`
+  const body = Array.from({ length: rows }, () => cell).join('\n')
+  return `\n${cell}\n${sep}\n${body}\n`
+}
+
+/**
+ * WPS 那种网格选行列：在格子上滑过就高亮出「几行几列」，点一下插入。
+ * 动态元素一律用内联样式 —— Tailwind 只生成源码里写死的类名，拼出来的类不会生效。
+ */
+function openTableGridMenu(anchor: HTMLElement, onPick: (rows: number, cols: number) => void) {
+  document.getElementById('af-table-grid')?.remove()
+
+  const wrap = document.createElement('div')
+  wrap.id = 'af-table-grid'
+  wrap.className = 'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl p-2'
+  const rect = anchor.getBoundingClientRect()
+  wrap.style.top = `${Math.round(rect.bottom + 6)}px`
+  wrap.style.left = `${Math.round(rect.left)}px`
+
+  const tip = document.createElement('div')
+  tip.className = 'text-[0.6875rem] text-ink-500 mb-1.5 text-center'
+  tip.textContent = '滑过选择行列'
+  wrap.appendChild(tip)
+
+  const grid = document.createElement('div')
+  grid.style.display = 'grid'
+  grid.style.gridTemplateColumns = `repeat(${TABLE_GRID_MAX}, 1.125rem)`
+  grid.style.gap = '2px'
+
+  let rows = 0
+  let cols = 0
+  const cells: HTMLDivElement[] = []
+
+  const paint = () => {
+    cells.forEach((c, i) => {
+      const r = Math.floor(i / TABLE_GRID_MAX)
+      const col = i % TABLE_GRID_MAX
+      const on = r < rows && col < cols
+      c.style.background = on ? '#4338ca' : '#eef0f2'
+    })
+    tip.textContent = rows && cols ? `${rows} 行 × ${cols} 列` : '滑过选择行列'
+  }
+
+  for (let r = 0; r < TABLE_GRID_MAX; r++) {
+    for (let c = 0; c < TABLE_GRID_MAX; c++) {
+      const cell = document.createElement('div')
+      cell.style.width = '1.125rem'
+      cell.style.height = '1.125rem'
+      cell.style.borderRadius = '2px'
+      cell.style.cursor = 'pointer'
+      cell.style.background = '#eef0f2'
+      cell.addEventListener('mouseenter', () => {
+        rows = r + 1
+        cols = c + 1
+        paint()
+      })
+      cell.addEventListener('click', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        close()
+        if (rows && cols) onPick(rows, cols)
+      })
+      cells.push(cell)
+      grid.appendChild(cell)
+    }
+  }
+
+  wrap.appendChild(grid)
+
+  const close = () => {
+    wrap.remove()
+    document.removeEventListener('mousedown', onDocDown, true)
+  }
+  const onDocDown = (e: MouseEvent) => {
+    if (!wrap.contains(e.target as Node)) close()
+  }
+
+  document.body.appendChild(wrap)
+  setTimeout(() => document.addEventListener('mousedown', onDocDown, true), 0)
+}
+
+/**
+ * 选代码语言的小弹层。
+ * 内置的代码块按钮不会带语言，而「先插入再手打语言」在 IR 模式下很别扭，
+ * 所以插入前就把语言选掉。
+ */
+function openCodeLangMenu(anchor: HTMLElement, current: string, onPick: (lang: string) => void) {
+  document.getElementById('af-code-lang-menu')?.remove()
+
+  const menu = document.createElement('div')
+  menu.id = 'af-code-lang-menu'
+  menu.className =
+    'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl py-1 text-sm ' +
+    'max-h-[18rem] overflow-y-auto min-w-[9.5rem]'
+  const rect = anchor.getBoundingClientRect()
+  menu.style.top = `${Math.round(rect.bottom + 6)}px`
+  menu.style.left = `${Math.round(rect.left)}px`
+
+  for (const it of CODE_LANGS) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className =
+      'w-full flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-seal-50 text-ink-700'
+    btn.innerHTML =
+      `<span>${it.label}</span>` +
+      (it.value === current ? '<span class="text-[0.625rem] text-seal-500">默认</span>' : '')
+    btn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      close()
+      onPick(it.value)
+    })
+    menu.appendChild(btn)
+  }
+
+  const close = () => {
+    menu.remove()
+    document.removeEventListener('mousedown', onDocDown, true)
+  }
+  const onDocDown = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) close()
+  }
+
+  document.body.appendChild(menu)
+  // 延后一帧再挂全局监听，避免这次点击立刻把菜单关掉
+  setTimeout(() => document.addEventListener('mousedown', onDocDown, true), 0)
+}
+
 const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function VditorEditor(
   { value, onChange, onBlur, onReady, height = 420, placeholder = '开始写作…', mode = 'ir', toolbar, onFormulaClick, disabled = false, className = '', docPath, imageSubDir },
   ref,
@@ -330,6 +475,12 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   docPathRef.current = docPath
   const imageSubDirRef = useRef(imageSubDir)
   imageSubDirRef.current = imageSubDir
+  /** 已经自动迁移过 base64 图的文档，避免边写边反复触发 */
+  const migratedDocRef = useRef<string | null>(null)
+  /** 插入代码块用的默认语言（设置页可改） */
+  const defaultCodeLang = useSettingsStore((s) => s.defaultCodeLang ?? 'python')
+  const defaultCodeLangRef = useRef(defaultCodeLang)
+  defaultCodeLangRef.current = defaultCodeLang
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
   const onReadyRef = useRef(onReady)
@@ -494,10 +645,43 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       },
     }
 
+    // 代码块：内置那个按钮只会插一对空围栏、不带语言，这里换成「先选语言再插入」
+    const codeItem: VditorToolbarItem = {
+      name: 'insert-code',
+      tip: '插入代码块（可选语言）',
+      icon: CODE_ICON,
+      click: (event: Event) => {
+        const anchor =
+          (event.currentTarget as HTMLElement | null) ??
+          (event.target as HTMLElement | null) ??
+          (document.querySelector('[data-type="insert-code"]') as HTMLElement | null)
+        openCodeLangMenu(anchor ?? document.body, defaultCodeLangRef.current, (lang) => {
+          vditorRef.current?.insertValue(`\n\`\`\`${lang}\n\n\`\`\`\n`)
+        })
+      },
+    }
+
+    // 表格：内置那个既不能选行列、又会塞占位文字，换成网格选行列 + 空单元格
+    const tableItem: VditorToolbarItem = {
+      name: 'insert-table',
+      tip: '插入表格（选行列）',
+      icon: '<svg><use xlink:href="#vditor-icon-table"></use></svg>',
+      click: (event: Event) => {
+        const anchor =
+          (event.currentTarget as HTMLElement | null) ??
+          (event.target as HTMLElement | null) ??
+          (document.querySelector('[data-type="insert-table"]') as HTMLElement | null)
+        openTableGridMenu(anchor ?? document.body, (rows, cols) => {
+          vditorRef.current?.insertValue(buildEmptyTable(rows, cols))
+        })
+      },
+    }
+
+    // 『quote』(引用块) 已去掉：与正文的文献引用（[@doi:…] 标记）容易混淆
     const defaultToolbar: VditorToolbarItem[] = [
       'headings', 'bold', 'italic', 'strike', 'link', '|',
       'list', 'ordered-list', 'check', 'outdent', 'indent', '|',
-      'quote', 'line', 'code', 'inline-code', '|',
+      'line', 'code', 'inline-code', '|',
       'table', 'upload',
       formulaItem,
       '|',
@@ -505,8 +689,12 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       'edit-mode', 'fullscreen',
     ]
 
-    // 外部传了 toolbar 就在其末尾补上「插入公式」，保证全站都有这个按钮
-    const finalToolbar = toolbar ? [...toolbar, formulaItem] : defaultToolbar
+    // 外部传了 toolbar 就在其末尾补上「插入公式」，保证全站都有这个按钮；
+    // 顺便把内置 'code' / 'table' 换成本地那两个（可选语言 / 可选行列）
+    const baseToolbar = toolbar ? [...toolbar, formulaItem] : defaultToolbar
+    const finalToolbar = baseToolbar.map((it) =>
+      it === 'code' ? codeItem : it === 'table' ? tableItem : it,
+    )
 
     const instance = new Vditor(el, {
       // ── 离线资源：不写这一项就会去 unpkg 拉 lute/katex，墙内必挂 ──
@@ -526,8 +714,9 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       resize: { enable: false },
       preview: {
         math: { engine: 'KaTeX', inlineDigit: true },
-        // 不引 highlight.js / mark.js：这两样要额外从 CDN 拉，代码块不高亮不影响阅读
-        hljs: { enable: false, lineNumber: false },
+        // 代码高亮用 Vditor 自带的那份 highlight.js（已随仓库放在 public/vditor/dist 下），
+        // 配色选 vs2015 —— 就是 VSCode 深色那套色系。mark.js 仍然不开（用不上）。
+        hljs: { enable: true, style: 'vs2015', lineNumber: false },
         markdown: { toc: false, mark: false, footnotes: true },
         theme: { current: 'light', path: `${VDITOR_CDN}/dist/css/content-theme` },
       },
@@ -641,6 +830,127 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       if (timer) clearTimeout(timer)
     }
   }, [docPath])
+
+  /**
+   * 老数据兜底：正文里还留着 base64 内嵌图的，静默搬到仓库换成语义路径。
+   * 每篇文档只自动跑一次；上传失败的图原样保留，不会因为迁移丢图。
+   */
+  useEffect(() => {
+    if (!docPath) return
+    if (!value.includes('data:image/')) return
+    if (migratedDocRef.current === docPath) return
+    const timer = setTimeout(() => {
+      void (async () => {
+        if (migratedDocRef.current === docPath) return
+        migratedDocRef.current = docPath
+        const { md, migrated } = await migrateBase64Images(value, docPath, imageSubDirRef.current)
+        if (migrated > 0 && md !== value) onChangeRef.current?.(md)
+      })()
+    }, 1200)
+    return () => clearTimeout(timer)
+  }, [docPath, value])
+
+  /**
+   * 表格行列增删：鼠标移到表格上，右上角浮出一个小工具条。
+   *
+   * markdown 表格在 IR 模式下没有源码视图（只有渲染出来的 <table>），
+   * 不给个入口就只能靠手写 md 去加行列 —— 那正是「表格不好用」的来源。
+   */
+  useEffect(() => {
+    const root = containerRef.current
+    if (!root) return
+
+    let bar: HTMLDivElement | null = null
+    let currentTable: HTMLTableElement | null = null
+
+    const removeBar = () => {
+      bar?.remove()
+      bar = null
+      currentTable = null
+    }
+
+    const positionBar = () => {
+      if (!bar || !currentTable) return
+      const r = currentTable.getBoundingClientRect()
+      bar.style.top = `${Math.round(r.top - 30)}px`
+      bar.style.left = `${Math.round(r.left)}px`
+    }
+
+    const showBar = (table: HTMLTableElement) => {
+      if (currentTable === table && bar) return
+      removeBar()
+      currentTable = table
+
+      const el = document.createElement('div')
+      el.className =
+        'fixed z-[9998] flex items-center gap-0.5 bg-paper-50 border border-ink-200 rounded-lg shadow-lg px-1 py-0.5'
+      const ops: { label: string; tip: string; op: TableOp }[] = [
+        { label: '+行', tip: '在表格末尾加一行', op: 'addRow' },
+        { label: '+列', tip: '在表格末尾加一列', op: 'addCol' },
+        { label: '−行', tip: '删掉最后一行', op: 'delRow' },
+        { label: '−列', tip: '删掉最后一列', op: 'delCol' },
+      ]
+      for (const item of ops) {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.textContent = item.label
+        btn.title = item.tip
+        btn.className =
+          'px-1.5 py-0.5 text-[0.6875rem] rounded text-ink-600 hover:bg-seal-50 hover:text-seal-700 transition'
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          const tables = Array.from(
+            editorElement(vditorRef.current)?.querySelectorAll('table[data-type="table"]') ?? [],
+          )
+          // DOM 里的表格顺序与 parseTables 解析出来的顺序一致
+          const idx = tables.indexOf(table)
+          if (idx >= 0) {
+            const next = editTable(lastValueRef.current, idx, item.op)
+            if (next !== lastValueRef.current) onChangeRef.current?.(next)
+          }
+          removeBar()
+        })
+        el.appendChild(btn)
+      }
+      document.body.appendChild(el)
+      bar = el
+      positionBar()
+    }
+
+    const onOver = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      const table = target?.closest('table[data-type="table"]') as HTMLTableElement | null
+      if (table) showBar(table)
+      else if (bar && !bar.contains(e.target as Node)) removeBar()
+    }
+
+    root.addEventListener('mouseover', onOver)
+    window.addEventListener('scroll', positionBar, true)
+    return () => {
+      root.removeEventListener('mouseover', onOver)
+      window.removeEventListener('scroll', positionBar, true)
+      removeBar()
+    }
+  }, [])
+
+  /**
+   * 工具栏按钮在 mousedown 阶段挡掉默认行为。
+   *
+   * 默认行为会把焦点从编辑器抢走，于是「选中一段文字 → 点加粗」之后这段文字就不再被选中，
+   * 想接着点斜体得重新选一遍，取消加粗同理。挡掉之后选区一直留着，
+   * 可以连着加粗 / 斜体 / 取消，直到把光标点到别处为止。
+   */
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target?.closest('.vditor-toolbar')) e.preventDefault()
+    }
+    el.addEventListener('mousedown', onMouseDown, true)
+    return () => el.removeEventListener('mousedown', onMouseDown, true)
+  }, [])
 
   // 容器尺寸变化（拖分界线 / 改窗口）→ 同步 Vditor 高度，内容区始终内部滚动
   useEffect(() => {

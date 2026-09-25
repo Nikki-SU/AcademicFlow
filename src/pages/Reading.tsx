@@ -40,7 +40,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
-import { renderMarkdownToHtml } from '../services/markdown-renderer'
+import { renderMarkdownToHtml, copySelectionWithFormulaSource } from '../services/markdown-renderer'
 import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
 import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem, type BlockNode } from '../services/blocks.mjs'
 import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits } from '../services/text-highlight'
@@ -2946,6 +2946,12 @@ const [aligned_content, set_aligned_content] = useState('')
                         onMouseDown={() => {
                           setShowToolbar(false)
                         }}
+                        onCopy={(e) => {
+                          const sel = window.getSelection()
+                          if (sel && e.clipboardData && copySelectionWithFormulaSource(e.clipboardData, sel)) {
+                            e.preventDefault()
+                          }
+                        }}
                         className="relative prose-reader measure-reader"
                         dangerouslySetInnerHTML={{ __html: bookRenderedHtml }}
                       />
@@ -3197,6 +3203,12 @@ const [aligned_content, set_aligned_content] = useState('')
                       onMouseUp={handleTextSelection}
                       onMouseDown={() => {
                         setShowToolbar(false)
+                      }}
+                      onCopy={(e) => {
+                        const sel = window.getSelection()
+                        if (sel && e.clipboardData && copySelectionWithFormulaSource(e.clipboardData, sel)) {
+                          e.preventDefault()
+                        }
                       }}
                       className="relative prose-reader measure-reader"
                       dangerouslySetInnerHTML={{ __html: paperRenderedHtml }}

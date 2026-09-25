@@ -111,6 +111,49 @@ function renderMath(math: string, displayMode: boolean): string {
   }
 }
 
+/**
+ * 复制含公式的文本时，把 KaTeX 渲染出来的字形换回 LaTeX 源码。
+ * ------------------------------------------------------------
+ * KaTeX 默认同时输出 MathML 与 HTML 两份（output 默认 htmlAndMathml），而 MathML 那份
+ * 只是 clip 隐藏、仍在选中流里 —— 直接复制就会「公式丢失」（复制到的是拼字形的 span）
+ * 且「公式位置的内容重复两份」。
+ * 这里改用选区克隆重拼：每个公式节点换成它的源码。
+ *
+ * 返回 false 表示选区里没有公式，交给浏览器默认行为。
+ */
+export function copySelectionWithFormulaSource(
+  clipboardData: DataTransfer,
+  selection: Selection,
+): boolean {
+  if (selection.rangeCount === 0) return false
+  const holder = document.createElement('div')
+  holder.appendChild(selection.getRangeAt(0).cloneContents())
+  if (!holder.querySelector('.katex')) return false
+
+  // 块级先处理：整块换成 $$…$$，它内部的 .katex 也随之消失
+  holder.querySelectorAll('.katex-display').forEach((el) => {
+    el.replaceWith(document.createTextNode(wrapFormula(formulaSource(el), true)))
+  })
+  holder.querySelectorAll('.katex').forEach((el) => {
+    el.replaceWith(document.createTextNode(wrapFormula(formulaSource(el), false)))
+  })
+
+  clipboardData.setData('text/plain', (holder.textContent || '').replace(/\n{3,}/g, '\n\n'))
+  clipboardData.setData('text/html', holder.innerHTML)
+  return true
+}
+
+/** KaTeX 把原始 TeX 写在 MathML 分支的 annotation 里，直接取回来即可 */
+function formulaSource(el: Element): string {
+  return el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() ?? ''
+}
+
+/** 还原成 markdown 写法；取不到源码就留空 —— 宁可不留，也不留一堆字形 */
+function wrapFormula(tex: string, display: boolean): string {
+  if (!tex) return ''
+  return display ? `\n$$\n${tex}\n$$\n` : `$${tex}$`
+}
+
 function resolveImageUrl(href: string, baseUrl?: string): string {
   if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('data:')) return href
   if (!baseUrl) return href

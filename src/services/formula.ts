@@ -335,6 +335,58 @@ export function parseTables(md: string): MarkdownTable[] {
 }
 
 // ────────────────────────────────────────────────────────────
+// 表格行列增删
+// ────────────────────────────────────────────────────────────
+
+export type TableOp = 'addRow' | 'addCol' | 'delRow' | 'delCol'
+
+/**
+ * 给第 tableIndex 张表格加/删一行或一列。
+ *
+ * 按行做文本改写，不重建整张表 —— 重建会把用户自己写的对齐与单元格内空格冲掉。
+ * 增删都作用在末尾：多插了一行/一列要撤掉是最高频的诉求。
+ */
+export function editTable(md: string, tableIndex: number, op: TableOp): string {
+  const table = parseTables(md)[tableIndex]
+  if (!table) return md
+
+  const lines = md.split('\n')
+  const { startLine, endLine } = table
+  const colCount = table.rows[0]?.length ?? 1
+  /** 第二行是 | --- | 分隔行，加列时它要补的是 --- 而不是空格 */
+  const sepLine = startLine + 1
+  const firstDataLine = startLine + 2
+
+  if (op === 'addRow') {
+    lines.splice(endLine + 1, 0, `|${'  |'.repeat(colCount)}`)
+  } else if (op === 'delRow') {
+    // 只剩表头就不删了，删完 markdown 就不再是表格
+    if (endLine < firstDataLine) return md
+    lines.splice(endLine, 1)
+  } else if (op === 'addCol') {
+    for (let i = startLine; i <= endLine; i++) {
+      const line = lines[i]
+      if (!line) continue
+      const pad = i === sepLine ? ' --- |' : '  |'
+      const trimmed = line.replace(/\s+$/, '')
+      lines[i] = trimmed.endsWith('|') ? `${trimmed.slice(0, -1)}${pad}` : `${trimmed}${pad}`
+    }
+  } else {
+    if (colCount <= 1) return md
+    for (let i = startLine; i <= endLine; i++) {
+      const line = lines[i]
+      if (!line) continue
+      // 末尾竖线之前的那一段就是最后一个单元格，截掉它
+      const last = line.lastIndexOf('|')
+      const prev = line.lastIndexOf('|', last - 1)
+      if (prev > 0) lines[i] = line.slice(0, prev + 1)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+// ────────────────────────────────────────────────────────────
 // 公式收藏（跨项目复用）
 // ────────────────────────────────────────────────────────────
 

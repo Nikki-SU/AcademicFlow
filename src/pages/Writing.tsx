@@ -1062,7 +1062,9 @@ export default function WritingPage() {
   const writingToolbar: VditorToolbarItem[] = [
     'headings', 'bold', 'italic', 'strike', '|',
     'list', 'ordered-list', 'check', '|',
-    'quote', 'line', 'code', 'inline-code', '|',
+    // 不要 Vditor 自带的「引用块」（quote）：正文里的引用一律走下面我们自己的
+    // [@doi:…] 标记，留一个长得像的默认按钮只会让人以为那是引用功能
+    'line', 'code', 'inline-code', '|',
     'table', 'upload', '|',
     {
       name: 'insert-citation',
