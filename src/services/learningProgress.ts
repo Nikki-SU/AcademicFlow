@@ -42,8 +42,11 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 const SAVE_DEBOUNCE_MS = 2000
 
 /**
- * 加载学习进度（全局共享单次加载，多次调用返回同一 Promise）。
- * 首次调用从 GitHub 私库读取；后续调用返回缓存。
+ * 加载学习进度（首次从 GitHub 私库读取，之后直接给内存缓存）。
+ *
+ * 注意返回的是**调用时的最新缓存**：首次读取完成后，后续每次 await 拿到的都是
+ * updateProgress 刚写进去的那一份。否则调用方会拿到首次读取时的旧快照 ——
+ * 学习页的"单词 / 长难句"两个页签共用语音模式开关，靠的就是这里能读到最新值。
  */
 export function loadProgress(): Promise<LearningProgress> {
   if (!progressPromise) {
@@ -59,7 +62,7 @@ export function loadProgress(): Promise<LearningProgress> {
       return progressCache
     })()
   }
-  return progressPromise
+  return progressPromise.then(() => progressCache)
 }
 
 /**

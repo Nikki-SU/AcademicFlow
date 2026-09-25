@@ -45,7 +45,9 @@ import {
   loadWords, saveWords,
   loadSentences, saveSentences,
   loadTranslations, saveTranslations,
+  isValidMorphemeSplit, MORPHEME_TYPE_LABELS,
 } from '../services/learningData'
+import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
 import {
   FolderCog,
@@ -360,6 +362,165 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   )
 }
 
+/**
+ * 「编辑文献」弹窗里的词根词缀核对区。
+ *
+ * 为什么挂在这儿：切分是 AI 从这篇文献的正文里提词时一起产出的，改它是**补锅**而不是日常 ——
+ * 跟改文献元数据同一个入口，用户不必为此再学一套独立的编辑流程。
+ * 只列本篇提取出的词（source_doi === 该文献 doi）。
+ */
+function PaperMorphemeSection({
+  doi,
+  words,
+  onChange,
+}: {
+  doi: string
+  words: WordData[] | null
+  onChange: (next: WordData[]) => void
+}) {
+  const mine = useMemo(
+    () => (words || []).filter((w) => w.sourceDoi && w.sourceDoi === doi),
+    [words, doi],
+  )
+  const [open, setOpen] = useState(false)
+
+  const label = <label className="block text-sm font-medium text-ink-700">词根词缀</label>
+
+  if (words === null) {
+    return (
+      <div>
+        <div className="mb-1.5">{label}</div>
+        <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50 text-xs text-ink-400">
+          正在读取本文提取的字词…
+        </div>
+      </div>
+    )
+  }
+  if (mine.length === 0) {
+    return (
+      <div>
+        <div className="mb-1.5">{label}</div>
+        <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50 text-xs text-ink-400">
+          这篇文献还没有提取出单词 —— 转换 PDF 时会自动提取并切分。
+        </div>
+      </div>
+    )
+  }
+  const splitCount = mine.filter((w) => isValidMorphemeSplit(w.word, w.morphemes)).length
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        {label}
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-xs text-seal-600 hover:underline"
+        >
+          {open ? '收起' : `展开核对（${splitCount}/${mine.length} 个词已切分）`}
+        </button>
+      </div>
+      <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50">
+        <p className="text-xs text-ink-400">
+          只有确实能拆成词缀的词才需要切分，拆不开就留空（学习时按整词/逐字母处理）。
+          这里改的是 AI 的产出，属于修正而非日常操作。
+        </p>
+        {open && (
+          <div className="mt-3 space-y-3 max-h-72 overflow-y-auto">
+            {mine.map((w) => (
+              <MorphemeSplitEditor
+                key={w.id}
+                word={w.word}
+                morphemes={w.morphemes || []}
+                onChange={(next) =>
+                  onChange(words.map((x) => (x.id === w.id ? { ...x, morphemes: next } : x)))
+                }
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 单个单词的切分编辑：上面一行用 · 分隔写切分，下面按片段配类型与含义。
+ * 片段文本没变就沿用原来的类型/含义 —— 用户加/删一个片段不必重填其它片段的含义。
+ */
+function MorphemeSplitEditor({
+  word,
+  morphemes,
+  onChange,
+}: {
+  word: string
+  morphemes: Morpheme[]
+  onChange: (next: Morpheme[]) => void
+}) {
+  const [split, setSplit] = useState(() => morphemes.map((m) => m.text).join('·'))
+
+  const derive = (raw: string): Morpheme[] =>
+    raw
+      .split('·')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((text) => {
+        const prev = morphemes.find((m) => m.text === text)
+        return prev ? { ...prev, text } : { text, type: 'root' as MorphemeType, meaning: '' }
+      })
+
+  const segments = derive(split)
+  const matched = isValidMorphemeSplit(word, segments)
+
+  const patch = (i: number, key: 'type' | 'meaning', value: string) => {
+    onChange(segments.map((m, k) => (k === i ? { ...m, [key]: value } : m)))
+  }
+
+  return (
+    <div className="bg-paper-50 border border-ink-200 rounded-lg p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-ink-800 shrink-0">{word}</span>
+        <input
+          type="text"
+          value={split}
+          onChange={(e) => { setSplit(e.target.value); onChange(derive(e.target.value)) }}
+          placeholder="用 · 分隔，如 photo·synth·esis；留空 = 不拆"
+          className="flex-1 min-w-0 px-2 py-1 border border-ink-200 rounded text-xs focus:outline-none focus:border-seal-400"
+        />
+      </div>
+      {segments.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {segments.map((m, i) => (
+            <div key={`${m.text}-${i}`} className="flex items-center gap-2">
+              <span className="w-24 shrink-0 text-xs font-medium text-seal-700 truncate">{m.text}</span>
+              <select
+                value={m.type}
+                onChange={(e) => patch(i, 'type', e.target.value)}
+                className="px-1.5 py-1 border border-ink-200 rounded text-xs bg-paper-50"
+              >
+                {(Object.keys(MORPHEME_TYPE_LABELS) as MorphemeType[]).map((t) => (
+                  <option key={t} value={t}>{MORPHEME_TYPE_LABELS[t]}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={m.meaning}
+                onChange={(e) => patch(i, 'meaning', e.target.value)}
+                placeholder="含义，如 光"
+                className="flex-1 min-w-0 px-2 py-1 border border-ink-200 rounded text-xs focus:outline-none focus:border-seal-400"
+              />
+            </div>
+          ))}
+          <p className={`text-[0.6875rem] ${matched ? 'text-green-600' : 'text-red-500'}`}>
+            {matched
+              ? '✓ 各段拼起来正好是原词'
+              : `各段拼起来是「${segments.map((m) => m.text).join('')}」，跟原词对不上 —— 学习时会当作未切分`}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ManagementPage() {
   const navigate = useNavigate()
   const { repo } = useWorkspaceStore()
@@ -384,6 +545,14 @@ export default function ManagementPage() {
   const [showEditPaperModal, setShowEditPaperModal] = useState(false)
   const [showImageLightbox, setShowImageLightbox] = useState<string | null>(null)
   const [editingPaper, setEditingPaper] = useState<Paper | null>(null)
+  /**
+   * 「编辑文献」弹窗里的词根词缀修正。
+   * 文献是从原文提取单词的源头，所以"改切分"这件事挂在这里，跟改文献元数据同一个入口 ——
+   * 它是补锅手段，不是日常操作（日常全靠 AI 提取时切好）。
+   * 存的是**全量**单词（saveWords 是整表重写），null = 还没读回来。
+   */
+  const [paperWords, setPaperWords] = useState<WordData[] | null>(null)
+  const [paperWordsDirty, setPaperWordsDirty] = useState(false)
   const [papers, setPapers] = useState<Paper[]>([])
   const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto' as 'auto' | '1' | '2', categoryIds: [] as string[] })
   const [doiFetching, setDoiFetching] = useState(false)
@@ -1392,10 +1561,25 @@ export default function ManagementPage() {
   const handleEditPaper = (paper: Paper) => {
     setEditingPaper({ ...paper })
     setShowEditPaperModal(true)
+    // 顺带把这篇文献提取出的单词读回来（词根词缀修正用）；读失败不影响改元数据
+    setPaperWords(null)
+    setPaperWordsDirty(false)
+    loadWords(true)
+      .then((all) => setPaperWords(all))
+      .catch(() => setPaperWords([]))
   }
 
   const handleSavePaper = async () => {
     if (!editingPaper) return
+    // 词根词缀先写：整表重写，失败就别把弹窗关掉（用户还能重试）
+    if (paperWords && paperWordsDirty) {
+      try {
+        await saveWords(paperWords)
+      } catch (err) {
+        toast.error(`词根词缀保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+        return
+      }
+    }
     const prevPapers = papers
     const updated = papers.map((p) => (p.id === editingPaper.id ? editingPaper : p))
     setPapers(updated)
@@ -1403,6 +1587,8 @@ export default function ManagementPage() {
       await savePapers(updated)
       setShowEditPaperModal(false)
       setEditingPaper(null)
+      setPaperWords(null)
+      setPaperWordsDirty(false)
       toast.success('修改已保存')
     } catch (err) {
       setPapers(prevPapers)
@@ -3617,7 +3803,7 @@ export default function ManagementPage() {
 
       {/* 编辑文献弹窗 */}
       {showEditPaperModal && editingPaper && (
-        <Modal title="编辑文献" onClose={() => { setShowEditPaperModal(false); setEditingPaper(null) }} width="max-w-2xl">
+        <Modal title="编辑文献" onClose={() => { setShowEditPaperModal(false); setEditingPaper(null); setPaperWords(null); setPaperWordsDirty(false) }} width="max-w-2xl">
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
@@ -3872,11 +4058,17 @@ export default function ManagementPage() {
                 </div>
               </div>
             </div>
+
+            <PaperMorphemeSection
+              doi={editingPaper.doi}
+              words={paperWords}
+              onChange={(next) => { setPaperWords(next); setPaperWordsDirty(true) }}
+            />
           </div>
 
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
-              onClick={() => { setShowEditPaperModal(false); setEditingPaper(null) }}
+              onClick={() => { setShowEditPaperModal(false); setEditingPaper(null); setPaperWords(null); setPaperWordsDirty(false) }}
               className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
             >
               取消

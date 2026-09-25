@@ -12,6 +12,41 @@
 import { readCsvFile, writeCsvFile } from './userData'
 
 export type WordStatus = 'new' | 'learning' | 'learned' | 'mastered' | 'error_book'
+
+/** 词素类型：前缀 / 词根 / 后缀 / 连接成分（如 photocatalysis 里的 o、i） */
+export type MorphemeType = 'prefix' | 'root' | 'suffix' | 'connective'
+
+/** 展示用的词素类型中文名 */
+export const MORPHEME_TYPE_LABELS: Record<MorphemeType, string> = {
+  prefix: '前缀',
+  root: '词根',
+  suffix: '后缀',
+  connective: '连接',
+}
+
+/**
+ * 一个词素片段 —— 单词按词根词缀切分后的最小单位。
+ * 约束：同一单词的 morphemes 按顺序把 text 拼起来必须正好等于该单词（大小写不敏感）。
+ */
+export interface Morpheme {
+  /** 原词中连续的一段 */
+  text: string
+  type: MorphemeType
+  /** 中文含义，如 "光" / "合成" */
+  meaning: string
+}
+
+/**
+ * 词素表（vocabulary/affixes.csv）的一行 —— 全词库词素的去重汇总。
+ * 用途：拼写题的干扰块池（不限于本组词），以及单词自身没带含义时的兜底。
+ * 它是**派生索引**：含义以单词切分为准，人工修改请改单词那一侧。
+ */
+export interface AffixData {
+  affix: string
+  type: MorphemeType
+  meaning: string
+}
+
 export type SentenceStatus = 'new' | 'learning' | 'mastered'
 export type TranslationStatus = 'pending' | 'completed'
 /** 翻译方向：en2cn = 英译中；cn2en = 中译英 */
@@ -34,6 +69,11 @@ export interface WordData {
   exampleEn: string
   /** example_zh：例句的中文译文（单词卡上跟英文例句成对显示） */
   exampleZh?: string
+  /**
+   * morphemes：词根词缀切分。空数组 = 拆不出值得学的词缀（或用户清空）——
+   * 此时展示卡片不拆、拼写题退化成**单字母块**。**不要硬拆**。
+   */
+  morphemes: Morpheme[]
   sourceDoi: string
   status: WordStatus
   addedAt: number
@@ -96,6 +136,7 @@ export interface TranslationData {
 }
 
 const VOCAB_PATH = 'vocabulary/vocabulary.csv'
+const AFFIX_PATH = 'vocabulary/affixes.csv'
 const SENTENCES_PATH = 'sentences/sentences.csv'
 const TRANSLATION_PATH = 'translation_practice/translation_practice.csv'
 
@@ -107,6 +148,9 @@ const VOCAB_HEADERS = [
   //   example_zh —— 例句的中文译文。单词卡要「英文例句 + 中文例句」成对，
   //   只放内存里的话一刷新就没了。
   'example_zh',
+  //   morphemes —— 词根词缀切分（JSON 数组，元素 {text,type,meaning}）。
+  //   必须与 .github/scripts/paper_convert.mjs 的 VOCAB_HEADERS 完全一致、顺序也一致。
+  'morphemes',
 ]
 
 const VALID_WORD_STATUS = new Set(['new', 'learning', 'learned', 'mastered', 'error_book'])
@@ -150,6 +194,69 @@ function parseScoringPoints(raw: string | undefined): string[] {
 function serializeScoringPoints(points: string[] | undefined): string {
   const list = (points || []).map((s) => String(s)).filter((s) => s.trim())
   return JSON.stringify(list)
+}
+
+const VALID_MORPHEME_TYPES = new Set<MorphemeType>(['prefix', 'root', 'suffix', 'connective'])
+
+function normalizeMorphemeType(raw: unknown): MorphemeType {
+  const t = String(raw ?? '').trim().toLowerCase()
+  return VALID_MORPHEME_TYPES.has(t as MorphemeType) ? (t as MorphemeType) : 'root'
+}
+
+/**
+ * 解析 morphemes 列（CSV 里是 JSON 数组字符串）。
+ * 容错：空值 / 坏 JSON / 非数组一律返回 []（旧行没有该列），绝不抛错。
+ * 只做形状清洗，不校验"拼起来是否等于单词" —— 那是写入侧（AI/人工）的责任，
+ * 读取侧一旦发现对不上就整组丢弃（见 isValidMorphemeSplit）。
+ */
+export function parseMorphemes(raw: string | undefined): Morpheme[] {
+  const t = (raw || '').trim()
+  if (!t) return []
+  try {
+    const arr = JSON.parse(t)
+    if (!Array.isArray(arr)) return []
+    return arr
+      .map((x) => {
+        if (typeof x === 'string') {
+          const text = x.trim()
+          return text ? { text, type: 'root' as MorphemeType, meaning: '' } : null
+        }
+        if (!x || typeof x !== 'object') return null
+        const o = x as Record<string, unknown>
+        const text = String(o.text ?? o.m ?? '').trim()
+        if (!text) return null
+        return {
+          text,
+          type: normalizeMorphemeType(o.type),
+          meaning: String(o.meaning ?? '').trim(),
+        }
+      })
+      .filter((m): m is Morpheme => m !== null)
+  } catch {
+    return []
+  }
+}
+
+/** 序列化词素切分 → JSON 数组字符串（空数组写空串，与 parseMorphemes 往返一致） */
+export function serializeMorphemes(morphemes: Morpheme[] | undefined): string {
+  const list = (morphemes || [])
+    .map((m) => ({
+      text: String(m?.text ?? '').trim(),
+      type: normalizeMorphemeType(m?.type),
+      meaning: String(m?.meaning ?? '').trim(),
+    }))
+    .filter((m) => m.text)
+  return list.length ? JSON.stringify(list) : ''
+}
+
+/**
+ * 校验一组切分是否真的能把单词拼回来。
+ * 拼不回来的切分是脏数据：展示会缺字母、拼写题会永远答不对，一律当作"没切分"。
+ */
+export function isValidMorphemeSplit(word: string, morphemes: Morpheme[] | undefined): boolean {
+  const list = morphemes || []
+  if (list.length < 2) return false
+  return list.map((m) => m.text).join('').toLowerCase() === String(word || '').trim().toLowerCase()
 }
 
 /**
@@ -259,6 +366,8 @@ export async function loadWords(force = false): Promise<WordData[]> {
             word: r[0] || '',
             phonetic: r[2] || '',
             exampleZh: (r[15] || '').trim() || undefined,
+            // 词素切分只认正常行（历史脏数据行列位整体错位，读出来必然对不上）
+            morphemes: [] as Morpheme[],
           }
           const s7 = (r[7] || '').trim()
           const s8 = (r[8] || '').trim()
@@ -322,6 +431,7 @@ export async function loadWords(force = false): Promise<WordData[]> {
             sm2Ease: parseFloat(r[12] || '2.5') || 2.5,
             wrongCount: hasNewCols ? num(r[13]) : 0,
             streak: hasNewCols ? num(r[14]) : 0,
+            morphemes: parseMorphemes(r[16]),
           }
         })
     },
@@ -334,7 +444,7 @@ export async function saveWords(words: WordData[]): Promise<void> {
     VOCAB_PATH,
     words,
     VOCAB_HEADERS,
-    // 严格 16 列、按表头顺序
+    // 严格 17 列、按表头顺序
     (w) => [
       w.word,
       w.meaning,
@@ -352,7 +462,37 @@ export async function saveWords(words: WordData[]): Promise<void> {
       String(w.wrongCount),
       String(w.streak),
       w.exampleZh || '',
+      serializeMorphemes(w.morphemes),
     ],
+  )
+}
+
+// ============================================================
+// 词素表（词根词缀）
+// ============================================================
+
+/**
+ * 读词素表。文件不存在（老仓库还没生成过）时返回 []，不抛错 ——
+ * 词素表只是拼写题的干扰块池，缺了不影响主流程。
+ *
+ * 写入方只有后端 runner（.github/scripts/paper_convert.mjs）：它按词库切分去重汇总，
+ * 已存在的行一律不动（人工改过的含义不会被下次跑批覆盖）。前端只读、不写，
+ * 免得把表重算成"只有当前这批词"的子集。
+ */
+export async function loadAffixes(force = false): Promise<AffixData[]> {
+  return readCsvFile(
+    AFFIX_PATH,
+    (rows) => {
+      if (rows.length <= 1) return []
+      return rows.slice(1)
+        .map((r) => ({
+          affix: (r[0] || '').trim(),
+          type: normalizeMorphemeType(r[1]),
+          meaning: (r[2] || '').trim(),
+        }))
+        .filter((a) => a.affix)
+    },
+    force,
   )
 }
 

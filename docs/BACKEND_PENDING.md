@@ -12,15 +12,15 @@
 
 **除下表标注 ⚠️ 的两个文件外，前端嵌入副本与私库线上逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
 
-> ⚠️ **例外（2026-09-25）**：`ai_call.mjs`（60744 B）与 `paper_convert.mjs`（97513 B）
+> ⚠️ **例外（2026-09-25）**：`ai_call.mjs`（60744 B）与 `paper_convert.mjs`（101421 B）
 > 这两个前端副本都已经改好，但**私库线上还是旧版**。**在推私库之前不要点「重装后端」**。
-> 详见 §8、§9。
+> 详见 §8、§9、§10。
 
 | 文件 | 字节 | 本轮变化 |
 |------|------|---------|
 | `scripts/ai_call.mjs` | 60744 | ⚠️ 加了 `input_path` 落盘读取（§8）；**私库待推** |
 | `scripts/dual_engine_runner.mjs` | 29183 | ✅ 之前前端**根本没有**这个文件；现已补进安装清单并修了超时/预算；【源材料】改为共享稳定前缀 |
-| `scripts/paper_convert.mjs` | 97513 | ⚠️ 提词 prompt 加 `example_zh`、vocabulary CSV 加同名列（§9）；**私库待推** |
+| `scripts/paper_convert.mjs` | 101421 | ⚠️ 提词 prompt 加 `example_zh` + `morphemes`、CSV 加两批同名列、新增词素表汇总（§9、§10）；**私库待推** |
 | `scripts/blocks.mjs` | 14196 | 一致 |
 | `workflows/ai_call.yml` | 2572 | ✅ job timeout 15 → 25 分钟 |
 | `workflows/paper_convert.yml` | 2450 | 一致 |
@@ -374,3 +374,50 @@ markdown 再带标注拼一遍）——一篇长稿轻松超过 64KB。
 
 和 §8 一样：**先把改好的 `paper_convert.mjs` push 到私库 `main`**，再核对前端嵌入副本
 （§3.3 脚本），**顺序不能反**。
+
+---
+
+## 10. 词根词缀切分 + 词素表 —— ⚠️ 私库待推（与 §9 同一份 `paper_convert.mjs`）
+
+### 10.1 要解决什么
+
+化学专业英语大量靠前缀/词根/后缀构词（`photo-` + `catalys-` + `-is`）。
+学习页要能**按词素展示**（拆开 + 连接形式 + 每段含义）、拼写题要能**按词素切块拼**、
+干扰块要能从**词库里其它单词的词缀**里取。这一切的前提是单词带一份可信的切分。
+
+### 10.2 数据落点（两份，各司其职）
+
+| 落点 | 内容 | 谁写 |
+|------|------|------|
+| `vocabulary/vocabulary.csv` 新增列 `morphemes` | 该词的切分，JSON 数组 `[{text,type,meaning}]`；空串 = 拆不出 | 后端 runner（AI 提取）；人工修正入口也写这里 |
+| `vocabulary/affixes.csv`（**新文件**） | 全库词素的去重汇总 `affix,type,meaning` —— 拼写题的干扰块池 | **只由后端 runner 追加**，前端只读 |
+
+`type` ∈ `prefix` / `root` / `suffix` / `connective`（连接元音，如 `photocatalysis` 里的 `o`、`i`）。
+
+### 10.3 硬约束：切分必须能拼回原词
+
+`normalizeMorphemes()`（runner）与 `isValidMorphemeSplit()`（前端）是同一口径：
+**各段 `text` 按顺序拼起来必须正好等于单词**（大小写不敏感），否则整组丢弃。
+拼不回来的切分会让卡片缺字母、拼写题永远答不对 —— 比"没有切分"更糟。
+切不出有意义词缀的词**就给空数组，不许硬拆**（prompt 里写死了这条）。
+
+### 10.4 四处必须同步
+
+1. `src/services/learningData.ts`：`Morpheme` 类型 / `parseMorphemes` / `serializeMorphemes` /
+   `isValidMorphemeSplit` / `loadAffixes`；`VOCAB_HEADERS` 末尾加 `morphemes`；
+   `loadWords` 读 `r[16]`（历史脏数据行不给切分）、`saveWords` 写第 17 列
+2. `src/constants/skeleton.ts`：`CSV_HEADERS.vocabulary` 加 `morphemes`；
+   新增 `CSV_HEADERS.affixes` + `WORKSPACE_SKELETON` 里的 `vocabulary/affixes.csv` 种子
+3. 私库 `paper_convert.mjs`：`WORDS_EXTRACT_PROMPT` / `WORDS_VERIFY_PROMPT` 加切分要求、
+   `VOCAB_HEADERS` / `newRows` / `csvRows` 加列、`mergeAffixes()` 增量并表
+4. 前端生成口径 `buildLearningInstruction`（`Learn.tsx`）同样要求 `morphemes`，
+   `normalizeAiMorphemes` 用同一套校验 —— 交互式「AI 补充生成」与后端批处理口径一致
+
+> 词素表**只追加、不改已存在的行**：人工改过的含义不会被下次跑批覆盖。
+> 前端人工修正只改**单词**那一侧（`Management.tsx`「编辑文献」弹窗），
+> 不复写词素表 —— 免得把表重算成"只有当前这批词"的子集。
+
+### 10.5 后续动作
+
+与 §8 / §9 同一次推送：`paper_convert.mjs` push 私库 `main` → 跑 `ai_connectivity_test` →
+用 §3.3 脚本核对逐字节一致。**顺序不能反。**

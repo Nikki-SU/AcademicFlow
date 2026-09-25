@@ -13,6 +13,7 @@ import {
   X,
   BookOpen,
   Volume2,
+  Headphones,
   Sparkles,
   Settings,
   PenTool,
@@ -25,10 +26,10 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations } from '../services/learningData'
+import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
-import type { WordData, SentenceData, TranslationData, TranslationDirection } from '../services/learningData'
+import type { WordData, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { callAI } from '../services/ai/client'
@@ -48,6 +49,9 @@ type WordQuestionType =
   | 'def_select_en'    // （中文）定义 → 选英文单词
   | 'sent_select_cn'   // 例句挖空 → 选中文释义
   | 'sent_select_def'  // 例句挖空 → 选定义
+  | 'listen_select_cn' // 听音（只放音，不显示单词）→ 选中文释义（需语音模式）
+  | 'cn_select_sound'  // 中文释义 → 选读音（每个选项挂小喇叭逐个试听，需语音模式）
+  | 'spell_block'      // 拼写：给中文，按词素块拼出英文（拆不出词素时退化成单字母块）
 
 interface StudyStats {
   todayLearned: string[]
@@ -62,7 +66,37 @@ const WORD_QUESTION_TYPES: { key: WordQuestionType; label: string; icon: typeof 
   { key: 'def_select_en', label: '定义选英', icon: PenTool },
   { key: 'sent_select_cn', label: '例句选中', icon: MessageSquare },
   { key: 'sent_select_def', label: '例句选定义', icon: Type },
+  { key: 'listen_select_cn', label: '听音选中', icon: Volume2 },
+  { key: 'cn_select_sound', label: '中选读音', icon: Headphones },
+  { key: 'spell_block', label: '拼写', icon: Pencil },
 ]
+
+const ALL_QUESTION_TYPES: WordQuestionType[] = WORD_QUESTION_TYPES.map((t) => t.key)
+
+/**
+ * 依赖发音的题型 —— 静音模式下**不可用**：
+ * 听音选中要先把单词放出来，中选读音要逐个试听选项。
+ */
+const VOICE_ONLY_TYPES: WordQuestionType[] = ['listen_select_cn', 'cn_select_sound']
+
+/** 后面才加的题型：以前存下的设置列表里不可能有它们，读回时补上 */
+const NEW_QUESTION_TYPES: WordQuestionType[] = ['listen_select_cn', 'cn_select_sound', 'spell_block']
+
+/**
+ * 题面就是**英文单词本身**的题型才配"读题面"的喇叭。
+ * 中文题面（中选英 / 定义选英 / 中选读音）拿英文音库去读只会读出乱音；
+ * 中选读音更是靠"逐个试听选项"作答，题面再挂喇叭只会误导。
+ */
+const QUESTION_SPEAKABLE_TYPES: WordQuestionType[] = ['en_select_cn', 'en_select_def']
+
+/**
+ * 当前语音模式下真正可用的题型。
+ * 静音时把听音类剔掉，但**设置里仍保留勾选** —— 切回语音模式即恢复，
+ * 不让用户为了"临时静音"重勾一遍。
+ */
+function availableTypes(selected: WordQuestionType[], voiceOn: boolean): WordQuestionType[] {
+  return voiceOn ? selected : selected.filter((t) => !VOICE_ONLY_TYPES.includes(t))
+}
 
 const subTabs = [
   { id: 'words' as TabId, label: '单词', icon: Brain },
@@ -118,6 +152,11 @@ function isWordEligible(w: WordData, type: WordQuestionType, mode: 'learn' | 're
     case 'def_select_en': return hasDef && !!w.word.trim()
     case 'sent_select_cn': return hasSentence && hasMeaning
     case 'sent_select_def': return hasSentence && !!w.definitionCn.trim()
+    // 听音/读音题只要求"有单词 + 有中文释义"：释义是选项或题面
+    case 'listen_select_cn': return !!w.word.trim() && hasMeaning
+    case 'cn_select_sound': return !!w.word.trim() && hasMeaning
+    // 拼写题：单个字母的词没有拼写价值
+    case 'spell_block': return !!w.word.trim() && hasMeaning && w.word.trim().length >= 2
   }
 }
 
@@ -129,17 +168,73 @@ interface GeneratedWordQuestion {
   question: string
   options: string[]
   answer: string
+  /** 拼写题：答案按词素切分成的块（顺序即正确顺序） */
+  answerBlocks?: string[]
+  /** 拼写题：可点击的块池（答案块 + 干扰块，已打乱） */
+  blockPool?: string[]
+  /** 中文选读音题：每个选项外面挂一个小喇叭，供逐个试听 */
+  optionAudio?: boolean
+}
+
+/**
+ * 拼写题的"块"：有合法词素切分就按词素切，否则退化成单字母块（整词全拼）。
+ * 切分合法 = 各段按顺序拼回来正好等于原词。
+ */
+function spellBlocksOf(w: WordData): string[] {
+  if (isValidMorphemeSplit(w.word, w.morphemes)) return w.morphemes.map((m) => m.text)
+  return w.word.trim().split('')
+}
+
+/**
+ * 拼写题的块池 = 答案块 + 干扰块（打乱后一起给）。
+ *
+ * 干扰块的来源，按可用性依次取：
+ *   1. 同组其它单词的词素 —— 用户说的"这个词库里其他单词的词根词缀"
+ *   2. 全库词素表 —— 本组只有几个词时块池会太瘦
+ *   3. 随机字母 —— 只对"退化成单字母块"的词生效，否则答案的字母就是全部选项
+ * 干扰块一律排除与答案块同形的，免得同一块出现两次造成歧义。
+ */
+function buildBlockPool(
+  answerBlocks: string[],
+  word: WordData,
+  pool: WordData[],
+  affixes: AffixData[],
+): string[] {
+  const used = new Set(answerBlocks.map((b) => b.toLowerCase()))
+  const letters = new Set(word.word.toLowerCase().split(''))
+  const distractors: string[] = []
+  const push = (v: string) => {
+    const t = (v || '').trim()
+    if (!t || used.has(t.toLowerCase()) || distractors.includes(t)) return
+    distractors.push(t)
+  }
+
+  for (const w of shuffleArray(pool.filter((x) => x.id !== word.id))) {
+    if (isValidMorphemeSplit(w.word, w.morphemes)) w.morphemes.forEach((m) => push(m.text))
+  }
+  for (const a of shuffleArray(affixes)) push(a.affix)
+
+  const picked = distractors.slice(0, 6)
+  if (answerBlocks.length > 1 && answerBlocks.every((b) => b.length === 1)) {
+    for (const ch of shuffleArray('abcdefghijklmnopqrstuvwxyz'.split(''))) {
+      if (picked.length >= 6) break
+      if (!letters.has(ch)) picked.push(ch)
+    }
+  }
+  return shuffleArray([...answerBlocks, ...picked])
 }
 
 /**
  * 生成一道四选一题：1 个正确项 + 最多 3 个干扰项（从同轮可答词池中取，去重去重）。
  * 词池不足时降级为 2~3 个选项。
+ * 拼写题不用 options，改用 answerBlocks/blockPool（见 buildBlockPool）。
  */
 function buildQuestion(
   word: WordData,
   type: WordQuestionType,
   pool: WordData[],
   mode: 'learn' | 'review',
+  affixes: AffixData[] = [],
 ): GeneratedWordQuestion | null {
   if (!isWordEligible(word, type, mode)) return null
   const typeMeta = WORD_QUESTION_TYPES.find((t) => t.key === type)!
@@ -160,6 +255,13 @@ function buildQuestion(
       question = blankSentence(word.exampleEn, word.word); answer = word.meaning; isSentence = true; break
     case 'sent_select_def':
       question = blankSentence(word.exampleEn, word.word); answer = wordDefinition(word, mode); isSentence = true; break
+    // 题面只显示"听发音"按钮，单词藏在 question 里给播放用（不渲染出来）
+    case 'listen_select_cn':
+      question = word.word; answer = word.meaning; break
+    case 'cn_select_sound':
+      question = word.meaning; answer = word.word; break
+    case 'spell_block':
+      question = word.meaning; answer = word.word; break
   }
   if (!question.trim() || !answer.trim()) return null
 
@@ -167,9 +269,12 @@ function buildQuestion(
   const answerOf = (w: WordData): string => {
     switch (type) {
       case 'en_select_cn':
-      case 'sent_select_cn': return w.meaning
+      case 'sent_select_cn':
+      case 'listen_select_cn': return w.meaning
       case 'cn_select_en':
-      case 'def_select_en': return w.word
+      case 'def_select_en':
+      case 'cn_select_sound':
+      case 'spell_block': return w.word
       case 'en_select_def':
       case 'sent_select_def': return wordDefinition(w, mode)
     }
@@ -181,7 +286,24 @@ function buildQuestion(
     if (distractors.length >= 3) break
   }
   const options = shuffleArray([answer, ...distractors.slice(0, 3)])
-  return { wordId: word.id, type, typeLabel: typeMeta.label, isSentence, question, options, answer }
+
+  const base: GeneratedWordQuestion = {
+    wordId: word.id,
+    type,
+    typeLabel: typeMeta.label,
+    isSentence,
+    question,
+    options,
+    answer,
+  }
+
+  if (type === 'spell_block') {
+    const answerBlocks = spellBlocksOf(word)
+    if (answerBlocks.length < 2) return null
+    return { ...base, answerBlocks, blockPool: buildBlockPool(answerBlocks, word, pool, affixes) }
+  }
+  if (type === 'cn_select_sound') return { ...base, optionAudio: true }
+  return base
 }
 
 /** SM-2 风格的下次复习间隔：答对一次，间隔按难度系数放大（复习模式用） */
@@ -195,13 +317,56 @@ function nextLearnInterval(w: WordData): number {
   return LEARN_LADDER[Math.min(w.reviewCount, LEARN_LADDER.length - 1)]
 }
 
-function speakEnglish(text: string) {
-  if (!text || typeof speechSynthesis === 'undefined') return
-  const u = new SpeechSynthesisUtterance(text)
-  u.lang = 'en-US'
-  u.rate = 0.85
+/** 语音模式：展示卡片时「单词 → 停顿 → 例句」的间隔 */
+const SPEECH_GAP_MS = 380
+
+/**
+ * 正在朗读的 utterance 必须留引用 —— 部分浏览器会在 GC 时把没引用的
+ * utterance 掐断，表现为"读一半停了"。
+ */
+let liveUtterances: SpeechSynthesisUtterance[] = []
+
+/** 掐掉当前朗读（换题 / 退出会话 / 离开页面时都要调） */
+function stopSpeaking() {
+  if (typeof speechSynthesis === 'undefined') return
+  liveUtterances = []
   speechSynthesis.cancel()
-  speechSynthesis.speak(u)
+}
+
+/**
+ * 顺序连读（如「英文单词 → 停顿 → 英文例句」）。
+ *
+ * 用 onend 串起来，而不是一口气 speak 多段 —— 浏览器对多段排队的语义并不一致，
+ * 后一段的 cancel 把前一段掐掉是常见现象（而且没有 onend 就没法插入停顿）。
+ */
+function speakSequence(texts: string[]) {
+  if (typeof speechSynthesis === 'undefined') return
+  const items = texts.map((t) => (t || '').trim()).filter(Boolean)
+  if (!items.length) return
+  stopSpeaking()
+  let i = 0
+  const next = () => {
+    if (i >= items.length) return
+    const u = new SpeechSynthesisUtterance(items[i])
+    // 第一段是单词：慢一点，给"记这个词"留时间；后面是例句，按正常语速
+    u.lang = 'en-US'
+    u.rate = i === 0 ? 0.8 : 0.9
+    const advance = () => {
+      i += 1
+      setTimeout(next, SPEECH_GAP_MS)
+    }
+    u.onend = advance
+    u.onerror = advance
+    liveUtterances.push(u)
+    speechSynthesis.speak(u)
+  }
+  next()
+}
+
+function speakEnglish(text: string) {
+  const t = (text || '').trim()
+  if (!t) return
+  speakSequence([t])
 }
 
 /** 解析 AI-1 输出的学习内容 JSON（容错：去掉代码块包裹 / 提取首尾花括号） */
@@ -214,6 +379,7 @@ interface ParsedLearningJSON {
     definitionEn?: string
     exampleEn?: string
     exampleZh?: string
+    morphemes?: unknown
   }>
   sentences: Array<{
     sentenceEn?: string
@@ -248,6 +414,15 @@ function parseLearningJSON(raw: string): ParsedLearningJSON {
 // ============================================================
 // 长难句 / 翻译练习 共享工具（提取指令、判分、踩分点序列化）
 // ============================================================
+
+/**
+ * AI 给的词素切分归一 —— 跟后端 runner 同一口径：形状交给 parseMorphemes 清洗，
+ * 再要求各段按顺序拼回来正好等于原词，拼不回来就整组丢弃。
+ */
+function normalizeAiMorphemes(raw: unknown, word: string): Morpheme[] {
+  const list = parseMorphemes(Array.isArray(raw) ? JSON.stringify(raw) : undefined)
+  return isValidMorphemeSplit(word, list) ? list : []
+}
 
 /** AI 返回的数组字段归一：string[] / 分隔符字符串 / 其它 → 干净的 string[] */
 function toStringArray(raw: unknown): string[] {
@@ -313,7 +488,8 @@ function buildLearningInstruction(
     tasks.push(
       `生词卡片：从原文中挑选 ${o.wordCount} 个学术核心单词，每条含 ` +
         `word / phonetic / meaning(中文释义，简短短语) / definitionCn(中文解释，一句话) / ` +
-        `definitionEn(英文解释，一句话) / exampleEn(原文中含该词的那句，逐字) / exampleZh(该例句的中文译文)`,
+        `definitionEn(英文解释，一句话) / exampleEn(原文中含该词的那句，逐字) / exampleZh(该例句的中文译文) / ` +
+        `morphemes(词根词缀切分，见下方规则)`,
     )
   }
   if (o.sentences) {
@@ -347,7 +523,7 @@ function buildLearningInstruction(
   const schema: string[] = []
   if (o.words) {
     schema.push(
-      '  "words": [{"word":"...","phonetic":"...","meaning":"...","definitionCn":"...","definitionEn":"...","exampleEn":"...","exampleZh":"..."}]',
+      '  "words": [{"word":"...","phonetic":"...","meaning":"...","definitionCn":"...","definitionEn":"...","exampleEn":"...","exampleZh":"...","morphemes":[{"text":"...","type":"prefix|root|suffix|connective","meaning":"..."}]}]',
     )
   }
   if (o.sentences) {
@@ -370,6 +546,7 @@ function buildLearningInstruction(
     '- translations **只输出两个方向的 scoring_points**，不得输出 originalText / reference_translation / 任何译文',
     '- 源材料未涉及的字段用 [NOT_IN_SOURCE] <字段名> 标注',
     '- 输出语言：word / definitionEn / exampleEn 这些字段用英文（exampleEn 必须逐字来自原文），meaning / definitionCn / exampleZh / 译文 / 踩分点用中文',
+    '- morphemes 是词根词缀切分：各段 text 按顺序拼起来必须正好等于 word（一个字母都不能差）；拆不出就给空数组 []，**不要硬拆**；type 取 prefix/root/suffix/connective（connective = 连接元音，如 photocatalysis 里的 o、i）',
   )
   return lines.join('\n')
 }
@@ -779,6 +956,7 @@ export default function LearnPage() {
           definitionEn: w.definitionEn || '',
           exampleEn: w.exampleEn || '',
           exampleZh: w.exampleZh || '',
+          morphemes: normalizeAiMorphemes(w.morphemes, w.word || ''),
           sourceDoi: selectedPaper,
           status: 'new',
           addedAt: now,
@@ -1002,13 +1180,20 @@ interface WordStudySettings {
 const DEFAULT_WORD_SETTINGS: WordStudySettings = {
   queueLength: 5,
   masterRounds: 3,
-  questionTypes: ['en_select_cn'],
+  // 默认全选 —— 新加的听音/拼写题型若不进默认值，用户根本见不到它们
+  questionTypes: [...ALL_QUESTION_TYPES],
   allowZhan: true,
   voiceEnabled: true,
 }
 
 /** 「掌握条件」可选的轮数（走满这么多轮才算掌握） */
 const MASTER_ROUND_OPTIONS = [3, 5, 7]
+
+/** 开始页把两种模式说清楚：语音模式下卡片会连读，听音类题型也才可选 */
+const VOICE_MODE_OPTIONS: { on: boolean; label: string; hint: string }[] = [
+  { on: true, label: '语音模式', hint: '卡片自动连读「单词 → 例句」' },
+  { on: false, label: '静音模式', hint: '不出声，听音类题型不可用' },
+]
 
 /**
  * 学习会话状态（移植自 CAT StudySession）
@@ -1045,10 +1230,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const [selected, setSelected] = useState<string | null>(null)
   const [answered, setAnswered] = useState(false)
   const [showCard, setShowCard] = useState(false)
+  /** 拼写题：已点选的字块在 blockPool 里的下标（按位置，可含重复值） */
+  const [spellPicked, setSpellPicked] = useState<number[]>([])
   /** 当前这道题是不是"本会话第一次遇到这个词" —— 是的话答完要亮卡片（先测后看） */
   const [firstAsk, setFirstAsk] = useState(false)
   const [finished, setFinished] = useState<StudySession | null>(null)
   const [nowTick, setNowTick] = useState(Date.now())
+  /** 词素表：拼写题的干扰块池（词库大了，本组词素不够用） */
+  const [affixes, setAffixes] = useState<AffixData[]>([])
   /** 答对后自动跳下一题的定时器（退出会话/卸载时清理） */
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 单词卡滚动时间戳：滚动后 250ms 内的点击视为滚动误触，不触发翻页（借鉴快速刷题流） */
@@ -1056,6 +1245,17 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   useEffect(() => () => {
     if (autoTimer.current) clearTimeout(autoTimer.current)
+    // 离开学习页时别让朗读继续念（组件卸载 / 切走路由）
+    stopSpeaking()
+  }, [])
+
+  // 词素表：只在拼写题需要干扰块时才有用，读失败不影响主流程
+  useEffect(() => {
+    let cancelled = false
+    loadAffixes()
+      .then((list) => { if (!cancelled) setAffixes(list) })
+      .catch(() => { /* 没有词素表也能出拼写题，只是块池小一点 */ })
+    return () => { cancelled = true }
   }, [])
 
   // 每分钟刷新一次"待复习"判断
@@ -1065,6 +1265,33 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   }, [])
 
   const byId = useMemo(() => new Map(words.map((w) => [w.id, w])), [words])
+
+  /**
+   * 本轮实际可用的题型。
+   * 会话里的 typeIdx 全部以它为基准（出题 / 推进 / 轮次显示 / 掌握判定），
+   * 这样静音模式剔掉听音类之后，下标不会错位。
+   */
+  const activeTypes = useMemo(
+    () => availableTypes(settings.questionTypes, settings.voiceEnabled),
+    [settings.questionTypes, settings.voiceEnabled],
+  )
+
+  // ── 语音：卡片展开时连读「英文单词 → 停顿 → 英文例句」 ──
+  // 只在卡片上读、不在答题前读：答题前读例句等于把挖空题的答案念出来。
+  useEffect(() => {
+    if (!settings.voiceEnabled || !showCard || !question) return
+    const w = byId.get(question.wordId)
+    if (w) speakSequence([w.word, w.exampleEn])
+    // 只认"卡片是否展开 + 当前是哪道题"：byId 会随答题写回而换身份，
+    // 进了依赖会导致同一张卡反复朗读。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCard, question?.wordId, settings.voiceEnabled])
+
+  // ── 语音：听音选中文要靠"放音"出题，题目一换就自动放一次 ──
+  useEffect(() => {
+    if (!settings.voiceEnabled || showCard || !question) return
+    if (question.type === 'listen_select_cn') speakEnglish(question.question)
+  }, [question, showCard, settings.voiceEnabled])
 
   // 统计（对齐 CAT wordStats）
   const stats = useMemo(() => {
@@ -1093,12 +1320,16 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         ? p.wordQuestionTypes.filter((t): t is WordQuestionType =>
             WORD_QUESTION_TYPES.some((wt) => wt.key === t))
         : []
+      // 新加的题型对"以前存下的列表"无从表态：不补进去，老用户永远看不到它们
+      const mergedTypes = savedTypes.length
+        ? [...savedTypes, ...NEW_QUESTION_TYPES.filter((t) => !savedTypes.includes(t))]
+        : []
       const ql = p.wordQueueLength
       const mr = p.wordMasterRounds
       setSettings((prev) => ({
         queueLength: ql !== undefined && [5, 7, 9].includes(ql) ? ql : prev.queueLength,
         masterRounds: mr !== undefined && MASTER_ROUND_OPTIONS.includes(mr) ? mr : prev.masterRounds,
-        questionTypes: savedTypes.length > 0 ? savedTypes : prev.questionTypes,
+        questionTypes: mergedTypes.length > 0 ? mergedTypes : prev.questionTypes,
         allowZhan: typeof p.wordAllowZhan === 'boolean' ? p.wordAllowZhan : prev.allowZhan,
         voiceEnabled: typeof p.wordVoiceEnabled === 'boolean' ? p.wordVoiceEnabled : prev.voiceEnabled,
       }))
@@ -1129,7 +1360,16 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
    * 卡片改为"答完才亮"：不再有开头的预展卡（先测后看），见 submitAnswer。
    */
   const presentQuestion = useCallback((s: StudySession) => {
-    const type = settings.questionTypes[s.typeIdx]
+    // 换题先掐掉上一题的朗读，免得听音题的发音跟下一题叠在一起
+    stopSpeaking()
+    const type = activeTypes[s.typeIdx]
+    if (!type) {
+      // 静音模式可能把当前这一轮题型整轮剔掉（设置变了之类的边角情形）：安全收尾
+      setFinished(s)
+      setSession(null)
+      setQuestion(null)
+      return
+    }
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
     const eligible = pool.filter((w) => isWordEligible(w, type, s.mode))
     // 有待重做的错题时优先它；否则按 wordIdx 走第一遍
@@ -1142,7 +1382,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       return
     }
     const w = byId.get(wid)
-    const q = w ? buildQuestion(w, type, eligible, s.mode) : null
+    const q = w ? buildQuestion(w, type, eligible, s.mode, affixes) : null
     if (!q) {
       setFinished(s)
       setSession(null)
@@ -1156,13 +1396,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     setQuestion(q)
     setSelected(null)
     setAnswered(false)
+    setSpellPicked([])
     setFirstAsk(isFirst)
     setShowCard(false)
-  }, [byId, settings.questionTypes])
+  }, [byId, activeTypes, affixes])
 
   /** 推进到下一题：本轮还有下一个词就走，走完则切下一个"有题可出"的题型 */
   const advance = useCallback((s: StudySession) => {
-    const types = settings.questionTypes
+    const types = activeTypes
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
     const eligibleNow = pool.filter((w) => isWordEligible(w, types[s.typeIdx], s.mode))
 
@@ -1183,7 +1424,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     setFinished(s)
     setSession(null)
     setQuestion(null)
-  }, [byId, settings.questionTypes, presentQuestion])
+  }, [byId, activeTypes, presentQuestion])
 
   const startSession = useCallback((mode: 'learn' | 'review') => {
     let queue: WordData[]
@@ -1208,7 +1449,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     }
     // 选第一个对这组词"有题可出"的题型
     let typeIdx = -1
-    settings.questionTypes.some((t, i) => {
+    activeTypes.some((t, i) => {
       if (queue.some((w) => isWordEligible(w, t, mode))) { typeIdx = i; return true }
       return false
     })
@@ -1229,7 +1470,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       wrongCount: 0,
       masteredCount: 0,
     })
-  }, [words, settings, presentQuestion])
+  }, [words, settings, activeTypes, presentQuestion])
 
   /** 选中即判定（无确认按钮）：对 → 短暂高亮后自动下一题；错 → 弹单词卡 */
   const submitAnswer = useCallback((option: string) => {
@@ -1245,7 +1486,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       const correctTypes = { ...session.correctTypes, [wid]: doneTypes }
       const masterRounds = settings.masterRounds
       const mode = session.mode
-      const selectedTypes = settings.questionTypes
+      const selectedTypes = activeTypes
 
       // 先用当前词数据算好新状态（避免在 setState 更新器里做计数副作用）
       const cur = byId.get(wid)
@@ -1310,7 +1551,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         wrongCount: session.wrongCount + 1,
       })
     }
-  }, [session, question, answered, firstAsk, settings.masterRounds, settings.questionTypes, setWords, onStudied, byId, advance])
+  }, [session, question, answered, firstAsk, settings.masterRounds, activeTypes, setWords, onStudied, byId, advance])
 
   /** 看完卡片后继续：答错的那道题就地重做，其余按正常顺序推进 */
   const handleNext = useCallback(() => {
@@ -1344,12 +1585,38 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   const exitSession = useCallback(() => {
     if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null }
+    stopSpeaking()
     setSession(null)
     setQuestion(null)
     setFinished(null)
     setShowCard(false)
     setAnswered(false)
+    setSpellPicked([])
   }, [])
+
+  // ── 拼写题：点击字块拼词（凑满答案块数即自动判定） ──
+  /** 点一个字块 → 追加到答案槽；槽填满就提交 */
+  const pickBlock = useCallback((blockIdx: number) => {
+    if (!question?.answerBlocks || !question.blockPool) return
+    if (answered || showCard) return
+    if (spellPicked.includes(blockIdx)) return
+    const next = [...spellPicked, blockIdx]
+    setSpellPicked(next)
+    if (next.length === question.answerBlocks.length) {
+      submitAnswer(next.map((i) => question.blockPool![i]).join(''))
+    }
+  }, [question, answered, showCard, spellPicked, submitAnswer])
+
+  /** 点已填的槽 → 把它取下来（后面的槽依次前移，保持"填满即判定"的语义） */
+  const removeBlockAt = useCallback((slot: number) => {
+    if (answered || showCard) return
+    setSpellPicked((prev) => prev.filter((_, i) => i !== slot))
+  }, [answered, showCard])
+
+  const undoBlock = useCallback(() => {
+    if (answered || showCard) return
+    setSpellPicked((prev) => prev.slice(0, -1))
+  }, [answered, showCard])
 
   const handleAddWord = (word: WordData) => {
     setWords((prev) => [...prev, word])
@@ -1408,7 +1675,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   // ── 答题中 ──
   if (session && question) {
-    const currentType = settings.questionTypes[session.typeIdx]
+    const currentType = activeTypes[session.typeIdx]
     const pool = session.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
     const eligible = pool.filter((w) => isWordEligible(w, currentType, session.mode))
     const isRetry = session.retryId !== null
@@ -1421,7 +1688,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         <div className="bg-paper-50 rounded-xl border border-ink-200 p-4">
           <div className="flex items-center justify-between text-sm text-ink-500 mb-2">
             <span>
-              第 {session.wordIdx + 1}/{eligible.length} 题 · 第 {session.typeIdx + 1}/{settings.questionTypes.length} 轮
+              第 {session.wordIdx + 1}/{eligible.length} 题 · 第 {session.typeIdx + 1}/{activeTypes.length} 轮
             </span>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 bg-seal-50 text-seal-700 rounded text-xs font-medium">
@@ -1450,10 +1717,30 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   </span>
                 ))}
               </p>
+            ) : question.type === 'listen_select_cn' ? (
+              /* 听音题：题面不写单词，只给"放音"按钮 —— 写了就等于把答案给人看 */
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => speakEnglish(question.question)}
+                  disabled={showCard}
+                  className="w-20 h-20 rounded-full bg-seal-50 text-seal-600 hover:bg-seal-100 transition flex items-center justify-center mx-auto disabled:opacity-40"
+                  title="再听一遍"
+                >
+                  <Volume2 className="w-9 h-9" />
+                </button>
+                <p className="mt-3 text-xs text-ink-400">听发音，选出正确的中文释义（点喇叭可重听）</p>
+              </div>
+            ) : question.type === 'spell_block' ? (
+              /* 拼写题：题面是中文，读英文就等于报答案，所以这里没有喇叭 */
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-ink-800">{question.question}</h2>
+                <p className="mt-2 text-xs text-ink-400">按顺序点字块，拼出对应的英文单词</p>
+              </div>
             ) : (
               <div className="flex items-center justify-center gap-3">
                 <h2 className="text-3xl font-bold text-ink-800 break-all">{question.question}</h2>
-                {settings.voiceEnabled && (
+                {settings.voiceEnabled && QUESTION_SPEAKABLE_TYPES.includes(question.type) && (
                   <button
                     onClick={() => speakEnglish(question.question)}
                     className="p-2 text-ink-400 hover:text-seal-600 transition"
@@ -1466,44 +1753,124 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             )}
           </div>
 
-          {/* 选项（选中即判定，无确认按钮） */}
-          <div className="space-y-3">
-            {question.options.map((option, idx) => {
-              const isSelected = selected === option
-              const isCorrectOpt = answered && option === question.answer
-              const isWrongPick = answered && isSelected && option !== question.answer
-              // 色彩语义（借鉴快速刷题流）：答对→选中项绿；答错→错选红 + 正解橙提示
-              const isPickedCorrect = isCorrectOpt && isSelected
-              const isMissedCorrect = isCorrectOpt && !isSelected
-              let cls = 'w-full p-3.5 text-left rounded-lg border transition flex items-center gap-3 '
-              if (answered) {
-                if (isPickedCorrect) cls += 'bg-green-50 border-green-500 text-green-800'
-                else if (isWrongPick) cls += 'bg-red-50 border-red-500 text-red-800'
-                else if (isMissedCorrect) cls += 'bg-amber-50 border-amber-500 text-amber-800'
-                else cls += 'bg-paper-100 border-ink-200 text-ink-400'
-              } else {
-                cls += 'bg-paper-50 border-ink-300 text-ink-700 hover:border-seal-400 hover:bg-seal-50/40 cursor-pointer'
-              }
-              return (
+          {/* 作答区：拼写题点字块，其余是四选一（选中即判定，无确认按钮） */}
+          {question.type === 'spell_block' && question.answerBlocks && question.blockPool ? (
+            <div className="space-y-4">
+              {/* 答案槽：一个词素一个槽，块数即槽数 */}
+              <div className="flex flex-wrap justify-center gap-2">
+                {question.answerBlocks.map((_, slot) => {
+                  const bi = spellPicked[slot]
+                  const filled = bi !== undefined
+                  let slotCls = 'min-w-[2.75rem] h-11 px-2 rounded-lg border-2 flex items-center justify-center text-base font-semibold transition '
+                  if (answered) {
+                    slotCls += selected === question.answer
+                      ? 'border-green-500 bg-green-50 text-green-800'
+                      : 'border-red-500 bg-red-50 text-red-800'
+                  } else if (filled) {
+                    slotCls += 'border-seal-400 bg-seal-50 text-seal-700 cursor-pointer'
+                  } else {
+                    slotCls += 'border-dashed border-ink-300 bg-paper-50 text-ink-300'
+                  }
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => removeBlockAt(slot)}
+                      disabled={answered || showCard || !filled}
+                      className={slotCls}
+                      title={filled ? '点一下取下来' : undefined}
+                    >
+                      {filled ? question.blockPool![bi] : '·'}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* 块池：点一块填一个槽 */}
+              <div className="flex flex-wrap justify-center gap-2 pt-3 border-t border-ink-100">
+                {question.blockPool.map((block, j) => {
+                  const used = spellPicked.includes(j)
+                  return (
+                    <button
+                      key={`${block}-${j}`}
+                      type="button"
+                      onClick={() => pickBlock(j)}
+                      disabled={used || answered || showCard}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+                        used
+                          ? 'border-ink-200 bg-paper-100 text-ink-300 cursor-default'
+                          : 'border-ink-300 bg-paper-50 text-ink-700 hover:border-seal-400 hover:bg-seal-50/40'
+                      } disabled:cursor-not-allowed`}
+                    >
+                      {block}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="flex justify-center">
                 <button
-                  key={`${option}-${idx}`}
-                  onClick={() => submitAnswer(option)}
-                  disabled={answered || showCard}
-                  className={cls}
+                  type="button"
+                  onClick={undoBlock}
+                  disabled={answered || showCard || spellPicked.length === 0}
+                  className="px-4 py-1.5 text-xs text-ink-500 bg-ink-100 hover:bg-ink-200 rounded-lg transition disabled:opacity-40"
                 >
-                  <span className={`shrink-0 w-7 h-7 rounded-full text-center leading-7 text-sm font-bold ${
-                    isPickedCorrect ? 'bg-green-500 text-paper-50'
-                      : isWrongPick ? 'bg-red-500 text-paper-50'
-                      : isMissedCorrect ? 'bg-amber-500 text-paper-50'
-                      : 'bg-ink-100 text-ink-500'
-                  }`}>
-                    {String.fromCharCode(65 + idx)}
-                  </span>
-                  <span className="text-sm leading-snug">{option}</span>
+                  撤销上一个
                 </button>
-              )
-            })}
-          </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {question.options.map((option, idx) => {
+                const isSelected = selected === option
+                const isCorrectOpt = answered && option === question.answer
+                const isWrongPick = answered && isSelected && option !== question.answer
+                // 色彩语义（借鉴快速刷题流）：答对→选中项绿；答错→错选红 + 正解橙提示
+                const isPickedCorrect = isCorrectOpt && isSelected
+                const isMissedCorrect = isCorrectOpt && !isSelected
+                let cls = 'flex-1 min-w-0 p-3.5 text-left rounded-lg border transition flex items-center gap-3 '
+                if (answered) {
+                  if (isPickedCorrect) cls += 'bg-green-50 border-green-500 text-green-800'
+                  else if (isWrongPick) cls += 'bg-red-50 border-red-500 text-red-800'
+                  else if (isMissedCorrect) cls += 'bg-amber-50 border-amber-500 text-amber-800'
+                  else cls += 'bg-paper-100 border-ink-200 text-ink-400'
+                } else {
+                  cls += 'bg-paper-50 border-ink-300 text-ink-700 hover:border-seal-400 hover:bg-seal-50/40 cursor-pointer'
+                }
+                return (
+                  // 中选读音题要在**每个选项外面**挂小喇叭：喇叭不能压在选项按钮里，
+                  // 否则点喇叭会被当成"选了这一项"直接提交。
+                  <div key={`${option}-${idx}`} className="flex items-stretch gap-2">
+                    {question.optionAudio && (
+                      <button
+                        type="button"
+                        onClick={() => speakEnglish(option)}
+                        className="shrink-0 w-11 rounded-lg border border-ink-200 bg-paper-50 text-ink-400 hover:text-seal-600 hover:border-seal-300 transition flex items-center justify-center"
+                        title="试听这个读音"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => submitAnswer(option)}
+                      disabled={answered || showCard}
+                      className={cls}
+                    >
+                      <span className={`shrink-0 w-7 h-7 rounded-full text-center leading-7 text-sm font-bold ${
+                        isPickedCorrect ? 'bg-green-500 text-paper-50'
+                          : isWrongPick ? 'bg-red-500 text-paper-50'
+                          : isMissedCorrect ? 'bg-amber-500 text-paper-50'
+                          : 'bg-ink-100 text-ink-500'
+                      }`}>
+                        {String.fromCharCode(65 + idx)}
+                      </span>
+                      <span className="text-sm leading-snug">{option}</span>
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* 操作区：只剩斩词 / 退出（答对自动跳、答错展卡） */}
           <div className="mt-6 flex gap-3">
@@ -1567,8 +1934,10 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   {currentWord.phonetic && <span className="text-sm text-ink-400">{currentWord.phonetic}</span>}
                   {settings.voiceEnabled && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); speakEnglish(currentWord.word) }}
+                      // 卡片上的喇叭跟"语音模式自动连读"保持一致：单词 → 例句
+                      onClick={(e) => { e.stopPropagation(); speakSequence([currentWord.word, currentWord.exampleEn]) }}
                       className="text-ink-400 hover:text-seal-600"
+                      title="连读单词与例句"
                     >
                       <Volume2 className="w-4 h-4" />
                     </button>
@@ -1576,6 +1945,30 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 </div>
                 <p className="text-lg text-seal-600 font-medium mt-2">{currentWord.meaning}</p>
               </div>
+              {/*
+                词根词缀：拆得开才拆（各段按顺序拼回来必须正好等于原词）。
+                拆不开就整块不显示 —— 硬拆出来的碎片比不拆更误导人。
+              */}
+              {isValidMorphemeSplit(currentWord.word, currentWord.morphemes) && (
+                <div className="mt-3 p-3 bg-paper-100 rounded-lg">
+                  <div className="text-[0.6875rem] font-medium text-ink-400 mb-2">词根词缀</div>
+                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+                    {currentWord.morphemes.map((m, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5">
+                        <span className="inline-flex flex-col items-center px-2 py-1 rounded-md bg-seal-50">
+                          <span className="text-sm font-semibold text-seal-700">{m.text}</span>
+                          <span className="text-[0.625rem] text-ink-400">
+                            {MORPHEME_TYPE_LABELS[m.type]}{m.meaning ? ` · ${m.meaning}` : ''}
+                          </span>
+                        </span>
+                        {i < currentWord.morphemes.length - 1 && (
+                          <span className="text-ink-300 font-bold">+</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {/*
                 卡片上「英文的都要配中文」—— 一开始学的人看不懂英文例句/英文解释，
                 只给英文等于没给。所以四个字段成对出现：
@@ -1705,16 +2098,24 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 {WORD_QUESTION_TYPES.map((t) => {
                   const Icon = t.icon
                   const checked = settings.questionTypes.includes(t.key)
+                  // 听音类题型在静音模式下用不了：灰掉但保留勾选，切回语音模式即恢复
+                  const needsVoice = !settings.voiceEnabled && VOICE_ONLY_TYPES.includes(t.key)
                   return (
                     <label
                       key={t.key}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm cursor-pointer transition ${
-                        checked ? 'bg-seal-50 border-seal-300 text-seal-700' : 'bg-paper-100 border-ink-200 text-ink-500'
+                      title={needsVoice ? '该题型需要语音模式' : undefined}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition ${
+                        needsVoice
+                          ? 'bg-paper-100 border-ink-200 text-ink-300 cursor-not-allowed'
+                          : checked
+                            ? 'bg-seal-50 border-seal-300 text-seal-700 cursor-pointer'
+                            : 'bg-paper-100 border-ink-200 text-ink-500 cursor-pointer'
                       }`}
                     >
                       <input
                         type="checkbox"
                         className="accent-seal-600"
+                        disabled={needsVoice}
                         checked={checked}
                         onChange={(e) => {
                           setSettings((p) => {
@@ -1728,12 +2129,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                       />
                       <Icon className="w-3.5 h-3.5" />
                       {t.label}
+                      {needsVoice && <span className="text-[0.625rem]">需语音</span>}
                     </label>
                   )
                 })}
               </div>
               <p className="text-xs text-ink-400 mt-1.5">
-                定义/例句类题型需要单词含有 definition_cn 或原文例句，缺字段的词会自动跳过该轮
+                定义/例句类题型需要单词含有 definition_cn 或原文例句，缺字段的词会自动跳过该轮；
+                拼写题按词根词缀切块，切不出来的词退化成逐字母拼写
               </p>
             </div>
 
@@ -1757,6 +2160,29 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
               </p>
             </div>
 
+            <div>
+              <label className="block text-sm text-ink-600 mb-2">学习模式</label>
+              <div className="flex flex-wrap gap-2">
+                {VOICE_MODE_OPTIONS.map((o) => (
+                  <button
+                    key={o.label}
+                    onClick={() => setSettings((p) => ({ ...p, voiceEnabled: o.on }))}
+                    className={`px-4 py-1.5 rounded-lg text-sm transition ${
+                      settings.voiceEnabled === o.on
+                        ? 'bg-seal-600 text-paper-50'
+                        : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-ink-400 mt-1.5">
+                {VOICE_MODE_OPTIONS.find((o) => o.on === settings.voiceEnabled)?.hint}
+                ；语音模式下答完题展开单词卡会先读单词、停顿后再读例句
+              </p>
+            </div>
+
             <div className="flex items-center gap-6 pt-1">
               <label className="flex items-center gap-2 text-sm text-ink-600 cursor-pointer">
                 <input
@@ -1766,15 +2192,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   onChange={(e) => setSettings((p) => ({ ...p, allowZhan: e.target.checked }))}
                 />
                 允许斩词
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="accent-seal-600"
-                  checked={settings.voiceEnabled}
-                  onChange={(e) => setSettings((p) => ({ ...p, voiceEnabled: e.target.checked }))}
-                />
-                朗读发音
               </label>
             </div>
           </div>
@@ -1831,6 +2248,7 @@ function PracticePanel({
   storedMissed,
   onSavePoints,
   onSubmitResult,
+  voiceOn,
 }: {
   /** 题目唯一键：切换题目时重置作答/结果 */
   itemKey: string
@@ -1848,6 +2266,8 @@ function PracticePanel({
   storedMissed: string
   onSavePoints: (points: string[]) => void
   onSubmitResult: (answer: string, result: GradeResult) => void
+  /** 语音模式：题面旁给一个朗读按钮（长难句用；翻译练习不传） */
+  voiceOn?: boolean
 }) {
   const [answer, setAnswer] = useState(storedAnswer)
   const [grading, setGrading] = useState(false)
@@ -1920,7 +2340,19 @@ function PracticePanel({
           )}
           <span className="text-xs font-medium text-ink-400">{directionLabel ? '原文（请翻译）' : '英文长难句'}</span>
         </div>
-        <p className="text-lg text-ink-800 leading-relaxed">{question}</p>
+        <div className="flex items-start gap-3">
+          <p className="text-lg text-ink-800 leading-relaxed flex-1">{question}</p>
+          {voiceOn && (
+            <button
+              type="button"
+              onClick={() => speakEnglish(question)}
+              className="shrink-0 p-2 text-ink-400 hover:text-seal-600 transition"
+              title="朗读这句"
+            >
+              <Volume2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
         {note && <p className="mt-2 text-xs text-amber-600">难点：{note}</p>}
       </div>
 
@@ -2183,6 +2615,12 @@ function SentenceSection({
 }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
+  /**
+   * 长难句也有"语音 / 静音"两个模式，跟单词页共用同一个偏好
+   * （settings/learning_progress.md 的 word_voice_enabled）。
+   * 两个页签是互斥渲染的，切过来会重新 loadProgress（命中缓存），所以能拿到最新值。
+   */
+  const [voiceOn, setVoiceOn] = useState(false)
 
   // 批量补提状态
   const [batchRunning, setBatchRunning] = useState(false)
@@ -2203,6 +2641,7 @@ function SentenceSection({
         const idx = saved.sentenceCurrentIndex ?? 0
         const safeIdx = sentences.length > 0 ? idx % sentences.length : 0
         setCurrentIndex(safeIdx)
+        setVoiceOn(saved.wordVoiceEnabled === true)
       } catch (err) {
         console.error('[Learn] SentenceSection 加载进度失败:', err)
       }
@@ -2215,8 +2654,19 @@ function SentenceSection({
     updateProgress({ sentenceCurrentIndex: currentIndex })
   }, [currentIndex])
 
+  // 切走/卸载时掐掉朗读，别让上一页的句子在这里继续念
+  useEffect(() => () => stopSpeaking(), [])
+
   const safeIndex = sentences.length > 0 ? currentIndex % sentences.length : 0
   const currentSentence = sentences.length > 0 ? sentences[safeIndex] : undefined
+
+  // 语音模式：换句就自动读一遍英文原句（读的是原文，不是译文 —— 译文是答案）
+  useEffect(() => {
+    if (!voiceOn || !currentSentence) return
+    speakEnglish(currentSentence.sentenceEn)
+    // 只认"换到哪一句"，句子实体每次渲染都是新对象，不能进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceOn, safeIndex, currentSentence?.id])
 
   const handlePrev = () => {
     setCurrentIndex((i) => (i - 1 + sentences.length) % sentences.length)
@@ -2357,8 +2807,24 @@ function SentenceSection({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-3">
-        <div className="text-sm text-ink-500">
-          进度：{sentences.length > 0 ? `${safeIndex + 1} / ${sentences.length}` : '0 / 0'}
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-ink-500">
+            进度：{sentences.length > 0 ? `${safeIndex + 1} / ${sentences.length}` : '0 / 0'}
+          </div>
+          {/* 长难句的两个模式：开语音时换句自动朗读英文原句 */}
+          <div className="flex items-center gap-1 bg-paper-50 border border-ink-200 rounded-lg p-0.5">
+            {VOICE_MODE_OPTIONS.map((o) => (
+              <button
+                key={o.label}
+                onClick={() => { setVoiceOn(o.on); updateProgress({ wordVoiceEnabled: o.on }) }}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                  voiceOn === o.on ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -2408,6 +2874,7 @@ function SentenceSection({
             storedAnswer={currentSentence.latestUserTranslation}
             storedFeedback={currentSentence.latestAiFeedback}
             storedMissed={currentSentence.latestErrorWords}
+            voiceOn={voiceOn}
             onSavePoints={(points) => patchCurrent({ scoringPoints: points })}
             onSubmitResult={(ans, r) => patchCurrent({
               latestUserTranslation: ans,
@@ -2760,6 +3227,8 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
       definitionEn: definitionEn.trim() || '',
       exampleEn: exampleEn.trim() || '',
       exampleZh: exampleZh.trim() || '',
+      // 手动添加不给切分入口（改切分是"额外事件"，在文献编辑里做）
+      morphemes: [],
       sourceDoi: '',
       status: 'learning',
       addedAt: Date.now(),
