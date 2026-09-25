@@ -3,7 +3,7 @@
  * ------------------------------------------------------------
  * 定位：**人来校对，工具负责跳转与呈现**。不在这里自动改内容。
  * 三类清单（图 / 表 / 公式），点一条就跳到正文对应位置并高亮：
- *   - 图：看图和图注（alt）是否对得上、有没有画错
+ *   - 图：看图和图注（alt）是否对得上、有没有画错；顺手可以把尺寸调小（填百分比）
  *   - 表：看表头 / 数据 / 对齐有没有错
  *   - 公式：行内行间全拎出来（AI 识图或手打都容易错正体斜体），
  *           可以「跳过去看」也可以「就地改这一条」
@@ -15,6 +15,7 @@ import { useMemo, useState } from 'react'
 import { Image as ImageIcon, Table2, FunctionSquare, Crosshair, Pencil, Check } from 'lucide-react'
 import katex from 'katex'
 import { parseImages, parseTables, parseFormulas } from '../services/formula'
+import { parseImageSize, type ImageSize } from '../services/editorImages'
 
 type Kind = 'image' | 'table' | 'formula'
 
@@ -32,6 +33,8 @@ interface ProofreadPanelProps {
   onJump: (kind: Kind, index: number, match?: string) => void
   /** 打开公式侧栏改第 index 个公式（只改这一处，可再切全局） */
   onEditFormula: (index: number) => void
+  /** 改第 index 张图的尺寸（写回正文的 title 位） */
+  onResize: (index: number, size: ImageSize) => void
 }
 
 function renderKatex(tex: string, display: boolean): string {
@@ -46,7 +49,7 @@ function renderKatex(tex: string, display: boolean): string {
   }
 }
 
-export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadPanelProps) {
+export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: ProofreadPanelProps) {
   const [kind, setKind] = useState<Kind>('image')
   const [checked, setChecked] = useState<Set<string>>(new Set())
 
@@ -100,7 +103,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
           })}
         </div>
         <p className="text-[0.6875rem] text-ink-400 py-1.5 leading-snug">
-          点条目跳到正文对应位置；勾选只记在当前会话。
+          点条目跳到正文对应位置；勾选只记在当前会话。图片尺寸填百分比（如 60%）或 auto，改完即时生效。
         </p>
       </div>
 
@@ -130,6 +133,10 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
                     <span className="text-ink-400">图注：</span>
                     {img.alt || <span className="text-amber-600">（空 —— 图注缺了？）</span>}
                   </div>
+                  <ImageSizeControl
+                    size={parseImageSize(img.title) ?? {}}
+                    onChange={(s) => onResize(img.index, s)}
+                  />
                 </Row>
               )
             })
@@ -209,6 +216,60 @@ export default function ProofreadPanel({ md, onJump, onEditFormula }: ProofreadP
 
 function Empty({ text }: { text: string }) {
   return <p className="text-center text-sm text-ink-400 py-10">{text}</p>
+}
+
+/**
+ * 图片尺寸：宽 / 高各一栏，外加几个常用档位。
+ * 留空 = 交给正文流（按原图大小）；填百分比就是它在正文宽度里占多少，
+ * 导出 LaTeX 时同一个百分比映射到 \textwidth，两边看到的大小一致。
+ */
+function ImageSizeControl({
+  size,
+  onChange,
+}: {
+  size: ImageSize
+  onChange: (s: ImageSize) => void
+}) {
+  const set = (patch: Partial<ImageSize>) => {
+    const next: ImageSize = { ...size, ...patch }
+    if (!next.width?.trim()) delete next.width
+    if (!next.height?.trim()) delete next.height
+    onChange(next)
+  }
+
+  const inputCls =
+    'w-16 rounded border border-ink-200 bg-paper-50 px-1.5 py-0.5 text-[0.6875rem] text-ink-700 ' +
+    'focus:outline-none focus:ring-1 focus:ring-seal-400'
+
+  return (
+    <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+      <span className="text-[0.625rem] text-ink-400">尺寸</span>
+      <input
+        value={size.width ?? ''}
+        onChange={(e) => set({ width: e.target.value })}
+        placeholder="宽 auto"
+        className={inputCls}
+      />
+      <span className="text-[0.625rem] text-ink-300">×</span>
+      <input
+        value={size.height ?? ''}
+        onChange={(e) => set({ height: e.target.value })}
+        placeholder="高 auto"
+        className={inputCls}
+      />
+      {['100%', '75%', '50%', '25%'].map((p) => (
+        <button
+          key={p}
+          onClick={() => set({ width: p })}
+          className={`rounded px-1.5 py-0.5 text-[0.625rem] transition ${
+            size.width === p ? 'bg-seal-100 text-seal-700' : 'text-ink-400 hover:bg-ink-100'
+          }`}
+        >
+          {p}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function Row({

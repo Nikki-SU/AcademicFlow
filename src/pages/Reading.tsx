@@ -35,7 +35,7 @@ import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip
 import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Category } from '../services/categoryData'
 import { loadCategories as loadPaperCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
-import { loadNotes, saveNotes, loadProgress, saveProgress, type DocRef, type ReadingProgress } from '../services/readingDocData'
+import { loadNotes, saveNotes, loadProgress, saveProgress, notesPath, type DocRef, type ReadingProgress } from '../services/readingDocData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
@@ -3309,6 +3309,8 @@ const [aligned_content, set_aligned_content] = useState('')
                           : '记录这篇文献的笔记…'
                     }
                     className="h-full"
+                    docPath={notesPath(docRef)}
+                    imageSubDir="notes-images"
                   />
                 ) : (
                   <div className="text-center text-ink-400 py-8">

@@ -105,13 +105,14 @@ import {
   preflightCitations,
   type OnlineSearchResult,
 } from '../services/citation'
-import { readRepoTextFile, uploadRepoBinaryFile } from '../services/github'
+import { downloadRepoBinaryFile, readRepoTextFile, uploadRepoBinaryFile } from '../services/github'
 import { dispatchAiCall } from '../services/workflowClient'
 import { getRepoContext } from '../services/userData'
 import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
 import FormulaSidebar, { type FormulaEditTarget } from '../components/FormulaSidebar'
 import ProofreadPanel from '../components/ProofreadPanel'
-import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences } from '../services/formula'
+import CitationPanel from '../components/CitationPanel'
+import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, setImageSize } from '../services/formula'
 
 /**
  * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边。
@@ -131,6 +132,7 @@ const PANEL_MODES: {
   { value: 'template', label: '期刊模板', icon: LayoutTemplate, hint: '模板调试' },
   { value: 'typesetting', label: 'LaTeX 工作区', icon: FileCode },
   { value: 'proofread', label: '文稿校对', icon: ScanEye },
+  { value: 'citations', label: '引用表', icon: BookMarked },
   { value: 'ai', label: 'AI 助手', icon: Sparkles },
   { value: 'library', label: '文献库', icon: Library },
   { value: 'knowledge', label: '知识库', icon: GraduationCap },
@@ -157,6 +159,18 @@ const RUNTIME_MISSING_FILE_HINT =
 
 function withRuntimeHint(log: string): string {
   return /\.(sty|cls|def)['`]?\s*not found/i.test(log) ? RUNTIME_MISSING_FILE_HINT + log : log
+}
+
+/** 从 LaTeX 源码里抓出正文图片：md 里的仓库路径在编译前已削成 images/xxx，只认这一层 */
+function extractTexImagePaths(source: string): string[] {
+  const out = new Set<string>()
+  const re = /\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(source)) !== null) {
+    const p = m[1].trim()
+    if (/^images\//.test(p)) out.add(p)
+  }
+  return Array.from(out)
 }
 
 /**
@@ -475,6 +489,7 @@ type PanelMode =
   | 'template'
   | 'typesetting'
   | 'proofread'
+  | 'citations'
   | 'ai'
   | 'library'
   | 'knowledge'
@@ -1297,6 +1312,22 @@ export default function WritingPage() {
   const primaryEditor = () => leftEditorRef.current || rightEditorRef.current
 
   /**
+   * 跨栏联动：定这次操作该用哪一侧的编辑区。
+   *
+   * 编辑区已在某一侧显示 → 直接用那一侧，布局不动；
+   * 两侧都没有 → 把 `from` 的**对侧**切成编辑区，`from` 这一栏保持原样 ——
+   * 校对清单不会因为点一次跳转而消失，也不用再把它调回来。
+   * `mounted=false` 表示刚切换，Vditor 实例还没建，得等挂载完再调。
+   */
+  const pickEditor = (from: 'left' | 'right') => {
+    const visible =
+      leftPanelMode === 'editor' ? 'left' : rightPanelMode === 'editor' ? 'right' : null
+    const side = visible ?? (from === 'left' ? 'right' : 'left')
+    if (!visible) (side === 'left' ? setLeftPanelMode : setRightPanelMode)('editor')
+    return { ref: side === 'left' ? leftEditorRef : rightEditorRef, mounted: visible !== null }
+  }
+
+  /**
    * 跳到第 index 个标题。
    * 大纲挂在左侧导航里，编辑区可能在另一侧甚至当前没显示，所以先确保编辑区可见再滚动。
    */
@@ -1356,34 +1387,45 @@ export default function WritingPage() {
   const formatFormula = (tex: string, kind: 'inline' | 'block') =>
     kind === 'inline' ? ` $${tex}$ ` : `\n$$\n${tex}\n$$\n`
 
-  /** 打开公式侧栏；target 非空表示「改正文里第 N 个公式」 */
-  const openFormulaPanel = (target: FormulaEditTarget | null) => {
-    if (!(leftPanelMode === 'editor' || rightPanelMode === 'editor')) setLeftPanelMode('editor')
+  /** 打开公式侧栏；target 非空表示「改正文里第 N 个公式」。from = 发起侧 */
+  const openFormulaPanel = (target: FormulaEditTarget | null, from: 'left' | 'right' = 'left') => {
+    // 公式侧栏挂在编辑区面板内部，先确保编辑区在对侧可见
+    pickEditor(from)
     setFormulaEditTarget(target)
     setShowFormulaPanel(true)
   }
 
   /** 从校对清单点「改这条」：把正文里第 index 个公式丢进公式侧栏 */
-  const editFormulaAt = (index: number) => {
+  const editFormulaAt = (index: number, from: 'left' | 'right' = 'left') => {
     const f = parseFormulas(mdContent)[index]
     if (!f) return
-    openFormulaPanel({ index, tex: f.tex, kind: f.kind })
+    openFormulaPanel({ index, tex: f.tex, kind: f.kind }, from)
   }
 
   /**
    * 跳到正文里第 index 个「图 / 表 / 公式」（文稿校对用）。
-   * 编辑区可能在另一侧、或当前根本没显示 —— 先把它切出来，等挂载完再滚。
+   * `from` 是发起跳转的面板所在侧 —— 编辑区就在另一侧滚过去，不在则把那一侧开出来。
    *
    * `match` 传这一条的原文内容，编辑器优先按内容在 DOM 里认（序号法在 IR 模式下不可靠）。
    */
-  const jumpToBlock = (kind: 'image' | 'table' | 'formula', index: number, match?: string) => {
-    const editorVisible = leftPanelMode === 'editor' || rightPanelMode === 'editor'
-    if (!editorVisible) {
-      setLeftPanelMode('editor')
-      setTimeout(() => primaryEditor()?.scrollToBlock(kind, index, match), 140)
-      return
-    }
-    primaryEditor()?.scrollToBlock(kind, index, match)
+  const jumpToBlock = (
+    kind: 'image' | 'table' | 'formula',
+    index: number,
+    match?: string,
+    from: 'left' | 'right' = 'left',
+  ) => {
+    const { ref, mounted } = pickEditor(from)
+    if (mounted) ref.current?.scrollToBlock(kind, index, match)
+    else setTimeout(() => ref.current?.scrollToBlock(kind, index, match), 140)
+  }
+
+  /** 从引用表跳到正文里引用它的位置（同样跨栏：编辑区不在这一侧就滚到另一侧） */
+  const jumpToCitation = (doi: string, from: 'left' | 'right') => {
+    const marker = citationMarker(doi)
+    const { ref, mounted } = pickEditor(from)
+    const run = () => ref.current?.scrollToText(marker)
+    if (mounted) run()
+    else setTimeout(run, 140)
   }
 
   const exportMarkdown = () => {
@@ -2643,6 +2685,30 @@ export default function WritingPage() {
     return { files, missing: plan.missing }
   }
 
+  /**
+   * 正文里引用的图片：md 存的是仓库路径，编译目录里图片就挂在 images/ 下。
+   * 只取当前源码真引用到的那几张（项目图片目录可能攒了一堆没用的）。
+   */
+  const collectProjectImages = async (): Promise<Array<{ path: string; data: Uint8Array }>> => {
+    const ctx = getRepoContext()
+    if (!ctx || !activeProjectId) return []
+    const refs = extractTexImagePaths(latexCode)
+    if (refs.length === 0) return []
+    const files: Array<{ path: string; data: Uint8Array }> = []
+    for (const rel of refs) {
+      setCompileStatus(`正在加载图片 ${rel}...`)
+      const res = await downloadRepoBinaryFile(
+        ctx.owner,
+        ctx.repo,
+        `projects/${activeProjectId}/${rel}`,
+        ctx.token,
+      )
+      if (!res) continue
+      files.push({ path: rel, data: new Uint8Array(await res.blob.arrayBuffer()) })
+    }
+    return files
+  }
+
   /** 缺件提示：把文件名念出来，而不是让用户去日志里找 */
   const warnMissingTemplateAssets = (missing: string[]) => {
     if (missing.length === 0) return
@@ -2676,6 +2742,9 @@ export default function WritingPage() {
       const tplAssets = await collectTemplateAssets()
       warnMissingTemplateAssets(tplAssets.missing)
       additionalFiles.push(...tplAssets.files)
+
+      // 正文里的图片
+      additionalFiles.push(...(await collectProjectImages()))
 
       const result = await compileLatex({
         source: latexCode,
@@ -2726,6 +2795,7 @@ export default function WritingPage() {
       // 所以这些文件要在同一个目录里按相对路径存在。
       const tplAssets = await collectTemplateAssets()
       warnMissingTemplateAssets(tplAssets.missing)
+      const images = await collectProjectImages()
 
       const result = await compileOnGitHub(
         activeProjectId,
@@ -2734,7 +2804,7 @@ export default function WritingPage() {
         {
           onStage: (s) => setCompileStatus(s),
           onRunUrl: (url) => setCloudRunUrl(url),
-          extraFiles: tplAssets.files,
+          extraFiles: [...tplAssets.files, ...images],
         },
       )
       setPdfObjectUrl(createPdfObjectUrl(result.pdf))
@@ -3338,8 +3408,11 @@ export default function WritingPage() {
                     height="100%"
                     placeholder="开始撰写正文…"
                     toolbar={writingToolbar}
-                    onFormulaClick={() => openFormulaPanel(null)}
+                    onFormulaClick={() => openFormulaPanel(null, p.side)}
                     className="h-full"
+                    docPath={
+                      activeProject ? `projects/${activeProject.projectId}/manuscript.md` : undefined
+                    }
                   />
                 </div>
                 {/* 公式侧栏：编辑器内部的临时侧栏（点工具栏「公式」开关） */}
@@ -3359,7 +3432,7 @@ export default function WritingPage() {
                       handleEditorChange(next)
                       setSaveStatus('unsaved')
                     }}
-                    onJump={(index, tex) => jumpToBlock('formula', index, tex)}
+                    onJump={(index, tex) => jumpToBlock('formula', index, tex, p.side)}
                     editTarget={formulaEditTarget}
                     onConsumeEditTarget={() => setFormulaEditTarget(null)}
                     onClose={() => setShowFormulaPanel(false)}
@@ -3377,8 +3450,22 @@ export default function WritingPage() {
           {p.mode === 'proofread' && (
             <ProofreadPanel
               md={mdContent}
-              onJump={jumpToBlock}
-              onEditFormula={(index) => editFormulaAt(index)}
+              onJump={(kind, index, match) => jumpToBlock(kind, index, match, p.side)}
+              onEditFormula={(index) => editFormulaAt(index, p.side)}
+              onResize={(index, size) => {
+                handleEditorChange(setImageSize(mdContent, index, size))
+                setSaveStatus('unsaved')
+              }}
+            />
+          )}
+
+          {p.mode === 'citations' && (
+            <CitationPanel
+              md={mdContent}
+              templates={templates}
+              currentTemplateId={selectedTemplateId}
+              onSelectTemplate={setSelectedTemplateId}
+              onJump={(doi) => jumpToCitation(doi, p.side)}
             />
           )}
 

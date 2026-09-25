@@ -45,6 +45,14 @@ import { DEMO_ANGEW_GUIDELINES } from '../data/demo-content'
 
 type View = 'list' | 'create' | 'edit'
 
+/** 正文引用命令（natbib 语义）。编号/条目格式不在这里，由 BibTeX style 决定 */
+const CITE_COMMANDS = [
+  { value: 'cite', label: '\\cite —— 数字，如 [1]' },
+  { value: 'citep', label: '\\citep —— 圆括号作者年，如 (Smith, 2020)' },
+  { value: 'citet', label: '\\citet —— 叙述式，如 Smith (2020)' },
+  { value: 'citealp', label: '\\citealp —— 作者年，不带括号' },
+]
+
 function JournalTemplatesPage() {
   const { repo } = useWorkspaceStore()
   const { getDualEngineConfig } = useSettingsStore()
@@ -66,6 +74,7 @@ function JournalTemplatesPage() {
   const [formDocumentOptions, setFormDocumentOptions] = useState('')
   const [formPackages, setFormPackages] = useState('')
   const [formBibtexStyle, setFormBibtexStyle] = useState('unsrt')
+  const [formCitationCommand, setFormCitationCommand] = useState('cite')
   const [formTwoColumn, setFormTwoColumn] = useState(false)
   const [formFontSize, setFormFontSize] = useState(12)
   const [formTitleNote, setFormTitleNote] = useState('')
@@ -133,6 +142,7 @@ function JournalTemplatesPage() {
     setFormDocumentOptions(t.document_options || '')
     setFormPackages(t.packages.join('\n'))
     setFormBibtexStyle(t.bibtex_style)
+    setFormCitationCommand(t.citation_command || 'cite')
     setFormTwoColumn(t.two_column)
     setFormFontSize(t.font_size || 12)
     setFormTitleNote(t.title_format_note || '')
@@ -224,6 +234,7 @@ function JournalTemplatesPage() {
         document_options: formDocumentOptions || undefined,
         packages,
         bibtex_style: formBibtexStyle,
+        citation_command: formCitationCommand || undefined,
         two_column: formTwoColumn,
         font_size: formFontSize,
         title_format_note: formTitleNote || undefined,
@@ -271,6 +282,7 @@ function JournalTemplatesPage() {
         document_options: formDocumentOptions || undefined,
         packages,
         bibtex_style: formBibtexStyle,
+        citation_command: formCitationCommand || undefined,
         two_column: formTwoColumn,
         font_size: formFontSize,
         title_format_note: formTitleNote || undefined,
@@ -665,6 +677,26 @@ function JournalTemplatesPage() {
                 onChange={(e) => setFormBibtexStyle(e.target.value)}
                 className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+                正文引用命令
+              </label>
+              <select
+                value={formCitationCommand}
+                onChange={(e) => setFormCitationCommand(e.target.value)}
+                className="w-full px-3 py-2 border border-ink-300 rounded-lg bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+              >
+                {CITE_COMMANDS.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-ink-400">
+                只决定正文里引用长什么样；编号与尾处条目格式由上面的 BibTeX style 在编译时决定。
+                选非 cite 的会自动挂上 natbib 宏包。
+              </p>
             </div>
             <div className="flex items-end gap-4 pb-2">
               <label className="flex items-center gap-2 cursor-pointer">

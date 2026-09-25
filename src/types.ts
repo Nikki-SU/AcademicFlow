@@ -832,6 +832,11 @@ export interface JournalTemplate {
   packages: string[]
   /** 引用样式（BibTeX style），如 unsrt / apalike / ieeetr */
   bibtex_style: string
+  /**
+   * 正文里的引用命令（natbib 语义）：cite = 数字、citep = 圆括号作者年、citet = 叙述式作者年。
+   * 留空按 cite 处理。填了 natbib 系的命令会自动挂上 natbib 宏包。
+   */
+  citation_command?: string
   /** 是否双栏排版 */
   two_column: boolean
   /** 字号（pt） */

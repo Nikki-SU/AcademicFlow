@@ -15,6 +15,15 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import Vditor from 'vditor'
 import 'vditor/dist/index.css'
+import { toast } from 'sonner'
+import {
+  blobUrlToRepoPath,
+  isRepoImagePath,
+  parseImageSize,
+  repoImageBlobUrl,
+  toRepoPath,
+  uploadEditorImage,
+} from '../services/editorImages'
 
 export type VditorMode = 'ir' | 'wysiwyg' | 'sv'
 
@@ -50,6 +59,8 @@ export interface VditorEditorHandle {
    * 才退回按 index 顺数。详见 collectAnchors 上的说明：序号法在 IR 模式下不可靠。
    */
   scrollToBlock: (kind: 'image' | 'table' | 'formula', index: number, match?: string) => void
+  /** 滚动到第一处含该文本的位置并高亮（引用标记跳转用） */
+  scrollToText: (text: string) => void
   /** 聚焦编辑器 */
   focus: () => void
 }
@@ -191,6 +202,14 @@ interface VditorEditorProps {
   /** 只读（用于预览态） */
   disabled?: boolean
   className?: string
+  /**
+   * 本文档在仓库里的路径（如 projects/p1/manuscript.md）。
+   * 传了才接管图片：上传落到同目录下的 images/，md 里写仓库路径，渲染时取回原图。
+   * 不传 = 维持「图片转 base64 内嵌」的老行为。
+   */
+  docPath?: string
+  /** 图片子目录名。阅读笔记用 notes-images，免得和正文抽取出的图混在一起 */
+  imageSubDir?: string
 }
 
 /** 运行时资源目录：public/vditor/dist/...（构建后位于 BASE_URL 下） */
@@ -279,8 +298,13 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
   setTimeout(() => document.addEventListener('mousedown', onDocDown, true), 0)
 }
 
+/** 文件名里会破坏图片语法的字符去掉 */
+function imageAlt(name: string): string {
+  return name.replace(/[[\]()]/g, '').trim() || 'image'
+}
+
 const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function VditorEditor(
-  { value, onChange, onBlur, onReady, height = 420, placeholder = '开始写作…', mode = 'ir', toolbar, onFormulaClick, disabled = false, className = '' },
+  { value, onChange, onBlur, onReady, height = 420, placeholder = '开始写作…', mode = 'ir', toolbar, onFormulaClick, disabled = false, className = '', docPath, imageSubDir },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -301,6 +325,11 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   const savedRangeRef = useRef<Range | null>(null)
   /** 最近一次"双方达成一致"的值：用来判断外部 value 变化是不是我们自己 emit 出去的 */
   const lastValueRef = useRef(value)
+  /** 图片上下文的实时镜像：Vditor 实例与 MutationObserver 只建一次，读 prop 会拿到旧值 */
+  const docPathRef = useRef(docPath)
+  docPathRef.current = docPath
+  const imageSubDirRef = useRef(imageSubDir)
+  imageSubDirRef.current = imageSubDir
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
   const onReadyRef = useRef(onReady)
@@ -310,6 +339,60 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   onBlurRef.current = onBlur
   onReadyRef.current = onReady
   onFormulaClickRef.current = onFormulaClick
+
+  /**
+   * 插到「用户最后停留的位置」。
+   * 点工具栏、选完图片文件时焦点都已经不在编辑器上，此时直接用 Vditor 的 insertValue
+   * 会插到文档开头 —— 所以先把记下的 Range 还回去（见 savedRangeRef 的说明）。
+   */
+  const insertAtCursorImpl = (md: string) => {
+    const inst = vditorRef.current
+    if (!inst) return
+    const el = editorElement(inst)
+    const range = savedRangeRef.current
+
+    inst.focus()
+    if (el && range && el.contains(range.startContainer)) {
+      const sel = window.getSelection()
+      if (sel) {
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
+    }
+    inst.insertValue(md)
+
+    // 插入后 DOM 已变，旧 Range 立刻失效；等一轮让 Vditor 落好光标再重新记一份，
+    // 这样连续插两条引用时第二条仍然落在正确位置。
+    setTimeout(() => {
+      const sel = window.getSelection()
+      if (el && sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer)) {
+        savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+      }
+    }, 0)
+  }
+
+  /**
+   * 上传一张图并把 `![alt](仓库路径)` 插到光标处。
+   * 上传要几秒，期间给一个 loading toast —— 静默会让人以为点了没反应。
+   */
+  const uploadOne = async (doc: string, file: File) => {
+    const id = toast.loading('正在上传图片…')
+    try {
+      const repoPath = await uploadEditorImage({
+        docPath: doc,
+        file,
+        fileName: file.name,
+        sub: imageSubDirRef.current,
+      })
+      insertAtCursorImpl(`![${imageAlt(file.name)}](${repoPath})`)
+      toast.success('图片已上传', { id })
+    } catch (e) {
+      toast.error(`图片上传失败：${e instanceof Error ? e.message : String(e)}`, {
+        id,
+        duration: 8000,
+      })
+    }
+  }
 
   useImperativeHandle(
     ref,
@@ -322,33 +405,7 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       insertValue: (md: string) => {
         vditorRef.current?.insertValue(md)
       },
-      insertAtCursor: (md: string) => {
-        const inst = vditorRef.current
-        if (!inst) return
-        const el = editorElement(inst)
-        const range = savedRangeRef.current
-
-        // 先聚焦回编辑器（焦点此时多半在侧栏/模态框上），再把我们记的 Range 还回去；
-        // Vditor 的 insertValue 内部走 getEditorRange()，此时拿到的就是这份位置。
-        inst.focus()
-        if (el && range && el.contains(range.startContainer)) {
-          const sel = window.getSelection()
-          if (sel) {
-            sel.removeAllRanges()
-            sel.addRange(range)
-          }
-        }
-        inst.insertValue(md)
-
-        // 插入后 DOM 已变，旧 Range 立刻失效；等一轮让 Vditor 落好光标再重新记一份，
-        // 这样连续插两条引用时第二条仍然落在正确位置。
-        setTimeout(() => {
-          const sel = window.getSelection()
-          if (el && sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer)) {
-            savedRangeRef.current = sel.getRangeAt(0).cloneRange()
-          }
-        }, 0)
-      },
+      insertAtCursor: insertAtCursorImpl,
       scrollToHeading: (index: number) => {
         // 直接查渲染后的标题 DOM：与 extractOutline(md) 的标题顺序一致（都按文档从上到下）
         const headings = containerRef.current?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')
@@ -381,6 +438,21 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
         if (!node) return
         node.scrollIntoView({ behavior: 'smooth', block: 'center' })
         flashElement(node)
+      },
+      scrollToText: (text) => {
+        const el = editorElement(vditorRef.current)
+        if (!el || !text) return
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+        let node = walker.nextNode()
+        while (node) {
+          if ((node as Text).data.includes(text)) {
+            const target = (node.parentElement ?? el) as HTMLElement
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            flashElement(target)
+            return
+          }
+          node = walker.nextNode()
+        }
       },
       focus: () => vditorRef.current?.focus(),
     }),
@@ -462,24 +534,34 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       toolbar: finalToolbar,
       toolbarConfig: { pin: true },
       upload: {
-        // 图片一律转 base64 内嵌进 md（沿用项目既定策略：图片跟着 md 走，无外部依赖）
-        // handler 返回 null = 不走 Vditor 的 URL 回填流程，插入动作由我们自己 insertValue 完成
+        // 有文档上下文 → 传到仓库，md 里只写仓库路径（链接短、可跨文件复制、能进 LaTeX）；
+        // 没有上下文的老页面才退回 base64 内嵌。
+        // handler 返回 null = 不走 Vditor 的 URL 回填流程，插入由我们自己完成。
         handler: (files: File[]): null => {
           for (const file of files) {
             if (!file.type.startsWith('image/')) continue
-            const reader = new FileReader()
-            reader.onload = () => {
-              const dataUrl = String(reader.result || '')
-              if (dataUrl) vditorRef.current?.insertValue(`![${file.name}](${dataUrl})`)
+            const doc = docPathRef.current
+            if (!doc) {
+              const reader = new FileReader()
+              reader.onload = () => {
+                const dataUrl = String(reader.result || '')
+                if (dataUrl) insertAtCursorImpl(`![${imageAlt(file.name)}](${dataUrl})`)
+              }
+              reader.readAsDataURL(file)
+              continue
             }
-            reader.readAsDataURL(file)
+            void uploadOne(doc, file)
           }
           return null
         },
       },
       input: (md: string) => {
-        lastValueRef.current = md
-        onChangeRef.current?.(md)
+        // 保险：万一 blob URL 被 Vditor 序列化回了 md，按反查表还原成仓库路径
+        const clean = md.includes('blob:')
+          ? md.replace(/blob:[^)"'\s]+/g, (u) => blobUrlToRepoPath(u))
+          : md
+        lastValueRef.current = clean
+        onChangeRef.current?.(clean)
       },
       blur: () => {
         onBlurRef.current?.(vditorRef.current?.getValue() ?? lastValueRef.current)
@@ -502,6 +584,63 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     // 只创建一次：value / 回调都走 ref 与下面的同步 effect —— 重渲染绝不重建实例
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /**
+   * 编辑器里的图片，Vditor 自己做不了两件事，得在 DOM 层补：
+   *   1) 仓库路径 → blob URL —— 浏览器拿它当相对地址去请求必然 404
+   *   2) title 里的 width/height → <img> 的实际尺寸
+   * 只改显示、不改 md（落盘始终是仓库路径 + title），所以跟着 Vditor 的重渲染走，
+   * 而不是去动 value。
+   */
+  useEffect(() => {
+    if (!docPath) return
+    const root = containerRef.current
+    if (!root) return
+
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const sync = () => {
+      const el = editorElement(vditorRef.current)
+      if (!el) return
+      el.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+        const current = img.getAttribute('src') || ''
+        const size = parseImageSize(img.getAttribute('title'))
+        if (size) {
+          if (size.width) img.style.width = size.width
+          img.style.height = size.height || 'auto'
+          // title 被借来存尺寸了，别让它变成鼠标悬停提示
+          img.removeAttribute('title')
+        }
+        if (!isRepoImagePath(current)) return
+        const repoPath = toRepoPath(current, docPathRef.current ?? docPath)
+        img.dataset.afRepoPath = repoPath
+        void repoImageBlobUrl(repoPath).then((url) => {
+          // 期间可能已重渲染成别的图，认一下再写
+          if (url && img.dataset.afRepoPath === repoPath) img.setAttribute('src', url)
+        })
+      })
+    }
+
+    // Vditor 输入时 DOM 变更密集，合并成一次
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(sync, 80)
+    }
+
+    const mo = new MutationObserver(schedule)
+    mo.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['src', 'title'],
+    })
+    sync()
+
+    return () => {
+      mo.disconnect()
+      if (timer) clearTimeout(timer)
+    }
+  }, [docPath])
 
   // 容器尺寸变化（拖分界线 / 改窗口）→ 同步 Vditor 高度，内容区始终内部滚动
   useEffect(() => {

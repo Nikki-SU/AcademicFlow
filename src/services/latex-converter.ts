@@ -138,7 +138,11 @@ function buildAI1SystemPrompt(template: JournalTemplate): string {
     '   - 行内公式 $...$ 保持不变（LaTeX 原生支持）',
     '   - 独立公式 $$...$$ 转换为 \\begin{equation}...\\end{equation}',
     '8. 表格：Markdown 表格转换为 LaTeX table 环境，按模板风格调整；双栏时用 table*。',
-    '9. 图片：![caption](url) 转换为 figure 环境，含 \\includegraphics 和 \\caption；双栏时用 figure*。',
+    '9. 图片：![caption](url "width=60% height=40%") 转换为 figure 环境，含 \\includegraphics 和 \\caption；双栏时用 figure*。',
+    '   - url 原样抄进 \\includegraphics{url}，不要改写、不要加目录前缀',
+    '   - 引号里的 width / height 是这张图占正文宽高的比例，按比例换算：',
+    '     width=60% → \\includegraphics[width=0.6\\textwidth]{url}；height=40% → height=0.4\\textheight；',
+    '     两个都写了就都放进可选参数；没写尺寸就不加 []',
     '10. 列表：itemize / enumerate 环境。',
     '11. 粗体 **text** → \\textbf{text}，斜体 *text* → \\textit{text}。',
     '12. 代码块 → verbatim 或 lstlisting 环境。',
@@ -617,9 +621,22 @@ export function resyncSidecar(latex: string, sidecar: LatexSidecar): LatexSideca
 // 引用替换：将 [@doi:xxx] 替换为 \cite{key}
 // ============================================================
 
+/** natbib 提供的引用命令 —— 用了这些就必须挂 natbib 宏包 */
+const NATBIB_COMMANDS = new Set([
+  'citep', 'citet', 'Citep', 'Citet', 'citealp', 'citealt',
+  'citeauthor', 'citeyear', 'citeyearpar',
+])
+
+/** 模板里的正文引用命令，默认数字式的 \cite */
+export function resolveCiteCommand(template: JournalTemplate): string {
+  const cmd = (template.citation_command || 'cite').trim().replace(/^\\/, '')
+  return cmd || 'cite'
+}
+
 function replaceCitationMarkers(
   latexBody: string,
   citeKeys: Record<string, string>,
+  command = 'cite',
 ): string {
   let result = latexBody
 
@@ -646,7 +663,7 @@ function replaceCitationMarkers(
       }
 
       if (keys.length > 0) {
-        return `\\cite{${keys.join(',')}}`
+        return `\\${command}{${keys.join(',')}}`
       }
       return match
     },
@@ -715,7 +732,16 @@ function assembleFullLatex(
   // 用户模板自带的 packages 不做过滤：缺包时让 TeX 明确报错，
   // 比静默丢包（排版悄悄变样）更可预期。
   const defaultPackages = ['amsmath', 'graphicx', 'hyperref']
-  const allPackages = [...defaultPackages, ...template.packages]
+  const templatePackages = [...template.packages]
+  // 正文用了 natbib 的引用命令就得挂上 natbib，否则 \citep 一类直接未定义
+  const citeCmd = resolveCiteCommand(template)
+  if (
+    NATBIB_COMMANDS.has(citeCmd) &&
+    !templatePackages.some((p) => p.replace(/^.*\//, '') === 'natbib')
+  ) {
+    templatePackages.push('natbib')
+  }
+  const allPackages = [...defaultPackages, ...templatePackages]
   // 去重
   const seen = new Set<string>()
   for (const pkg of allPackages) {
@@ -1548,7 +1574,11 @@ export async function convertMarkdownToLatex(
     )
 
     // 替换正文中的引用标记
-    latexBody = replaceCitationMarkers(latexBody, citeKeys)
+    latexBody = replaceCitationMarkers(latexBody, citeKeys, resolveCiteCommand(template))
+
+    // md 里的图片是仓库路径（projects/<id>/images/a.png），编译时图片就挂在 images/ 下。
+    // 这里把仓库前缀削掉，让 \includegraphics 的路径和挂载位置对上 —— 不指望 AI 记得改。
+    latexBody = latexBody.replace(/projects\/[^/{}]+\/(images\/)/g, '$1')
 
     // ---- 阶段 6: 拆出「块 → 片段」映射，并把锚点注释从 .tex 里抹掉 ----
     // 用户是要看并手改这份 .tex 的，正文里不该躺着一堆内部注释；

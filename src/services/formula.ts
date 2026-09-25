@@ -11,6 +11,7 @@
  */
 import { marked, type Token } from 'marked'
 import { readCsvFile, writeCsvFile } from './userData'
+import { formatImageSize, type ImageSize } from './editorImages'
 
 export interface FormulaToken {
   kind: 'inline' | 'block'
@@ -29,6 +30,8 @@ export interface MarkdownImage {
   index: number
   alt: string
   src: string
+  /** title 位 —— 本项目借它存尺寸（width=60% height=40%） */
+  title: string
   start: number
   end: number
 }
@@ -252,7 +255,7 @@ export function parseImages(md: string): MarkdownImage[] {
   const out: MarkdownImage[] = []
   let cursor = 0
   found.forEach((img, i) => {
-    const bag = img as unknown as { raw?: string; text?: string; href?: string }
+    const bag = img as unknown as { raw?: string; text?: string; href?: string; title?: string }
     const raw = String(bag.raw || '')
     let start = -1
     if (raw) {
@@ -266,11 +269,29 @@ export function parseImages(md: string): MarkdownImage[] {
       index: i,
       alt: String(bag.text || ''),
       src: String(bag.href || ''),
+      title: String(bag.title || ''),
       start,
       end: start === -1 ? -1 : start + raw.length,
     })
   })
   return out
+}
+
+/** 拼一张图的 markdown；路径含空格或括号时用尖括号包住，否则 markdown 会解析错 */
+export function imageMarkdown(alt: string, src: string, title = ''): string {
+  const href = /[\s()]/.test(src) ? `<${src}>` : src
+  return `![${alt}](${href}${title ? ` "${title}"` : ''})`
+}
+
+/** 改写第 index 张图的尺寸（写进 title 位），其余部分保持原样 */
+export function setImageSize(md: string, index: number, size: ImageSize): string {
+  const img = parseImages(md)[index]
+  if (!img || img.start === -1) return md
+  return (
+    md.slice(0, img.start) +
+    imageMarkdown(img.alt, img.src, formatImageSize(size)) +
+    md.slice(img.end)
+  )
 }
 
 /**
