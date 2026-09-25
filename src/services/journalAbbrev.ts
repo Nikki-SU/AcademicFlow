@@ -3,46 +3,23 @@
  * -----------
  * 列表里只显示期刊缩写（如 JACS），完整名太长会挤爆横条。
  *
- * 缩写来源分三层，优先级从高到低：
+ * 缩写来源只有两层：
  *   1. 用户手工覆盖（管理页铅笔按钮）—— 落在下面的覆盖表里
  *   2. AI 查询结果（第一次见到某个期刊时批量问一次，结果也写进同一张覆盖表）
- *   3. 本地启发式 `abbreviateJournal`（拿不到 AI 时的兜底，不等于学术惯例）
  *
  * 覆盖表按「全名 → 缩写」存进 settings（key = journal_abbreviations）。
+ *
+ * ⚠️ 这里**没有**「拿不到 AI 就取首字母」的兜底，这是刻意的：
+ * 机械取首字母得到的缩写（Angewandte Chemie International Edition → ACIE）
+ * 不是学术界的通用写法，有的期刊甚至根本不存在缩写形式。而用户拿这个列表是为了
+ * 往参考文献里抄 —— 一个看起来像模像样的错缩写，比老老实实显示长一点的期刊名危害大。
+ * 所以查不到就**不缩写**，显示方（管理页列表）直接用原期刊名。
  */
 import { getSetting, putSetting } from './db'
 import { callAI } from './ai/client'
 
 /** settings 里的存储 key */
 const SETTING_KEY = 'journal_abbreviations'
-
-/** 缩写时丢弃的虚词（大小写不敏感）。注意不要丢 Review / Journal —— 它们是缩写首字母。 */
-const STOP_WORDS = new Set([
-  'of', 'the', 'and', 'in', 'on', 'for', 'a', 'an', 'to', 'at', 'by', 'with', 'from',
-  'de', 'la', 'le', '&',
-])
-
-/** 纯函数启发式缩写 */
-export function abbreviateJournal(name: string): string {
-  const trimmed = (name || '').trim()
-  if (!trimmed) return ''
-
-  // 只有一个词，或长度 ≤ 12 且不含空格：原样返回
-  const spaced = trimmed.split(/\s+/).filter(Boolean)
-  if (spaced.length <= 1 || (trimmed.length <= 12 && !trimmed.includes(' '))) return trimmed
-
-  // 按空白 / - / & 切词，丢虚词，取首字母大写
-  const abbrev = trimmed
-    .split(/[\s\-&]+/)
-    .map((w) => w.trim())
-    .filter((w) => w && !STOP_WORDS.has(w.toLowerCase()))
-    .map((w) => w[0].toUpperCase())
-    .join('')
-
-  // 全被过滤掉：回退为原名前若干字符
-  if (!abbrev) return trimmed.slice(0, 12)
-  return abbrev
-}
 
 /** 读取本地覆盖表；读失败返回空对象 */
 export async function loadJournalAbbrevMap(): Promise<Record<string, string>> {

@@ -357,48 +357,100 @@ export function parseTables(md: string): MarkdownTable[] {
 // 表格行列增删
 // ────────────────────────────────────────────────────────────
 
-export type TableOp = 'addRow' | 'addCol' | 'delRow' | 'delCol'
+/**
+ * 表格行列增删。
+ *
+ * `at` 的含义随 op 变：
+ *  - 行操作：**数据行**下标，0 = 表头下面第一行（表头不参与增删 —— markdown 里
+ *    表头必须是第一行、第二行必须是 `| --- |`，在它上面插一行整张表就不再是表格了）
+ *  - 列操作：**列**下标，0 = 第一列
+ *
+ * 和旧版「只作用在末尾」的区别：这里能指定位置。用户的诉求是「在这行下面加一行 /
+ * 把这列删掉」，而不是「在表格屁股后面追加一列再去挪」。
+ */
+export type TableOp =
+  | 'addRowAbove'
+  | 'addRowBelow'
+  | 'addColLeft'
+  | 'addColRight'
+  | 'delRow'
+  | 'delCol'
 
 /**
- * 给第 tableIndex 张表格加/删一行或一列。
- *
- * 按行做文本改写，不重建整张表 —— 重建会把用户自己写的对齐与单元格内空格冲掉。
- * 增删都作用在末尾：多插了一行/一列要撤掉是最高频的诉求。
+ * 按**未转义**的竖线把一行切成片段（保留首尾那两个空片段）。
+ * 之所以保留每个片段的原文，是为了插入时只往数组里塞一个新格子、其余字符原样接回去 ——
+ * 用户自己调过的对齐、单元格里的空格都不会被"重建式"改写冲掉。
+ * 返回 null 表示这行根本不是表格行（一个竖线都没有）。
  */
-export function editTable(md: string, tableIndex: number, op: TableOp): string {
+function splitCells(line: string): string[] | null {
+  const parts: string[] = []
+  let buf = ''
+  let sawPipe = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '\\' && i + 1 < line.length) {
+      buf += ch + line[i + 1]
+      i++
+      continue
+    }
+    if (ch === '|') {
+      sawPipe = true
+      parts.push(buf)
+      buf = ''
+      continue
+    }
+    buf += ch
+  }
+  parts.push(buf)
+  return sawPipe ? parts : null
+}
+
+/**
+ * 一行片段里实际有几个单元格。
+ * 首尾那两个空片段是行首 / 行尾竖线切出来的，不算单元格；
+ * 但**尾竖线可以省略**（`| a | b` 也是合法的表格行），这时最后一片本身就是单元格。
+ */
+function countCells(parts: string[]): number {
+  const tail = parts[parts.length - 1] === '' ? 1 : 0
+  return Math.max(0, parts.length - 1 - tail)
+}
+
+export function editTable(md: string, tableIndex: number, op: TableOp, at: number): string {
   const table = parseTables(md)[tableIndex]
   if (!table) return md
 
   const lines = md.split('\n')
   const { startLine, endLine } = table
-  const colCount = table.rows[0]?.length ?? 1
   /** 第二行是 | --- | 分隔行，加列时它要补的是 --- 而不是空格 */
   const sepLine = startLine + 1
+  /** 第一条数据行；它上面两行是表头与分隔行 */
   const firstDataLine = startLine + 2
+  const dataCount = Math.max(0, endLine - firstDataLine + 1)
 
-  if (op === 'addRow') {
-    lines.splice(endLine + 1, 0, `|${'  |'.repeat(colCount)}`)
+  const header = splitCells(lines[startLine] ?? '')
+  const colCount = header ? countCells(header) || 1 : (table.rows[0]?.length ?? 1)
+  const blankRow = () => `|${'  |'.repeat(Math.max(1, colCount))}`
+
+  if (op === 'addRowAbove' || op === 'addRowBelow') {
+    if (at < 0 || at > dataCount) return md
+    if (op === 'addRowAbove' && at >= dataCount) return md
+    lines.splice(firstDataLine + at + (op === 'addRowBelow' ? 1 : 0), 0, blankRow())
   } else if (op === 'delRow') {
-    // 只剩表头就不删了，删完 markdown 就不再是表格
-    if (endLine < firstDataLine) return md
-    lines.splice(endLine, 1)
-  } else if (op === 'addCol') {
-    for (let i = startLine; i <= endLine; i++) {
-      const line = lines[i]
-      if (!line) continue
-      const pad = i === sepLine ? ' --- |' : '  |'
-      const trimmed = line.replace(/\s+$/, '')
-      lines[i] = trimmed.endsWith('|') ? `${trimmed.slice(0, -1)}${pad}` : `${trimmed}${pad}`
-    }
+    // 只剩一行数据就不删了 —— 删完第二行不再是分隔行，整张表会散成普通文字
+    if (dataCount <= 1 || at < 0 || at >= dataCount) return md
+    lines.splice(firstDataLine + at, 1)
   } else {
-    if (colCount <= 1) return md
+    if (at < 0 || at >= colCount) return md
+    // 只剩一列就不删了 —— 没有竖线的表格不是表格
+    if (op === 'delCol' && colCount <= 1) return md
+    // 表头 / 分隔行 / 每条数据行都要同步改，少改一行列数就对不上，表格直接崩
+    const insertAt = op === 'addColLeft' ? at : at + 1
     for (let i = startLine; i <= endLine; i++) {
-      const line = lines[i]
-      if (!line) continue
-      // 末尾竖线之前的那一段就是最后一个单元格，截掉它
-      const last = line.lastIndexOf('|')
-      const prev = line.lastIndexOf('|', last - 1)
-      if (prev > 0) lines[i] = line.slice(0, prev + 1)
+      const parts = splitCells(lines[i] ?? '')
+      if (!parts) continue
+      if (op === 'delCol') parts.splice(at + 1, 1)
+      else parts.splice(insertAt + 1, 0, i === sepLine ? ' --- ' : '  ')
+      lines[i] = parts.join('|')
     }
   }
 

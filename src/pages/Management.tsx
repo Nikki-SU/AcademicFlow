@@ -49,7 +49,7 @@ import {
 } from '../services/learningData'
 import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
 import { normalizeDoi, getCitationEntries, cleanAbstract } from '../services/citation'
-import { abbreviateJournal, loadJournalAbbrevMap, saveJournalAbbrev, mergeJournalAbbrevs, lookupJournalAbbrevsWithAI } from '../services/journalAbbrev'
+import { loadJournalAbbrevMap, saveJournalAbbrev, mergeJournalAbbrevs, lookupJournalAbbrevsWithAI } from '../services/journalAbbrev'
 import {
   FolderCog,
   BookMarked,
@@ -742,7 +742,8 @@ export default function ManagementPage() {
    * Edition → ACIE，而学术界写的是 Angew. Chem. Int. Ed. —— 列表里显示错缩写等于摆错信息。
    *
    * 只在本会话尝试一次（abbrevTriedRef）；一次请求带上所有没查过的期刊（后端通道单次
-   * 往返是分钟级，逐本查太慢）。没登录 / 没配 AI / 查不出来都静默退回启发式缩写。
+   * 往返是分钟级，逐本查太慢）。没登录 / 没配 AI / 查不出来都静默——列表就显示原期刊名，
+   * 绝不拿"取首字母"去猜（见 journalAbbrev.ts 顶部说明）。
    */
   const abbrevTriedRef = useRef(false)
   useEffect(() => {
@@ -759,7 +760,7 @@ export default function ManagementPage() {
         setJournalAbbrevMap(await mergeJournalAbbrevs(Object.fromEntries(hits)))
         toast.success(`已自动查询 ${hits.length} 个期刊的标准缩写`)
       })
-      .catch(() => { /* 查不到就用启发式缩写，不打扰用户 */ })
+      .catch(() => { /* 查不到就显示原期刊名，不打扰用户 */ })
   }, [papers, journalAbbrevMap])
 
   /** 把 taskQueue 的 running 任务进度实时同步到对应 paper（卡片上的内联进度条需要） */
@@ -1523,7 +1524,8 @@ export default function ManagementPage() {
 
   /** 编辑某期刊的显示缩写：prompt 取值 → 落盘 → 刷新覆盖表 */
   const handleEditJournalAbbrev = async (journal: string) => {
-    const current = journalAbbrevMap[journal] ?? abbreviateJournal(journal)
+    // 默认值同样是「没查过就填原名」，不拿启发式结果当底 —— 用户看到错的默认值会直接回车接受
+    const current = journalAbbrevMap[journal] || journal
     const input = prompt('期刊缩写', current)
     if (input === null) return
     await saveJournalAbbrev(journal, input.trim())
@@ -2716,7 +2718,11 @@ export default function ManagementPage() {
                 {pagedPapers.map((paper) => {
                   const first = splitFirstAuthor(paper.authors)
                   const corresponding = paper.correspondingAuthor.trim()
-                  const abbrev = journalAbbrevMap[paper.journal] ?? abbreviateJournal(paper.journal)
+                  // 只认「用户手改的 / AI 查到的」；查不到就显示**原期刊名**。
+                  // ⚠️ 不要用「取首字母」去猜缩写：Angewandte Chemie International Edition
+                  // 猜成 ACIE 并不是学术界通用的写法，用户会照着抄进参考文献 ——
+                  // 一个错的缩写，比长一点的期刊名危害大得多。查不到就不缩写。
+                  const abbrev = journalAbbrevMap[paper.journal] || paper.journal
                   return (
                     <div
                       key={paper.id}

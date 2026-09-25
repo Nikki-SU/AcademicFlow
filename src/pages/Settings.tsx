@@ -655,9 +655,9 @@ function Settings() {
                   onChange={(e) => updateSettings({ editorZebra: e.target.checked })}
                 />
                 <span>
-                  <span className="block text-sm font-medium text-ink-700">间隔上色（斑马纹）</span>
+                  <span className="block text-sm font-medium text-ink-700">间隔上色</span>
                   <span className="block text-xs text-ink-400">
-                    块与块之间交替底色，长文里不容易看串行。写作页正文与阅读页侧栏笔记一致生效。
+                    逐行交替极淡绿条纹（一行有色、一行无色），长文里不容易看串行。写作页正文、阅读页侧栏笔记与阅读页正文一致生效。
                   </span>
                 </span>
               </label>

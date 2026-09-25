@@ -2228,7 +2228,11 @@ const [aligned_content, set_aligned_content] = useState('')
     })
     if (!zebraBands) return
 
-    const INK = 'rgba(132, 204, 22, 0.10)'
+    // 条纹颜色与编辑器 / 笔记（index.css 的 --af-zebra-ink）必须同色：
+    // 同一篇稿子在阅读页正文和编辑器里长得不一样，就会被当成两个 bug 报上来。
+    const INK =
+      getComputedStyle(document.documentElement).getPropertyValue('--af-zebra-ink').trim() ||
+      'rgba(132, 204, 22, 0.10)'
     /** 全文已累计的行数：决定下一块首行是有色还是无色 */
     let lineIndex = 0
     /** 块级标签：用来判断"叶子块"（里面没有别的块，高度不会被重复计） */

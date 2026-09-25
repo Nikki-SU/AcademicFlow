@@ -39,6 +39,13 @@
   --reader-column: calc(
     var(--reader-measure) + 2 * var(--reader-cardpad) + 2 * var(--reader-gutter)
   );
+  /*
+   * 「间隔上色」的条纹颜色 —— 全站一份。
+   * 阅读页正文（Reading.tsx 的 zebraBands，那边按真实行数在 JS 里算相位）
+   * 与编辑器 / 阅读页侧栏笔记（本文件 .af-editor-zebra）必须同色，
+   * 否则同一篇稿子在两处长得不一样。改这里两处一起变。
+   */
+  --af-zebra-ink: rgba(132, 204, 22, 0.1);
 }
 
 /*
@@ -173,20 +180,65 @@
 }
 
 /*
- * 编辑器「间隔上色」（斑马纹）—— 写作页正文编辑器与阅读页边栏笔记共用同一套。
+ * 编辑器「间隔上色」—— 写作页正文编辑器与阅读页边栏笔记共用同一套，
+ * 与阅读页正文（.prose-reader）的 zebraBands 是同一条规则。
  * -------------------------------------------------
- * 目的：长文里块与块之间的边界不靠数行也能看出来，不容易看串行。
+ * 目的：长文里相邻两行不同色，眼睛从行末折回下一行行首时不会跳错行（防串行）。
  *
- * 为什么用 CSS 的 nth-child 而不是 JS 标类：IR 模式下每敲一个字 DOM 都会重排，
- * JS 标类要跟着 MutationObserver 反复跑，既慢又和 Vditor 的渲染抢时序；
- * nth-child 是「查的时候才算」的，DOM 一变颜色自己就重排。
+ * 粒度必须是「一行有色 / 一行无色」—— 这是唯一能保证任意相邻两行都不同色的粒度。
+ * 所以用 repeating-linear-gradient 按 2 倍行高铺条纹，而不是给整个段落铺一块底色：
+ * 段落实高不齐，整块底色只能分出段与段的边界，段内照样看串行，而且长段落尤甚。
+ * 条纹周期用 lh 单位（= 元素自己的计算行高），正文 / 标题 / 列表各自的行高都能对上，
+ * 不需要把 1.5 行高硬编码成 rem。
  *
- * 只染**块级顶层元素**的背景（正文容器 .vditor-reset 的直接子元素）：
- * 行内元素、代码块内部的高亮、批注高亮各自有自己的底色，不参与交替。
+ * 相位用 nth-child 奇偶翻转：奇数块从有色行起、偶数块从无色行起。
+ * 这样块与块之间是接着的（只在块占奇数行时会有半行误差），而且纯 CSS ——
+ * IR 模式下每敲一个字 DOM 都会重排，JS 标类和 MutationObserver 既慢、
+ * 又会和 Vditor 的渲染抢时序；nth-child 是"查的时候才算"的。
+ * （阅读页正文是静态内容，那边在 JS 里按真实行数精确接相位，见 Reading.tsx。）
+ *
+ * 只染**块级顶层元素**（正文容器 .vditor-reset 的直接子元素），并排除自带底色的
+ * 代码块 / 引用块 / 表格：它们的底色叠上条纹会糊成一片，反而更难认。
  */
-.af-editor-zebra .vditor-reset > *:nth-child(even) {
-  background-color: rgba(15, 23, 42, 0.045);
-  border-radius: 0.25rem;
+.af-editor-zebra .vditor-reset > *:not(pre):not(blockquote):not(table):not(hr) {
+  background-origin: content-box;
+  background-clip: content-box;
+}
+.af-editor-zebra .vditor-reset > *:nth-child(odd):not(pre):not(blockquote):not(table):not(hr) {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--af-zebra-ink) 0 1lh,
+    transparent 1lh 2lh
+  );
+}
+.af-editor-zebra .vditor-reset > *:nth-child(even):not(pre):not(blockquote):not(table):not(hr) {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 1lh,
+    var(--af-zebra-ink) 1lh 2lh
+  );
+}
+
+/*
+ * 表格单元格：允许换行，行高跟着内容走
+ * -------------------------------------------------
+ * Vditor 自带 `white-space: nowrap`（配合 `word-break: keep-all`），本意是让单元格
+ * 内容一行铺开、方便看源码。后果是：字一多就只会把整张表横向撑爆、行高永远只有一行，
+ * 看着是一排又窄又扁的小格子，右边的列还得靠横向滚动才够得着。
+ *
+ * 这里放开换行：列宽由表格总宽约束，内容多了行高自己长高（这就是"自适应每一行"）。
+ * 选择器多一层 .af-vditor 是为了压过 Vditor 那条同权重规则 —— Vditor 的 CSS 是
+ * 后加载的，同权重它赢；多一层祖先就把权重抬高了，跟加载顺序无关。
+ */
+.af-vditor .vditor-reset table td,
+.af-vditor .vditor-reset table th {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  vertical-align: top;
+  min-width: 3.5rem;
+  padding: 0.5rem 0.7rem;
+  line-height: 1.65;
 }
 
 /*

@@ -308,6 +308,10 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
     btn.type = 'button'
     btn.className = 'w-full flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-seal-50 text-ink-700'
     btn.innerHTML = `<span>${it.label}</span><span class="text-xs text-ink-400 font-mono">${it.hint}</span>`
+    // 菜单挂在 document.body 上，不在编辑器容器里 —— 容器上那条「点工具栏时别抢焦点」的
+    // 拦截（见 mousedown 那个 effect）管不到这里。不挡的话，这点一下就把正文的选区丢了，
+    // 「选中一段文字 → 插入公式」就会插到别处去。
+    btn.addEventListener('mousedown', (e) => e.preventDefault())
     btn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -355,27 +359,37 @@ function buildEmptyTable(rows: number, cols: number): string {
 
 /**
  * WPS 那种网格选行列：在格子上滑过就高亮出「几行几列」，点一下插入。
+ *
+ * 两个坑（都踩过）：
+ *  1. 弹层 fixed 定位在按钮正下方，而按钮在工具栏换行后可能贴近窗口右缘 ——
+ *     不夹回视口的话右半边格子直接跑到屏幕外，表现就是「明明滑到了第 7 列，
+ *     能点到的只有第 5 列」。所以先插进 body 量出真实尺寸，再把 left/top 夹进视口；
+ *     下方放不下就翻到按钮上方。
+ *  2. 格子的 mousedown 必须挡掉：弹层挂在 body 上、不在编辑器容器里，
+ *     容器上那条拦截管不到它，不挡就会把正文的选区弄丢。
+ *
  * 动态元素一律用内联样式 —— Tailwind 只生成源码里写死的类名，拼出来的类不会生效。
  */
 function openTableGridMenu(anchor: HTMLElement, onPick: (rows: number, cols: number) => void) {
   document.getElementById('af-table-grid')?.remove()
 
+  /** 格子边长（px）。太小的话 10×10 一片密密麻麻，鼠标根本停不准 */
+  const CELL = 24
+  const GAP = 3
+
   const wrap = document.createElement('div')
   wrap.id = 'af-table-grid'
-  wrap.className = 'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl p-2'
-  const rect = anchor.getBoundingClientRect()
-  wrap.style.top = `${Math.round(rect.bottom + 6)}px`
-  wrap.style.left = `${Math.round(rect.left)}px`
+  wrap.className = 'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl p-2.5'
 
   const tip = document.createElement('div')
-  tip.className = 'text-[0.6875rem] text-ink-500 mb-1.5 text-center'
+  tip.className = 'text-xs text-ink-600 mb-2 text-center whitespace-nowrap'
   tip.textContent = '滑过选择行列'
   wrap.appendChild(tip)
 
   const grid = document.createElement('div')
   grid.style.display = 'grid'
-  grid.style.gridTemplateColumns = `repeat(${TABLE_GRID_MAX}, 1.125rem)`
-  grid.style.gap = '2px'
+  grid.style.gridTemplateColumns = `repeat(${TABLE_GRID_MAX}, ${CELL}px)`
+  grid.style.gap = `${GAP}px`
 
   let rows = 0
   let cols = 0
@@ -386,7 +400,11 @@ function openTableGridMenu(anchor: HTMLElement, onPick: (rows: number, cols: num
       const r = Math.floor(i / TABLE_GRID_MAX)
       const col = i % TABLE_GRID_MAX
       const on = r < rows && col < cols
-      c.style.background = on ? '#4338ca' : '#eef0f2'
+      c.style.background = on ? '#BE5442' : '#E9E6E1'
+      // 光标所在的那一行 / 那一列单独描个边：把「你正指着的这一行也算进去了」
+      // 摆到明面上，省得用户怀疑自己数错（这就是 WPS 网格选择器的行为）
+      const edge = on && (r === rows - 1 || col === cols - 1)
+      c.style.boxShadow = edge ? 'inset 0 0 0 1.5px rgba(253, 251, 247, 0.8)' : 'none'
     })
     tip.textContent = rows && cols ? `${rows} 行 × ${cols} 列` : '滑过选择行列'
   }
@@ -394,16 +412,18 @@ function openTableGridMenu(anchor: HTMLElement, onPick: (rows: number, cols: num
   for (let r = 0; r < TABLE_GRID_MAX; r++) {
     for (let c = 0; c < TABLE_GRID_MAX; c++) {
       const cell = document.createElement('div')
-      cell.style.width = '1.125rem'
-      cell.style.height = '1.125rem'
-      cell.style.borderRadius = '2px'
+      cell.style.width = `${CELL}px`
+      cell.style.height = `${CELL}px`
+      cell.style.borderRadius = '3px'
       cell.style.cursor = 'pointer'
-      cell.style.background = '#eef0f2'
+      cell.style.background = '#E9E6E1'
       cell.addEventListener('mouseenter', () => {
         rows = r + 1
         cols = c + 1
         paint()
       })
+      // 别让这一次点击把正文的选区抢走（弹层在 body 上，池子外的拦截管不到）
+      cell.addEventListener('mousedown', (e) => e.preventDefault())
       cell.addEventListener('click', (e) => {
         e.preventDefault()
         e.stopPropagation()
@@ -426,6 +446,22 @@ function openTableGridMenu(anchor: HTMLElement, onPick: (rows: number, cols: num
   }
 
   document.body.appendChild(wrap)
+
+  // 插进 body 之后才量得到真实尺寸 → 再把弹层夹回视口内
+  const anchorRect = anchor.getBoundingClientRect()
+  const box = wrap.getBoundingClientRect()
+  const M = 8
+  let left = anchorRect.left
+  let top = anchorRect.bottom + 6
+  if (left + box.width > window.innerWidth - M) left = window.innerWidth - box.width - M
+  if (left < M) left = M
+  if (top + box.height > window.innerHeight - M) {
+    const above = anchorRect.top - 6 - box.height
+    top = above >= M ? above : Math.max(M, window.innerHeight - box.height - M)
+  }
+  wrap.style.left = `${Math.round(left)}px`
+  wrap.style.top = `${Math.round(top)}px`
+
   setTimeout(() => document.addEventListener('mousedown', onDocDown, true), 0)
 }
 
@@ -454,6 +490,8 @@ function openCodeLangMenu(anchor: HTMLElement, current: string, onPick: (lang: s
     btn.innerHTML =
       `<span>${it.label}</span>` +
       (it.value === current ? '<span class="text-[0.625rem] text-seal-500">默认</span>' : '')
+    // 同 openFormulaMenu：菜单在 body 上，得自己挡住 mousedown，否则选语言这一下就丢了选区
+    btn.addEventListener('mousedown', (e) => e.preventDefault())
     btn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -509,7 +547,7 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   const defaultCodeLang = useSettingsStore((s) => s.defaultCodeLang ?? 'python')
   const defaultCodeLangRef = useRef(defaultCodeLang)
   defaultCodeLangRef.current = defaultCodeLang
-  /** 间隔上色（斑马纹）：块级背景交替，长文里不容易看串行。设置页可关 */
+  /** 间隔上色：逐行交替极淡绿条纹（与阅读页正文同一套），长文里不容易看串行。设置页可关 */
   const zebra = useSettingsStore((s) => s.editorZebra ?? true)
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
@@ -522,32 +560,49 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   onFormulaClickRef.current = onFormulaClick
 
   /**
-   * 插到「用户最后停留的位置」。
+   * 插到「用户最后停留的位置」—— 也就是**选中什么就作用在什么上**。
    * 点工具栏、选完图片文件时焦点都已经不在编辑器上，此时直接用 Vditor 的 insertValue
-   * 会插到文档开头 —— 所以先把记下的 Range 还回去（见 savedRangeRef 的说明）。
+   * 会插到**文档开头**（Vditor 的 getEditorRange 取不到活动 Range 时会
+   * `setStart(element, 0)`）—— 所以先把记下的 Range 还回去（见 savedRangeRef 的说明）。
+   * 还回去之后 Vditor 的 insertValue 会 replace 掉选中的内容，于是「选中一段文字 →
+   * 加粗 / 插代码块 / 插表格」都是作用在这段文字上，而不是跑到别的地方。
+   *
+   * `fallbackRange`：异步操作（图片上传）要在**发起的那一刻**就把位置定下来。
+   * 不能等上传完再读 savedRangeRef —— 那几秒里用户可能已经把光标点到别处了。
    */
-  const insertAtCursorImpl = (md: string) => {
+  const insertAtCursorImpl = (md: string, fallbackRange?: Range | null) => {
     const inst = vditorRef.current
     if (!inst) return
     const el = editorElement(inst)
-    const range = savedRangeRef.current
+    const saved = fallbackRange ?? savedRangeRef.current
 
     inst.focus()
-    if (el && range && el.contains(range.startContainer)) {
-      const sel = window.getSelection()
+    const sel = window.getSelection()
+    let restored = false
+    if (el && saved && el.contains(saved.startContainer)) {
       if (sel) {
         sel.removeAllRanges()
-        sel.addRange(range)
+        sel.addRange(saved)
       }
+      restored = true
+    }
+    // 没有可用选区（从没点过正文，或刚经历一次整篇 setValue 把它作废了）：
+    // 退到**文末**。Vditor 自己的兜底是开头，那是全篇里最不可能是用户想要的位置。
+    if (!restored && el && sel) {
+      const end = document.createRange()
+      end.selectNodeContents(el)
+      end.collapse(false)
+      sel.removeAllRanges()
+      sel.addRange(end)
     }
     inst.insertValue(md)
 
     // 插入后 DOM 已变，旧 Range 立刻失效；等一轮让 Vditor 落好光标再重新记一份，
     // 这样连续插两条引用时第二条仍然落在正确位置。
     setTimeout(() => {
-      const sel = window.getSelection()
-      if (el && sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer)) {
-        savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+      const sel2 = window.getSelection()
+      if (el && sel2 && sel2.rangeCount > 0 && el.contains(sel2.getRangeAt(0).startContainer)) {
+        savedRangeRef.current = sel2.getRangeAt(0).cloneRange()
       }
     }, 0)
   }
@@ -556,7 +611,7 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
    * 上传一张图并把 `![alt](仓库路径)` 插到光标处。
    * 上传要几秒，期间给一个 loading toast —— 静默会让人以为点了没反应。
    */
-  const uploadOne = async (doc: string, file: File) => {
+  const uploadOne = async (doc: string, file: File, at?: Range | null) => {
     const id = toast.loading('正在上传图片…')
     try {
       const repoPath = await uploadEditorImage({
@@ -565,7 +620,9 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
         fileName: file.name,
         sub: imageSubDirRef.current,
       })
-      insertAtCursorImpl(`![${imageAlt(file.name)}](${repoPath})`)
+      // 用调用方在**发起上传时**拍下的位置，而不是此刻的 savedRangeRef：
+      // 上传要几秒，这期间用户可能已经把光标点到别处了
+      insertAtCursorImpl(`![${imageAlt(file.name)}](${repoPath})`, at)
       toast.success('图片已上传', { id })
     } catch (e) {
       toast.error(`图片上传失败：${e instanceof Error ? e.message : String(e)}`, {
@@ -689,8 +746,10 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
           (event.currentTarget as HTMLElement | null) ??
           (event.target as HTMLElement | null) ??
           (document.querySelector('[data-type="insert-formula"]') as HTMLElement | null)
+        // 走 insertAtCursorImpl 而不是裸 insertValue：菜单项那一下点完焦点已经不在正文里，
+        // 裸调会插到文档开头；走这个才能落回用户选中的位置 / 光标处
         openFormulaMenu(anchor ?? document.body, (kind) => {
-          vditorRef.current?.insertValue(FORMULA_TEMPLATE[kind])
+          insertAtCursorImpl(FORMULA_TEMPLATE[kind])
         })
       },
     }
@@ -706,7 +765,7 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
           (event.target as HTMLElement | null) ??
           (document.querySelector('[data-type="insert-code"]') as HTMLElement | null)
         openCodeLangMenu(anchor ?? document.body, defaultCodeLangRef.current, (lang) => {
-          vditorRef.current?.insertValue(`\n\`\`\`${lang}\n\n\`\`\`\n`)
+          insertAtCursorImpl(`\n\`\`\`${lang}\n\n\`\`\`\n`)
         })
       },
     }
@@ -722,7 +781,7 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
           (event.target as HTMLElement | null) ??
           (document.querySelector('[data-type="insert-table"]') as HTMLElement | null)
         openTableGridMenu(anchor ?? document.body, (rows, cols) => {
-          vditorRef.current?.insertValue(buildEmptyTable(rows, cols))
+          insertAtCursorImpl(buildEmptyTable(rows, cols))
         })
       },
     }
@@ -783,6 +842,9 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
         // 没有上下文的老页面才退回 base64 内嵌。
         // handler 返回 null = 不走 Vditor 的 URL 回填流程，插入由我们自己完成。
         handler: (files: File[]): null => {
+          // 先拍照：上传 / 读文件都是异步的，插入位置必须在发起这一刻定下来，
+          // 否则那几秒里用户一动光标，图就跑到别处去了
+          const at = savedRangeRef.current?.cloneRange() ?? null
           for (const file of files) {
             if (!file.type.startsWith('image/')) continue
             const doc = docPathRef.current
@@ -790,12 +852,12 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
               const reader = new FileReader()
               reader.onload = () => {
                 const dataUrl = String(reader.result || '')
-                if (dataUrl) insertAtCursorImpl(`![${imageAlt(file.name)}](${dataUrl})`)
+                if (dataUrl) insertAtCursorImpl(`![${imageAlt(file.name)}](${dataUrl})`, at)
               }
               reader.readAsDataURL(file)
               continue
             }
-            void uploadOne(doc, file)
+            void uploadOne(doc, file, at)
           }
           return null
         },
@@ -1028,86 +1090,162 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   }, [docPath, value])
 
   /**
-   * 表格行列增删：鼠标移到表格上，右上角浮出一个小工具条。
+   * 表格行列增删：鼠标停在某个格子上，就在这个格子的四条边浮出「+」，左上 / 右下角浮出「−」。
    *
-   * markdown 表格在 IR 模式下没有源码视图（只有渲染出来的 <table>），
-   * 不给个入口就只能靠手写 md 去加行列 —— 那正是「表格不好用」的来源。
+   * 为什么不做成「表格右上角一排 +行/+列/−行/−列」：那是一组**作用在表格末尾**的按钮，
+   * 想在第 2 行下面插一行，只能先追加到底部再想办法挪过去 —— 功能是能用，
+   * 但每做一步都在跟工具较劲。WPS / 智能文档的做法是把动作挂在**目标位置本身**上：
+   * 想加行就把鼠标放到那一行，想加列就放到那一列，点一下就行；想删就在原地删。
+   * 这里就是这套：
+   *
+   *           [ + ]上                 [−]删本列
+   *      [ + ]左  ┌──────────────┐  [ + ]右
+   *               │   hovered    │
+   *      [−]删本行 └──────────────┘
+   *           [ + ]下
+   *
+   * 表头那一行只给「下面加一行」：markdown 里表头必须是第一行、第二行必须是 `| --- |`，
+   * 在它上面插一行、或把它删掉，整张表立刻不再被当表格解析。
+   *
+   * markdown 表格在 IR 模式下没有源码视图（只有渲染出来的 <table>），不给入口就只能手写 md，
+   * 那正是「表格不好用」的来源。
    */
   useEffect(() => {
-    const root = containerRef.current
-    if (!root) return
+    if (!containerRef.current) return
 
-    let bar: HTMLDivElement | null = null
-    let currentTable: HTMLTableElement | null = null
+    let box: HTMLDivElement | null = null
+    let cell: HTMLTableCellElement | null = null
 
-    const removeBar = () => {
-      bar?.remove()
-      bar = null
-      currentTable = null
+    const removeBox = () => {
+      box?.remove()
+      box = null
+      cell = null
     }
 
-    const positionBar = () => {
-      if (!bar || !currentTable) return
-      const r = currentTable.getBoundingClientRect()
-      bar.style.top = `${Math.round(r.top - 30)}px`
-      bar.style.left = `${Math.round(r.left)}px`
+    const positionBox = () => {
+      if (!box || !cell) return
+      const r = cell.getBoundingClientRect()
+      box.style.left = `${Math.round(r.left)}px`
+      box.style.top = `${Math.round(r.top)}px`
+      box.style.width = `${Math.round(r.width)}px`
+      box.style.height = `${Math.round(r.height)}px`
     }
 
-    const showBar = (table: HTMLTableElement) => {
-      if (currentTable === table && bar) return
-      removeBar()
-      currentTable = table
+    /** 执行一次行列增删：把 DOM 里的行列还原成 editTable 要的下标 */
+    const runOp = (op: TableOp, at: number) => {
+      const table = cell?.closest('table[data-type="table"]') as HTMLTableElement | null
+      if (!table) return
+      const tables = Array.from(
+        editorElement(vditorRef.current)?.querySelectorAll('table[data-type="table"]') ?? [],
+      )
+      // DOM 里的表格顺序与 parseTables 解析出来的顺序一致
+      const idx = tables.indexOf(table)
+      if (idx < 0) return
+      const next = editTable(lastValueRef.current, idx, op, at)
+      if (next !== lastValueRef.current) onChangeRef.current?.(next)
+      // 改完 md 会整篇回流、DOM 重建，这个格子已经是游离节点了 —— 收掉把手，
+      // 用户把鼠标挪到新表格上会自动重新浮出来
+      removeBox()
+    }
 
+    const showBox = (target: HTMLTableCellElement) => {
+      const table = target.closest('table[data-type="table"]') as HTMLTableElement | null
+      if (!table || cell === target) return
+      const tr = target.closest('tr') as HTMLTableRowElement | null
+      if (!tr) return
+      const rows = Array.from(table.querySelectorAll('tr'))
+      const rowIndex = rows.indexOf(tr)
+      const colIndex = Array.from(tr.children).indexOf(target)
+      if (rowIndex < 0 || colIndex < 0) return
+
+      removeBox()
+      cell = target
+
+      // 外层只负责框住这个格子；不吃鼠标事件，好让底下格子的 hover 照常工作。
+      // 按钮自己开 pointer-events。
       const el = document.createElement('div')
-      el.className =
-        'fixed z-[9998] flex items-center gap-0.5 bg-paper-50 border border-ink-200 rounded-lg shadow-lg px-1 py-0.5'
-      const ops: { label: string; tip: string; op: TableOp }[] = [
-        { label: '+行', tip: '在表格末尾加一行', op: 'addRow' },
-        { label: '+列', tip: '在表格末尾加一列', op: 'addCol' },
-        { label: '−行', tip: '删掉最后一行', op: 'delRow' },
-        { label: '−列', tip: '删掉最后一列', op: 'delCol' },
-      ]
-      for (const item of ops) {
+      el.className = 'fixed z-[9998]'
+      el.style.pointerEvents = 'none'
+
+      const add = (
+        label: string,
+        tip: string,
+        op: TableOp,
+        at: number,
+        pos: Partial<CSSStyleDeclaration>,
+      ) => {
         const btn = document.createElement('button')
         btn.type = 'button'
-        btn.textContent = item.label
-        btn.title = item.tip
+        btn.textContent = label
+        btn.title = tip
         btn.className =
-          'px-1.5 py-0.5 text-[0.6875rem] rounded text-ink-600 hover:bg-seal-50 hover:text-seal-700 transition'
+          'absolute flex items-center justify-center w-[1.375rem] h-[1.375rem] rounded-full ' +
+          'bg-paper-50 border border-ink-200 text-ink-500 shadow-sm text-xs leading-none ' +
+          'hover:bg-seal-600 hover:border-seal-600 hover:text-paper-50 transition'
+        Object.assign(btn.style, pos)
+        btn.style.pointerEvents = 'auto'
+        // 挡住 mousedown：不然点这一下会把正文的光标 / 选区抢走
         btn.addEventListener('mousedown', (e) => {
           e.preventDefault()
           e.stopPropagation()
-          const tables = Array.from(
-            editorElement(vditorRef.current)?.querySelectorAll('table[data-type="table"]') ?? [],
-          )
-          // DOM 里的表格顺序与 parseTables 解析出来的顺序一致
-          const idx = tables.indexOf(table)
-          if (idx >= 0) {
-            const next = editTable(lastValueRef.current, idx, item.op)
-            if (next !== lastValueRef.current) onChangeRef.current?.(next)
-          }
-          removeBar()
+          runOp(op, at)
         })
         el.appendChild(btn)
       }
+
+      /** 半格边长：让按钮正好骑在格子的边线上 */
+      const H = '-0.6875rem'
+      const MID_H = { left: '50%', transform: 'translateX(-50%)' }
+      const MID_V = { top: '50%', transform: 'translateY(-50%)' }
+
+      // 列把手：左右两侧
+      add('+', '在左侧插入一列', 'addColLeft', colIndex, { ...MID_V, left: H })
+      add('+', '在右侧插入一列', 'addColRight', colIndex, { ...MID_V, right: H })
+      // 删本列：右下角
+      add('−', '删除本列', 'delCol', colIndex, { bottom: H, right: H })
+
+      // 行把手：渲染出来的第 0 行是表头，editTable 的数据行下标从表头下面第一行算起
+      if (rowIndex === 0) {
+        add('+', '在下方插入一行', 'addRowAbove', 0, { ...MID_H, bottom: H })
+      } else {
+        add('+', '在上方插入一行', 'addRowAbove', rowIndex - 1, { ...MID_H, top: H })
+        add('+', '在下方插入一行', 'addRowBelow', rowIndex - 1, { ...MID_H, bottom: H })
+        add('−', '删除本行', 'delRow', rowIndex - 1, { top: H, left: H })
+      }
+
       document.body.appendChild(el)
-      bar = el
-      positionBar()
+      box = el
+      positionBox()
     }
 
+    /**
+     * 挂在 document 上而不是编辑器容器上：把手是 body 的子节点、编辑器外，
+     * 只挂容器的话鼠标一挪到把手上就收不到事件（把手会闪掉，点不着）。
+     * 捕获阶段用，避免被 Vditor 内部对 mouseover 的处理影响。
+     */
     const onOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null
-      const table = target?.closest('table[data-type="table"]') as HTMLTableElement | null
-      if (table) showBar(table)
-      else if (bar && !bar.contains(e.target as Node)) removeBar()
+      if (!target) return
+      if (box && box.contains(target)) return
+      const el = editorElement(vditorRef.current)
+      const td = target.closest('td,th') as HTMLTableCellElement | null
+      // 必须落在**编辑器正文**里：预览 / 只读态渲染出来的表格也带 data-type="table"，
+      // 但那些地方没有「改行列」这回事，浮出把手只会让人点了没反应
+      if (el && td && el.contains(td) && td.closest('table[data-type="table"]')) {
+        showBox(td)
+        return
+      }
+      removeBox()
     }
 
-    root.addEventListener('mouseover', onOver)
-    window.addEventListener('scroll', positionBar, true)
+    document.addEventListener('mouseover', onOver, true)
+    window.addEventListener('scroll', positionBox, true)
+    window.addEventListener('resize', positionBox)
     return () => {
-      root.removeEventListener('mouseover', onOver)
-      window.removeEventListener('scroll', positionBar, true)
-      removeBar()
+      document.removeEventListener('mouseover', onOver, true)
+      window.removeEventListener('scroll', positionBox, true)
+      window.removeEventListener('resize', positionBox)
+      removeBox()
     }
   }, [])
 
@@ -1176,6 +1314,10 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     if (value === lastValueRef.current) return
     lastValueRef.current = value
     vditorRef.current.setValue(value)
+    // 整篇重建 DOM → 之前记的那份 Range 指向的节点已经脱离了文档。
+    // 不清掉的话，Vditor 会继续拿着它 insertNode：内容悄悄落进游离子树，
+    // 既不在光标处、也不在开头，用户只看到「点了没反应」。
+    savedRangeRef.current = null
   }, [value])
 
   // 只读态：Vditor 没有官方 disabled，用 CSS 兜住输入（编辑模式开关用）
@@ -1186,9 +1328,17 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     el.style.opacity = disabled ? '0.85' : ''
   }, [disabled])
 
-  // zebra 只加一个类名在容器上（样式见 index.css）：块级背景交替由 CSS 的
-  // nth-child 完成，DOM 一变颜色自己就跟着重排，不需要再挂 MutationObserver。
-  return <div ref={containerRef} className={`${className}${zebra ? ' af-editor-zebra' : ''}`} />
+  // af-vditor 是给样式用的稳定钩子：表格单元格要覆盖 Vditor 自带的
+  // `white-space: nowrap`，而 Vditor 的 CSS 是后加载的、同权重会盖住 index.css，
+  // 所以覆盖规则需要一个更高权重的祖先（见 index.css 的 .af-vditor 那几条）。
+  // zebra 只加一个类名（样式见 index.css）：逐行条纹由 CSS 的 nth-child 完成，
+  // DOM 一变颜色自己就跟着重排，不需要再挂 MutationObserver。
+  return (
+    <div
+      ref={containerRef}
+      className={`af-vditor ${className}${zebra ? ' af-editor-zebra' : ''}`}
+    />
+  )
 })
 
 export default VditorEditor
