@@ -274,6 +274,11 @@ export interface SettingsData {
   wordGenCount: number
   /** 长难句提取数量（学习页 AI 提取每篇文献的长难句条数，范围 3-30，默认 8） */
   sentenceGenCount: number
+  /**
+   * 翻译练习的「低分线」（0-100）。
+   * 摘要/长难句翻译判分后，得分低于这个值就弹出学习卡片复盘（范围 50-95，默认 70）。
+   */
+  translationLowScore: number
   /** 编辑器插入代码块时的默认语言（空串 = 纯文本） */
   defaultCodeLang: string
   /** 编辑器间隔上色（斑马纹）：长文里不容易看串行，可开关 */
@@ -794,6 +799,12 @@ export interface CitationEntry {
   pages?: string
   /** 出版社 */
   publisher?: string
+  /**
+   * 摘要纯文本（已剥掉 JATS 标签）。
+   * Crossref 侧是**可选字段**（不少出版社不提交），所以可能是空串 ——
+   * 调用方可再用 OpenAlex 兜一次（见 citation.ts 的 getCitationEntries）。
+   */
+  abstract?: string
   /** 原始 BibTeX（如果有） */
   bibtex?: string
   /** 数据来源：crossref / openalex / manual */

@@ -66,6 +66,8 @@ export const SETTING_KEYS = {
   MINERU_DEBUG_MODE: 'mineru_debug_mode',
   WORD_GEN_COUNT: 'word_gen_count',
   SENTENCE_GEN_COUNT: 'sentence_gen_count',
+  /** 翻译练习低分线（低于它才弹学习卡片） */
+  TRANSLATION_LOW_SCORE: 'translation_low_score',
   /** 编辑器插入代码块时的默认语言 */
   DEFAULT_CODE_LANG: 'default_code_lang',
   /** 编辑器间隔上色（斑马纹）开关 */

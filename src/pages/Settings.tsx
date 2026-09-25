@@ -601,6 +601,31 @@ function Settings() {
               <p className="text-xs text-ink-400">数量越多，耗时与 token 消耗越大。例句必须逐字来自原文献。</p>
             </SubBlock>
 
+            <SubBlock
+              title="翻译判分标准"
+              hint="摘要翻译与长难句翻译判分后，低分时弹出学习卡片复盘"
+            >
+              <div className="flex items-center gap-4">
+                <label className="text-sm font-medium text-ink-700 whitespace-nowrap">低分线</label>
+                <input
+                  type="range"
+                  min={50}
+                  max={95}
+                  step={5}
+                  value={store.translationLowScore ?? 70}
+                  onChange={(e) => store.updateSettings({ translationLowScore: parseInt(e.target.value, 10) })}
+                  className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
+                />
+                <span className="text-sm font-semibold text-seal-600 w-12 text-center">
+                  {store.translationLowScore ?? 70}
+                </span>
+              </div>
+              <p className="text-xs text-ink-400">
+                得分低于 {store.translationLowScore ?? 70} 分才弹卡片（参考译文 / 难点 / 踩分点 / 每点扣分）；
+                达到或超过就只给结果，不打断做题节奏。
+              </p>
+            </SubBlock>
+
             <SubBlock title="编辑器偏好" hint="写作页与阅读笔记共用">
               <div className="flex items-center gap-3">
                 <label className="whitespace-nowrap text-sm font-medium text-ink-700">

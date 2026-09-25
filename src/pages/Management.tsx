@@ -48,7 +48,8 @@ import {
   isValidMorphemeSplit, MORPHEME_TYPE_LABELS,
 } from '../services/learningData'
 import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
-import { normalizeDoi, getCitationEntries } from '../services/citation'
+import { normalizeDoi, getCitationEntries, cleanAbstract } from '../services/citation'
+import { abbreviateJournal, loadJournalAbbrevMap, saveJournalAbbrev } from '../services/journalAbbrev'
 import {
   FolderCog,
   BookMarked,
@@ -87,11 +88,11 @@ import {
   CheckSquare,
   ChevronDown,
   Folder,
-  LayoutGrid,
-  List,
   MoveRight,
   Tag,
   Library,
+  Copy,
+  Pencil,
   // ListTodo,
 } from 'lucide-react'
 import { DoiLink } from '../components/DoiLink'
@@ -132,6 +133,13 @@ interface Paper {
   categoryIds: string[]
   /** 追踪页给它打的分组；只读保留，绝不用分类去覆盖它 */
   trackingGroup: string
+  /**
+   * 摘要。来自 DOI 元数据（Crossref / OpenAlex）或转换为 md 时的抽取。
+   * 必须在这里带着走：它是摘要翻译练习的题面/参考答案来源，
+   * 一旦在读写链路里被抹成空串，那道题就再也出不来（见 paperToLiterature）。
+   */
+  abstractEn: string
+  abstractCn: string
 }
 
 /** UI 层期刊模板项 —— 包装后端 JournalTemplate，加派生字段方便显示 */
@@ -224,6 +232,8 @@ function literatureToPaper(lit: Literature): Paper {
     // 分类关系存在 literatures/categories.csv 里，加载时再填进来（见 loadData）
     categoryIds: [],
     trackingGroup: lit.trackingGroup,
+    abstractEn: lit.abstractEn || '',
+    abstractCn: lit.abstractCn || '',
   }
 }
 
@@ -235,8 +245,10 @@ function paperToLiterature(paper: Paper): Literature {
     year: parseInt(paper.year, 10) || 0,
     authors: paper.authors,
     keywords: paper.keywords.join(', '),
-    abstractEn: '',
-    abstractCn: '',
+    // 摘要必须原样回写。曾经这里写死 ''，导致用户在管理页保存任意一次文献后，
+    // 转换流程抽出来的摘要就被清空，摘要翻译练习随之再也出不来。
+    abstractEn: paper.abstractEn || '',
+    abstractCn: paper.abstractCn || '',
     tier: paper.tier,
     hasGraphicalAbstract: !!paper.coverImage,
     addedAt: Date.now(),
@@ -247,6 +259,39 @@ function paperToLiterature(paper: Paper): Literature {
     mdStatus: paper.mdStatus || 'none',
   }
 }
+
+/**
+ * 从 authors 字符串里拆出「一作」和「通讯作者」。
+ * authors 形如 "San Zhang, Si Li, Wu Wang"，也可能带 `*` 标记通讯。
+ * - 一作 = 第一个作者
+ * - 通讯 = 带 * 的那个（多个取最后一个）；没有 * 时取最后一个；只有一个作者时为 null
+ */
+function splitFirstAndCorresponding(authors: string): { first: string; corresponding: string | null } {
+  const parts = (authors || '')
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean)
+  if (parts.length === 0) return { first: '', corresponding: null }
+  const cleaned = parts.map((a) => a.replace(/\*/g, '').trim())
+  const starredIdx = parts.reduce<number[]>((acc, a, i) => {
+    if (a.includes('*')) acc.push(i)
+    return acc
+  }, [])
+  const first = cleaned[0]
+  if (cleaned.length === 1) return { first, corresponding: null }
+  const idx = starredIdx.length > 0 ? starredIdx[starredIdx.length - 1] : cleaned.length - 1
+  return { first, corresponding: cleaned[idx] || null }
+}
+
+/** 文献分类色块调色板：按文献内分类下标取色，让相邻分类颜色不同 */
+const CATEGORY_COLORS = [
+  'bg-amber-50 text-amber-600',
+  'bg-emerald-50 text-emerald-600',
+  'bg-sky-50 text-sky-600',
+  'bg-violet-50 text-violet-600',
+  'bg-rose-50 text-rose-600',
+  'bg-teal-50 text-teal-600',
+]
 
 /** 把分类树拍平成一层（'全部文献' 是伪分类，不落盘） */
 function flattenCategories(cats: PaperCategory[]): PaperCategory[] {
@@ -554,7 +599,7 @@ export default function ManagementPage() {
   const [paperWords, setPaperWords] = useState<WordData[] | null>(null)
   const [paperWordsDirty, setPaperWordsDirty] = useState(false)
   const [papers, setPapers] = useState<Paper[]>([])
-  const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto' as 'auto' | '1' | '2', categoryIds: [] as string[] })
+  const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto' as 'auto' | '1' | '2', categoryIds: [] as string[] })
   const [doiFetching, setDoiFetching] = useState(false)
   const [doiFetchError, setDoiFetchError] = useState<string | null>(null)
   const [doiQuickInput, setDoiQuickInput] = useState('')
@@ -562,7 +607,8 @@ export default function ManagementPage() {
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
-  const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
+  /** 期刊缩写本地覆盖表（全名 → 缩写） */
+  const [journalAbbrevMap, setJournalAbbrevMap] = useState<Record<string, string>>({})
   const [paperCategories, setPaperCategories] = useState<PaperCategory[]>([{ id: 'all', name: '全部文献' }])
   const [activePaperCategory, setActivePaperCategory] = useState<string>('all')
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['my-categories']))
@@ -686,6 +732,11 @@ export default function ManagementPage() {
     }
     loadTemplates()
   }, [repo])
+
+  // 期刊缩写覆盖表：只在挂载时读一次
+  useEffect(() => {
+    loadJournalAbbrevMap().then(setJournalAbbrevMap).catch(() => {})
+  }, [])
 
   /** 把 taskQueue 的 running 任务进度实时同步到对应 paper（卡片上的内联进度条需要） */
   useEffect(() => {
@@ -1051,6 +1102,7 @@ export default function ManagementPage() {
       const journal = Array.isArray(m['container-title']) ? (m['container-title'] as string[])[0] || '' : ''
       const doiFinal = (m.DOI as string) || trimmed
       const keywords = Array.isArray(m.subject) ? (m.subject as string[]).join(', ') : ''
+      const abstract = cleanAbstract(m.abstract as string | undefined)
 
       setNewPaper((prev) => ({
         ...prev,
@@ -1060,6 +1112,7 @@ export default function ManagementPage() {
         journal: journal || prev.journal,
         doi: doiFinal || prev.doi,
         keywords: keywords || prev.keywords,
+        abstractEn: abstract || prev.abstractEn,
       }))
       toast.success('已从 Crossref 自动填充，请确认后保存')
     } catch (e) {
@@ -1116,6 +1169,10 @@ export default function ManagementPage() {
         // 在当前选中的分类里新增 → 直接归到该分类下
         categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [],
         trackingGroup: '',
+        // DOI 快捷入库只有元数据：把元数据里带的摘要收下，
+        // 这样即便没有 md，摘要翻译练习也有题面/参考答案可用
+        abstractEn: (meta.abstract || '').trim(),
+        abstractCn: '',
       }
       const updated = [paper, ...papers]
       setPapers(updated)
@@ -1172,12 +1229,14 @@ export default function ManagementPage() {
       hasPdf: false,
       categoryIds: newPaper.categoryIds,
       trackingGroup: '',
+      abstractEn: newPaper.abstractEn.trim(),
+      abstractCn: newPaper.abstractCn.trim(),
     }
     const updated = [paper, ...papers]
     setPapers(updated)
     try {
       await savePapers(updated)
-      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: [] })
+      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: [] })
       setShowAddPaperModal(false)
       toast.success('文献已保存', { description: '刷新后仍会保留' })
     } catch (err) {
@@ -1433,6 +1492,16 @@ export default function ManagementPage() {
       // ═══ 无论成功失败，清除 deletingIds 标记 ═══
       setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
     }
+  }
+
+  /** 编辑某期刊的显示缩写：prompt 取值 → 落盘 → 刷新覆盖表 */
+  const handleEditJournalAbbrev = async (journal: string) => {
+    const current = journalAbbrevMap[journal] ?? abbreviateJournal(journal)
+    const input = prompt('期刊缩写', current)
+    if (input === null) return
+    await saveJournalAbbrev(journal, input.trim())
+    setJournalAbbrevMap(await loadJournalAbbrevMap())
+    toast.success('已保存期刊缩写')
   }
 
   /** 跳转到阅读页并直接打开这篇文献 */
@@ -2439,23 +2508,6 @@ export default function ManagementPage() {
                     className="pl-9 pr-4 py-2 text-sm border border-ink-200 rounded-lg w-[clamp(12rem,22vw,20rem)] focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50"
                   />
                 </div>
-                {/* 视图切换 */}
-                <div className="flex items-center bg-ink-100 rounded-lg p-0.5">
-                  <button
-                    onClick={() => setViewMode('table')}
-                    className={`p-1.5 rounded-md transition ${viewMode === 'table' ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-400 hover:text-ink-600'}`}
-                    title="表格视图"
-                  >
-                    <List className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setViewMode('card')}
-                    className={`p-1.5 rounded-md transition ${viewMode === 'card' ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-400 hover:text-ink-600'}`}
-                    title="卡片视图"
-                  >
-                    <LayoutGrid className="w-4 h-4" />
-                  </button>
-                </div>
               </div>
               <div className="flex items-center gap-2">
                 {/* DOI 快捷添加 — inline 紧凑版，优先于批量/手动 */}
@@ -2521,7 +2573,7 @@ export default function ManagementPage() {
                 </button>
                 <button
                   onClick={() => {
-                    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
                     setShowAddPaperModal(true)
                   }}
                   className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition shadow-md shadow-seal-200"
@@ -2621,374 +2673,266 @@ export default function ManagementPage() {
                 </div>
               </div>
 
-              {/* 表格视图 */}
-              {viewMode === 'table' && (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-paper-100">
-                      <tr>
-                        {batchMode && (
-                          <th className="text-left px-4 py-3 w-10">
-                            <input
-                              type="checkbox"
-                              checked={selectedPapers.size === pagedPapers.length && pagedPapers.length > 0}
-                              onChange={toggleSelectAll}
-                              className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
-                            />
-                          </th>
-                        )}
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">题图</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">标题</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">作者</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">年份</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">期刊</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">关键词</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">DOI 链接</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">分类</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-ink-500 uppercase tracking-wider">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-ink-100">
-                      {pagedPapers.map((paper) => (
-                        <tr key={paper.id} className="hover:bg-paper-100/70 transition">
-                          {batchMode && (
-                            <td className="px-4 py-3">
-                              <input
-                                type="checkbox"
-                                checked={selectedPapers.has(paper.id)}
-                                onChange={() => toggleSelectPaper(paper.id)}
-                                className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
-                              />
-                            </td>
-                          )}
-                          <td className="px-4 py-3">
-                            <div
-                              className={`w-12 h-12 rounded-lg overflow-hidden bg-ink-100 flex-shrink-0 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
-                              onClick={() => paper.coverImage && setShowImageLightbox(paper.coverImage)}
-                            >
-                              {paper.coverImage ? (
-                                <img src={paper.coverImage} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-ink-300">
-                                  {paper.tier === 2 ? <Book className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm">{paper.tier === 2 ? '📖' : '📄'}</span>
-                              <div className="text-sm font-medium text-ink-800 line-clamp-2 max-w-xs">{paper.title}</div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-ink-600 max-w-[7.5rem] truncate">{paper.authors}</td>
-                          <td className="px-4 py-3 text-sm text-ink-600">{paper.year}</td>
-                          <td className="px-4 py-3 text-sm text-ink-600 max-w-[8.75rem] truncate">{paper.journal}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1 max-w-[11.25rem]">
-                              {paper.keywords.slice(0, 2).map((kw) => (
-                                <span key={kw} className="px-2 py-0.5 bg-seal-50 text-seal-600 text-xs rounded-full">
-                                  {kw}
-                                </span>
-                              ))}
-                              {paper.keywords.length > 2 && (
-                                <span className="px-2 py-0.5 bg-ink-100 text-ink-500 text-xs rounded-full">
-                                  +{paper.keywords.length - 2}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <DoiLink doi={paper.doi} className="text-xs max-w-[8.75rem] truncate block" />
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => handleEditPaper(paper)}
-                              className="flex flex-wrap gap-1 max-w-[11rem] text-left hover:opacity-80 transition"
-                              title="点击修改所属分类（可多选）"
-                            >
-                              {paper.categoryIds.length > 0 ? (
-                                paper.categoryIds.map((cid) => {
-                                  const cat = getAllLeafCategories.find((c) => c.id === cid)
-                                  return cat ? (
-                                    <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-xs rounded whitespace-nowrap">
-                                      <Tag className="w-3 h-3 inline mr-0.5" />
-                                      {cat.name}
-                                    </span>
-                                  ) : null
-                                })
-                              ) : (
-                                <span className="text-xs text-ink-400">未分类</span>
-                              )}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-end gap-1">
-                              {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
-                              {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
-                                <label
-                                  className="p-1.5 rounded-md transition cursor-pointer text-seal-500 hover:text-seal-600 hover:bg-seal-50"
-                                  title="上传 PDF 开始转换"
-                                >
-                                  <Upload className="w-4 h-4" />
-                                  <input
-                                    type="file"
-                                    accept=".pdf"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0]
-                                      if (file) void startPaperMineruConvert(paper, file)
-                                      e.target.value = ''
-                                    }}
-                                  />
-                                </label>
-                              )}
-                              <button
-                                disabled={paper.mdStatus === 'converting'}
-                                onClick={() => handleOpenReading(paper)}
-                                className={`p-1.5 rounded-md transition ${
-                                  paper.mdStatus === 'converting'
-                                    ? 'text-ink-300 cursor-not-allowed'
-                                    : 'text-ink-400 hover:text-seal-600 hover:bg-seal-50'
-                                }`}
-                                title={paper.mdStatus === 'converting' ? '转换中，暂时无法阅读' : '阅读'}
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <button
-                                disabled={paper.mdStatus === 'converting' || !paper.doi}
-                                onClick={() => handleReconvertPaper(paper)}
-                                className={`p-1.5 rounded-md transition ${
-                                  paper.mdStatus === 'converting' || !paper.doi
-                                    ? 'text-ink-300 cursor-not-allowed'
-                                    : 'text-ink-400 hover:text-amber-600 hover:bg-amber-50'
-                                }`}
-                                title={!paper.doi ? '无 DOI 无法转换' : paper.mdStatus === 'converting' ? '正在转换' : '重新转换'}
-                              >
-                                <RefreshCw className={`w-4 h-4 ${paper.mdStatus === 'converting' ? 'animate-spin' : ''}`} />
-                              </button>
-                              <button
-                                onClick={() => handleEditPaper(paper)}
-                                className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                                title="编辑"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                disabled={deletingIds.has(paper.id)}
-                                onClick={() => handleDeletePaper(paper.id)}
-                                className={`p-1.5 rounded-md transition ${
-                                  deletingIds.has(paper.id)
-                                    ? 'text-red-500 bg-red-50 cursor-not-allowed'
-                                    : 'text-ink-400 hover:text-red-600 hover:bg-red-50'
-                                }`}
-                                title={deletingIds.has(paper.id) ? '删除中...' : '删除'}
-                              >
-                                {deletingIds.has(paper.id) ? (
-                                  <span className="inline-flex items-center gap-0.5">
-                                    <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                    <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                    <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                                  </span>
-                                ) : (
-                                  <Trash2 className="w-4 h-4" />
-                                )}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {pagedPapers.length === 0 && (
-                        <tr>
-                          <td colSpan={batchMode ? 10 : 9} className="px-4 py-16 text-center">
-                            <div className="text-ink-400 mb-3">
-                              <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                              <p className="text-sm">暂无文献数据</p>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
-                                setShowAddPaperModal(true)
-                              }}
-                              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
-                            >
-                              <Plus className="w-4 h-4" />
-                              添加第一篇文献
-                            </button>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* 卡片视图 */}
-              {viewMode === 'card' && (
-                <div className="p-4">
-                  {pagedPapers.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {pagedPapers.map((paper) => (
-                        <div
-                          key={paper.id}
-                          className={`bg-paper-50 border rounded-xl overflow-hidden hover:shadow-md transition group ${
-                            batchMode ? 'cursor-pointer' : ''
-                          } ${selectedPapers.has(paper.id) ? 'border-seal-400 ring-2 ring-seal-100' : 'border-ink-200'}`}
-                          onClick={() => batchMode && toggleSelectPaper(paper.id)}
-                        >
-                          <div className="relative h-32 bg-ink-100 overflow-hidden">
-                            {paper.coverImage ? (
-                              <img src={paper.coverImage} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-ink-300">
-                                {paper.tier === 2 ? <Book className="w-12 h-12" /> : <FileText className="w-12 h-12" />}
-                              </div>
-                            )}
-                            {batchMode && (
-                              <div className="absolute top-2 left-2">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedPapers.has(paper.id)}
-                                  onChange={(e) => {
-                                    e.stopPropagation()
-                                    toggleSelectPaper(paper.id)
-                                  }}
-                                  className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
-                                />
-                              </div>
-                            )}
-                            <div className="absolute top-2 right-2">
-                              <span className="text-lg">{paper.tier === 2 ? '📖' : '📄'}</span>
-                            </div>
-                          </div>
-                          <div className="p-3">
-                            <h3 className="font-medium text-ink-800 text-sm line-clamp-2 mb-1.5 min-h-[2.5rem]">{paper.title}</h3>
-                            <p className="text-xs text-ink-500 line-clamp-1 mb-1">{paper.authors}</p>
-                            <p className="text-xs text-ink-400 line-clamp-1 mb-2">{paper.journal} · {paper.year}</p>
-                            <div className="flex flex-wrap gap-1 mb-2">
-                              {paper.keywords.slice(0, 2).map((kw) => (
-                                <span key={kw} className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
-                                  {kw}
-                                </span>
-                              ))}
-                              {paper.keywords.length > 2 && (
-                                <span className="px-1.5 py-0.5 bg-ink-100 text-ink-500 text-xs rounded">
-                                  +{paper.keywords.length - 2}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center justify-between pt-2 border-t border-ink-100">
-                              <StatusBadge status={paper.mdStatus} />
-                              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                                {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
-                                {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
-                                  <label
-                                    className="p-1 rounded transition cursor-pointer text-seal-500 hover:text-seal-600 hover:bg-seal-50"
-                                    title="上传 PDF 开始转换"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <Upload className="w-3.5 h-3.5" />
-                                    <input
-                                      type="file"
-                                      accept=".pdf"
-                                      className="hidden"
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0]
-                                        if (file) void startPaperMineruConvert(paper, file)
-                                        e.target.value = ''
-                                      }}
-                                    />
-                                  </label>
-                                )}
-                                <button
-                                  disabled={paper.mdStatus === 'converting' || !paper.doi}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleOpenReading(paper)
-                                  }}
-                                  className={`p-1 rounded transition ${
-                                    paper.mdStatus === 'converting' || !paper.doi
-                                      ? 'text-ink-300 cursor-not-allowed'
-                                      : 'text-ink-400 hover:text-seal-600 hover:bg-seal-50'
-                                  }`}
-                                  title={!paper.doi ? '无 DOI 无法阅读' : paper.mdStatus === 'converting' ? '转换中，暂时无法阅读' : '阅读'}
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  disabled={paper.mdStatus === 'converting' || !paper.doi}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleReconvertPaper(paper)
-                                  }}
-                                  className={`p-1 rounded transition ${
-                                    paper.mdStatus === 'converting' || !paper.doi
-                                      ? 'text-ink-300 cursor-not-allowed'
-                                      : 'text-ink-400 hover:text-amber-600 hover:bg-amber-50'
-                                  }`}
-                                  title={!paper.doi ? '无 DOI 无法转换' : paper.mdStatus === 'converting' ? '正在转换' : '重新转换'}
-                                >
-                                  <RefreshCw className={`w-3.5 h-3.5 ${paper.mdStatus === 'converting' ? 'animate-spin' : ''}`} />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleEditPaper(paper)
-                                  }}
-                                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                                  title="编辑"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  disabled={deletingIds.has(paper.id)}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleDeletePaper(paper.id)
-                                  }}
-                                  className={`p-1 rounded transition ${
-                                    deletingIds.has(paper.id)
-                                      ? 'text-red-500 bg-red-50 cursor-not-allowed'
-                                      : 'text-ink-400 hover:text-red-600 hover:bg-red-50'
-                                  }`}
-                                  title={deletingIds.has(paper.id) ? '删除中...' : '删除'}
-                                >
-                                  {deletingIds.has(paper.id) ? (
-                                    <span className="inline-flex items-center gap-0.5">
-                                      <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                      <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                      <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                                    </span>
-                                  ) : (
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
+              {/* 文献横条列表：一条文献 = 一个横条 */}
+              <div className="divide-y divide-ink-100">
+                {batchMode && (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-paper-100/50">
+                    <input
+                      type="checkbox"
+                      checked={selectedPapers.size === pagedPapers.length && pagedPapers.length > 0}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
+                    />
+                    <span className="text-xs text-ink-500">全选本页</span>
+                  </div>
+                )}
+                {pagedPapers.map((paper) => {
+                  const { first, corresponding } = splitFirstAndCorresponding(paper.authors)
+                  const abbrev = journalAbbrevMap[paper.journal] ?? abbreviateJournal(paper.journal)
+                  return (
+                    <div
+                      key={paper.id}
+                      className={`flex gap-4 px-4 py-3 hover:bg-paper-100/70 transition ${
+                        batchMode ? 'cursor-pointer' : ''
+                      } ${selectedPapers.has(paper.id) ? 'bg-seal-50' : ''}`}
+                      onClick={() => batchMode && toggleSelectPaper(paper.id)}
+                    >
+                      {batchMode && (
+                        <div className="flex items-center shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={selectedPapers.has(paper.id)}
+                            onChange={(e) => {
+                              e.stopPropagation()
+                              toggleSelectPaper(paper.id)
+                            }}
+                            className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
+                          />
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="py-16 text-center">
-                      <div className="text-ink-400 mb-3">
-                        <LayoutGrid className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">暂无文献数据</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
-                          setShowAddPaperModal(true)
+                      )}
+
+                      {/* 题图 */}
+                      <div
+                        className={`w-14 h-[4.5rem] rounded-lg overflow-hidden bg-ink-100 flex-shrink-0 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                        onClick={(e) => {
+                          if (paper.coverImage) {
+                            e.stopPropagation()
+                            setShowImageLightbox(paper.coverImage)
+                          }
                         }}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
                       >
-                        <Plus className="w-4 h-4" />
-                        添加第一篇文献
-                      </button>
+                        {paper.coverImage ? (
+                          <img src={paper.coverImage} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-ink-300">
+                            {paper.tier === 2 ? <Book className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 主信息 */}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-start gap-2">
+                          <span className="text-sm shrink-0">{paper.tier === 2 ? '📖' : '📄'}</span>
+                          <h3 className="text-sm font-medium text-ink-800 line-clamp-2 min-w-0">{paper.title}</h3>
+                        </div>
+
+                        {/* 作者：一作 / 通讯各一行 */}
+                        <div className="text-xs text-ink-500">
+                          <div>一作 {first}</div>
+                          {corresponding && <div>★ {corresponding}</div>}
+                        </div>
+
+                        {/* 期刊缩写 · 年份 */}
+                        <div className="flex items-center gap-1 text-xs text-ink-400 min-w-0">
+                          {paper.journal && (
+                            <>
+                              <span className="truncate">{abbrev}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void handleEditJournalAbbrev(paper.journal)
+                                }}
+                                className="p-0.5 text-ink-300 hover:text-seal-600 rounded transition shrink-0"
+                                title="修改期刊缩写"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                          {paper.year && <span className="shrink-0">{paper.journal ? `· ${paper.year}` : paper.year}</span>}
+                        </div>
+
+                        {/* 关键词：最多 2 个 */}
+                        {paper.keywords.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {paper.keywords.slice(0, 2).map((kw) => (
+                              <span key={kw} className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
+                                {kw}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 分类：一行一个 */}
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {paper.categoryIds.length > 0 ? (
+                          paper.categoryIds.map((cid, i) => {
+                            const cat = getAllLeafCategories.find((c) => c.id === cid)
+                            if (!cat) return null
+                            return (
+                              <button
+                                key={cid}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleEditPaper(paper)
+                                }}
+                                className={`px-1.5 py-0.5 text-xs rounded whitespace-nowrap hover:opacity-80 transition ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
+                                title="点击修改所属分类（可多选）"
+                              >
+                                <Tag className="w-3 h-3 inline mr-0.5" />
+                                {cat.name}
+                              </button>
+                            )
+                          })
+                        ) : (
+                          <span className="text-xs text-ink-400">未分类</span>
+                        )}
+                      </div>
+
+                      {/* 状态 + 操作 */}
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        <div className="flex items-center gap-1">
+                          <StatusBadge status={paper.mdStatus} />
+                          {paper.hasPdf && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 bg-ink-100 text-ink-500 text-[0.625rem] font-medium rounded shrink-0">
+                              PDF
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
+                          {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
+                            <label
+                              className="p-1.5 rounded-md transition cursor-pointer text-seal-500 hover:text-seal-600 hover:bg-seal-50"
+                              title="上传 PDF 开始转换"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Upload className="w-4 h-4" />
+                              <input
+                                type="file"
+                                accept=".pdf"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) void startPaperMineruConvert(paper, file)
+                                  e.target.value = ''
+                                }}
+                              />
+                            </label>
+                          )}
+                          {/* DOI 复制：只给图标，不显示 DOI 文本 */}
+                          {paper.doi && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void navigator.clipboard.writeText(paper.doi)
+                                toast.success('DOI 已复制')
+                              }}
+                              className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                              title="复制 DOI"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            disabled={paper.mdStatus === 'converting'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleOpenReading(paper)
+                            }}
+                            className={`p-1.5 rounded-md transition ${
+                              paper.mdStatus === 'converting'
+                                ? 'text-ink-300 cursor-not-allowed'
+                                : 'text-ink-400 hover:text-seal-600 hover:bg-seal-50'
+                            }`}
+                            title={paper.mdStatus === 'converting' ? '转换中，暂时无法阅读' : '阅读'}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            disabled={paper.mdStatus === 'converting' || !paper.doi}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleReconvertPaper(paper)
+                            }}
+                            className={`p-1.5 rounded-md transition ${
+                              paper.mdStatus === 'converting' || !paper.doi
+                                ? 'text-ink-300 cursor-not-allowed'
+                                : 'text-ink-400 hover:text-amber-600 hover:bg-amber-50'
+                            }`}
+                            title={!paper.doi ? '无 DOI 无法转换' : paper.mdStatus === 'converting' ? '正在转换' : '重新转换'}
+                          >
+                            <RefreshCw className={`w-4 h-4 ${paper.mdStatus === 'converting' ? 'animate-spin' : ''}`} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditPaper(paper)
+                            }}
+                            className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                            title="编辑"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            disabled={deletingIds.has(paper.id)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeletePaper(paper.id)
+                            }}
+                            className={`p-1.5 rounded-md transition ${
+                              deletingIds.has(paper.id)
+                                ? 'text-red-500 bg-red-50 cursor-not-allowed'
+                                : 'text-ink-400 hover:text-red-600 hover:bg-red-50'
+                            }`}
+                            title={deletingIds.has(paper.id) ? '删除中...' : '删除'}
+                          >
+                            {deletingIds.has(paper.id) ? (
+                              <span className="inline-flex items-center gap-0.5">
+                                <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                              </span>
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                })}
+                {pagedPapers.length === 0 && (
+                  <div className="py-16 text-center">
+                    <div className="text-ink-400 mb-3">
+                      <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">暂无文献数据</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                        setShowAddPaperModal(true)
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+                    >
+                      <Plus className="w-4 h-4" />
+                      添加第一篇文献
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {totalPages > 0 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-ink-100 bg-paper-100/50">
@@ -3049,66 +2993,56 @@ export default function ManagementPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
             {templates.map((tpl) => (
-              <div
-                key={tpl.id}
-                className={`bg-paper-50 rounded-xl border shadow-sm hover:shadow-md transition overflow-hidden ${
-                  tpl.isDefault ? 'border-seal-300 ring-1 ring-seal-100' : 'border-ink-200'
-                }`}
-              >
-                <div className="p-5">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="p-2 bg-seal-50 rounded-lg">
-                      <BookOpen className="w-6 h-6 text-seal-600" />
-                    </div>
+              <div key={tpl.id} className="flex items-center gap-3 px-4 py-3 hover:bg-paper-100/70 transition">
+                <div className="w-10 h-10 shrink-0 flex items-center justify-center bg-seal-50 rounded-lg">
+                  <BookOpen className="w-5 h-5 text-seal-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-ink-800 line-clamp-2">{tpl.name}</p>
                     {tpl.isDefault && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 text-xs font-medium rounded-full">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 text-xs font-medium rounded-full shrink-0">
                         <Star className="w-3 h-3 fill-current" />
                         默认
                       </span>
                     )}
                   </div>
-                  <h3 className="font-semibold text-ink-800 mb-1">{tpl.name}</h3>
-                  <p className="text-sm text-ink-500 mb-1">{tpl.publisher} · ISSN: {tpl.issn || '-'}</p>
-                  <p className="text-xs text-ink-400 mb-3">最后更新：{tpl.lastUpdated}</p>
-                  <div className="p-3 bg-paper-100 rounded-lg border border-ink-100">
-                    <p className="text-xs text-ink-600 leading-relaxed line-clamp-3">{tpl.formatSummary}</p>
-                  </div>
+                  <p className="text-xs text-ink-500 truncate">{tpl.publisher} · ISSN: {tpl.issn || '-'}</p>
+                  <p className="text-xs text-ink-400 truncate">最后更新：{tpl.lastUpdated}</p>
                 </div>
-                <div className="px-5 py-3 bg-paper-100 border-t border-ink-100 flex items-center justify-between">
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => {
+                      setEditingTemplate({ ...tpl })
+                      setNewTemplate({ name: tpl.name, issn: tpl.issn, publisher: tpl.publisher, guidelines: tpl.formatSummary })
+                      setShowTemplateModal(true)
+                    }}
+                    className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                    title="编辑"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                  {!tpl.isDefault && (
                     <button
-                      onClick={() => {
-                        setEditingTemplate({ ...tpl })
-                        setNewTemplate({ name: tpl.name, issn: tpl.issn, publisher: tpl.publisher, guidelines: tpl.formatSummary })
-                        setShowTemplateModal(true)
-                      }}
-                      className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                      title="编辑"
+                      onClick={() => handleSetDefaultTemplate(tpl.id)}
+                      className="p-1.5 text-ink-400 hover:text-amber-500 hover:bg-amber-50 rounded-md transition"
+                      title="设为默认"
                     >
-                      <Edit3 className="w-4 h-4" />
+                      <Star className="w-4 h-4" />
                     </button>
-                    {!tpl.isDefault && (
-                      <button
-                        onClick={() => handleSetDefaultTemplate(tpl.id)}
-                        className="p-1.5 text-ink-400 hover:text-amber-500 hover:bg-amber-50 rounded-md transition"
-                        title="设为默认"
-                      >
-                        <Star className="w-4 h-4" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleDeleteTemplate(tpl.id)}
-                      className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                      title="删除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  )}
+                  <button
+                    onClick={() => handleDeleteTemplate(tpl.id)}
+                    className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                    title="删除"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                   <button
                     onClick={() => handleApplyTemplate(tpl.id)}
-                    className="text-xs text-seal-600 hover:text-seal-700 font-medium flex items-center gap-1"
+                    className="ml-1 text-xs text-seal-600 hover:text-seal-700 font-medium flex items-center gap-1 shrink-0"
                   >
                     应用到项目
                     <ExternalLink className="w-3 h-3" />
@@ -3250,52 +3184,35 @@ export default function ManagementPage() {
             </div>
 
             {filteredBooks.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
                 {filteredBooks.map((book) => (
                   <div
                     key={book.id}
-                    className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm hover:shadow-md transition overflow-hidden group cursor-pointer"
+                    className="flex items-center gap-4 px-4 py-3 hover:bg-paper-100/70 transition cursor-pointer"
                     onClick={() => openBookDetail(book)}
                   >
-                    <div className="aspect-[3/4] bg-ink-100 relative overflow-hidden">
-                      {book.coverImage ? (
-                        <img src={book.coverImage} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-ink-300">
-                          <Book className="w-12 h-12" />
-                        </div>
-                      )}
-                      <div className="absolute top-2 right-2">
+                    {/* 固定尺寸图标块（图书没有封面） */}
+                    <div className="w-12 h-14 shrink-0 flex items-center justify-center bg-ink-100 text-ink-300 rounded-lg">
+                      <Book className="w-5 h-5" />
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-ink-800 line-clamp-2">{book.title}</p>
                         <BookStatusBadge status={book.status} />
-                      </div>
-                      {book.isSplit && book.status === 'done' && (
-                        <div className="absolute top-2 left-2">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-seal-100 text-seal-700 text-xs font-medium rounded-full">
+                        {book.isSplit && book.status === 'done' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-seal-100 text-seal-700 text-xs font-medium rounded-full shrink-0">
                             <Layers className="w-3 h-3" />
                             共{book.volumes?.length || 0}卷
                           </span>
-                        </div>
-                      )}
-                      {(book.status === 'converting' || book.status === 'uploading') && (
-                        <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-ink-900/50 backdrop-blur-sm">
-                          <div className="h-1 bg-paper-50/30 rounded-full overflow-hidden mb-1">
-                            <div
-                              className="h-full bg-paper-50 rounded-full transition-all"
-                              style={{ width: `${book.progress}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-paper-50 text-right">{book.progress}%</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-3">
-                      <h3 className="font-medium text-ink-800 text-sm line-clamp-1 mb-0.5">{book.title}</h3>
-                      <p className="text-xs text-ink-500 line-clamp-1 mb-1">{book.author}</p>
-                      <p className="text-xs text-ink-400 line-clamp-1">
+                        )}
+                      </div>
+                      <p className="text-xs text-ink-500 truncate mt-0.5">{book.author}</p>
+                      <p className="text-xs text-ink-400 truncate">
                         {[book.publisher, book.year ? `${book.year} 年` : ''].filter(Boolean).join(' · ')}
                       </p>
                       {book.categoryIds.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
+                        <div className="flex flex-wrap gap-1 mt-1">
                           {book.categoryIds.slice(0, 2).map((cid) => {
                             const cat = bookCategories.find((c) => c.id === cid)
                             return cat ? (
@@ -3306,26 +3223,36 @@ export default function ManagementPage() {
                           })}
                         </div>
                       )}
+                      {(book.status === 'converting' || book.status === 'uploading') && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="h-1 flex-1 bg-ink-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-seal-500 rounded-full transition-all"
+                              style={{ width: `${book.progress}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-ink-500 shrink-0">{book.progress}%</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="px-3 py-2 bg-paper-100 border-t border-ink-100 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1">
+
+                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleOpenBookReading(book)}
+                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                        title="阅读"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      {(book.status === 'converting' || book.status === 'uploading') && (
                         <button
-                          onClick={() => handleOpenBookReading(book)}
-                          className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                          title="阅读"
+                          onClick={() => openBookDetail(book)}
+                          className="p-1.5 text-ink-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                          title="查看转换进度"
                         >
-                          <Eye className="w-4 h-4" />
+                          <Loader2 className="w-4 h-4 animate-spin" />
                         </button>
-                        {(book.status === 'converting' || book.status === 'uploading') && (
-                          <button
-                            onClick={() => openBookDetail(book)}
-                            className="p-1.5 text-ink-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
-                            title="查看转换进度"
-                          >
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          </button>
-                        )}
-                      </div>
+                      )}
                       <button
                         onClick={() => handleDeleteBook(book.id)}
                         className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
@@ -3702,6 +3629,28 @@ export default function ManagementPage() {
                 className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">英文摘要</label>
+                <textarea
+                  value={newPaper.abstractEn}
+                  onChange={(e) => setNewPaper({ ...newPaper, abstractEn: e.target.value })}
+                  rows={3}
+                  placeholder="摘要翻译练习（英译中）的题面。DOI 自动填充会带回来"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">中文摘要</label>
+                <textarea
+                  value={newPaper.abstractCn}
+                  onChange={(e) => setNewPaper({ ...newPaper, abstractCn: e.target.value })}
+                  rows={3}
+                  placeholder="英译中的参考答案 / 中译英的题面。只靠 DOI 元数据通常只有英文摘要，可在此补齐"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                />
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-medium text-ink-700 mb-1.5">文献等级</label>
               <div className="flex items-center gap-3">
@@ -3887,6 +3836,29 @@ export default function ManagementPage() {
                 placeholder="多个关键词用逗号分隔"
                 className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">英文摘要</label>
+                <textarea
+                  value={editingPaper.abstractEn}
+                  onChange={(e) => setEditingPaper({ ...editingPaper, abstractEn: e.target.value })}
+                  rows={4}
+                  placeholder="摘要翻译练习（英译中）的题面"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">中文摘要</label>
+                <textarea
+                  value={editingPaper.abstractCn}
+                  onChange={(e) => setEditingPaper({ ...editingPaper, abstractCn: e.target.value })}
+                  rows={4}
+                  placeholder="英译中的参考答案 / 中译英的题面"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                />
+              </div>
             </div>
 
             <div>

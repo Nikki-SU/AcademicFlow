@@ -7,8 +7,6 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  ChevronUp,
   Check,
   X,
   BookOpen,
@@ -388,7 +386,7 @@ interface ParsedLearningJSON {
     scoring_points?: unknown
     difficulty_note?: string
   }>
-  translations: Array<{ direction?: string; originalText?: string; scoring_points?: unknown }>
+  translations: Array<{ direction?: string; originalText?: string; scoring_points?: unknown; reference_translation?: string }>
 }
 function parseLearningJSON(raw: string): ParsedLearningJSON {
   let text = raw.trim()
@@ -483,6 +481,15 @@ function buildLearningInstruction(
   o: LearningGenOptions,
   abstracts: { en: string; cn: string },
 ): string {
+  // 摘要常常只有一边（只靠 DOI 元数据入库的文献通常只有英文摘要）。
+  // 有哪边就出哪个方向：英译中要英文题面、中译英要中文题面；
+  // 而参考答案缺的一边（如英译中却没有中文摘要）由 AI 在 reference_translation 里补。
+  const hasEn = !!abstracts.en.trim()
+  const hasCn = !!abstracts.cn.trim()
+  const translationDirs: Array<{ dir: TranslationDirection; needRef: boolean }> = []
+  if (hasEn) translationDirs.push({ dir: 'en2cn', needRef: !hasCn })
+  if (hasCn) translationDirs.push({ dir: 'cn2en', needRef: !hasEn })
+
   const tasks: string[] = []
   if (o.words) {
     tasks.push(
@@ -498,7 +505,7 @@ function buildLearningInstruction(
     )
   }
   if (o.translation) {
-    tasks.push('摘要翻译踩分点：为下面的英文摘要与中文摘要两个翻译方向各生成一组踩分点（写入 JSON 的 translations 字段）')
+    tasks.push('摘要翻译踩分点：为下面可用摘要的每个翻译方向各生成一组踩分点（写入 JSON 的 translations 字段）')
   }
 
   const lines: string[] = [
@@ -509,10 +516,19 @@ function buildLearningInstruction(
 
   if (o.translation) {
     lines.push(
-      '【翻译题的两个方向（题面与参考答案由系统直接从文献元数据注入，你不需要翻译，也不得输出任何译文）】',
+      '【翻译题（题面与参考答案优先由系统直接从文献元数据注入）】',
       '- en2cn（英译中）：题面 = 英文摘要原文，参考答案 = 中文摘要',
       '- cn2en（中译英）：题面 = 中文摘要原文，参考答案 = 英文摘要',
-      '你只需为这两个方向分别给出**踩分点**（判分标准，主要覆盖逻辑关系与关键术语/词汇）。',
+    )
+    if (translationDirs.some((d) => d.needRef)) {
+      lines.push(
+        '本摘要只有一边语言，题面方向照常出，但缺失的那一边请你在该方向的 reference_translation 字段里补出一份**参考译文**（这就是参考答案，系统会直接采用）。',
+      )
+    } else {
+      lines.push('两个方向的参考答案都已给出，你不需要翻译，也不得输出任何译文。')
+    }
+    lines.push(
+      '你另需为可用方向给出**踩分点**（判分标准，主要覆盖逻辑关系与关键术语/词汇）。',
       '',
       `【英文摘要】${abstracts.en || '[NOT_IN_SOURCE] abstract_en'}`,
       `【中文摘要】${abstracts.cn || '[NOT_IN_SOURCE] abstract_cn'}`,
@@ -530,7 +546,21 @@ function buildLearningInstruction(
     schema.push('  "sentences": [{"sentenceEn":"...","sentenceCn":"...","aiReferenceCn":"...","scoring_points":["..."],"difficulty_note":"..."}]')
   }
   if (o.translation) {
-    schema.push('  "translations": [{"direction":"en2cn","scoring_points":["..."]},{"direction":"cn2en","scoring_points":["..."]}]')
+    const dirSchemas = translationDirs.map(
+      (d) =>
+        `{"direction":"${d.dir}","scoring_points":["..."]${d.needRef ? ',"reference_translation":"..."' : ''}}`,
+    )
+    schema.push(`  "translations": [${dirSchemas.join(',')}]`)
+  }
+
+  const translationRules: string[] = []
+  if (o.translation) {
+    const needRefList = translationDirs.filter((d) => d.needRef).map((d) => d.dir).join(' / ')
+    translationRules.push(
+      translationDirs.some((d) => d.needRef)
+        ? `- translations 只在 ${needRefList} 里输出 reference_translation（那份参考译文），其余方向不得输出任何译文，也不得输出 originalText`
+        : '- translations **只输出 scoring_points**，不得输出 originalText / reference_translation / 任何译文',
+    )
   }
 
   lines.push(
@@ -543,7 +573,7 @@ function buildLearningInstruction(
     '- word/exampleEn/sentenceEn 等英文片段必须**逐字复制**自源材料，禁止改写或编造',
     '- sentenceCn/aiReferenceCn 为中文翻译，可基于学术常识给出',
     '- scoring_points 是判分用的踩分点清单，每条一句话，聚焦逻辑关系（因果/转折/递进/让步等）与关键术语词汇，不要泛泛而谈',
-    '- translations **只输出两个方向的 scoring_points**，不得输出 originalText / reference_translation / 任何译文',
+    ...translationRules,
     '- 源材料未涉及的字段用 [NOT_IN_SOURCE] <字段名> 标注',
     '- 输出语言：word / definitionEn / exampleEn 这些字段用英文（exampleEn 必须逐字来自原文），meaning / definitionCn / exampleZh / 译文 / 踩分点用中文',
     '- morphemes 是词根词缀切分：各段 text 按顺序拼起来必须正好等于 word（一个字母都不能差）；拆不出就给空数组 []，**不要硬拆**；type 取 prefix/root/suffix/connective（connective = 连接元音，如 photocatalysis 里的 o、i）',
@@ -644,19 +674,23 @@ async function gradeTranslationWithAI(params: {
 }
 
 /**
- * 依据文献摘要元数据构造两个方向的翻译题。
- * 题面与参考答案直接取自 abstractEn/abstractCn，AI 只提供踩分点。
- * 只有某方向的题面与参考答案都存在时才生成（缺反向摘要无法构成题目）。
+ * 依据文献摘要元数据构造翻译题。
+ * 题面与参考答案优先取自 abstractEn/abstractCn，AI 只提供踩分点。
+ *
+ * 只靠 DOI 元数据入库的文献通常**只有英文摘要**（Crossref / OpenAlex 都不给中文），
+ * 这种时候不能让整道题消失 —— 用户要的是"有摘要就有摘要题"。
+ * 所以缺失的那一边由 AI 在 reference_translation 里补一份参考译文（referenceOverride），
+ * 该方向照常出题；题面缺失的方向（比如没有中文摘要就出不了中译英）直接跳过。
  */
 function buildTranslationItems(
   lit: Literature,
   pointsByDirection: Partial<Record<TranslationDirection, string[]>>,
   now: number,
   idPrefix: string,
+  referenceOverride?: Partial<Record<TranslationDirection, string>>,
 ): TranslationData[] {
   const en = (lit.abstractEn || '').trim()
   const cn = (lit.abstractCn || '').trim()
-  if (!en || !cn) return []
   const make = (direction: TranslationDirection, originalText: string, referenceTranslation: string, seq: number): TranslationData => ({
     id: `${idPrefix}${now}_${seq}_${Math.random().toString(36).slice(2, 6)}`,
     originalText,
@@ -673,11 +707,19 @@ function buildTranslationItems(
     lastPractice: 0,
     practiceCount: 0,
   })
-  // 两个方向都出题：英译中 + 中译英
-  return [
-    make('en2cn', en, cn, 0),
-    make('cn2en', cn, en, 1),
-  ]
+  const out: TranslationData[] = []
+  let seq = 0
+  // 英译中：题面必须英文；参考答案优先中文摘要，缺了就用 AI 补的参考译文
+  if (en) {
+    const ref = cn || (referenceOverride?.en2cn || '').trim()
+    if (ref) out.push(make('en2cn', en, ref, seq++))
+  }
+  // 中译英：题面必须中文；参考答案优先英文摘要，缺了就用 AI 补的参考译文
+  if (cn) {
+    const ref = en || (referenceOverride?.cn2en || '').trim()
+    if (ref) out.push(make('cn2en', cn, ref, seq++))
+  }
+  return out
 }
 
 /**
@@ -882,11 +924,12 @@ export default function LearnPage() {
     const sentenceCount = settingsState.sentenceGenCount || 8
     const abstractEn = (lit.abstractEn || '').trim()
     const abstractCn = (lit.abstractCn || '').trim()
-    // 摘要翻译题面/参考答案都来自文献元数据的摘要（不需要 md）。
-    // 两个方向都要有题面+参考答案才成立，缺一边就没法出题，提前告知而不是让 AI 空转。
-    const canTranslate = !!abstractEn && !!abstractCn
+    // 摘要翻译题面/参考答案来自文献元数据的摘要（不需要 md）。
+    // 只靠 DOI 元数据入库的文献通常只有英文摘要：这种时候英译中照样出题
+    // （中文参考答案由 AI 补），中译英因为缺中文题面而出不了 —— 有哪边出哪边。
+    const canTranslate = !!abstractEn || !!abstractCn
     if (genTypes.translation && !canTranslate) {
-      toast.error('该文献缺少中/英文摘要，无法生成摘要翻译题（摘要翻译来自文献元数据，不需要 md）')
+      toast.error('该文献没有摘要，无法生成摘要翻译题（摘要翻译来自文献元数据，不需要 md）')
       return
     }
 
@@ -998,14 +1041,17 @@ export default function LearnPage() {
       }
 
       if (genTypes.translation && canTranslate) {
-        // AI 只产出两个方向的踩分点；题面/参考答案由元数据注入
+        // AI 只产出踩分点；若摘要缺一边，还会在 reference_translation 里补该方向的参考译文
         const pointsByDirection: Partial<Record<TranslationDirection, string[]>> = {}
+        const referenceOverride: Partial<Record<TranslationDirection, string>> = {}
         for (const t of parsed.translations) {
           const dir: TranslationDirection | null =
             t.direction === 'cn2en' ? 'cn2en' : t.direction === 'en2cn' ? 'en2cn' : null
           if (dir) pointsByDirection[dir] = toStringArray(t.scoring_points)
+          const ref = (t.reference_translation || '').trim()
+          if (dir && ref) referenceOverride[dir] = ref
         }
-        const newTranslations = buildTranslationItems(lit, pointsByDirection, now, `ai_${now}_`)
+        const newTranslations = buildTranslationItems(lit, pointsByDirection, now, `ai_${now}_`, referenceOverride)
         setTranslations((prev) => [...prev, ...newTranslations])
         addedCount += newTranslations.length
       }
@@ -1160,6 +1206,25 @@ export default function LearnPage() {
   )
 }
 
+/**
+ * 挑出下一组要学的单词。
+ *
+ * 抽成纯函数是为了「一组学完自动进下一组」：推进到下一组时必须拿**最新**的
+ * 单词状态来挑（刚学完的那批已从 learning 变成 learned），否则会反复挑到同一批词。
+ */
+function pickStudyQueue(all: WordData[], mode: 'learn' | 'review', queueLength: number): WordData[] {
+  if (mode === 'learn') {
+    // CAT：learning 优先，new 补齐
+    const learningWords = all.filter((w) => w.status === 'learning').sort((a, b) => a.addedAt - b.addedAt)
+    const newWords = all.filter((w) => w.status === 'new').sort((a, b) => a.addedAt - b.addedAt)
+    return [...learningWords, ...newWords].slice(0, queueLength)
+  }
+  return all
+    .filter((w) => w.status === 'learned' && w.lastReview > 0 && w.lastReview + (w.sm2Interval || 1) * DAY_MS <= Date.now())
+    .sort((a, b) => a.lastReview - b.lastReview)
+    .slice(0, 20)
+}
+
 interface WordSectionProps {
   words: WordData[]
   setWords: React.Dispatch<React.SetStateAction<WordData[]>>
@@ -1242,6 +1307,14 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 单词卡滚动时间戳：滚动后 250ms 内的点击视为滚动误触，不触发翻页（借鉴快速刷题流） */
   const cardScrollAtRef = useRef(0)
+  /**
+   * 「本组最后一个题型也轮完了」→ 记下下一组要用哪个模式，等这次渲染提交后
+   * 再挑下一组（那时 words 才是最新的；在推进回调里直接挑会拿到旧状态）。
+   * 期间渲染一个占位，避免闪一下首页。
+   */
+  const [pendingAuto, setPendingAuto] = useState<'learn' | 'review' | null>(null)
+  /** 最近一组的学习统计 —— 只在"今天真的学完了"时才拿去渲染完成页 */
+  const lastSessionRef = useRef<StudySession | null>(null)
 
   useEffect(() => () => {
     if (autoTimer.current) clearTimeout(autoTimer.current)
@@ -1401,6 +1474,36 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     setShowCard(false)
   }, [byId, activeTypes, affixes])
 
+  /**
+   * 起一组（不弹提示）。成功返回 true。
+   * 「一组学完自动进下一组」和用户手点「开始学习」共用它 —— 前者不该弹任何提示。
+   */
+  const beginSession = useCallback((mode: 'learn' | 'review', allWords: WordData[]): boolean => {
+    const queue = pickStudyQueue(allWords, mode, settings.queueLength)
+    if (queue.length === 0) return false
+    // 选第一个对这组词"有题可出"的题型
+    let typeIdx = -1
+    activeTypes.some((t, i) => {
+      if (queue.some((w) => isWordEligible(w, t, mode))) { typeIdx = i; return true }
+      return false
+    })
+    if (typeIdx < 0) return false
+    setFinished(null)
+    presentQuestion({
+      mode,
+      queue: queue.map((w) => w.id),
+      typeIdx,
+      wordIdx: 0,
+      retryId: null,
+      correctTypes: {},
+      askedOnce: [],
+      correctCount: 0,
+      wrongCount: 0,
+      masteredCount: 0,
+    })
+    return true
+  }, [settings.queueLength, activeTypes, presentQuestion])
+
   /** 推进到下一题：本轮还有下一个词就走，走完则切下一个"有题可出"的题型 */
   const advance = useCallback((s: StudySession) => {
     const types = activeTypes
@@ -1420,57 +1523,30 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         return
       }
     }
-    // 全部题型轮完
-    setFinished(s)
+    // 全部题型轮完 → **直接进下一组**，不弹"本组学习完成"总结页（那会打断心流）。
+    // 这里只登记"该起下一组了"，真正的挑选放到提交后的 effect 里（那时 words 才是最新的）。
+    lastSessionRef.current = s
     setSession(null)
     setQuestion(null)
+    setPendingAuto(s.mode)
   }, [byId, activeTypes, presentQuestion])
 
   const startSession = useCallback((mode: 'learn' | 'review') => {
-    let queue: WordData[]
-    if (mode === 'learn') {
-      // CAT：learning 优先，new 补齐
-      const learningWords = words
-        .filter((w) => w.status === 'learning')
-        .sort((a, b) => a.addedAt - b.addedAt)
-      const newWords = words
-        .filter((w) => w.status === 'new')
-        .sort((a, b) => a.addedAt - b.addedAt)
-      queue = [...learningWords, ...newWords].slice(0, settings.queueLength)
-    } else {
-      queue = words
-        .filter((w) => w.status === 'learned' && w.lastReview > 0 && w.lastReview + (w.sm2Interval || 1) * DAY_MS <= Date.now())
-        .sort((a, b) => a.lastReview - b.lastReview)
-        .slice(0, 20)
-    }
-    if (queue.length === 0) {
+    if (!beginSession(mode, words)) {
       toast.error(mode === 'learn' ? '暂无可学习的新词' : '暂无到期复习的单词')
-      return
     }
-    // 选第一个对这组词"有题可出"的题型
-    let typeIdx = -1
-    activeTypes.some((t, i) => {
-      if (queue.some((w) => isWordEligible(w, t, mode))) { typeIdx = i; return true }
-      return false
-    })
-    if (typeIdx < 0) {
-      toast.error('所选题型在这批单词上都缺少必要字段（释义/定义/例句），请调整题型或补充单词信息')
-      return
-    }
-    setFinished(null)
-    presentQuestion({
-      mode,
-      queue: queue.map((w) => w.id),
-      typeIdx,
-      wordIdx: 0,
-      retryId: null,
-      correctTypes: {},
-      askedOnce: [],
-      correctCount: 0,
-      wrongCount: 0,
-      masteredCount: 0,
-    })
-  }, [words, settings, activeTypes, presentQuestion])
+  }, [beginSession, words])
+
+  /**
+   * 一组学完 → 自动起下一组；起不来（今天确实没有可学的词了）才落到完成页。
+   * 放在 effect 里是为了拿到这次提交后的最新 words。
+   */
+  useEffect(() => {
+    if (!pendingAuto) return
+    const mode = pendingAuto
+    setPendingAuto(null)
+    if (!beginSession(mode, words)) setFinished(lastSessionRef.current)
+  }, [pendingAuto, words, beginSession])
 
   /** 选中即判定（无确认按钮）：对 → 短暂高亮后自动下一题；错 → 弹单词卡 */
   const submitAnswer = useCallback((option: string) => {
@@ -1589,6 +1665,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     setSession(null)
     setQuestion(null)
     setFinished(null)
+    setPendingAuto(null)
+    lastSessionRef.current = null
     setShowCard(false)
     setAnswered(false)
     setSpellPicked([])
@@ -1641,6 +1719,13 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     )
   }
 
+  // ── 换组过渡：一组刚学完、正在起下一组的空档（别闪首页） ──
+  if (pendingAuto && !session) {
+    return (
+      <div className="text-center py-16 text-ink-400 text-sm">继续下一组…</div>
+    )
+  }
+
   // ── 会话结束总结 ──
   if (finished) {
     return (
@@ -1648,11 +1733,11 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         <div className="bg-paper-50 rounded-xl border border-ink-200 p-8 text-center">
           <GraduationCap className="w-14 h-14 text-seal-500 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-ink-800 mb-1">
-            {finished.mode === 'learn' ? '本组学习完成' : '本轮复习完成'}
+            {finished.mode === 'learn' ? '今日学习完成' : '今日复习完成'}
           </h3>
           <p className="text-sm text-ink-500 mb-6">
-            共 {finished.queue.length} 词 · 答对 {finished.correctCount} 次 · 答错 {finished.wrongCount} 次
-            {finished.masteredCount > 0 ? ` · 新掌握 ${finished.masteredCount} 词` : ''}
+            已学完今天所有可学的词（最后 {finished.queue.length} 词：答对 {finished.correctCount} 次 · 答错 {finished.wrongCount} 次
+            {finished.masteredCount > 0 ? ` · 新掌握 ${finished.masteredCount} 词` : ''}）
           </p>
           <div className="flex gap-3">
             <button
@@ -2246,6 +2331,7 @@ function PracticePanel({
   storedAnswer,
   storedFeedback,
   storedMissed,
+  lowScore,
   onSavePoints,
   onSubmitResult,
   voiceOn,
@@ -2255,7 +2341,7 @@ function PracticePanel({
   question: string
   /** 翻译方向标签（长难句不传） */
   directionLabel?: string
-  /** 题目备注（长难句的 difficultyNote） */
+  /** 难点说明（长难句的 difficultyNote）—— 只在低分卡片里出现，做题前不给 */
   note?: string
   referenceTranslation: string
   referenceLabel: string
@@ -2264,6 +2350,8 @@ function PracticePanel({
   storedAnswer: string
   storedFeedback: string
   storedMissed: string
+  /** 低分线：得分低于它才弹学习卡片（设置里的「翻译判分标准」） */
+  lowScore: number
   onSavePoints: (points: string[]) => void
   onSubmitResult: (answer: string, result: GradeResult) => void
   /** 语音模式：题面旁给一个朗读按钮（长难句用；翻译练习不传） */
@@ -2274,18 +2362,17 @@ function PracticePanel({
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState('')
   const [result, setResult] = useState<GradeResult | null>(null)
-  const [showReference, setShowReference] = useState(false)
-  const [showPoints, setShowPoints] = useState(false)
+  /** 学习卡片（参考译文 / 难点 / 踩分点 / 每点扣分）—— 低分时自动弹出，也可手动查看 */
+  const [cardOpen, setCardOpen] = useState(false)
   const [editingPoints, setEditingPoints] = useState(false)
   const [pointsDraft, setPointsDraft] = useState('')
 
-  // 切换题目：用该题已落库的数据重置作答/结果（参考译文默认折叠，让用户先自己做）
+  // 切换题目：重置作答/结果/卡片。做题前不展示参考译文与踩分点 —— 先自己做。
   useEffect(() => {
     setAnswer(storedAnswer)
     setResult(null)
     setError('')
-    setShowReference(false)
-    setShowPoints(false)
+    setCardOpen(false)
     setEditingPoints(false)
     // 只在换题时重置，storedAnswer 随题目一起变，不单独依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2320,6 +2407,8 @@ function PracticePanel({
       setResult(r)
       onSubmitResult(text, r)
       toast.success(`判分完成：${r.score} 分`)
+      // 低分才弹卡片复盘；分数够了就直接过，不打断节奏
+      if (r.score < lowScore) setCardOpen(true)
     } catch (err) {
       // 不静默吞错：把可读原因显示出来，用户可重试
       setError(err instanceof Error ? err.message : String(err))
@@ -2329,6 +2418,19 @@ function PracticePanel({
   }
 
   const storedMissedList = csvToList(storedMissed)
+  const pointCount = scoringPoints.length
+  /** 每个踩分点等权计分：漏掉一个即扣这么多 */
+  const perPointScore = pointCount > 0 ? Math.round(100 / pointCount) : 0
+  const missedSet = new Set(result?.missedPoints || [])
+  const hitSet = new Set(result?.hitPoints || [])
+  /** 卡片里的「应该怎么做」：方向性方法论 + 这次漏掉的点 */
+  const methodHint = (() => {
+    const base = directionLabel === '中译英'
+      ? '先定下英文主干与时态，再补从句和逻辑连接；学术术语用词要统一，别漏掉限定语（数量/程度/时间）。'
+      : '先抓主干（主谓宾），再把定语、状语等修饰逐层挂上去；逻辑连接词（因果/转折/递进/让步）一定要译出来。'
+    const missed = result?.missedPoints || []
+    return missed.length > 0 ? `${base}\n这次漏掉的是：${missed.join('；')}。下次对着踩分点逐条自检。` : base
+  })()
 
   return (
     <div className="bg-paper-50 rounded-xl border border-ink-200 p-6 space-y-5">
@@ -2353,74 +2455,6 @@ function PracticePanel({
             </button>
           )}
         </div>
-        {note && <p className="mt-2 text-xs text-amber-600">难点：{note}</p>}
-      </div>
-
-      {/* 踩分点：默认折叠，可编辑 */}
-      <div className="border border-ink-200 rounded-lg">
-        <div className="flex items-center justify-between px-3 py-2">
-          <button
-            onClick={() => setShowPoints((v) => !v)}
-            className="flex items-center gap-1.5 text-sm text-ink-600"
-          >
-            {showPoints ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            踩分点（{scoringPoints.length}）
-          </button>
-          <button
-            onClick={() => {
-              setPointsDraft(scoringPoints.join('\n'))
-              setShowPoints(true)
-              setEditingPoints(true)
-            }}
-            className="flex items-center gap-1 text-xs text-seal-600 hover:text-seal-700"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            编辑踩分点
-          </button>
-        </div>
-        {showPoints && (
-          editingPoints ? (
-            <div className="px-3 pb-3 space-y-2">
-              <textarea
-                value={pointsDraft}
-                onChange={(e) => setPointsDraft(e.target.value)}
-                rows={4}
-                placeholder="一行一条踩分点"
-                className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
-              />
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => setEditingPoints(false)}
-                  className="px-3 py-1.5 text-xs text-ink-500 bg-ink-100 hover:bg-ink-200 rounded-lg transition"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={() => {
-                    onSavePoints(pointsDraft.split('\n').map((s) => s.trim()).filter(Boolean))
-                    setEditingPoints(false)
-                    toast.success('踩分点已保存')
-                  }}
-                  className="px-3 py-1.5 text-xs text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition"
-                >
-                  保存
-                </button>
-              </div>
-            </div>
-          ) : (
-            <ul className="px-3 pb-3 space-y-1">
-              {scoringPoints.length === 0 && (
-                <li className="text-xs text-ink-400">暂无踩分点，点「编辑踩分点」补充，AI 将据此判分</li>
-              )}
-              {scoringPoints.map((p, i) => (
-                <li key={i} className="text-sm text-ink-600 flex gap-2">
-                  <span className="text-ink-300">{i + 1}.</span>
-                  <span>{p}</span>
-                </li>
-              ))}
-            </ul>
-          )
-        )}
       </div>
 
       {/* 作答 */}
@@ -2478,69 +2512,192 @@ function PracticePanel({
         )}
       </div>
 
-      {/* 本次判分结果 */}
+      {/* 本次判分结果：只给分数、命中/漏掉的点和反馈；细节留给学习卡片 */}
       {result && (
         <div className="rounded-lg border border-seal-100 bg-seal-50/40 p-4 space-y-3">
-          <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-seal-600">{result.score}</span>
-            <span className="text-sm text-ink-500">/ 100</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-bold text-seal-600">{result.score}</span>
+              <span className="text-sm text-ink-500">/ 100</span>
+            </div>
+            <span className="text-xs text-ink-400">
+              {pointCount > 0 ? `${pointCount} 个踩分点，漏一个扣 ${perPointScore} 分` : '本题未设踩分点'}
+            </span>
           </div>
           {result.hitPoints.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-emerald-600 mb-1">命中的踩分点</p>
-              <ul className="space-y-0.5">
-                {result.hitPoints.map((p, i) => (
-                  <li key={i} className="text-sm text-ink-700 flex gap-1.5">
-                    <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                    <span>{p}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ul className="space-y-0.5">
+              {result.hitPoints.map((p, i) => (
+                <li key={i} className="text-sm text-ink-700 flex gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
           )}
           {result.missedPoints.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-red-500 mb-1">漏掉的踩分点</p>
-              <ul className="space-y-0.5">
-                {result.missedPoints.map((p, i) => (
-                  <li key={i} className="text-sm text-ink-700 flex gap-1.5">
-                    <X className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
-                    <span>{p}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ul className="space-y-0.5">
+              {result.missedPoints.map((p, i) => (
+                <li key={i} className="text-sm text-ink-700 flex gap-1.5">
+                  <X className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
           )}
           {result.feedback && <p className="text-sm text-ink-600 whitespace-pre-wrap">{result.feedback}</p>}
-        </div>
-      )}
-
-      {/* 无本次结果时，展示落库的上一次判分记录 */}
-      {!result && (storedFeedback || storedMissedList.length > 0) && (
-        <div className="rounded-lg border border-ink-200 bg-paper-100 p-3 space-y-1.5">
-          <p className="text-xs font-medium text-ink-500">上次判分记录</p>
-          {storedMissedList.length > 0 && (
-            <p className="text-sm text-ink-600">漏掉的踩分点：{storedMissedList.join('；')}</p>
+          {result.score < lowScore && (
+            <p className="text-xs text-amber-600">
+              低于低分线 {lowScore} 分，已弹出学习卡片，对照参考译文与踩分点逐条复盘。
+            </p>
           )}
-          {storedFeedback && <p className="text-sm text-ink-600 whitespace-pre-wrap">{storedFeedback}</p>}
         </div>
       )}
 
-      {/* 参考译文：默认隐藏，做完再展开 */}
+      {/* 学习卡片入口：做完题才能看（参考译文 / 难点 / 踩分点 / 每点扣分） */}
       <div>
         <button
-          onClick={() => setShowReference((v) => !v)}
+          onClick={() => setCardOpen(true)}
           className="flex items-center gap-1.5 text-sm text-seal-600 hover:text-seal-700"
         >
-          {showReference ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          {showReference ? '收起参考译文' : `查看参考译文（${referenceLabel}）`}
+          <BookOpen className="w-4 h-4" />
+          学习卡片（参考译文 · 难点 · 踩分点）
         </button>
-        {showReference && (
-          <p className="mt-2 text-sm text-ink-700 leading-relaxed bg-paper-100 rounded-lg p-3 whitespace-pre-wrap">
-            {referenceTranslation || '（暂无参考译文）'}
-          </p>
-        )}
       </div>
+
+      {cardOpen && (
+        <div className="fixed inset-0 bg-ink-900/50 flex items-center justify-center z-50 p-4" onClick={() => setCardOpen(false)}>
+          <div
+            className="bg-paper-50 rounded-2xl shadow-xl w-full max-w-2xl max-h-[88vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-ink-200 sticky top-0 bg-paper-50">
+              <h3 className="font-semibold text-ink-800">学习卡片</h3>
+              <button
+                onClick={() => setCardOpen(false)}
+                className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-5">
+              {/* 原文 */}
+              <div>
+                <p className="text-xs font-medium text-ink-400 mb-1.5">原文</p>
+                <p className="text-sm text-ink-800 leading-relaxed whitespace-pre-wrap">{question}</p>
+              </div>
+
+              {/* 参考译文 */}
+              <div>
+                <p className="text-xs font-medium text-ink-400 mb-1.5">参考译文（{referenceLabel}）</p>
+                <p className="text-sm text-ink-700 leading-relaxed bg-paper-100 rounded-lg p-3 whitespace-pre-wrap">
+                  {referenceTranslation || '（暂无参考译文）'}
+                </p>
+              </div>
+
+              {/* 难点 */}
+              {note && (
+                <div>
+                  <p className="text-xs font-medium text-ink-400 mb-1.5">难点</p>
+                  <p className="text-sm text-amber-700 leading-relaxed">{note}</p>
+                </div>
+              )}
+
+              {/* 踩分点：标出命中/漏掉 + 每点扣分 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-xs font-medium text-ink-400">
+                    踩分点{pointCount > 0 ? `（${pointCount} 个 · 漏一个扣 ${perPointScore} 分）` : ''}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setPointsDraft(scoringPoints.join('\n'))
+                      setEditingPoints(true)
+                    }}
+                    className="flex items-center gap-1 text-xs text-seal-600 hover:text-seal-700"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    编辑
+                  </button>
+                </div>
+                {editingPoints ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={pointsDraft}
+                      onChange={(e) => setPointsDraft(e.target.value)}
+                      rows={4}
+                      placeholder="一行一条踩分点"
+                      className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent resize-none"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditingPoints(false)}
+                        className="px-3 py-1.5 text-xs text-ink-500 bg-ink-100 hover:bg-ink-200 rounded-lg transition"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => {
+                          onSavePoints(pointsDraft.split('\n').map((s) => s.trim()).filter(Boolean))
+                          setEditingPoints(false)
+                          toast.success('踩分点已保存')
+                        }}
+                        className="px-3 py-1.5 text-xs text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {pointCount === 0 && (
+                      <li className="text-xs text-ink-400">暂无踩分点，点「编辑」补充，AI 将据此判分</li>
+                    )}
+                    {scoringPoints.map((p, i) => {
+                      const missed = missedSet.has(p)
+                      const hit = hitSet.has(p)
+                      return (
+                        <li key={i} className="text-sm flex gap-2 items-start">
+                          {missed ? (
+                            <X className="w-3.5 h-3.5 text-red-400 mt-1 shrink-0" />
+                          ) : hit ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500 mt-1 shrink-0" />
+                          ) : (
+                            <span className="w-3.5 text-ink-300 text-center mt-0.5 shrink-0">{i + 1}</span>
+                          )}
+                          <span className={missed ? 'text-red-600' : 'text-ink-700'}>
+                            {p}
+                            {missed && perPointScore > 0 && <span className="text-xs text-red-400 ml-1">-{perPointScore}</span>}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              {/* 应该怎么做 */}
+              <div>
+                <p className="text-xs font-medium text-ink-400 mb-1.5">应该怎么做</p>
+                <p className="text-sm text-ink-700 leading-relaxed whitespace-pre-wrap">{methodHint}</p>
+              </div>
+
+              {/* 上次判分记录 */}
+              {(storedFeedback || storedMissedList.length > 0) && (
+                <div>
+                  <p className="text-xs font-medium text-ink-400 mb-1.5">上次判分记录</p>
+                  {storedMissedList.length > 0 && (
+                    <p className="text-sm text-ink-600 leading-relaxed">漏掉的踩分点：{storedMissedList.join('；')}</p>
+                  )}
+                  {storedFeedback && (
+                    <p className="text-sm text-ink-600 leading-relaxed whitespace-pre-wrap">{storedFeedback}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2621,6 +2778,8 @@ function SentenceSection({
    * 两个页签是互斥渲染的，切过来会重新 loadProgress（命中缓存），所以能拿到最新值。
    */
   const [voiceOn, setVoiceOn] = useState(false)
+  /** 低分线（设置里的「翻译判分标准」）：低于它才弹学习卡片 */
+  const lowScore = useSettingsStore((s) => s.translationLowScore ?? 70)
 
   // 批量补提状态
   const [batchRunning, setBatchRunning] = useState(false)
@@ -2680,17 +2839,6 @@ function SentenceSection({
   const patchCurrent = useCallback((patch: Partial<SentenceData>) => {
     setSentences((prev) => prev.map((s, i) => (i === safeIndex ? { ...s, ...patch } : s)))
   }, [safeIndex, setSentences])
-
-  const toggleMastered = () => {
-    setSentences((prev) =>
-      prev.map((s, i) =>
-        i === safeIndex
-          ? { ...s, status: s.status === 'mastered' ? 'learning' : 'mastered' }
-          : s
-      )
-    )
-    toast.success(currentSentence?.status === 'mastered' ? '已取消标记' : '已标记为已掌握')
-  }
 
   const handleAddSentence = (sentence: SentenceData) => {
     setSentences((prev) => [...prev, sentence])
@@ -2875,6 +3023,7 @@ function SentenceSection({
             storedFeedback={currentSentence.latestAiFeedback}
             storedMissed={currentSentence.latestErrorWords}
             voiceOn={voiceOn}
+            lowScore={lowScore}
             onSavePoints={(points) => patchCurrent({ scoringPoints: points })}
             onSubmitResult={(ans, r) => patchCurrent({
               latestUserTranslation: ans,
@@ -2892,17 +3041,6 @@ function SentenceSection({
             >
               <ChevronLeft className="w-4 h-4" />
               上一张
-            </button>
-            <button
-              onClick={toggleMastered}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-                currentSentence.status === 'mastered'
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-paper-50 border border-ink-200 text-ink-600 hover:bg-paper-100'
-              }`}
-            >
-              <Check className="w-4 h-4" />
-              {currentSentence.status === 'mastered' ? '已掌握' : '标记掌握'}
             </button>
             <button
               onClick={handleNext}
@@ -2931,6 +3069,8 @@ function TranslationSection({
 }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
+  /** 低分线（设置里的「翻译判分标准」）：低于它才弹学习卡片 */
+  const lowScore = useSettingsStore((s) => s.translationLowScore ?? 70)
 
   // 批量补提状态
   const [batchRunning, setBatchRunning] = useState(false)
@@ -2978,17 +3118,6 @@ function TranslationSection({
     setTranslations((prev) => prev.map((t, i) => (i === safeIndex ? { ...t, ...patch } : t)))
   }, [safeIndex, setTranslations])
 
-  const toggleMastered = () => {
-    setTranslations((prev) =>
-      prev.map((t, i) =>
-        i === safeIndex
-          ? { ...t, status: t.status === 'completed' ? 'pending' : 'completed' }
-          : t
-      )
-    )
-    toast.success(currentItem?.status === 'completed' ? '已取消标记' : '已标记为已完成')
-  }
-
   const handleAddTranslation = (item: TranslationData) => {
     setTranslations((prev) => [...prev, item])
     setShowAddModal(false)
@@ -3025,8 +3154,8 @@ function TranslationSection({
       async (lit) => {
         const en = (lit.abstractEn || '').trim()
         const cn = (lit.abstractCn || '').trim()
-        if (!en || !cn) {
-          return { ok: false, reason: '摘要不完整（缺少英文或中文摘要），无法构成两个方向的题目' }
+        if (!en && !cn) {
+          return { ok: false, reason: '该文献没有摘要，无法出题' }
         }
         const sourceMaterial = [`【英文摘要】${en}`, `【中文摘要】${cn}`].join('\n\n')
         const instruction = buildLearningInstruction(
@@ -3047,13 +3176,16 @@ function TranslationSection({
         batchAbortRef.current = null
         const parsed = parseLearningJSON(result.ai1Output || '')
         const pointsByDirection: Partial<Record<TranslationDirection, string[]>> = {}
+        const referenceOverride: Partial<Record<TranslationDirection, string>> = {}
         for (const t of parsed.translations) {
           const dir: TranslationDirection | null =
             t.direction === 'cn2en' ? 'cn2en' : t.direction === 'en2cn' ? 'en2cn' : null
           if (dir) pointsByDirection[dir] = toStringArray(t.scoring_points)
+          const ref = (t.reference_translation || '').trim()
+          if (dir && ref) referenceOverride[dir] = ref
         }
-        // 题面/参考答案由元数据注入，两个方向各一条；AI 只提供踩分点
-        const items = buildTranslationItems(lit, pointsByDirection, Date.now(), `ai_${lit.doi}_`)
+        // 题面/参考答案由元数据注入（缺一边时用 AI 补的参考译文）
+        const items = buildTranslationItems(lit, pointsByDirection, Date.now(), `ai_${lit.doi}_`, referenceOverride)
         if (items.length === 0) {
           return { ok: false, reason: '未能生成任何翻译题' }
         }
@@ -3142,6 +3274,7 @@ function TranslationSection({
             storedAnswer={currentItem.latestUserTranslation}
             storedFeedback={currentItem.latestAiFeedback}
             storedMissed={currentItem.latestErrorWords}
+            lowScore={lowScore}
             onSavePoints={(points) => patchCurrent({ scoringPoints: points })}
             onSubmitResult={(ans, r) => patchCurrent({
               latestUserTranslation: ans,
@@ -3159,17 +3292,6 @@ function TranslationSection({
             >
               <ChevronLeft className="w-4 h-4" />
               上一张
-            </button>
-            <button
-              onClick={toggleMastered}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-                currentItem.status === 'completed'
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-paper-50 border border-ink-200 text-ink-600 hover:bg-paper-100'
-              }`}
-            >
-              <Check className="w-4 h-4" />
-              {currentItem.status === 'completed' ? '已完成' : '标记完成'}
             </button>
             <button
               onClick={handleNext}

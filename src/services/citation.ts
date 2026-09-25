@@ -204,6 +204,7 @@ async function fetchFromCrossref(doi: string): Promise<CitationEntry | null> {
         page?: string
         publisher?: string
         DOI?: string
+        abstract?: string
       }
     }
 
@@ -237,6 +238,7 @@ async function fetchFromCrossref(doi: string): Promise<CitationEntry | null> {
       issue: msg.issue,
       pages: msg.page,
       publisher: msg.publisher,
+      abstract: cleanAbstract(msg.abstract),
       source: 'crossref',
       fetched_at: Date.now(),
     }
@@ -270,7 +272,7 @@ const OPENALEX_API_BASE = 'https://api.openalex.org'
  *   <jats:title>Abstract</jats:title><jats:p>正文……</jats:p>
  * 直接塞到界面上会露出标签，所以剥掉标记、还原实体、压掉多余空白。
  */
-function cleanAbstract(raw: string | undefined): string {
+export function cleanAbstract(raw: string | undefined): string {
   if (!raw) return ''
   return raw
     .replace(/<[^>]*>/g, ' ')
@@ -450,6 +452,23 @@ export async function getCitationEntries(
       })
     } else {
       failed.push(doi)
+    }
+  }
+
+  // 3. 摘要兜底：Crossref 的 abstract 是可选字段（不少出版社根本不提交），
+  //    缺的走 OpenAlex 批量补一次。
+  //    为什么值得多花这一次请求：摘要翻译练习题面/参考答案就来自摘要 ——
+  //    只有 DOI 元数据、没有摘要的文献，那道题根本出不来。
+  const missingAbstract = entries.filter((e) => !(e.abstract || '').trim()).map((e) => e.doi)
+  if (missingAbstract.length > 0) {
+    const found = await fetchAbstractsFromOpenAlex(missingAbstract)
+    for (const e of entries) {
+      if ((e.abstract || '').trim()) continue
+      const hit = found.get(e.doi)
+      if (!hit) continue
+      e.abstract = hit
+      // 补到的摘要写回缓存 —— 那是要收钱的网络请求，别每次都重来
+      await db.citation_cache.put(e).catch(() => { /* 缓存失败不影响主流程 */ })
     }
   }
 

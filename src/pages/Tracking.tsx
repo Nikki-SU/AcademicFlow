@@ -383,7 +383,8 @@ export default function TrackingPage() {
         year: meta.year || 0,
         authors: meta.authors.join(', '),
         keywords: '',
-        abstractEn: '',
+        // 元数据里的摘要要收下 —— 它是摘要翻译练习的题面/参考答案来源
+        abstractEn: (meta.abstract || '').trim(),
         abstractCn: '',
         tier: 0,
         hasGraphicalAbstract: false,

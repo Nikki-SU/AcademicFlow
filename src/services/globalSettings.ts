@@ -27,6 +27,8 @@ export interface GlobalSettingsData {
   wordGenCount: number
   /** 长难句提取数量（学习页 AI 提取，范围 3-30） */
   sentenceGenCount: number
+  /** 翻译练习低分线（低于它才弹学习卡片，范围 50-95） */
+  translationLowScore: number
   /** 编辑器插入代码块时的默认语言 */
   defaultCodeLang: string
   /** 编辑器间隔上色（斑马纹）开关 */
@@ -118,6 +120,11 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
         if (!isNaN(n)) result.sentenceGenCount = Math.min(30, Math.max(3, n))
         break
       }
+      case 'translation_low_score': {
+        const n = parseInt(value, 10)
+        if (!isNaN(n)) result.translationLowScore = Math.min(95, Math.max(50, n))
+        break
+      }
       case 'default_code_lang':
         result.defaultCodeLang = value
         break
@@ -186,6 +193,7 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - mineru_debug_mode: ${s.mineruDebugMode}
 - word_gen_count: ${s.wordGenCount}
 - sentence_gen_count: ${s.sentenceGenCount}
+- translation_low_score: ${s.translationLowScore}
 - default_code_lang: ${s.defaultCodeLang}
 - editor_zebra: ${s.editorZebra}
 

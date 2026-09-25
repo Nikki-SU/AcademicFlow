@@ -87,6 +87,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   mineruDebugMode: true,
   wordGenCount: 15,
   sentenceGenCount: 8,
+  /** 翻译练习低分线：低于它才弹学习卡片复盘 */
+  translationLowScore: 70,
   /** 写代码块默认用 Python —— 这个项目的主要用户是科研场景 */
   defaultCodeLang: 'python',
   /** 编辑器间隔上色默认开：长文写作时不容易看串行（阅读页正文的斑马纹也是默认开） */
@@ -123,6 +125,7 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'mineruDebugMode', key: SETTING_KEYS.MINERU_DEBUG_MODE },
   { field: 'wordGenCount', key: SETTING_KEYS.WORD_GEN_COUNT },
   { field: 'sentenceGenCount', key: SETTING_KEYS.SENTENCE_GEN_COUNT },
+  { field: 'translationLowScore', key: SETTING_KEYS.TRANSLATION_LOW_SCORE },
   { field: 'defaultCodeLang', key: SETTING_KEYS.DEFAULT_CODE_LANG },
   { field: 'editorZebra', key: SETTING_KEYS.EDITOR_ZEBRA },
   { field: 'ai2ProviderMode', key: SETTING_KEYS.AI_2_PROVIDER_MODE },
@@ -295,6 +298,7 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         mineruDebugMode: s.mineruDebugMode,
         wordGenCount: s.wordGenCount,
         sentenceGenCount: s.sentenceGenCount,
+        translationLowScore: s.translationLowScore,
         defaultCodeLang: s.defaultCodeLang,
         editorZebra: s.editorZebra,
         thinkingClean: s.thinkingClean,
@@ -418,6 +422,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           if (loaded.sentenceGenCount !== undefined) {
             const n = Number(loaded.sentenceGenCount)
             if (!isNaN(n)) patch.sentenceGenCount = Math.min(30, Math.max(3, Math.floor(n)))
+          }
+          if (loaded.translationLowScore !== undefined) {
+            const n = Number(loaded.translationLowScore)
+            if (!isNaN(n)) patch.translationLowScore = Math.min(95, Math.max(50, Math.floor(n)))
           }
           if (loaded.defaultCodeLang !== undefined) {
             patch.defaultCodeLang = String(loaded.defaultCodeLang)
@@ -755,6 +763,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           mineruDebugMode: merged.mineruDebugMode,
           wordGenCount: merged.wordGenCount,
           sentenceGenCount: merged.sentenceGenCount,
+          translationLowScore: merged.translationLowScore,
           defaultCodeLang: merged.defaultCodeLang,
           editorZebra: merged.editorZebra,
           thinkingClean: merged.thinkingClean,
