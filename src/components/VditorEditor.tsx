@@ -271,17 +271,20 @@ ensureVditorIconSprite()
 
 /**
  * 「插入公式」的图标（Vditor 内置图标集里没有合适的，自带一个 SVG 字符串）。
- * 空壳阶段：点一下弹「行内 / 行间」两个选项，插入公式模板。
- * TODO(下一阶段)：接真正的公式编辑面板（所见即所得编辑 + 预览 + 常用符号面板），
- *                  见任务清单 i15。
+ * 传了 `onFormulaClick` 的页面（写作页）会打开公式侧栏；
+ * 没传的页面才退回这个「行内 / 行间」小菜单 + 模板。
  */
 const FORMULA_ICON =
   '<svg viewBox="0 0 32 32" width="14" height="14"><path fill="currentColor" d="M6 4h20v3H9.6l6.1 9-6.1 9H26v3H6l7.4-10.9L6 4z"/><path fill="currentColor" d="M19 13h9v2h-9zm3-3h2v8h-2z"/></svg>'
 
-/** 公式模板（空壳）：行内 $…$ / 行间 $$…$$ */
+/**
+ * 公式模板（侧栏不可用时的兜底）：行内 $…$ / 行间 $$…$$
+ * 占位符用 `\square` 而不是「公式」两个字 —— 后者在数学模式里会渲染成红色的 KaTeX 报错，
+ * 而 `\square` 是个看得见的空框（和侧栏结构按钮的占位符同一套约定）。
+ */
 const FORMULA_TEMPLATE = {
-  inline: ' $公式$ ',
-  block: '\n$$\n公式\n$$\n',
+  inline: ' $\\square$ ',
+  block: '\n$$\n\\square\n$$\n',
 } as const
 
 /** 在工具栏按钮下方弹出「行内 / 行间」小菜单（点击外部即关闭，不用 window.prompt） */
@@ -759,6 +762,12 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       counter: { enable: true, type: 'text' },
       outline: { enable: false, position: 'left' },
       resize: { enable: false },
+      // KaTeX 的 `inlineDigit`：`$1$`（$ 后紧跟数字）算不算公式。
+      // ⚠️ 必须**顶层与 preview 两处都设** —— Vditor 编辑器内联渲染读的是顶层的
+      // math.inlineDigit（默认 false），而预览读的是 preview.math.inlineDigit。
+      // 只设 preview 的话，`$1$` 在预览里是公式、在编辑区里是纯文本，
+      // 又一次「输入一个样、预览一个样」。（版本也要与 npm katex 一致，见 package.json）
+      math: { inlineDigit: true },
       preview: {
         math: { engine: 'KaTeX', inlineDigit: true },
         // 代码高亮用 Vditor 自带的那份 highlight.js（已随仓库放在 public/vditor/dist 下），
@@ -805,7 +814,10 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       after: () => {
         onReadyRef.current?.()
       },
-    })
+      // Vditor 运行时的默认配置里**确实有**顶层 `math: {engine, inlineDigit}`
+      // （dist/index.js 里编辑器内联渲染读的就是它），但它的 .d.ts 没声明这个字段。
+      // 只为这一个多余的键加断言，不把整个 options 变成 any。
+    } as ConstructorParameters<typeof Vditor>[1])
 
     vditorRef.current = instance
 

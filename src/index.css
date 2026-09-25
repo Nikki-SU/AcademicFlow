@@ -212,124 +212,25 @@
 }
 
 /*
- * 公式侧栏的「渲染看板」= 所见即所得编辑区
+ * 公式侧栏的「看板」
  * -------------------------------------------------
- * 结构化构件（分数 / 根号 / 上下标 / 矩阵）全部用普通内联元素 + CSS 排版实现，
- * 只有看板根节点是 contenteditable —— 不嵌套编辑宿主，光标行为才可预期。
- * 每一格（[data-afx-slot]）都是可点进去打字的普通元素。
+ * 看板里是 **KaTeX 渲染出来的 DOM**（由 formula-structures.ts 那条路线保证：
+ * 看板与正文用同一个引擎、同一个版本），所以这里**只负责容器** ——
+ * 千万不要再自己画分数线 / 根号 / 上下标：
+ *   以前用 border-bottom 当分数线（只有分子那么宽）、用字符 √ 当根号，
+ *   结果看板与预览必然两副面孔（见 UX_DETAILS.md「公式看板就是真渲染」）。
+ * KaTeX 的样式由全局引入的 katex.min.css 提供。
  */
 .af-formula-board {
   min-height: 2.25rem;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 1rem;
-  line-height: 1.6;
   color: #1f2937;
-  outline: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.af-formula-board:empty::before {
-  content: '在这里写公式：直接打字，或点下面的符号 / 结构';
-  color: #9ca3af;
-  font-family: inherit;
-  font-size: 0.75rem;
+  /* 长公式横向滚，不撑破侧栏 */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .af-formula-board--display {
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   text-align: center;
-  padding: 0.5rem 0;
-}
-/* 空格子给个浅底线，让「这里可以打字」看得见 */
-.af-formula-board [data-afx-slot]:empty::after {
-  content: ' ';
-  display: inline-block;
-  min-width: 0.75em;
-  border-bottom: 1px solid #cbd5e1;
-}
-
-/* 分数：上下两格 + 中间一条线 */
-.afx-frac {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  vertical-align: -0.5em;
-  margin: 0 0.15em;
-}
-.afx-frac > .afx-num {
-  padding: 0 0.2em;
-  border-bottom: 1px solid currentColor;
-}
-
-/* 根号：左边一个 √，右边被开方的内容带顶线 */
-.afx-sqrt {
-  display: inline-flex;
-  align-items: stretch;
-  margin: 0 0.1em;
-}
-.afx-sqrt::before {
-  content: '√';
-  align-self: center;
-}
-.afx-sqrt > .afx-rad {
-  border-top: 1px solid currentColor;
-  padding: 0 0.15em;
-}
-
-/* 上下标：底 + 右侧竖排的上标/下标 */
-.afx-script {
-  display: inline-flex;
-  align-items: center;
-}
-.afx-script > .afx-scripts {
-  display: inline-flex;
-  flex-direction: column;
-  font-size: 0.7em;
-  line-height: 1.1;
-  vertical-align: middle;
-}
-.afx-script > .afx-scripts > sup,
-.afx-script > .afx-scripts > sub {
-  position: static;
-  font-size: inherit;
-  line-height: inherit;
-}
-
-/* 矩阵：左右括号 + 网格 */
-.afx-matrix {
-  display: inline-flex;
-  align-items: stretch;
-  vertical-align: middle;
-  margin: 0 0.15em;
-}
-.afx-matrix > .afx-mbr {
-  display: flex;
-  align-items: center;
-  font-size: 1.6em;
-  line-height: 1;
-}
-.afx-mgrid {
-  display: inline-grid;
-  grid-auto-flow: row;
-  gap: 0.15em 0.6em;
-  padding: 0 0.2em;
-}
-.afx-mrow {
-  display: contents;
-}
-.afx-mcell {
-  text-align: center;
-  min-width: 0.75em;
-}
-
-/* 认不出来的 LaTeX（\hat{} 之类）：KaTeX 渲染、不可编辑、原样存回 */
-.afx-raw {
-  display: inline-block;
-  margin: 0 0.05em;
-}
-
-/* 正体（\mathrm / \text） */
-.afx-up {
-  font-style: normal;
 }
 
 

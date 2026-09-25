@@ -2,13 +2,15 @@
  * 公式侧栏（编辑器内部临时侧栏）
  * ------------------------------------------------------------
  * 打开方式：正文工具栏点「插入公式」。两个 tab：
- *   生成公式 —— 识图 / 直接写 → 渲染看板（所见即所得，可直接编辑）→ 插入或替换。
+ *   生成公式 —— 识图 / 直接写 → 渲染看板（所见即所得）→ 插入或替换。
  *   已有公式 —— 搜索 + 点选，插到光标处 / 跳到正文 / 改这一处 / 改全部 / 收藏 / 删除（可批量）。
  *
- * 这一版把「只能写 LaTeX」改成「所见即所得」：
- *   - 渲染看板本身就是编辑区：点进分数格、根号里，直接打字（见 services/formula-visual.ts）；
- *   - 字符与结构做成**底部固定工具条**，永远看得见 —— 不用再滚到下面去找结构；
- *   - LaTeX 源码收进「高级」，不熟 LaTeX 的人可以完全不看它。
+ * 分工（改过一次，现在的才是对的）：
+ *   - **看板就是 KaTeX 的渲染结果**，和正文/预览同一个引擎、同一个版本 ——
+ *     所见即所得是「真渲染」，不是自己画一套去模仿。以前用 CSS 画分数线、用字符 √ 画根号，
+ *     结果必然与预览不一致（见 services/formula-structures.ts 的说明）。
+ *   - **输入框是唯一的编辑入口**：直接打字，或点底部工具条的符号/结构按钮往里插。
+ *   - 字符与结构做成**底部固定工具条**，永远看得见 —— 不用再滚到下面去找结构。
  *
  * 动作都是显式的：插入 / 替换这一处 / 替换全部 三个按钮并列，不存在「点一下就复制」。
  */
@@ -25,8 +27,6 @@ import {
   Trash2,
   X,
   Search,
-  ChevronDown,
-  ChevronRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -38,11 +38,10 @@ import {
 } from '../services/formula'
 import {
   FORMULA_STRUCTURES,
-  insertStructureAtCaret,
-  insertTextAtCaret,
-  readLatex,
-  renderInto,
-} from '../services/formula-visual'
+  SQRT_STRUCTURE,
+  expandStructure,
+  type FormulaStructure,
+} from '../services/formula-structures'
 import {
   recognizeFormulaImage,
   loadSimpleTexCredentials,
@@ -120,49 +119,31 @@ function renderKatex(tex: string, display: boolean): string {
   }
 }
 
-/** 渲染看板：内容由 formula-visual 的视觉树生成，这里只负责把 LaTeX 灌进去 */
-function VisualBoard({
+/** 公式看板：**就是 KaTeX 的渲染结果**（与正文/预览同一个引擎、同一个版本）—— 不自己画一遍 */
+function FormulaBoard({
   tex,
   display,
-  boardRef,
-  onTex,
+  onActivate,
 }: {
   tex: string
   display: boolean
-  boardRef: React.RefObject<HTMLDivElement>
-  /** 看板里改了内容 → 把新的 LaTeX 交出去 */
-  onTex: (tex: string) => void
+  /** 点看板 → 把焦点送回输入框（编辑在那边做），光标落在末尾接着写 */
+  onActivate: () => void
 }) {
-  // 外部 tex 变化（识图结果 / 从校对清单进来 / 源码框改完）→ 重画看板。
-  // 看板自己的输入不会回流到这里（那边记下新值就不再重画），所以光标不会被重置。
-  const lastPushed = useRef<string | null>(null)
-  useEffect(() => {
-    const el = boardRef.current
-    if (!el) return
-    if (lastPushed.current === tex) return
-    lastPushed.current = tex
-    renderInto(el, tex)
-  }, [tex, boardRef])
-
+  const empty = !tex.trim()
   return (
     <div
-      ref={boardRef}
-      contentEditable
-      suppressContentEditableWarning
-      spellCheck={false}
-      onInput={() => {
-        const el = boardRef.current
-        if (!el) return
-        const next = readLatex(el)
-        lastPushed.current = next
-        onTex(next)
-      }}
-      // 回车在公式里没有意义，只会插进 <br> 把结构撑坏
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.preventDefault()
-      }}
       className={`af-formula-board ${display ? 'af-formula-board--display' : ''}`}
-    />
+      onMouseDown={onActivate}
+    >
+      {empty ? (
+        <span className="text-xs text-ink-400">
+          在下面的输入框里写公式：直接打字，或点底部的符号 / 结构
+        </span>
+      ) : (
+        <span dangerouslySetInnerHTML={{ __html: renderKatex(tex, display) }} />
+      )}
+    </div>
   )
 }
 
@@ -189,13 +170,11 @@ export default function FormulaSidebar({
   const [ocrLoading, setOcrLoading] = useState(false)
   const [ocrModel, setOcrModel] = useState<SimpleTexModel>('standard')
   const [findQuery, setFindQuery] = useState('')
-  const [showSource, setShowSource] = useState(false)
   /** 底部工具条当前分类：默认「结构」—— 找结构是最费scroll的事，让它一进来就在眼前 */
   const [charGroup, setCharGroup] = useState<string>('结构')
   /** 已有公式 tab 里的批量勾选（值是 parseFormulas 的下标） */
   const [picked, setPicked] = useState<Set<number>>(new Set())
 
-  const boardRef = useRef<HTMLDivElement>(null)
   const sourceRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -239,7 +218,7 @@ export default function FormulaSidebar({
       const cred = await loadSimpleTexCredentials()
       const result = await recognizeFormulaImage(file, cred, ocrModel)
       setTex(result.latex.trim())
-      toast.success('识别完成，请核对看板里的公式')
+      toast.success('识别完成，看板里就是插入后的效果；不对可在输入框里改')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -304,30 +283,60 @@ export default function FormulaSidebar({
     resetToCreate()
   }
 
-  /** 点工具条：源码框有焦点就往源码里插，否则插到看板的光标处 */
-  const insertSymbol = (glyph: string) => {
-    if (document.activeElement === sourceRef.current && sourceRef.current) {
-      const ta = sourceRef.current
-      const at = ta.selectionStart ?? tex.length
-      setTex(tex.slice(0, at) + glyph + tex.slice(at))
-      requestAnimationFrame(() => {
-        ta.focus()
-        ta.setSelectionRange(at + glyph.length, at + glyph.length)
-      })
-      return
-    }
-    const board = boardRef.current
-    if (!board) return
-    // 不先 focus：焦点一动光标会回到开头，要按「当前选区」插（见 formula-visual 的说明）
-    insertTextAtCaret(board, glyph)
-    setTex(readLatex(board))
+  /**
+   * 输入框当前的插入区间。
+   * 输入框有焦点 → 用它的光标/选区；没焦点过（用户直接点的工具条按钮）→ 追加到末尾。
+   * 「没焦点就追加」这条很关键：否则第一次点符号会插到开头去。
+   */
+  const sourceRange = (): [number, number] => {
+    const ta = sourceRef.current
+    if (!ta || document.activeElement !== ta) return [tex.length, tex.length]
+    const from = ta.selectionStart ?? tex.length
+    return [from, ta.selectionEnd ?? from]
   }
 
-  const insertStructure = (s: (typeof FORMULA_STRUCTURES)[number]) => {
-    const board = boardRef.current
-    if (!board) return
-    insertStructureAtCaret(board, s.make, s.caret)
-    setTex(readLatex(board))
+  /**
+   * 往输入框里插内容。`select` 是插完之后要选中的**相对**区间 ——
+   * 结构会把占位符选中，用户直接打字就把它替换掉（Word 行为）。
+   */
+  const insertIntoSource = (text: string, select?: [number, number]) => {
+    const [from, to] = sourceRange()
+    setTex(tex.slice(0, from) + text + tex.slice(to))
+    const [selFrom, selTo] = select ?? [text.length, text.length]
+    requestAnimationFrame(() => {
+      const ta = sourceRef.current
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(from + selFrom, from + selTo)
+    })
+  }
+
+  /** 点工具条里的符号：插到输入框的光标处（选中了东西就替换掉） */
+  const insertSymbol = (glyph: string) => {
+    // 「运算」组里的 √ 不是普通字符 —— 裸字符 √ 在 KaTeX 里只是根号的一个符号，
+    // 没有上划线、也不管被开方的内容，永远长不成真根号。让它走结构。
+    if (glyph === '√') {
+      insertStructure(SQRT_STRUCTURE)
+      return
+    }
+    insertIntoSource(glyph)
+  }
+
+  /** 点工具条里的结构：把选中的源码包进结构（没选中就插一个带占位符的空结构） */
+  const insertStructure = (s: FormulaStructure) => {
+    const [from, to] = sourceRange()
+    const { tex: built, selStart, selEnd } = expandStructure(s.build(tex.slice(from, to)))
+    insertIntoSource(built, [selStart, selEnd])
+  }
+
+  /** 点看板 → 回输入框接着写（编辑只有这一个入口） */
+  const focusSource = () => {
+    const ta = sourceRef.current
+    if (!ta) return
+    ta.focus()
+    // 光标放末尾，不是全选：全选之后一打字就把整条公式替换掉了
+    const at = ta.value.length
+    ta.setSelectionRange(at, at)
   }
 
   const filteredFind = projectFormulas
@@ -436,11 +445,12 @@ export default function FormulaSidebar({
               </select>
             </div>
 
-            {/* 看板 = 编辑区 */}
+            {/* 输入框 —— 唯一的编辑入口。看板只是它的渲染结果，别把编辑藏进「高级」里 */}
             <section>
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xs font-medium text-ink-600">公式</span>
-                <div className="ml-auto flex rounded-lg border border-ink-200 overflow-hidden">
+                <span className="text-xs font-medium text-ink-600">输入框</span>
+                <span className="text-[0.6875rem] text-ink-400 truncate">直接打字，或点底部的符号 / 结构</span>
+                <div className="ml-auto flex rounded-lg border border-ink-200 overflow-hidden flex-shrink-0">
                   {(['inline', 'block'] as const).map((k) => (
                     <button
                       key={k}
@@ -454,32 +464,25 @@ export default function FormulaSidebar({
                   ))}
                 </div>
               </div>
-              <div
-                className="af-formula-boardwrap rounded-lg border border-ink-200 bg-paper-50 focus-within:border-seal-400 px-2 py-3 cursor-text"
-                onMouseDown={(e) => {
-                  // 点空白处把光标送进看板，省得用户去点「很小的一条」
-                  if (e.target === e.currentTarget) {
-                    const b = boardRef.current
-                    if (b) {
-                      b.focus()
-                      const sel = window.getSelection()
-                      if (sel) {
-                        const r = document.createRange()
-                        r.selectNodeContents(b)
-                        r.collapse(false)
-                        sel.removeAllRanges()
-                        sel.addRange(r)
-                      }
-                    }
-                  }
-                }}
-              >
-                <VisualBoard
-                  tex={tex}
-                  display={kind === 'block'}
-                  boardRef={boardRef}
-                  onTex={setTex}
-                />
+              <textarea
+                ref={sourceRef}
+                value={tex}
+                onChange={(e) => setTex(e.target.value)}
+                rows={3}
+                spellCheck={false}
+                placeholder="\frac{\partial u}{\partial t} = \alpha \nabla^2 u"
+                className="w-full px-2 py-1.5 text-xs font-mono border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
+              />
+            </section>
+
+            {/* 看板 = 真 KaTeX 渲染：与正文同一个引擎、同一个版本，所以「输入什么、看到什么」天生一致 */}
+            <section>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs font-medium text-ink-600">公式</span>
+                <span className="text-[0.6875rem] text-ink-400 truncate">与插入正文后完全一致</span>
+              </div>
+              <div className="af-formula-boardwrap rounded-lg border border-ink-200 bg-paper-50 px-2 py-3 cursor-text">
+                <FormulaBoard tex={tex} display={kind === 'block'} onActivate={focusSource} />
               </div>
             </section>
 
@@ -516,25 +519,6 @@ export default function FormulaSidebar({
                     替换全部{duplicateCount > 1 ? `（${duplicateCount}）` : ''}
                   </button>
                 </div>
-              )}
-
-              <button
-                onClick={() => setShowSource((v) => !v)}
-                className="w-full flex items-center gap-1 px-1 py-0.5 text-[0.6875rem] text-ink-400 hover:text-ink-600 transition"
-              >
-                {showSource ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                LaTeX 源码（会写 LaTeX 才需要）
-              </button>
-              {showSource && (
-                <textarea
-                  ref={sourceRef}
-                  value={tex}
-                  onChange={(e) => setTex(e.target.value)}
-                  rows={3}
-                  spellCheck={false}
-                  placeholder="\frac{\partial u}{\partial t} = \alpha \nabla^2 u"
-                  className="w-full px-2 py-1.5 text-xs font-mono border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 resize-y"
-                />
               )}
             </div>
           </div>
