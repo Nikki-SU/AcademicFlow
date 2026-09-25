@@ -259,6 +259,51 @@ export function deleteFormulas(md: string, indexes: number[]): string {
   return out
 }
 
+// ────────────────────────────────────────────────────────────
+// 块级原子单元（图 / 表 / 公式）的整块删除
+// ────────────────────────────────────────────────────────────
+
+/**
+ * 正文里的「块级原子单元」。
+ *
+ * 这三样在正文里都是**要么整块留、要么整块删**的东西：一张表缺一行不是表、
+ * 一个公式少一个花括号是乱码、一张图少一个括号就是一段裸文本。所以它们的删除
+ * 不该靠"精确选中那一串字符"，而该按块来。
+ */
+export type AtomicBlockKind = 'image' | 'table' | 'formula'
+
+/**
+ * 删掉第 index 个「图 / 表 / 公式」（连同定界符 / 整张表一起）。
+ *
+ * 为什么必须有这个：表格和图片此前**根本没有整块删除的入口** ——
+ * 删表格得手动选中好几行源码，删图片得精确框住 `![alt](src)` 的每个字符；
+ * 而表格的行列把手到「只剩一行 / 一列」就拒绝执行（再删就不成表格了），
+ * 结果整张表反而删不掉，只能去源码里一个个删。
+ *
+ * 越界 / 找不到一律**原样返回**，绝不"猜一个位置删掉" —— 删错块不可逆，
+ * 而且用户往往过很久才发现少了一段。
+ */
+export function deleteBlock(md: string, kind: AtomicBlockKind, index: number): string {
+  if (index < 0) return md
+
+  if (kind === 'formula') return deleteFormulas(md, [index])
+
+  if (kind === 'image') {
+    const img = parseImages(md)[index]
+    if (!img || img.start < 0 || img.end < 0) return md
+    return md.slice(0, img.start) + md.slice(img.end)
+  }
+
+  const table = parseTables(md)[index]
+  if (!table) return md
+  const lines = md.split('\n')
+  // 顺手把表格前面紧挨着的那个空行一起吃掉，否则删完原处会留下两条连续空行
+  let from = table.startLine
+  if (from > 0 && lines[from - 1].trim() === '') from -= 1
+  lines.splice(from, table.endLine - from + 1)
+  return lines.join('\n')
+}
+
 /**
  * 扫出全部图片（文档顺序 = 渲染后 <img> 顺序）。
  *

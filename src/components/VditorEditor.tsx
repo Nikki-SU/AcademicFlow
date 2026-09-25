@@ -27,7 +27,15 @@ import {
 } from '../services/editorImages'
 import { useSettingsStore } from '../stores/settings'
 import { CODE_LANGS } from '../constants/codeLangs'
-import { editTable, type TableOp } from '../services/formula'
+import {
+  deleteBlock,
+  editTable,
+  parseFormulas,
+  parseImages,
+  parseTables,
+  type AtomicBlockKind,
+  type TableOp,
+} from '../services/formula'
 import { extractCitationsFromMarkdown, normalizeDoi } from '../services/citation'
 
 export type VditorMode = 'ir' | 'wysiwyg' | 'sv'
@@ -1090,57 +1098,114 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   }, [docPath, value])
 
   /**
-   * 表格行列增删：鼠标停在某个格子上，就在这个格子的四条边浮出「+」，左上 / 右下角浮出「−」。
+   * 悬停「块级原子单元」时浮出操作把手。
    *
-   * 为什么不做成「表格右上角一排 +行/+列/−行/−列」：那是一组**作用在表格末尾**的按钮，
-   * 想在第 2 行下面插一行，只能先追加到底部再想办法挪过去 —— 功能是能用，
-   * 但每做一步都在跟工具较劲。WPS / 智能文档的做法是把动作挂在**目标位置本身**上：
-   * 想加行就把鼠标放到那一行，想加列就放到那一列，点一下就行；想删就在原地删。
-   * 这里就是这套：
+   * 所谓块级原子单元 = **表格 / 图片 / 行间公式**：它们在正文里都是「要么整块留、
+   * 要么整块删」的东西 —— 一张表少一行就不是表、一个公式少个花括号就是乱码、
+   * 一张图少个括号就是一段裸文本。而此前**只有公式**有删除入口（公式侧栏的勾选列表），
+   * 表格和图片根本没有：删表格要手动选中好几行源码，删图片要精确框住 `![alt](src)`
+   * 每一个字符；表格的行列把手到了「只剩一行 / 一列」还会拒绝执行（再删就不成表格了），
+   * 于是整张表反而删不掉。
    *
+   * 两类把手：
+   *
+   *   表格（悬停单元格）—— 行列增删 + 删整表
    *           [ + ]上                 [−]删本列
    *      [ + ]左  ┌──────────────┐  [ + ]右
    *               │   hovered    │
-   *      [−]删本行 └──────────────┘
+   *      [−]删本行 └──────────────┘  [🗑]删整表
    *           [ + ]下
+   *
+   *   图片 / 行间公式 —— 整块就一个「删除」
+   *      ┌──────────────────┐
+   *      │               [🗑]│
+   *      │       block      │
+   *      └──────────────────┘
+   *
+   * 行/列的减号用 `−`、整块删除用垃圾桶图标，是刻意的：一眼能分出"删这一行"和
+   * "删整张表"。后者不可逆，长得跟前者的样子一样很危险。
    *
    * 表头那一行只给「下面加一行」：markdown 里表头必须是第一行、第二行必须是 `| --- |`，
    * 在它上面插一行、或把它删掉，整张表立刻不再被当表格解析。
-   *
-   * markdown 表格在 IR 模式下没有源码视图（只有渲染出来的 <table>），不给入口就只能手写 md，
-   * 那正是「表格不好用」的来源。
    */
   useEffect(() => {
     if (!containerRef.current) return
 
     let box: HTMLDivElement | null = null
-    let cell: HTMLTableCellElement | null = null
+    /** 把手框贴住谁：表格 = 悬停的那个单元格；图片 / 公式 = 块本身 */
+    let rectNode: HTMLElement | null = null
 
     const removeBox = () => {
       box?.remove()
       box = null
-      cell = null
+      rectNode = null
     }
 
     const positionBox = () => {
-      if (!box || !cell) return
-      const r = cell.getBoundingClientRect()
+      if (!box || !rectNode) return
+      const r = rectNode.getBoundingClientRect()
       box.style.left = `${Math.round(r.left)}px`
       box.style.top = `${Math.round(r.top)}px`
       box.style.width = `${Math.round(r.width)}px`
       box.style.height = `${Math.round(r.height)}px`
     }
 
+    /**
+     * DOM 节点 → md 里的下标。
+     *
+     * 数量对不上就返回 null。IR 模式下每个块都是「源码视图 + 渲染视图」两份，
+     * 只要有一处渲染异常（公式没渲出来、图片没加载、光标停在块里触发了浮动面板），
+     * 数量就会漂 —— 序号法会让"删第 3 个"变成"删第 2 个"，而且**毫无提示**。
+     * 删错块不可逆，所以这里宁可什么都不做。
+     */
+    const blockIndex = (
+      root: HTMLElement,
+      kind: AtomicBlockKind,
+      node: HTMLElement,
+    ): number | null => {
+      const md = lastValueRef.current
+      const total =
+        kind === 'image'
+          ? parseImages(md).length
+          : kind === 'table'
+            ? parseTables(md).length
+            : parseFormulas(md).length
+      if (total === 0) return null
+      const anchors = collectAnchors(root, kind)
+      if (anchors.length !== total) return null
+      const i = anchors.findIndex((a) => a.target === node)
+      return i < 0 ? null : i
+    }
+
+    /** 整块删除 —— 表格 / 图片 / 行间公式走同一条路 */
+    const removeBlock = (kind: AtomicBlockKind, node: HTMLElement) => {
+      const root = editorElement(vditorRef.current)
+      if (!root) return
+      const idx = blockIndex(root, kind, node)
+      if (idx === null) {
+        // 不猜位置。删错块是静默的、且不可逆，用户往往过很久才发现少了一段
+        toast.error('没能确认这个块在原文里的位置，这次就不删了', {
+          description: '正文可能刚改过、渲染还没跟上。再试一次或刷新后再删，比删错强。',
+        })
+        removeBox()
+        return
+      }
+      const next = deleteBlock(lastValueRef.current, kind, idx)
+      if (next !== lastValueRef.current) onChangeRef.current?.(next)
+      removeBox()
+    }
+
     /** 执行一次行列增删：把 DOM 里的行列还原成 editTable 要的下标 */
     const runOp = (op: TableOp, at: number) => {
-      const table = cell?.closest('table[data-type="table"]') as HTMLTableElement | null
-      if (!table) return
-      const tables = Array.from(
-        editorElement(vditorRef.current)?.querySelectorAll('table[data-type="table"]') ?? [],
-      )
-      // DOM 里的表格顺序与 parseTables 解析出来的顺序一致
-      const idx = tables.indexOf(table)
-      if (idx < 0) return
+      const table = rectNode?.closest('table[data-type="table"]') as HTMLTableElement | null
+      const root = editorElement(vditorRef.current)
+      if (!table || !root) return
+      const idx = blockIndex(root, 'table', table)
+      if (idx === null) {
+        toast.error('没能确认这张表在原文里的位置，这次就不改了')
+        removeBox()
+        return
+      }
       const next = editTable(lastValueRef.current, idx, op, at)
       if (next !== lastValueRef.current) onChangeRef.current?.(next)
       // 改完 md 会整篇回流、DOM 重建，这个格子已经是游离节点了 —— 收掉把手，
@@ -1148,69 +1213,91 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       removeBox()
     }
 
-    const showBox = (target: HTMLTableCellElement) => {
-      const table = target.closest('table[data-type="table"]') as HTMLTableElement | null
-      if (!table || cell === target) return
-      const tr = target.closest('tr') as HTMLTableRowElement | null
-      if (!tr) return
-      const rows = Array.from(table.querySelectorAll('tr'))
-      const rowIndex = rows.indexOf(tr)
-      const colIndex = Array.from(tr.children).indexOf(target)
-      if (rowIndex < 0 || colIndex < 0) return
+    /** lucide 的 Trash2 —— 和全站删除图标同一个（`Delete` 在 lucide-react 里是保留字） */
+    const TRASH_ICON =
+      '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>' +
+      '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>' +
+      '<line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>'
 
+    const showBox = (kind: AtomicBlockKind, block: HTMLElement, cell?: HTMLTableCellElement) => {
+      const stick = cell ?? block
+      if (rectNode === stick && box) return
       removeBox()
-      cell = target
+      rectNode = stick
 
-      // 外层只负责框住这个格子；不吃鼠标事件，好让底下格子的 hover 照常工作。
+      // 外层只负责框住目标；不吃鼠标事件，好让底下内容的 hover 照常工作。
       // 按钮自己开 pointer-events。
       const el = document.createElement('div')
       el.className = 'fixed z-[9998]'
       el.style.pointerEvents = 'none'
 
       const add = (
-        label: string,
         tip: string,
-        op: TableOp,
-        at: number,
+        label: string,
         pos: Partial<CSSStyleDeclaration>,
+        onClick: () => void,
       ) => {
         const btn = document.createElement('button')
         btn.type = 'button'
-        btn.textContent = label
         btn.title = tip
         btn.className =
           'absolute flex items-center justify-center w-[1.375rem] h-[1.375rem] rounded-full ' +
           'bg-paper-50 border border-ink-200 text-ink-500 shadow-sm text-xs leading-none ' +
           'hover:bg-seal-600 hover:border-seal-600 hover:text-paper-50 transition'
+        if (label === 'trash') btn.innerHTML = TRASH_ICON
+        else btn.textContent = label
         Object.assign(btn.style, pos)
         btn.style.pointerEvents = 'auto'
         // 挡住 mousedown：不然点这一下会把正文的光标 / 选区抢走
         btn.addEventListener('mousedown', (e) => {
           e.preventDefault()
           e.stopPropagation()
-          runOp(op, at)
+          onClick()
         })
         el.appendChild(btn)
       }
 
-      /** 半格边长：让按钮正好骑在格子的边线上 */
-      const H = '-0.6875rem'
-      const MID_H = { left: '50%', transform: 'translateX(-50%)' }
-      const MID_V = { top: '50%', transform: 'translateY(-50%)' }
+      const trashTip =
+        kind === 'table' ? '删除整张表格' : kind === 'image' ? '删除这张图片' : '删除这条公式'
 
-      // 列把手：左右两侧
-      add('+', '在左侧插入一列', 'addColLeft', colIndex, { ...MID_V, left: H })
-      add('+', '在右侧插入一列', 'addColRight', colIndex, { ...MID_V, right: H })
-      // 删本列：右下角
-      add('−', '删除本列', 'delCol', colIndex, { bottom: H, right: H })
+      if (kind === 'table' && cell) {
+        const table = block
+        const tr = cell.closest('tr') as HTMLTableRowElement | null
+        const rows = tr ? Array.from(table.querySelectorAll('tr')) : []
+        const rowIndex = tr ? rows.indexOf(tr) : -1
+        const colIndex = tr ? Array.from(tr.children).indexOf(cell) : -1
+        if (rowIndex < 0 || colIndex < 0) return
 
-      // 行把手：渲染出来的第 0 行是表头，editTable 的数据行下标从表头下面第一行算起
-      if (rowIndex === 0) {
-        add('+', '在下方插入一行', 'addRowAbove', 0, { ...MID_H, bottom: H })
+        /** 半格边长：让按钮正好骑在格子的边线上 */
+        const H = '-0.6875rem'
+        const MID_H = { left: '50%', transform: 'translateX(-50%)' }
+        const MID_V = { top: '50%', transform: 'translateY(-50%)' }
+        /** 表格本身在 DOM 里的顺序，与 parseTables 一致；删整表按它定位 */
+        const delTable = () => removeBlock('table', table)
+
+        // 列把手：左右两侧
+        add('在左侧插入一列', '+', { ...MID_V, left: H }, () => runOp('addColLeft', colIndex))
+        add('在右侧插入一列', '+', { ...MID_V, right: H }, () => runOp('addColRight', colIndex))
+        // 删本列：右下角
+        add('删除本列', '−', { bottom: H, right: H }, () => runOp('delCol', colIndex))
+        // 删整表：左下角（其余三个角已经给行列用了）
+        add(trashTip, 'trash', { bottom: H, left: H }, delTable)
+
+        // 行把手：渲染出来的第 0 行是表头，editTable 的数据行下标从表头下面第一行算起
+        if (rowIndex === 0) {
+          add('在下方插入一行', '+', { ...MID_H, bottom: H }, () => runOp('addRowAbove', 0))
+        } else {
+          add('在上方插入一行', '+', { ...MID_H, top: H }, () => runOp('addRowAbove', rowIndex - 1))
+          add('在下方插入一行', '+', { ...MID_H, bottom: H }, () => runOp('addRowBelow', rowIndex - 1))
+          add('删除本行', '−', { top: H, left: H }, () => runOp('delRow', rowIndex - 1))
+        }
       } else {
-        add('+', '在上方插入一行', 'addRowAbove', rowIndex - 1, { ...MID_H, top: H })
-        add('+', '在下方插入一行', 'addRowBelow', rowIndex - 1, { ...MID_H, bottom: H })
-        add('−', '删除本行', 'delRow', rowIndex - 1, { top: H, left: H })
+        // 图片 / 行间公式：整块就一个动作，贴在块自己的右上角
+        add(trashTip, 'trash', { top: '0.375rem', right: '0.375rem' }, () =>
+          removeBlock(kind, block),
+        )
       }
 
       document.body.appendChild(el)
@@ -1228,11 +1315,31 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       if (!target) return
       if (box && box.contains(target)) return
       const el = editorElement(vditorRef.current)
-      const td = target.closest('td,th') as HTMLTableCellElement | null
       // 必须落在**编辑器正文**里：预览 / 只读态渲染出来的表格也带 data-type="table"，
-      // 但那些地方没有「改行列」这回事，浮出把手只会让人点了没反应
-      if (el && td && el.contains(td) && td.closest('table[data-type="table"]')) {
-        showBox(td)
+      // 但那些地方没有「改行列 / 删块」这回事，浮出把手只会让人点了没反应
+      if (!el || !el.contains(target)) {
+        removeBox()
+        return
+      }
+
+      // 表格：悬停单元格（嵌套在外层表格里的也算，取最近的那个）
+      const td = target.closest('td,th') as HTMLTableCellElement | null
+      const table = td?.closest('table[data-type="table"]') as HTMLTableElement | null
+      if (td && table) {
+        showBox('table', table, td)
+        return
+      }
+      // 图片 / 行间公式：整个块是一个原子单元
+      // （行内公式不算 —— 它是行内文字的一部分，而且它的源码视图只有光标进去时才在
+      //   DOM 里，悬停根本打不到；要删行内公式走公式侧栏的列表）
+      const img = target.closest('.vditor-ir__node[data-type="img"]') as HTMLElement | null
+      if (img) {
+        showBox('image', img)
+        return
+      }
+      const math = target.closest('.vditor-ir__node[data-type="math-block"]') as HTMLElement | null
+      if (math) {
+        showBox('formula', math)
         return
       }
       removeBox()
