@@ -197,21 +197,23 @@
  * 又会和 Vditor 的渲染抢时序；nth-child 是"查的时候才算"的。
  * （阅读页正文是静态内容，那边在 JS 里按真实行数精确接相位，见 Reading.tsx。）
  *
- * 只染**块级顶层元素**（正文容器 .vditor-reset 的直接子元素），并排除自带底色的
- * 代码块 / 引用块 / 表格：它们的底色叠上条纹会糊成一片，反而更难认。
+ * 只染**纯文字块**，这里必须用白名单而不是「`*:not(pre):not(table)`」：
+ * IR 模式下的代码块 / 公式块 / 内联 HTML 块都被 Vditor 包在
+ * `<div class="vditor-ir__node">` 里，按标签排除根本排不掉它们 —— 实测代码块外面那层
+ * div 照样铺上了条纹。引用块自己有底色，不参与。
  */
-.af-editor-zebra .vditor-reset > *:not(pre):not(blockquote):not(table):not(hr) {
+.af-editor-zebra .vditor-reset > :is(p, h1, h2, h3, h4, h5, h6, ul, ol) {
   background-origin: content-box;
   background-clip: content-box;
 }
-.af-editor-zebra .vditor-reset > *:nth-child(odd):not(pre):not(blockquote):not(table):not(hr) {
+.af-editor-zebra .vditor-reset > :nth-child(odd):is(p, h1, h2, h3, h4, h5, h6, ul, ol) {
   background-image: repeating-linear-gradient(
     to bottom,
     var(--af-zebra-ink) 0 1lh,
     transparent 1lh 2lh
   );
 }
-.af-editor-zebra .vditor-reset > *:nth-child(even):not(pre):not(blockquote):not(table):not(hr) {
+.af-editor-zebra .vditor-reset > :nth-child(even):is(p, h1, h2, h3, h4, h5, h6, ul, ol) {
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0 1lh,
