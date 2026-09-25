@@ -8,19 +8,20 @@
 
 ---
 
-## 0. 当前状态（2026-09-21，⚠️ 见下方例外）
+## 0. 当前状态（2026-09-25 已推私库，全部一致）
 
-**除下表标注 ⚠️ 的两个文件外，前端嵌入副本与私库线上逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
+**前端嵌入副本与私库 `main` 线上版本逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
 
-> ⚠️ **例外（2026-09-25）**：`ai_call.mjs`（60744 B）与 `paper_convert.mjs`（106346 B）
-> 这两个前端副本都已经改好，但**私库线上还是旧版**。**在推私库之前不要点「重装后端」**。
-> 详见 §8、§9、§10、§11。
+> ✅ **2026-09-25 已推送完成**：`ai_call.mjs`（60744 B，commit `de933e0a`）与
+> `paper_convert.mjs`（106346 B，commit `70b85560`）都已 push 到私库 `main`，
+> 推完重新逐字节核对通过 —— **§8/§9/§10/§11 的「私库待推」已经全部清掉**。
+> 现在点「重装后端」是安全的。
 
 | 文件 | 字节 | 本轮变化 |
 |------|------|---------|
-| `scripts/ai_call.mjs` | 60744 | ⚠️ 加了 `input_path` 落盘读取（§8）；**私库待推** |
+| `scripts/ai_call.mjs` | 60744 | ✅ 加了 `input_path` 落盘读取（§8） |
 | `scripts/dual_engine_runner.mjs` | 29183 | ✅ 之前前端**根本没有**这个文件；现已补进安装清单并修了超时/预算；【源材料】改为共享稳定前缀 |
-| `scripts/paper_convert.mjs` | 106346 | ⚠️ 提词 prompt 加 `example_zh` + `morphemes`、CSV 加两批同名列、新增词素表汇总（§9、§10）、**新增通讯作者抽取**（§11）；**私库待推** |
+| `scripts/paper_convert.mjs` | 106346 | ✅ 提词 prompt 加 `example_zh` + `morphemes`、CSV 加两批同名列、新增词素表汇总（§9、§10）、**新增通讯作者抽取**（§11） |
 | `scripts/blocks.mjs` | 14196 | 一致 |
 | `workflows/ai_call.yml` | 2572 | ✅ job timeout 15 → 25 分钟 |
 | `workflows/paper_convert.yml` | 2450 | 一致 |
@@ -34,6 +35,8 @@ perf(dual_engine): 源材料做成同引擎各次调用共享的稳定前缀 —
 feat(pipeline): 长难句提取落到 sentences.csv + 延迟清理断点存档 + CSV 读取认引号
 fix(dual_engine): 单次调用超时 + 总预算 + 空输出/截断重试关思考；AI-2 哑掉不再丢掉 AI-1 成果
 fix(ai_call): job timeout 15→25 分钟，给 runner 的 18 分钟预算留收尾余量
+feat(ai_call): 支持 input_path —— 超大 input_json 落盘读取，绕过 repository_dispatch 的 64KB 上限   ← de933e0a
+feat(pipeline): 提词补 example_zh/morphemes + 词素表汇总 + 通讯作者抽取（literatures.csv 加列）   ← 70b85560
 ```
 
 ---
@@ -204,6 +207,7 @@ token 就分叉。要共享就得把两个角色提示都挪到源材料之后 �
 - [ ] 学习页 AI 补例句 + 历史批量补提
 - [ ] 阅读页问 AI
 - [ ] 转一篇新 PDF，确认 `sentences/sentences.csv` 收到新行且列对齐、逐字回贴生效
+- [ ] 转一篇新 PDF，确认 `literatures.csv` 的 `corresponding_author` 被写上（且写的是首页标 `*`/通讯邮箱那位，不是最后一位作者）；**旧库首次转换**还要确认 `ensureLocalCsvColumn` 自动补列后其余列没串位
 - [ ] 写作页选一个期刊模板 → 「正式编译（后端）」→ 确认 0 TeX/bibtex 报错、参考文献有年份
 
 ---
@@ -333,14 +337,14 @@ markdown 再带标注拼一遍）——一篇长稿轻松超过 64KB。
 ### 8.3 现状与后续动作
 
 `src/constants/skeleton.ts` 里内嵌的 `ai_call.mjs` 副本**已经改好并校验字节一致**
-（60112 → 60744 B，含 `input_path` 分支）。
-但**私库 `Nikki-SU/academicflow-workspace@main` 的线上版本还没推**，所以：
+（60112 → 60744 B，含 `input_path` 分支），且 **2026-09-25 已 push 到私库 `main`**
+（commit `de933e0a`），推完重新逐字节核对通过。当初的顺序要求仍然有效：
 
-1. 把改好的 `ai_call.mjs` push 到私库 `main`（**必须 main**）；
-2. 跑一次 `ai_connectivity_test` 确认没改坏；
+1. 先把改好的 `ai_call.mjs` push 到私库 `main`（**必须 main**）；
+2. 再跑一次 `ai_connectivity_test` 确认没改坏；
 3. 用 §3.3 的脚本核对前端嵌入副本与线上**逐字节一致**。
 
-> ⚠️ 顺序不能反：**先推私库、再确认副本**。若在副本比线上新时点「重装后端」，
+> ⚠️ 顺序不能反（**本次是照这个顺序做的**）：若在副本比线上新时点「重装后端」，
 > `writePipelineFiles` 是无条件覆盖，会把线上打回没有 `input_path` 的旧版 ——
 > 届时长文生成又会 422。
 
@@ -372,8 +376,8 @@ markdown 再带标注拼一遍）——一篇长稿轻松超过 64KB。
 
 ### 9.3 后续动作
 
-和 §8 一样：**先把改好的 `paper_convert.mjs` push 到私库 `main`**，再核对前端嵌入副本
-（§3.3 脚本），**顺序不能反**。
+和 §8 一样，且**已照该顺序做完**（2026-09-25）：改好的 `paper_convert.mjs` 先 push 到私库 `main`
+（commit `70b85560`），再用 §3.3 脚本核对前端嵌入副本——逐字节一致。**顺序不能反。**
 
 ---
 
@@ -419,8 +423,8 @@ markdown 再带标注拼一遍）——一篇长稿轻松超过 64KB。
 
 ### 10.5 后续动作
 
-与 §8 / §9 同一次推送：`paper_convert.mjs` push 私库 `main` → 跑 `ai_connectivity_test` →
-用 §3.3 脚本核对逐字节一致。**顺序不能反。**
+与 §8 / §9 同一次推送，**已完成**（2026-09-25）：`paper_convert.mjs` push 私库 `main`
+（commit `70b85560`）→ 用 §3.3 脚本核对逐字节一致。**顺序不能反。**
 
 ---
 
@@ -474,6 +478,8 @@ Crossref / OpenAlex 的元数据只有作者列表，**没有**通讯作者标�
 
 ### 11.4 后续动作
 
-与 §8 / §9 / §10 同一次推送：
-`paper_convert.mjs`（现 106346 B）push 私库 `main` → 跑 `ai_connectivity_test` →
+与 §8 / §9 / §10 同一次推送，**已完成**（2026-09-25）：
+`paper_convert.mjs`（现 106346 B）push 私库 `main`（commit `70b85560`）→
 用 §3.3 脚本核对逐字节一致。**顺序不能反。**
+
+> 尚未在真机跑过一次带通讯作者抽取的转换 —— 见 §6.2 回归清单。
