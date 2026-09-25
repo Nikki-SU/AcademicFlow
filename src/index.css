@@ -189,3 +189,147 @@
   border-radius: 0.25rem;
 }
 
+/*
+ * 正文里的引用标记：源码是 [@doi:10.xxx/yyy]，显示成普通编号 [12]
+ * -------------------------------------------------
+ * 两条硬约束（见 VditorEditor 里那段 decorate 的说明）：
+ *   1. 原文一个字都不能改 —— IR 模式下 DOM 会被反序列化回 markdown；
+ *   2. 编号不能是 DOM 里的文字 —— 同样会被写回 markdown。
+ * 所以原文藏在 0 号字里（仍在 DOM、仍在选区里，能选中能删），
+ * 编号靠 ::after 的 attr(data-num) 显示 —— 伪元素不进 DOM，永远不会被序列化。
+ */
+.af-cite > .af-cite-src {
+  font-size: 0;
+  color: transparent;
+  letter-spacing: 0;
+}
+.af-cite::after {
+  content: attr(data-num);
+  color: #4338ca;
+  font-size: 0.875em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/*
+ * 公式侧栏的「渲染看板」= 所见即所得编辑区
+ * -------------------------------------------------
+ * 结构化构件（分数 / 根号 / 上下标 / 矩阵）全部用普通内联元素 + CSS 排版实现，
+ * 只有看板根节点是 contenteditable —— 不嵌套编辑宿主，光标行为才可预期。
+ * 每一格（[data-afx-slot]）都是可点进去打字的普通元素。
+ */
+.af-formula-board {
+  min-height: 2.25rem;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #1f2937;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.af-formula-board:empty::before {
+  content: '在这里写公式：直接打字，或点下面的符号 / 结构';
+  color: #9ca3af;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.af-formula-board--display {
+  font-size: 1.25rem;
+  text-align: center;
+  padding: 0.5rem 0;
+}
+/* 空格子给个浅底线，让「这里可以打字」看得见 */
+.af-formula-board [data-afx-slot]:empty::after {
+  content: ' ';
+  display: inline-block;
+  min-width: 0.75em;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+/* 分数：上下两格 + 中间一条线 */
+.afx-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: -0.5em;
+  margin: 0 0.15em;
+}
+.afx-frac > .afx-num {
+  padding: 0 0.2em;
+  border-bottom: 1px solid currentColor;
+}
+
+/* 根号：左边一个 √，右边被开方的内容带顶线 */
+.afx-sqrt {
+  display: inline-flex;
+  align-items: stretch;
+  margin: 0 0.1em;
+}
+.afx-sqrt::before {
+  content: '√';
+  align-self: center;
+}
+.afx-sqrt > .afx-rad {
+  border-top: 1px solid currentColor;
+  padding: 0 0.15em;
+}
+
+/* 上下标：底 + 右侧竖排的上标/下标 */
+.afx-script {
+  display: inline-flex;
+  align-items: center;
+}
+.afx-script > .afx-scripts {
+  display: inline-flex;
+  flex-direction: column;
+  font-size: 0.7em;
+  line-height: 1.1;
+  vertical-align: middle;
+}
+.afx-script > .afx-scripts > sup,
+.afx-script > .afx-scripts > sub {
+  position: static;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* 矩阵：左右括号 + 网格 */
+.afx-matrix {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+  margin: 0 0.15em;
+}
+.afx-matrix > .afx-mbr {
+  display: flex;
+  align-items: center;
+  font-size: 1.6em;
+  line-height: 1;
+}
+.afx-mgrid {
+  display: inline-grid;
+  grid-auto-flow: row;
+  gap: 0.15em 0.6em;
+  padding: 0 0.2em;
+}
+.afx-mrow {
+  display: contents;
+}
+.afx-mcell {
+  text-align: center;
+  min-width: 0.75em;
+}
+
+/* 认不出来的 LaTeX（\hat{} 之类）：KaTeX 渲染、不可编辑、原样存回 */
+.afx-raw {
+  display: inline-block;
+  margin: 0 0.05em;
+}
+
+/* 正体（\mathrm / \text） */
+.afx-up {
+  font-style: normal;
+}
+
+

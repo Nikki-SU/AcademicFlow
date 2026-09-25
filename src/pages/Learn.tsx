@@ -206,7 +206,15 @@ function speakEnglish(text: string) {
 
 /** 解析 AI-1 输出的学习内容 JSON（容错：去掉代码块包裹 / 提取首尾花括号） */
 interface ParsedLearningJSON {
-  words: Array<{ word?: string; phonetic?: string; meaning?: string; exampleEn?: string; exampleZh?: string }>
+  words: Array<{
+    word?: string
+    phonetic?: string
+    meaning?: string
+    definitionCn?: string
+    definitionEn?: string
+    exampleEn?: string
+    exampleZh?: string
+  }>
   sentences: Array<{
     sentenceEn?: string
     sentenceCn?: string
@@ -303,7 +311,9 @@ function buildLearningInstruction(
   const tasks: string[] = []
   if (o.words) {
     tasks.push(
-      `生词卡片：从原文中挑选 ${o.wordCount} 个学术核心单词，每条含 word/phonetic/meaning(中文)/exampleEn(原文中含该词的句子)/exampleZh(中文译文)`,
+      `生词卡片：从原文中挑选 ${o.wordCount} 个学术核心单词，每条含 ` +
+        `word / phonetic / meaning(中文释义，简短短语) / definitionCn(中文解释，一句话) / ` +
+        `definitionEn(英文解释，一句话) / exampleEn(原文中含该词的那句，逐字) / exampleZh(该例句的中文译文)`,
     )
   }
   if (o.sentences) {
@@ -336,7 +346,9 @@ function buildLearningInstruction(
 
   const schema: string[] = []
   if (o.words) {
-    schema.push('  "words": [{"word":"...","phonetic":"...","meaning":"...","exampleEn":"...","exampleZh":"..."}]')
+    schema.push(
+      '  "words": [{"word":"...","phonetic":"...","meaning":"...","definitionCn":"...","definitionEn":"...","exampleEn":"...","exampleZh":"..."}]',
+    )
   }
   if (o.sentences) {
     schema.push('  "sentences": [{"sentenceEn":"...","sentenceCn":"...","aiReferenceCn":"...","scoring_points":["..."],"difficulty_note":"..."}]')
@@ -357,7 +369,7 @@ function buildLearningInstruction(
     '- scoring_points 是判分用的踩分点清单，每条一句话，聚焦逻辑关系（因果/转折/递进/让步等）与关键术语词汇，不要泛泛而谈',
     '- translations **只输出两个方向的 scoring_points**，不得输出 originalText / reference_translation / 任何译文',
     '- 源材料未涉及的字段用 [NOT_IN_SOURCE] <字段名> 标注',
-    '- 输出语言：英文片段保持原文，中文释义/翻译/踩分点用中文',
+    '- 输出语言：word / definitionEn / exampleEn 这些字段用英文（exampleEn 必须逐字来自原文），meaning / definitionCn / exampleZh / 译文 / 踩分点用中文',
   )
   return lines.join('\n')
 }
@@ -761,9 +773,10 @@ export default function LearnPage() {
           word: w.word || '',
           phonetic: w.phonetic || '',
           meaning: w.meaning || '',
-          // AI 只给一条中文释义：同时作为 word_cn 和 definition_cn，保证"定义"题型可用
-          definitionCn: w.meaning || '',
-          definitionEn: '',
+          // 中文解释与中文释义是两回事：释义是答题用的短词，解释是一句话。
+          // AI 没给解释时退回释义 —— 至少不让「定义」类题型缺字段。
+          definitionCn: w.definitionCn || w.meaning || '',
+          definitionEn: w.definitionEn || '',
           exampleEn: w.exampleEn || '',
           exampleZh: w.exampleZh || '',
           sourceDoi: selectedPaper,
@@ -1563,18 +1576,27 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 </div>
                 <p className="text-lg text-seal-600 font-medium mt-2">{currentWord.meaning}</p>
               </div>
-              {currentWord.definitionCn && currentWord.definitionCn !== currentWord.meaning && (
-                <p className="text-sm text-ink-600 mb-2">
-                  <span className="font-medium">定义：</span>{currentWord.definitionCn}
-                </p>
-              )}
-              {currentWord.definitionEn && (
-                <p className="text-sm text-ink-500 mb-2">
-                  <span className="font-medium">EN：</span>{currentWord.definitionEn}
-                </p>
+              {/*
+                卡片上「英文的都要配中文」—— 一开始学的人看不懂英文例句/英文解释，
+                只给英文等于没给。所以四个字段成对出现：
+                  英文解释 definitionEn / 中文解释 definitionCn
+                  英文例句 exampleEn   / 中文例句 exampleZh
+                中文那边缺了就明确写出来（而不是静默不显示），用户才知道要补。
+              */}
+              {(currentWord.definitionEn || currentWord.definitionCn) && (
+                <div className="mt-3 p-3 bg-paper-100 rounded-lg space-y-1">
+                  <div className="text-[0.6875rem] font-medium text-ink-400">解释</div>
+                  <p className="text-sm text-ink-700 leading-relaxed">
+                    {currentWord.definitionEn || <span className="text-ink-400">（缺英文解释）</span>}
+                  </p>
+                  <p className="text-sm text-ink-500 leading-relaxed">
+                    {currentWord.definitionCn || <span className="text-ink-400">（缺中文解释）</span>}
+                  </p>
+                </div>
               )}
               {currentWord.exampleEn && (
-                <div className="mt-3 p-3 bg-paper-100 rounded-lg">
+                <div className="mt-3 p-3 bg-paper-100 rounded-lg space-y-1">
+                  <div className="text-[0.6875rem] font-medium text-ink-400">例句</div>
                   <p className="text-sm text-ink-700 italic leading-relaxed">
                     {currentWord.exampleEn.split(
                       new RegExp(`(${currentWord.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i'),
@@ -1584,7 +1606,9 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                         : seg,
                     )}
                   </p>
-                  {currentWord.exampleZh && <p className="text-sm text-ink-500 mt-1.5">{currentWord.exampleZh}</p>}
+                  <p className="text-sm text-ink-500 leading-relaxed">
+                    {currentWord.exampleZh || <span className="text-ink-400">（缺中文译文）</span>}
+                  </p>
                 </div>
               )}
               {/* 主按钮仅为视觉焦点：点击冒泡到 overlay 统一处理（防双触发跳两题） */}
@@ -2717,6 +2741,7 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
   const [phonetic, setPhonetic] = useState('')
   const [meaning, setMeaning] = useState('')
   const [definitionCn, setDefinitionCn] = useState('')
+  const [definitionEn, setDefinitionEn] = useState('')
   const [exampleEn, setExampleEn] = useState('')
   const [exampleZh, setExampleZh] = useState('')
 
@@ -2732,7 +2757,7 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
       phonetic: phonetic.trim() || '',
       meaning: meaning.trim(),
       definitionCn: definitionCn.trim() || meaning.trim(),
-      definitionEn: '',
+      definitionEn: definitionEn.trim() || '',
       exampleEn: exampleEn.trim() || '',
       exampleZh: exampleZh.trim() || '',
       sourceDoi: '',
@@ -2818,13 +2843,24 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1">中文定义（选填，用于"定义"类题型）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">中文解释（选填，用于"定义"类题型）</label>
             <input
               type="text"
               value={definitionCn}
               onChange={(e) => setDefinitionCn(e.target.value)}
               className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
               placeholder="留空则与中文释义相同"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1">英文解释（选填）</label>
+            <input
+              type="text"
+              value={definitionEn}
+              onChange={(e) => setDefinitionEn(e.target.value)}
+              className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
+              placeholder="英文释义，例如：a substance that speeds up a reaction"
             />
           </div>
 

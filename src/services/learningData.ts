@@ -32,10 +32,7 @@ export interface WordData {
   definitionEn: string
   /** example_context：原文例句（例句挖空题用） */
   exampleEn: string
-  /**
-   * 例句中文译文（仅内存/AI 生成时携带；vocabulary.csv 无此列，不落盘，
-   * 仅用于单词卡展示）
-   */
+  /** example_zh：例句的中文译文（单词卡上跟英文例句成对显示） */
   exampleZh?: string
   sourceDoi: string
   status: WordStatus
@@ -106,6 +103,10 @@ const VOCAB_HEADERS = [
   'word_en', 'word_cn', 'phonetic', 'definition_cn', 'definition_en',
   'example_context', 'source_doi', 'status', 'added_at', 'last_review',
   'review_count', 'sm2_interval', 'sm2_ease', 'wrong_count', 'streak',
+  // 新增列一律追加在末尾（旧行缺列给安全默认）：
+  //   example_zh —— 例句的中文译文。单词卡要「英文例句 + 中文例句」成对，
+  //   只放内存里的话一刷新就没了。
+  'example_zh',
 ]
 
 const VALID_WORD_STATUS = new Set(['new', 'learning', 'learned', 'mastered', 'error_book'])
@@ -257,7 +258,7 @@ export async function loadWords(force = false): Promise<WordData[]> {
             id: String(i + 1),
             word: r[0] || '',
             phonetic: r[2] || '',
-            exampleZh: undefined as string | undefined,
+            exampleZh: (r[15] || '').trim() || undefined,
           }
           const s7 = (r[7] || '').trim()
           const s8 = (r[8] || '').trim()
@@ -333,7 +334,7 @@ export async function saveWords(words: WordData[]): Promise<void> {
     VOCAB_PATH,
     words,
     VOCAB_HEADERS,
-    // 严格 15 列、按表头顺序；exampleZh 是纯内存字段不落盘
+    // 严格 16 列、按表头顺序
     (w) => [
       w.word,
       w.meaning,
@@ -350,6 +351,7 @@ export async function saveWords(words: WordData[]): Promise<void> {
       String(w.sm2Ease),
       String(w.wrongCount),
       String(w.streak),
+      w.exampleZh || '',
     ],
   )
 }

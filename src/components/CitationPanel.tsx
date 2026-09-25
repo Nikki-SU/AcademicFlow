@@ -5,10 +5,15 @@
  * 换期刊不需要在期刊之间互相映射，只需换一套样式：
  *   正文用什么符号、尾处条目什么格式，交给 LaTeX 的 natbib + .bst 在编译时决定。
  * 所以这里不另造一套前端格式（那必然和 PDF 对不上），
- * 只负责把「这篇稿子引了哪些文献、各引几次、当前用哪套样式」摊开，并让你换目标期刊。
+ * 只负责把「这篇稿子引了哪些文献、各引在哪几处、当前用哪套样式」摊开，并让你换目标期刊。
+ *
+ * 关于右侧那列「小点点」：
+ *   同一篇文献常被引很多次（方法、结果、讨论各一次）。用户要的是「正文里到底引在哪几处」，
+ *   所以**每一处一个点**，从上到下排；点一下就跳到正文那一处，点过的点会变色，
+ *   再点一次还原颜色**并且把正文里那块高亮收掉**（高亮是留给「我现在在看哪一处」的）。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { BookMarked, Crosshair, Loader2 } from 'lucide-react'
+import { BookMarked, Loader2 } from 'lucide-react'
 import { extractCitationsFromMarkdown, getCitationEntries, normalizeDoi } from '../services/citation'
 import { resolveCiteCommand } from '../services/latex-converter'
 import type { CitationEntry, JournalTemplate } from '../types'
@@ -18,11 +23,16 @@ interface CitationPanelProps {
   templates: JournalTemplate[]
   currentTemplateId: string
   onSelectTemplate: (id: string) => void
-  /** 跳到正文里某条引用所在位置 */
-  onJump: (doi: string) => void
+  /**
+   * 跳到正文里某条引用所在位置。
+   * occurrence = 该文献在正文里第几次出现（从 0 开始）—— 与右侧点点的顺序一一对应。
+   */
+  onJump: (doi: string, occurrence: number) => void
+  /** 取消正文里当前的高亮（点同一个点点的第二次） */
+  onClearHighlight: () => void
 }
 
-/** 统计每个 DOI 在正文里被引了几次（同一篇文献可能引在多处） */
+/** 每个 DOI 在正文里出现的**次数**（同一篇文献可能引在多处） */
 function countOccurrences(md: string): Map<string, number> {
   const map = new Map<string, number>()
   const re = /\[@(?:doi:)?([^\]]+)\]/gi
@@ -42,6 +52,7 @@ export default function CitationPanel({
   currentTemplateId,
   onSelectTemplate,
   onJump,
+  onClearHighlight,
 }: CitationPanelProps) {
   const dois = useMemo(() => extractCitationsFromMarkdown(md), [md])
   const counts = useMemo(() => countOccurrences(md), [md])
@@ -49,6 +60,8 @@ export default function CitationPanel({
   const [entries, setEntries] = useState<Record<string, CitationEntry>>({})
   const [failed, setFailed] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  /** 当前「正在看」的那一处：`${doi}#${occurrence}`。null = 没有高亮 */
+  const [active, setActive] = useState<string | null>(null)
 
   const key = dois.join('|')
 
@@ -80,8 +93,25 @@ export default function CitationPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
+  // 正文改过之后原来的「第 N 处」可能已经不存在了，别留一个假的激活态
+  useEffect(() => {
+    setActive(null)
+  }, [md])
+
   const template = templates.find((t) => t.id === currentTemplateId) ?? templates[0] ?? null
   const citeCommand = template ? resolveCiteCommand(template) : 'cite'
+
+  /** 点一个点：没激活 → 跳过去并点亮；已激活 → 收掉高亮（不再重复跳） */
+  const handleDot = (doi: string, occurrence: number) => {
+    const id = `${doi}#${occurrence}`
+    if (active === id) {
+      setActive(null)
+      onClearHighlight()
+      return
+    }
+    setActive(id)
+    onJump(doi, occurrence)
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -114,9 +144,6 @@ export default function CitationPanel({
             正文引用 <code className="font-mono text-ink-700">{`\\${citeCommand}{…}`}</code>
             <span className="text-ink-300"> · </span>
             参考文献样式 <code className="font-mono text-ink-700">{template.bibtex_style}</code>
-            <div className="mt-0.5 text-ink-400">
-              编号与条目格式由这套样式在编译时决定，导出的 PDF 就是最终样子。
-            </div>
           </div>
         )}
       </div>
@@ -130,43 +157,59 @@ export default function CitationPanel({
             const times = counts.get(doi) ?? 1
             const isFailed = failed.includes(doi)
             return (
-              <div key={doi} className="rounded-lg border border-ink-200 bg-paper-50 p-2.5">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
-                    #{i + 1}
-                  </span>
-                  {times > 1 && (
-                    <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-seal-50 text-seal-600">
-                      引 {times} 处
+              <div key={doi} className="flex items-stretch gap-2">
+                {/* 主体：编号 + 文献信息 */}
+                <div className="flex-1 min-w-0 rounded-lg border border-ink-200 bg-paper-50 p-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
+                      #{i + 1}
                     </span>
+                  </div>
+
+                  {e ? (
+                    <>
+                      <div className="text-xs text-ink-800 leading-snug">{e.title}</div>
+                      <div className="mt-1 text-[0.6875rem] text-ink-500">
+                        {e.authors.slice(0, 3).join('、')}
+                        {e.authors.length > 3 ? ' 等' : ''}
+                        {e.year ? ` · ${e.year}` : ''}
+                        {e.journal ? ` · ${e.journal}` : ''}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs text-ink-400 flex items-center gap-1.5">
+                      {loading && <Loader2 className="w-3 h-3 animate-spin" />}
+                      {isFailed ? '元数据未取到（DOI 可能无效）' : '读取中…'}
+                    </div>
                   )}
-                  <button
-                    onClick={() => onJump(doi)}
-                    className="ml-auto p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                    title="跳到正文里引用它的位置"
-                  >
-                    <Crosshair className="w-3.5 h-3.5" />
-                  </button>
+
+                  <div className="mt-1 font-mono text-[0.625rem] text-ink-400 truncate" title={doi}>
+                    {doi}
+                  </div>
                 </div>
 
-                {e ? (
-                  <>
-                    <div className="text-xs text-ink-800 leading-snug">{e.title}</div>
-                    <div className="mt-1 text-[0.6875rem] text-ink-500">
-                      {e.authors.slice(0, 3).join('、')}
-                      {e.authors.length > 3 ? ' 等' : ''}
-                      {e.year ? ` · ${e.year}` : ''}
-                      {e.journal ? ` · ${e.journal}` : ''}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs text-ink-400 flex items-center gap-1.5">
-                    {loading && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {isFailed ? '元数据未取到（DOI 可能无效）' : '读取中…'}
-                  </div>
-                )}
-
-                <div className="mt-1 font-mono text-[0.625rem] text-ink-400 break-all">{doi}</div>
+                {/*
+                 * 右侧：这一列「小点点」= 引在正文的哪几处。
+                 * 放在卡片的空白处、从上到下排，不占正文宽度。
+                 */}
+                <div
+                  className="flex flex-col items-center gap-1 pt-2 pb-1 pr-0.5"
+                  title={times > 1 ? `正文里引了 ${times} 处` : '正文里引了 1 处'}
+                >
+                  {Array.from({ length: times }, (_, k) => {
+                    const on = active === `${doi}#${k}`
+                    return (
+                      <button
+                        key={k}
+                        onClick={() => handleDot(doi, k)}
+                        className={`w-2 h-2 rounded-full transition ${
+                          on ? 'bg-seal-600 scale-125' : 'bg-ink-300 hover:bg-seal-400'
+                        }`}
+                        title={on ? '再点一次取消高亮' : `跳到正文第 ${k + 1} 处引用`}
+                      />
+                    )
+                  })}
+                </div>
               </div>
             )
           })

@@ -241,6 +241,25 @@ export function replaceFormulaOccurrences(
 }
 
 /**
+ * 删掉正文里这几个公式（连同定界符一起删）。
+ *
+ * 从后往前删：前面的下标不会因为长度变化而失效。
+ * 只删公式本身，周围的空格/换行原样留着 —— 用户自己排的版不该被动。
+ */
+export function deleteFormulas(md: string, indexes: number[]): string {
+  if (indexes.length === 0) return md
+  const tokens = parseFormulas(md)
+  const wanted = new Set(indexes)
+  const targets = tokens.filter((_, i) => wanted.has(i))
+  let out = md
+  for (let i = targets.length - 1; i >= 0; i--) {
+    const t = targets[i]
+    out = out.slice(0, t.start) + out.slice(t.end)
+  }
+  return out
+}
+
+/**
  * 扫出全部图片（文档顺序 = 渲染后 <img> 顺序）。
  *
  * 走 marked 的 image token：alt / src / title 的边界都由真正的 Markdown 解析器

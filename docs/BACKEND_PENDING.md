@@ -10,16 +10,17 @@
 
 ## 0. 当前状态（2026-09-21，⚠️ 见下方例外）
 
-**除 `ai_call.mjs` 外，前端嵌入副本与私库线上逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
+**除下表标注 ⚠️ 的两个文件外，前端嵌入副本与私库线上逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
 
-> ⚠️ **例外（2026-09-25）**：`ai_call.mjs` 前端副本已加 `input_path` 分支（60744 B），
-> 但私库线上还是 60112 B 的旧版。**在推私库之前不要点「重装后端」**。详见 §8。
+> ⚠️ **例外（2026-09-25）**：`ai_call.mjs`（60744 B）与 `paper_convert.mjs`（97513 B）
+> 这两个前端副本都已经改好，但**私库线上还是旧版**。**在推私库之前不要点「重装后端」**。
+> 详见 §8、§9。
 
 | 文件 | 字节 | 本轮变化 |
 |------|------|---------|
 | `scripts/ai_call.mjs` | 60744 | ⚠️ 加了 `input_path` 落盘读取（§8）；**私库待推** |
 | `scripts/dual_engine_runner.mjs` | 29183 | ✅ 之前前端**根本没有**这个文件；现已补进安装清单并修了超时/预算；【源材料】改为共享稳定前缀 |
-| `scripts/paper_convert.mjs` | 97061 | ✅ 之前前端本地版比线上新（续跑修复没推上去）；现已推上去并加了长难句提取 |
+| `scripts/paper_convert.mjs` | 97513 | ⚠️ 提词 prompt 加 `example_zh`、vocabulary CSV 加同名列（§9）；**私库待推** |
 | `scripts/blocks.mjs` | 14196 | 一致 |
 | `workflows/ai_call.yml` | 2572 | ✅ job timeout 15 → 25 分钟 |
 | `workflows/paper_convert.yml` | 2450 | 一致 |
@@ -342,3 +343,34 @@ markdown 再带标注拼一遍）——一篇长稿轻松超过 64KB。
 > ⚠️ 顺序不能反：**先推私库、再确认副本**。若在副本比线上新时点「重装后端」，
 > `writePipelineFiles` 是无条件覆盖，会把线上打回没有 `input_path` 的旧版 ——
 > 届时长文生成又会 422。
+
+---
+
+## 9. 单词卡片的四个字段（vocabulary CSV 加列）—— ⚠️ 私库待推
+
+### 9.1 问题
+
+单词卡片上原来只有「英文例句 + 英文解释」，中文那一半是缺的（英文解释前端根本不生成，
+中文例句只存在内存里、一刷新就没了）。一开始学的人看不懂英文例句，等于白给。
+
+### 9.2 修法
+
+卡片固定给**四件成对**的东西：英文解释 / 中文解释 / 英文例句 / 中文例句。
+
+- **CSV 加列 `example_zh`**（例句的中文译文），**追加在末尾**（列契约：新列一律追加末尾，
+  旧行缺列给安全默认）。四处必须同步，缺一处就会错列：
+  1. `src/services/learningData.ts` `VOCAB_HEADERS` + `loadWords`（r[15]）/ `saveWords`
+  2. `src/constants/skeleton.ts` `CSV_HEADERS.vocabulary`（新库初始化表头）
+  3. 私库 `paper_convert.mjs` 的 `VOCAB_HEADERS` / `newRows` / `csvRows`
+- **后端提词 prompt** `WORDS_EXTRACT_PROMPT` 的输出 schema 加 `example_zh`（让 AI 顺手翻译例句）。
+- **前端生成** `buildLearningInstruction` 的 words 部分改为要求
+  `meaning`(短释义) / `definitionCn`(中文解释) / `definitionEn`(英文解释) / `exampleZh`(例句译文)，
+  `handleAIGenerate` 不再把 `meaning` 直接复制成 `definitionCn`、也不再写死 `definitionEn: ''`。
+
+> 语义澄清：`word_cn`(meaning) 是**答题用的短释义**，`definition_cn` 是**一句话的解释** ——
+> 两者是两件事，不能再互相复制。旧数据里两者相同是正常的，新生成的会分开。
+
+### 9.3 后续动作
+
+和 §8 一样：**先把改好的 `paper_convert.mjs` push 到私库 `main`**，再核对前端嵌入副本
+（§3.3 脚本），**顺序不能反**。

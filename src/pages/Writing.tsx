@@ -114,7 +114,7 @@ import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '.
 import FormulaSidebar, { type FormulaEditTarget } from '../components/FormulaSidebar'
 import ProofreadPanel from '../components/ProofreadPanel'
 import CitationPanel from '../components/CitationPanel'
-import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, setImageSize } from '../services/formula'
+import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, deleteFormulas, setImageSize } from '../services/formula'
 
 /**
  * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边。
@@ -1436,13 +1436,22 @@ export default function WritingPage() {
     else setTimeout(() => ref.current?.scrollToBlock(kind, index, match), 140)
   }
 
-  /** 从引用表跳到正文里引用它的位置（同样跨栏：编辑区不在这一侧就滚到另一侧） */
-  const jumpToCitation = (doi: string, from: 'left' | 'right') => {
+  /**
+   * 从引用表跳到正文里引用它的位置（同样跨栏：编辑区不在这一侧就滚到另一侧）。
+   * occurrence = 这篇文献在正文里第几次出现 —— 引用表右侧每个小点点对应一处。
+   */
+  const jumpToCitation = (doi: string, from: 'left' | 'right', occurrence = 0) => {
     const marker = citationMarker(doi)
     const { ref, mounted } = pickEditor(from)
-    const run = () => ref.current?.scrollToText(marker)
+    const run = () => ref.current?.scrollToText(marker, occurrence)
     if (mounted) run()
     else setTimeout(run, 140)
+  }
+
+  /** 收掉正文里当前的高亮（引用表的点点再点一次的语义） */
+  const clearCitationHighlight = () => {
+    leftEditorRef.current?.clearHighlight()
+    rightEditorRef.current?.clearHighlight()
   }
 
   const exportMarkdown = () => {
@@ -3398,16 +3407,12 @@ export default function WritingPage() {
 
           {p.mode === 'editor' && (
             <>
+              {/*
+                这里原来还有一个「书本图标 + 引用」按钮，和上面的工具栏重复了 ——
+                插入引用的入口只留工具栏中间那一个（正文里的引用标记本身也已经
+                渲染成普通编号，见 VditorEditor 的 af-cite）。
+              */}
               <div className="flex items-center gap-2 px-3 py-1.5 bg-paper-50 border-b border-ink-200 flex-shrink-0">
-                <button
-                  onClick={() => setShowCitationModal(true)}
-                  className="flex-shrink-0 whitespace-nowrap p-1.5 text-seal-600 hover:bg-seal-50 rounded transition flex items-center gap-1"
-                  title="插入引用 (Ctrl+Shift+K)"
-                >
-                  <BookMarked className="w-4 h-4" />
-                  <span className="text-xs font-medium">引用</span>
-                </button>
-
                 <div className="flex-1 min-w-0" />
 
                 <div className="flex-shrink-0 whitespace-nowrap flex items-center gap-1.5 text-xs">
@@ -3474,6 +3479,10 @@ export default function WritingPage() {
                       setSaveStatus('unsaved')
                     }}
                     onJump={(index, tex) => jumpToBlock('formula', index, tex, p.side)}
+                    onDelete={(indexes) => {
+                      handleEditorChange(deleteFormulas(mdContent, indexes))
+                      setSaveStatus('unsaved')
+                    }}
                     editTarget={formulaEditTarget}
                     onConsumeEditTarget={() => setFormulaEditTarget(null)}
                     onClose={() => setShowFormulaPanel(false)}
@@ -3506,7 +3515,8 @@ export default function WritingPage() {
               templates={templates}
               currentTemplateId={selectedTemplateId}
               onSelectTemplate={setSelectedTemplateId}
-              onJump={(doi) => jumpToCitation(doi, p.side)}
+              onJump={(doi, occurrence) => jumpToCitation(doi, p.side, occurrence)}
+              onClearHighlight={clearCitationHighlight}
             />
           )}
 

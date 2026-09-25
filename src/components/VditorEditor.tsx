@@ -28,6 +28,7 @@ import {
 import { useSettingsStore } from '../stores/settings'
 import { CODE_LANGS } from '../constants/codeLangs'
 import { editTable, type TableOp } from '../services/formula'
+import { extractCitationsFromMarkdown, normalizeDoi } from '../services/citation'
 
 export type VditorMode = 'ir' | 'wysiwyg' | 'sv'
 
@@ -63,8 +64,10 @@ export interface VditorEditorHandle {
    * 才退回按 index 顺数。详见 collectAnchors 上的说明：序号法在 IR 模式下不可靠。
    */
   scrollToBlock: (kind: 'image' | 'table' | 'formula', index: number, match?: string) => void
-  /** 滚动到第一处含该文本的位置并高亮（引用标记跳转用） */
-  scrollToText: (text: string) => void
+  /** 滚动到第 occurrence 处含该文本的位置并高亮（引用标记跳转用，从 0 开始数） */
+  scrollToText: (text: string, occurrence?: number) => void
+  /** 取消当前的高亮（点同一个点点的第二次） */
+  clearHighlight: () => void
   /** 聚焦编辑器 */
   focus: () => void
 }
@@ -168,17 +171,39 @@ function collectAnchors(
     })
 }
 
-/** 短暂描边高亮，帮用户在一屏里立刻看到「跳过来的这一条」是哪个 */
+/**
+ * 短暂描边高亮，帮用户在一屏里立刻看到「跳过来的这一条」是哪个。
+ *
+ * 同一时刻只允许一个高亮：再 flash 一次会先把上一个还原。
+ * （原来每个 flash 各自 setTimeout 还原各自的 prev，连着点两次时
+ *  第二次的 prev 已经是第一次设上的描边 —— 结果描边永远留在那里，
+ *  用户看到的就是「跳过去之后那块内容一直被框中」。）
+ */
+let flashedNode: HTMLElement | null = null
+let flashedRestore: { outline: string; offset: string } | null = null
+let flashTimer: number | null = null
+
+export function clearFlash() {
+  if (flashTimer !== null) {
+    window.clearTimeout(flashTimer)
+    flashTimer = null
+  }
+  if (flashedNode && flashedRestore) {
+    flashedNode.style.outline = flashedRestore.outline
+    flashedNode.style.outlineOffset = flashedRestore.offset
+  }
+  flashedNode = null
+  flashedRestore = null
+}
+
 function flashElement(node: HTMLElement) {
-  const prevOutline = node.style.outline
-  const prevOffset = node.style.outlineOffset
+  // 先把上一次的收干净，保证「再点一次 = 取消高亮」这个语义成立
+  clearFlash()
+  flashedNode = node
+  flashedRestore = { outline: node.style.outline, offset: node.style.outlineOffset }
   node.style.outline = '2px solid #6366f1'
   node.style.outlineOffset = '3px'
-  node.style.borderRadius = '2px'
-  window.setTimeout(() => {
-    node.style.outline = prevOutline
-    node.style.outlineOffset = prevOffset
-  }, 1500)
+  flashTimer = window.setTimeout(clearFlash, 4000)
 }
 
 interface VditorEditorProps {
@@ -592,21 +617,41 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
         node.scrollIntoView({ behavior: 'smooth', block: 'center' })
         flashElement(node)
       },
-      scrollToText: (text) => {
+      scrollToText: (text, occurrence = 0) => {
         const el = editorElement(vditorRef.current)
         if (!el || !text) return
-        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-        let node = walker.nextNode()
-        while (node) {
-          if ((node as Text).data.includes(text)) {
-            const target = (node.parentElement ?? el) as HTMLElement
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            flashElement(target)
-            return
+
+        // 同一篇文献在正文里可能被引很多次，每个「点」对应其中一处 ——
+        // 所以按文档顺序数：第 occurrence 个匹配才是我要跳的那个。
+        const jumpTo = (want: number): boolean => {
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+          let seen = 0
+          let node = walker.nextNode()
+          while (node) {
+            const data = (node as Text).data
+            let from = 0
+            for (;;) {
+              const at = data.indexOf(text, from)
+              if (at === -1) break
+              if (seen === want) {
+                const target = (node.parentElement ?? el) as HTMLElement
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                flashElement(target)
+                return true
+              }
+              seen++
+              from = at + text.length
+            }
+            node = walker.nextNode()
           }
-          node = walker.nextNode()
+          return false
         }
+
+        // 数不到想要的那一处（正文刚改过、渲染还没跟上）就退回第一处，
+        // 总比点了完全没反应好。
+        if (!jumpTo(occurrence) && occurrence !== 0) jumpTo(0)
       },
+      clearHighlight: clearFlash,
       focus: () => vditorRef.current?.focus(),
     }),
     [],
@@ -832,6 +877,124 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       if (timer) clearTimeout(timer)
     }
   }, [docPath])
+
+  /**
+   * 正文里的引用标记 `[@doi:…]` 渲染成**普通编号** `[12]`。
+   *
+   * 为什么这么做：源码里必须留 `[@doi:…]`（LaTeX 转换靠它认 DOI，见 Writing.tsx 的
+   * citationMarker），但让人读一屏 `[@doi:10.1021/jacs.3c07992]` 是没法看的 ——
+   * 用户要的是「像个编号一样」。
+   *
+   * 关键约束：**不能改 DOM 里的文字**。IR 模式下 Vditor 是把 DOM 反序列化回 markdown 的，
+   * 往里塞可见文字会直接把稿子里的标记改掉。所以：
+   *   - 原文用 <span class="af-cite-src"> 包住，CSS 里 font-size:0 藏起来（仍在 DOM 里，md 不变）；
+   *   - 编号用 **CSS ::after 的 content: attr(data-num)** 显示 —— 伪元素不在 DOM 里，
+   *     永远不会被序列化进 markdown。
+   * 编号按首次出现顺序，与「引用表」侧栏的 #N 完全一致。
+   */
+  useEffect(() => {
+    const markerRe = /\[@(?:doi:)?([^\]]+)\]/gi
+
+    const decorate = () => {
+      const el = editorElement(vditorRef.current)
+      if (!el) return
+
+      const md = lastValueRef.current
+      const dois = extractCitationsFromMarkdown(md)
+      if (dois.length === 0) return
+      const numOf = new Map(dois.map((d, i) => [d, i + 1]))
+
+      // 统计源码里**我们能包**的标记数（认不出 DOI 的不算 —— 否则
+      // 「包不上 → 数量对不上 → 再包一次」会一直触发 MutationObserver）
+      let expected = 0
+      {
+        const re = new RegExp(markerRe.source, 'gi')
+        let m: RegExpExecArray | null
+        while ((m = re.exec(md)) !== null) {
+          const doi = normalizeDoi(m[1]).doi
+          if (doi && numOf.has(doi)) expected++
+        }
+      }
+      if (expected === 0) return
+
+      /**
+       * 幂等检查：DOM 里已经包好的数量与源码里的标记数一致就什么都不做。
+       * 否则「包裹 → 触发 MutationObserver → 又包裹」会无限循环。
+       */
+      const wrapped = el.querySelectorAll('.af-cite').length
+      if (wrapped === expected) return
+
+      // 先拆掉上一轮的包裹（Vditor 局部重渲染后可能只留下几个）
+      el.querySelectorAll<HTMLElement>('.af-cite').forEach((w) => {
+        const parent = w.parentNode
+        if (!parent) return
+        parent.replaceChild(document.createTextNode(w.textContent || ''), w)
+        parent.normalize()
+      })
+
+      // 收集每个文本节点里的标记（公式/代码里的不算）
+      const perNode = new Map<Text, { index: number; text: string; doi: string }[]>()
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      let node = walker.nextNode()
+      while (node) {
+        const t = node as Text
+        const host = t.parentElement
+        if (host && !host.closest('.af-cite, code, pre, .katex, .vditor-ir__marker')) {
+          const re = new RegExp(markerRe.source, 'gi')
+          let m: RegExpExecArray | null
+          const hits: { index: number; text: string; doi: string }[] = []
+          while ((m = re.exec(t.data)) !== null) {
+            const doi = normalizeDoi(m[1]).doi
+            if (doi) hits.push({ index: m.index, text: m[0], doi })
+          }
+          if (hits.length) perNode.set(t, hits)
+        }
+        node = walker.nextNode()
+      }
+
+      // 从后往前切：前面的下标不会因为节点被拆开而失效
+      for (const [textNode, hits] of perNode) {
+        let data = textNode.data
+        for (let i = hits.length - 1; i >= 0; i--) {
+          const hit = hits[i]
+          const n = numOf.get(hit.doi)
+          if (!n) continue
+          const parent = textNode.parentNode
+          if (!parent) break
+
+          const wrap = document.createElement('span')
+          wrap.className = 'af-cite'
+          wrap.setAttribute('data-num', `[${n}]`)
+          wrap.setAttribute('title', hit.text)
+          const src = document.createElement('span')
+          src.className = 'af-cite-src'
+          src.textContent = hit.text
+          wrap.appendChild(src)
+
+          const tail = document.createTextNode(data.slice(hit.index + hit.text.length))
+          parent.insertBefore(tail, textNode.nextSibling)
+          parent.insertBefore(wrap, tail)
+          data = data.slice(0, hit.index)
+        }
+        textNode.data = data
+      }
+    }
+
+    const root = containerRef.current
+    if (!root) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(decorate, 90)
+    }
+    const mo = new MutationObserver(schedule)
+    mo.observe(root, { childList: true, subtree: true, characterData: true })
+    schedule()
+    return () => {
+      mo.disconnect()
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
 
   /**
    * 老数据兜底：正文里还留着 base64 内嵌图的，静默搬到仓库换成语义路径。

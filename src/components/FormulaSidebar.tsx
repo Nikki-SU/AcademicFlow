@@ -1,17 +1,16 @@
 /**
  * 公式侧栏（编辑器内部临时侧栏）
  * ------------------------------------------------------------
- * 打开方式：正文工具栏点「插入公式」。
- * 两个 tab：
- *   生成公式 —— 识图 → 字符/结构 → 行内/行间 → 渲染看板 → 源码 → 确认。
- *               只管写新公式，内容短到不需要滚动（小侧栏最忌上下翻）。
- *   已有公式 —— 搜索 + 滑动点选，**点一下就直接复用**（插到光标处），
- *               收藏（跨项目）置顶。
+ * 打开方式：正文工具栏点「插入公式」。两个 tab：
+ *   生成公式 —— 识图 / 直接写 → 渲染看板（所见即所得，可直接编辑）→ 插入或替换。
+ *   已有公式 —— 搜索 + 点选，插到光标处 / 跳到正文 / 改这一处 / 改全部 / 收藏 / 删除（可批量）。
  *
- * 复用规则（按需求）：
- *   - 「本项目」= 当前正文里已经写过的公式（实时扫描 md，不额外存）
- *   - 「我的收藏」= 跨项目可用的公式，存私库 formulas/favorites.csv
- *     （点星标收藏；收藏是显式动作，不会自动把正文公式塞进收藏）
+ * 这一版把「只能写 LaTeX」改成「所见即所得」：
+ *   - 渲染看板本身就是编辑区：点进分数格、根号里，直接打字（见 services/formula-visual.ts）；
+ *   - 字符与结构做成**底部固定工具条**，永远看得见 —— 不用再滚到下面去找结构；
+ *   - LaTeX 源码收进「高级」，不熟 LaTeX 的人可以完全不看它。
+ *
+ * 动作都是显式的：插入 / 替换这一处 / 替换全部 三个按钮并列，不存在「点一下就复制」。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import katex from 'katex'
@@ -20,11 +19,14 @@ import {
   Star,
   StarOff,
   Loader2,
-  CornerDownLeft,
   Crosshair,
   Pencil,
+  ClipboardPaste,
+  Trash2,
   X,
   Search,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -34,6 +36,13 @@ import {
   removeFormulaFavorite,
   type FormulaFavorite,
 } from '../services/formula'
+import {
+  FORMULA_STRUCTURES,
+  insertStructureAtCaret,
+  insertTextAtCaret,
+  readLatex,
+  renderInto,
+} from '../services/formula-visual'
 import {
   recognizeFormulaImage,
   loadSimpleTexCredentials,
@@ -53,9 +62,9 @@ interface FormulaSidebarProps {
   /** 插入到光标处 */
   onInsert: (tex: string, kind: 'inline' | 'block') => void
   /**
-   * 用新源码替换正文里第 index 个公式。
-   * global=true 时把「源码等于 matchTex 的其它处」一并替换（校对里的全局变换）；
-   * 那是「复用公式」的默认行为，用户可以在侧栏里就地关掉只改一处。
+   * 用新源码替换正文里的公式。
+   * global=true → 把「源码等于 matchTex 的其它处」一并替换；false → 只改第 index 个。
+   * 由界面上那两个明确的按钮决定，不再是隐式默认。
    */
   onReplaceAt: (
     index: number,
@@ -64,6 +73,8 @@ interface FormulaSidebarProps {
     global: boolean,
     matchTex: string,
   ) => void
+  /** 删除正文里这几个公式（下标来自 parseFormulas） */
+  onDelete: (indexes: number[]) => void
   /** 跳转到正文里第 index 个公式（tex 一并带上，编辑器按源码内容定位，不靠序号） */
   onJump: (index: number, tex: string) => void
   onClose: () => void
@@ -73,7 +84,7 @@ interface FormulaSidebarProps {
   onConsumeEditTarget?: () => void
 }
 
-/** 键盘上没有、但写公式常要用的字符（点一下追加到源码末尾） */
+/** 键盘上没有、但写公式常要用的字符（点一下插到光标处） */
 const RARE_CHAR_GROUPS: { label: string; chars: string[] }[] = [
   {
     label: '希腊',
@@ -97,19 +108,6 @@ const RARE_CHAR_GROUPS: { label: string; chars: string[] }[] = [
   },
 ]
 
-/** 常用 LaTeX 结构（点一下包住当前内容 / 追加） */
-const LATEX_SNIPPETS: { label: string; tex: string }[] = [
-  { label: '分数', tex: '\\frac{a}{b}' },
-  { label: '上下标', tex: 'x^{a}_{b}' },
-  { label: '根号', tex: '\\sqrt{x}' },
-  { label: '求和', tex: '\\sum_{i=1}^{n}' },
-  { label: '积分', tex: '\\int_{a}^{b}' },
-  { label: '极限', tex: '\\lim_{x \\to 0}' },
-  { label: '矩阵', tex: '\\begin{matrix} a & b \\\\ c & d \\end{matrix}' },
-  { label: '正体', tex: '\\mathrm{d}' },
-  { label: '斜体希腊', tex: '\\alpha' },
-]
-
 function renderKatex(tex: string, display: boolean): string {
   try {
     return katex.renderToString(tex || '\\;', {
@@ -122,10 +120,57 @@ function renderKatex(tex: string, display: boolean): string {
   }
 }
 
+/** 渲染看板：内容由 formula-visual 的视觉树生成，这里只负责把 LaTeX 灌进去 */
+function VisualBoard({
+  tex,
+  display,
+  boardRef,
+  onTex,
+}: {
+  tex: string
+  display: boolean
+  boardRef: React.RefObject<HTMLDivElement>
+  /** 看板里改了内容 → 把新的 LaTeX 交出去 */
+  onTex: (tex: string) => void
+}) {
+  // 外部 tex 变化（识图结果 / 从校对清单进来 / 源码框改完）→ 重画看板。
+  // 看板自己的输入不会回流到这里（那边记下新值就不再重画），所以光标不会被重置。
+  const lastPushed = useRef<string | null>(null)
+  useEffect(() => {
+    const el = boardRef.current
+    if (!el) return
+    if (lastPushed.current === tex) return
+    lastPushed.current = tex
+    renderInto(el, tex)
+  }, [tex, boardRef])
+
+  return (
+    <div
+      ref={boardRef}
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck={false}
+      onInput={() => {
+        const el = boardRef.current
+        if (!el) return
+        const next = readLatex(el)
+        lastPushed.current = next
+        onTex(next)
+      }}
+      // 回车在公式里没有意义，只会插进 <br> 把结构撑坏
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.preventDefault()
+      }}
+      className={`af-formula-board ${display ? 'af-formula-board--display' : ''}`}
+    />
+  )
+}
+
 export default function FormulaSidebar({
   md,
   onInsert,
   onReplaceAt,
+  onDelete,
   onJump,
   onClose,
   editTarget,
@@ -134,24 +179,29 @@ export default function FormulaSidebar({
   const [tab, setTab] = useState<'create' | 'find'>('create')
   const [tex, setTex] = useState('')
   const [kind, setKind] = useState<'inline' | 'block'>('inline')
-  /** 非 null 时，确认按钮 = 替换正文里第 N 个公式（而不是插入新公式） */
+  /** 非 null 时表示「在改正文里第 N 个公式」 */
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  /** 进入编辑时，被改公式的**原始源码** —— 用来数全文有多少处相同（全局变换的默认范围） */
+  /** 进入编辑时，被改公式的**原始源码** —— 用来数全文有多少处相同（替换全部的范围） */
   const [editOriginalTex, setEditOriginalTex] = useState('')
-  /**
-   * 全局变换。默认 true：复用公式在正文里出现 N 处时，改一次全改。
-   * 用户可以在侧栏里就地关掉 → 只改当前这一处。
-   */
-  const [globalReplace, setGlobalReplace] = useState(true)
+  /** 本次编辑是否针对「全文相同公式」——只影响横幅上的提示文案 */
+  const [replaceAll, setReplaceAll] = useState(false)
   const [favorites, setFavorites] = useState<FormulaFavorite[]>([])
   const [ocrLoading, setOcrLoading] = useState(false)
   const [ocrModel, setOcrModel] = useState<SimpleTexModel>('standard')
   const [findQuery, setFindQuery] = useState('')
+  const [showSource, setShowSource] = useState(false)
+  /** 底部工具条当前分类：默认「结构」—— 找结构是最费scroll的事，让它一进来就在眼前 */
+  const [charGroup, setCharGroup] = useState<string>('结构')
+  /** 已有公式 tab 里的批量勾选（值是 parseFormulas 的下标） */
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+
+  const boardRef = useRef<HTMLDivElement>(null)
+  const sourceRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const projectFormulas = useMemo(() => parseFormulas(md), [md])
 
-  /** 被改公式在全文里出现了几处（复用它才谈得上"全局变换"） */
+  /** 被改公式在全文里出现了几处（复用它才谈得上「替换全部」） */
   const duplicateCount = useMemo(() => {
     if (!editOriginalTex.trim()) return 0
     return projectFormulas.filter((f) => f.tex.trim() === editOriginalTex.trim()).length
@@ -174,7 +224,8 @@ export default function FormulaSidebar({
     setKind(editTarget.kind)
     setEditingIndex(editTarget.index)
     setEditOriginalTex(editTarget.tex)
-    setGlobalReplace(true)
+    // 从校对清单进来：默认「只改这一处」，要全改就按下面那个「替换全部」
+    setReplaceAll(false)
     onConsumeEditTarget?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editTarget])
@@ -188,7 +239,7 @@ export default function FormulaSidebar({
       const cred = await loadSimpleTexCredentials()
       const result = await recognizeFormulaImage(file, cred, ocrModel)
       setTex(result.latex.trim())
-      toast.success('识别完成，请在「渲染看板」核对后再确认')
+      toast.success('识别完成，请核对看板里的公式')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -213,33 +264,97 @@ export default function FormulaSidebar({
     }
   }
 
-  const handleConfirm = () => {
+  /** 开始改已有公式：one = 只改这一处，all = 全文相同公式一起改 */
+  const beginEdit = (index: number, originTex: string, oneOrAll: 'one' | 'all', fKind: 'inline' | 'block') => {
+    setTab('create')
+    setTex(originTex)
+    setKind(fKind)
+    setEditingIndex(index)
+    setEditOriginalTex(originTex)
+    setReplaceAll(oneOrAll === 'all')
+  }
+
+  const resetToCreate = () => {
+    setEditingIndex(null)
+    setEditOriginalTex('')
+    setTex('')
+    setReplaceAll(false)
+  }
+
+  const handleInsert = () => {
     if (!tex.trim()) {
       toast.error('公式还没内容')
       return
     }
-    if (editingIndex !== null) {
-      const doGlobal = globalReplace && duplicateCount > 1
-      onReplaceAt(editingIndex, tex, kind, doGlobal, editOriginalTex)
-      toast.success(
-        doGlobal
-          ? `已把全文 ${duplicateCount} 处相同公式一起改掉`
-          : `已更新正文里第 ${editingIndex + 1} 个公式`,
-      )
-      setEditingIndex(null)
-      setEditOriginalTex('')
-    } else {
-      onInsert(tex, kind)
-    }
+    onInsert(tex, kind)
   }
 
-  const append = (snippet: string) => {
-    setTex((prev) => (prev ? `${prev}${snippet}` : snippet))
+  const handleReplace = (global: boolean) => {
+    if (editingIndex === null) return
+    if (!tex.trim()) {
+      toast.error('公式还没内容')
+      return
+    }
+    onReplaceAt(editingIndex, tex, kind, global, editOriginalTex)
+    toast.success(
+      global
+        ? `已把全文 ${Math.max(duplicateCount, 1)} 处相同公式一起改掉`
+        : `已更新正文里第 ${editingIndex + 1} 个公式`,
+    )
+    resetToCreate()
+  }
+
+  /** 点工具条：源码框有焦点就往源码里插，否则插到看板的光标处 */
+  const insertSymbol = (glyph: string) => {
+    if (document.activeElement === sourceRef.current && sourceRef.current) {
+      const ta = sourceRef.current
+      const at = ta.selectionStart ?? tex.length
+      setTex(tex.slice(0, at) + glyph + tex.slice(at))
+      requestAnimationFrame(() => {
+        ta.focus()
+        ta.setSelectionRange(at + glyph.length, at + glyph.length)
+      })
+      return
+    }
+    const board = boardRef.current
+    if (!board) return
+    // 不先 focus：焦点一动光标会回到开头，要按「当前选区」插（见 formula-visual 的说明）
+    insertTextAtCaret(board, glyph)
+    setTex(readLatex(board))
+  }
+
+  const insertStructure = (s: (typeof FORMULA_STRUCTURES)[number]) => {
+    const board = boardRef.current
+    if (!board) return
+    insertStructureAtCaret(board, s.make, s.caret)
+    setTex(readLatex(board))
   }
 
   const filteredFind = projectFormulas
     .map((f, index) => ({ ...f, index }))
     .filter((f) => !findQuery.trim() || f.tex.toLowerCase().includes(findQuery.trim().toLowerCase()))
+
+  const togglePicked = (index: number) => {
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }
+
+  const deletePicked = () => {
+    const list = [...picked]
+    if (list.length === 0) return
+    onDelete(list)
+    setPicked(new Set())
+    toast.success(`已删除 ${list.length} 个公式`)
+  }
+
+  const charGroupButtons = useMemo(() => {
+    if (charGroup === '结构') return null
+    return RARE_CHAR_GROUPS.find((g) => g.label === charGroup)?.chars ?? []
+  }, [charGroup])
 
   return (
     <div className="w-80 flex-shrink-0 border-l border-ink-200 bg-paper-100/70 flex flex-col overflow-hidden">
@@ -273,169 +388,159 @@ export default function FormulaSidebar({
       </div>
 
       {tab === 'create' ? (
-        <div className="flex-1 overflow-y-auto p-3 space-y-3">
-          {editingIndex !== null && (
-            <div className="px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[0.6875rem] text-amber-700 space-y-1.5">
-              <div className="flex items-center gap-1.5">
+        <>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {editingIndex !== null && (
+              <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[0.6875rem] text-amber-700">
                 <Pencil className="w-3.5 h-3.5 flex-shrink-0" />
-                正在改正文第 {editingIndex + 1} 个公式
-                <button
-                  onClick={() => {
-                    setEditingIndex(null)
-                    setEditOriginalTex('')
-                    setTex('')
-                  }}
-                  className="ml-auto text-amber-600 hover:underline"
-                >
+                <span className="min-w-0">
+                  正在改正文第 {editingIndex + 1} 个公式
+                  {replaceAll && duplicateCount > 1 ? `（全文共 ${duplicateCount} 处相同）` : ''}
+                </span>
+                <button onClick={resetToCreate} className="ml-auto text-amber-600 hover:underline flex-shrink-0">
                   改为新建
                 </button>
               </div>
-              {duplicateCount > 1 ? (
-                <label className="flex items-center gap-1.5 cursor-pointer text-amber-800">
-                  <input
-                    type="checkbox"
-                    checked={globalReplace}
-                    onChange={(e) => setGlobalReplace(e.target.checked)}
-                    className="accent-seal-600"
-                  />
-                  全局变换：全文 {duplicateCount} 处相同公式一起改（取消勾选 = 只改这一处）
-                </label>
-              ) : (
-                <div className="text-amber-600/80">全文只有这一处，只替换它。</div>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* 1. 识图输入 */}
-          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-ink-600 flex items-center gap-1">
-                <Camera className="w-3.5 h-3.5 text-seal-500" />
-                识图输入公式
-              </span>
+            {/* 识图：一个按钮，模型选择跟在旁边 */}
+            <div className="flex items-center gap-1.5">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) handleOcr(f)
+                  e.target.value = ''
+                }}
+              />
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={ocrLoading}
+                className="flex-1 min-w-0 px-2 py-2 text-xs border border-dashed border-ink-300 rounded-lg text-ink-500 hover:border-seal-300 hover:text-seal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+                title="上传图片或截图，自动识别成公式"
+              >
+                {ocrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                {ocrLoading ? '识别中…' : '识图'}
+              </button>
               <select
                 value={ocrModel}
                 onChange={(e) => setOcrModel(e.target.value as SimpleTexModel)}
-                className="text-[0.6875rem] border border-ink-200 rounded px-1 py-0.5 bg-paper-50 text-ink-500"
+                className="text-[0.6875rem] border border-ink-200 rounded px-1 py-1.5 bg-paper-50 text-ink-500"
+                title="识别精度 / 速度"
               >
-                <option value="standard">标准（准）</option>
-                <option value="turbo">轻量（快）</option>
+                <option value="standard">标准</option>
+                <option value="turbo">轻量</option>
               </select>
             </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) handleOcr(f)
-                e.target.value = ''
-              }}
-            />
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={ocrLoading}
-              className="w-full px-2 py-2 text-xs border border-dashed border-ink-300 rounded-lg text-ink-500 hover:border-seal-300 hover:text-seal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
-            >
-              {ocrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-              {ocrLoading ? '识别中…（走后端，稍等十几秒）' : '上传/截图插入（SimpleTex）'}
-            </button>
-            <p className="mt-1.5 text-[0.625rem] text-ink-400 leading-snug">
-              需先在「设置 → 公式识图」填 SimpleTex 令牌；图片经私库转 GitHub Actions 调用 SimpleTex
-              （浏览器直连被对方 CORS 拦），识别结果务必在下面渲染看板里核对一遍。
-            </p>
-          </section>
 
-          {/* 2. 稀有字符 */}
-          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
-            <div className="text-xs font-medium text-ink-600 mb-2">字符 / 结构（键盘上没有的）</div>
-            <div className="space-y-1.5 max-h-44 overflow-y-auto">
-              {RARE_CHAR_GROUPS.map((g) => (
-                <div key={g.label}>
-                  <div className="text-[0.625rem] text-ink-400 mb-0.5">{g.label}</div>
-                  <div className="flex flex-wrap gap-0.5">
-                    {g.chars.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => append(c)}
-                        className="w-6 h-6 text-sm rounded hover:bg-seal-50 hover:text-seal-700 text-ink-600 transition"
-                        title={c}
-                      >
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <div>
-                <div className="text-[0.625rem] text-ink-400 mb-0.5 mt-1">结构</div>
-                <div className="flex flex-wrap gap-1">
-                  {LATEX_SNIPPETS.map((s) => (
+            {/* 看板 = 编辑区 */}
+            <section>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs font-medium text-ink-600">公式</span>
+                <div className="ml-auto flex rounded-lg border border-ink-200 overflow-hidden">
+                  {(['inline', 'block'] as const).map((k) => (
                     <button
-                      key={s.label}
-                      onClick={() => append(s.tex)}
-                      className="px-1.5 py-0.5 text-[0.6875rem] rounded border border-ink-200 hover:bg-seal-50 hover:text-seal-700 text-ink-600 transition"
+                      key={k}
+                      onClick={() => setKind(k)}
+                      className={`px-2.5 py-0.5 text-[0.6875rem] transition ${
+                        kind === k ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-600 hover:bg-paper-100'
+                      }`}
                     >
-                      {s.label}
+                      {k === 'inline' ? '行内' : '行间'}
                     </button>
                   ))}
                 </div>
               </div>
-            </div>
-          </section>
+              <div
+                className="af-formula-boardwrap rounded-lg border border-ink-200 bg-paper-50 focus-within:border-seal-400 px-2 py-3 cursor-text"
+                onMouseDown={(e) => {
+                  // 点空白处把光标送进看板，省得用户去点「很小的一条」
+                  if (e.target === e.currentTarget) {
+                    const b = boardRef.current
+                    if (b) {
+                      b.focus()
+                      const sel = window.getSelection()
+                      if (sel) {
+                        const r = document.createRange()
+                        r.selectNodeContents(b)
+                        r.collapse(false)
+                        sel.removeAllRanges()
+                        sel.addRange(r)
+                      }
+                    }
+                  }
+                }}
+              >
+                <VisualBoard
+                  tex={tex}
+                  display={kind === 'block'}
+                  boardRef={boardRef}
+                  onTex={setTex}
+                />
+              </div>
+            </section>
 
-          {/* 4. 行内 / 行间 */}
-          <section className="flex items-center gap-2 bg-paper-50 rounded-lg border border-ink-200 p-2">
-            <span className="text-xs text-ink-600">位置</span>
-            <div className="flex rounded-lg border border-ink-200 overflow-hidden">
-              {(['inline', 'block'] as const).map((k) => (
+            {/* 显式动作：插入 / 替换这一处 / 替换全部 */}
+            <div className="space-y-1.5">
+              {editingIndex === null ? (
                 <button
-                  key={k}
-                  onClick={() => setKind(k)}
-                  className={`px-3 py-1 text-xs transition ${
-                    kind === k ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-600 hover:bg-paper-100'
-                  }`}
+                  onClick={handleInsert}
+                  className="w-full px-3 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1.5"
                 >
-                  {k === 'inline' ? '行内 $…$' : '行间 $$…$$'}
+                  <ClipboardPaste className="w-4 h-4" />
+                  插入到正文光标处
                 </button>
-              ))}
+              ) : (
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => handleReplace(false)}
+                    className="flex-1 px-2 py-2 bg-seal-600 text-paper-50 rounded-lg text-xs font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1"
+                    title="只替换正文里这一处"
+                  >
+                    <span className="relative inline-flex">
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span className="absolute -bottom-1 -right-1 text-[0.5rem] font-bold leading-none">1</span>
+                    </span>
+                    替换这一处
+                  </button>
+                  <button
+                    onClick={() => handleReplace(true)}
+                    disabled={duplicateCount <= 1}
+                    className="flex-1 px-2 py-2 bg-paper-50 border border-seal-300 text-seal-700 rounded-lg text-xs font-medium hover:bg-seal-50 transition flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={duplicateCount > 1 ? `全文 ${duplicateCount} 处相同公式一起改` : '全文只有这一处'}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    替换全部{duplicateCount > 1 ? `（${duplicateCount}）` : ''}
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowSource((v) => !v)}
+                className="w-full flex items-center gap-1 px-1 py-0.5 text-[0.6875rem] text-ink-400 hover:text-ink-600 transition"
+              >
+                {showSource ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                LaTeX 源码（会写 LaTeX 才需要）
+              </button>
+              {showSource && (
+                <textarea
+                  ref={sourceRef}
+                  value={tex}
+                  onChange={(e) => setTex(e.target.value)}
+                  rows={3}
+                  spellCheck={false}
+                  placeholder="\frac{\partial u}{\partial t} = \alpha \nabla^2 u"
+                  className="w-full px-2 py-1.5 text-xs font-mono border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 resize-y"
+                />
+              )}
             </div>
-          </section>
-
-          {/* 5. 渲染看板 */}
-          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
-            <div className="text-xs font-medium text-ink-600 mb-2">渲染看板</div>
-            <div
-              className="min-h-14 px-2 py-3 rounded bg-paper-100 overflow-x-auto text-center"
-              dangerouslySetInnerHTML={{ __html: renderKatex(tex, kind === 'block') }}
-            />
-          </section>
-
-          {/* 6. LaTeX 源码 */}
-          <section className="bg-paper-50 rounded-lg border border-ink-200 p-2.5">
-            <div className="text-xs font-medium text-ink-600 mb-1.5">LaTeX 源码</div>
-            <textarea
-              value={tex}
-              onChange={(e) => setTex(e.target.value)}
-              rows={4}
-              spellCheck={false}
-              placeholder="例如：\frac{\partial u}{\partial t} = \alpha \nabla^2 u"
-              className="w-full px-2 py-1.5 text-xs font-mono border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 resize-y"
-            />
-          </section>
-
-          {/* 7. 确认 */}
-          <button
-            onClick={handleConfirm}
-            className="w-full px-3 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1.5"
-          >
-            <CornerDownLeft className="w-4 h-4" />
-            {editingIndex !== null ? '确认替换这一处' : '确认插入到光标处'}
-          </button>
-        </div>
+          </div>
+        </>
       ) : (
-        /* ── 已有公式：搜索 + 滑动点选，点一下就复用 ── */
+        /* ── 已有公式：搜索 + 点选；动作都是显式按钮 ── */
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="p-2.5 border-b border-ink-200 bg-paper-50">
             <div className="relative">
@@ -447,10 +552,9 @@ export default function FormulaSidebar({
                 className="w-full pl-8 pr-2 py-1.5 text-xs border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400"
               />
             </div>
-            <div className="mt-1.5 text-[0.6875rem] text-ink-400">
-              点任意一条直接插入到光标处 · 全文 {projectFormulas.length} 个公式
-            </div>
+            <div className="mt-1.5 text-[0.6875rem] text-ink-400">全文 {projectFormulas.length} 个公式</div>
           </div>
+
           <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
             {favorites.length > 0 && (
               <>
@@ -464,7 +568,7 @@ export default function FormulaSidebar({
                     tex={f.latex}
                     kind={f.display}
                     badge="收藏"
-                    onReuse={() => onInsert(f.latex, f.display)}
+                    onInsert={() => onInsert(f.latex, f.display)}
                     starred
                     onToggleStar={() => handleFavoriteToggle(f.latex, f.display)}
                   />
@@ -485,93 +589,177 @@ export default function FormulaSidebar({
                   tex={f.tex}
                   kind={f.kind}
                   badge={`#${f.index + 1} · ${f.kind === 'block' ? '行间' : '行内'}`}
-                  onReuse={() => onInsert(f.tex, f.kind)}
+                  checked={picked.has(f.index)}
+                  onToggleCheck={() => togglePicked(f.index)}
+                  onInsert={() => onInsert(f.tex, f.kind)}
                   onJump={() => onJump(f.index, f.tex)}
-                  onEdit={() => {
-                    setTab('create')
-                    setTex(f.tex)
-                    setKind(f.kind)
-                    setEditingIndex(f.index)
-                    setEditOriginalTex(f.tex)
-                    setGlobalReplace(true)
-                  }}
+                  onEditOne={() => beginEdit(f.index, f.tex, 'one', f.kind)}
+                  onEditAll={() => beginEdit(f.index, f.tex, 'all', f.kind)}
+                  onDelete={() => onDelete([f.index])}
                   starred={isFavorited(f.tex)}
                   onToggleStar={() => handleFavoriteToggle(f.tex, f.kind)}
                 />
               ))
             )}
           </div>
+
+          {picked.size > 0 && (
+            <div className="px-2.5 py-2 border-t border-ink-200 bg-amber-50 flex items-center gap-2">
+              <span className="text-[0.6875rem] text-amber-700">已选 {picked.size} 个</span>
+              <button
+                onClick={() => setPicked(new Set())}
+                className="ml-auto px-2 py-1 text-[0.6875rem] text-ink-500 hover:text-ink-700"
+              >
+                取消
+              </button>
+              <button
+                onClick={deletePicked}
+                className="px-2 py-1 text-[0.6875rem] rounded bg-rose-600 text-paper-50 hover:bg-rose-700 flex items-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" />
+                删除选中
+              </button>
+            </div>
+          )}
         </div>
       )}
+
+      {/* ── 底部固定工具条：字符 / 结构永远在眼前，不用滚 ── */}
+      <div className="border-t border-ink-200 bg-paper-50 flex-shrink-0">
+        <div className="max-h-28 overflow-y-auto px-2 pt-2">
+          {charGroup === '结构' ? (
+            <div className="flex flex-wrap gap-1">
+              {FORMULA_STRUCTURES.map((s) => (
+                <button
+                  key={s.label}
+                  onClick={() => insertStructure(s)}
+                  className="px-1.5 py-1 text-[0.6875rem] rounded border border-ink-200 hover:bg-seal-50 hover:text-seal-700 hover:border-seal-300 text-ink-600 transition"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-0.5">
+              {(charGroupButtons ?? []).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => insertSymbol(c)}
+                  className="w-6 h-6 text-sm rounded hover:bg-seal-50 hover:text-seal-700 text-ink-600 transition"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 px-2 py-1.5 border-t border-ink-100">
+          {['结构', ...RARE_CHAR_GROUPS.map((g) => g.label)].map((label) => (
+            <button
+              key={label}
+              onClick={() => setCharGroup(label)}
+              className={`flex-1 min-w-0 px-1 py-1 text-[0.625rem] rounded transition truncate ${
+                charGroup === label
+                  ? 'bg-seal-100 text-seal-700 font-medium'
+                  : 'text-ink-500 hover:bg-ink-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
 
 /**
- * 已有公式里的一行：**点预览即复用**（插到光标处）。
- * 右侧是次要动作：跳转 / 改这一条 / 收藏。
+ * 已有公式里的一行。
+ *
+ * 注意：**点预览不再直接插入**（那太容易误触发）。要插入得按上面那个
+ * 「粘贴」按钮 —— 动作一律显式。
  */
 function FormulaRow({
   tex,
   kind,
   badge,
-  onReuse,
+  checked,
+  onToggleCheck,
+  onInsert,
   onJump,
-  onEdit,
+  onEditOne,
+  onEditAll,
+  onDelete,
   starred,
   onToggleStar,
 }: {
   tex: string
   kind: 'inline' | 'block'
   badge: string
-  onReuse: () => void
+  checked?: boolean
+  onToggleCheck?: () => void
+  onInsert: () => void
   onJump?: () => void
-  onEdit?: () => void
+  onEditOne?: () => void
+  onEditAll?: () => void
+  onDelete?: () => void
   starred: boolean
   onToggleStar: () => void
 }) {
+  const iconBtn = 'p-1 rounded transition hover:bg-seal-50 text-ink-400 hover:text-seal-600'
   return (
-    <div className="bg-paper-50 rounded-lg border border-ink-200 p-2">
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
+    <div className={`rounded-lg border p-2 transition ${checked ? 'border-seal-400 bg-seal-50/50' : 'border-ink-200 bg-paper-50'}`}>
+      <div className="flex items-center gap-1 mb-1">
+        {onToggleCheck && (
+          <input
+            type="checkbox"
+            checked={!!checked}
+            onChange={onToggleCheck}
+            className="rounded accent-seal-600 flex-shrink-0"
+            title="勾选后可批量删除"
+          />
+        )}
+        <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500 truncate">
           {badge}
         </span>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-0.5 flex-shrink-0">
+          <button onClick={onInsert} className={iconBtn} title="插入到正文光标处">
+            <ClipboardPaste className="w-3.5 h-3.5" />
+          </button>
           {onJump && (
-            <button
-              onClick={onJump}
-              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-              title="跳到正文这一处"
-            >
+            <button onClick={onJump} className={iconBtn} title="跳到正文这一处">
               <Crosshair className="w-3.5 h-3.5" />
             </button>
           )}
-          {onEdit && (
-            <button
-              onClick={onEdit}
-              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-              title="改这一条（只替换这一处）"
-            >
+          {onEditOne && (
+            <button onClick={onEditOne} className={iconBtn} title="只替换正文里这一处">
+              <span className="relative inline-flex">
+                <Pencil className="w-3.5 h-3.5" />
+                <span className="absolute -bottom-1 -right-1 text-[0.5rem] font-bold leading-none">1</span>
+              </span>
+            </button>
+          )}
+          {onEditAll && (
+            <button onClick={onEditAll} className={iconBtn} title="全文相同公式一起替换">
               <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onDelete && (
+            <button onClick={onDelete} className={iconBtn} title="从正文里删掉这个公式">
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
           <button
             onClick={onToggleStar}
-            className="p-1 rounded transition hover:bg-amber-50"
+            className={`p-1 rounded transition hover:bg-amber-50 ${starred ? 'text-amber-500' : 'text-ink-400'}`}
             title={starred ? '取消收藏' : '收藏（跨项目可用）'}
           >
-            {starred ? (
-              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-            ) : (
-              <StarOff className="w-3.5 h-3.5 text-ink-400" />
-            )}
+            {starred ? <Star className="w-3.5 h-3.5 fill-amber-400" /> : <StarOff className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
-      <button
-        onClick={onReuse}
-        className="w-full overflow-x-auto py-1 text-center rounded hover:bg-seal-50/60 transition"
-        title="点击复用：插入到正文光标处"
+      <div
+        className="overflow-x-auto py-1 text-center"
         dangerouslySetInnerHTML={{ __html: renderKatex(tex, kind === 'block') }}
       />
       <div className="font-mono text-[0.625rem] text-ink-400 truncate" title={tex}>
