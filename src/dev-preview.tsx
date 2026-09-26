@@ -6,7 +6,7 @@
  * 用法：/AcademicFlow/dev-preview.html?page=onboarding
  * 用完即删：dev-preview.html + src/dev-preview.tsx。
  */
-import { StrictMode, Component, type ComponentType, type ReactNode } from 'react'
+import { StrictMode, Component, useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -24,6 +24,7 @@ import Tracking from './pages/Tracking'
 import Learn from './pages/Learn'
 import Writing from './pages/Writing'
 import Management from './pages/Management'
+import { useSettingsStore } from './stores/settings'
 
 const PAGES: Record<string, { comp: ComponentType; shell: boolean }> = {
   onboarding: { comp: Onboarding, shell: false },
@@ -73,11 +74,31 @@ function Preview() {
   )
 }
 
+/**
+ * 真实 App 在 App.tsx 里调 initSettings（从 IndexedDB 恢复 API key 这类敏感凭据）。
+ * 脚手架不走 App：不补这一步，页面会直接以「请先填写 AI-1 位的 API Key」报错；
+ * 而且必须在**首次渲染之前**等它完成，所以这里挡一道 ready。
+ */
+function Bootstrap({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    void useSettingsStore
+      .getState()
+      .init()
+      .catch(() => {})
+      .finally(() => setReady(true))
+  }, [])
+  if (!ready) return null
+  return <>{children}</>
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MemoryRouter initialEntries={['/']}>
       <Boundary>
-        <Preview />
+        <Bootstrap>
+          <Preview />
+        </Bootstrap>
       </Boundary>
     </MemoryRouter>
   </StrictMode>,

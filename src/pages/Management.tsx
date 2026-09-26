@@ -2702,19 +2702,35 @@ export default function ManagementPage() {
                 </div>
               </div>
 
-              {/* 文献横条列表：一条文献 = 一个横条 */}
-              <div className="divide-y divide-ink-100">
-                {batchMode && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-paper-100/50">
-                    <input
-                      type="checkbox"
-                      checked={selectedPapers.size === pagedPapers.length && pagedPapers.length > 0}
-                      onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
-                    />
-                    <span className="text-xs text-ink-500">全选本页</span>
-                  </div>
-                )}
+              {/* 文献表格：一条文献 = 一行，字段横向铺开成列；格子里该换行就换行 */}
+              {batchMode && pagedPapers.length > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-paper-100/50 border-b border-ink-100">
+                  <input
+                    type="checkbox"
+                    checked={selectedPapers.size === pagedPapers.length && pagedPapers.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
+                  />
+                  <span className="text-xs text-ink-500">全选本页</span>
+                </div>
+              )}
+              {pagedPapers.length > 0 && (
+                <div className="overflow-x-auto">
+                  {/* min-w：窗口窄时横向滚动，绝不让列被挤到「一字一行」 */}
+                  <table className="w-full min-w-[64rem] text-left border-collapse">
+                    <thead>
+                      <tr className="bg-paper-100/60 text-xs text-ink-400">
+                        {batchMode && <th className="w-10 px-2 py-2 font-normal" />}
+                        <th className="w-16 px-2 py-2 font-normal" />
+                        <th className="px-3 py-2 font-normal">标题</th>
+                        <th className="w-32 px-3 py-2 font-normal">作者</th>
+                        <th className="w-28 px-3 py-2 font-normal">期刊 · 年份</th>
+                        <th className="w-28 px-3 py-2 font-normal">分类</th>
+                        <th className="w-24 px-3 py-2 font-normal">状态</th>
+                        <th className="w-44 px-3 py-2 font-normal text-right">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ink-100">
                 {pagedPapers.map((paper) => {
                   const first = splitFirstAuthor(paper.authors)
                   const corresponding = paper.correspondingAuthor.trim()
@@ -2724,15 +2740,15 @@ export default function ManagementPage() {
                   // 一个错的缩写，比长一点的期刊名危害大得多。查不到就不缩写。
                   const abbrev = journalAbbrevMap[paper.journal] || paper.journal
                   return (
-                    <div
+                    <tr
                       key={paper.id}
-                      className={`flex gap-4 px-4 py-3 hover:bg-paper-100/70 transition ${
+                      className={`hover:bg-paper-100/70 transition ${
                         batchMode ? 'cursor-pointer' : ''
                       } ${selectedPapers.has(paper.id) ? 'bg-seal-50' : ''}`}
                       onClick={() => batchMode && toggleSelectPaper(paper.id)}
                     >
                       {batchMode && (
-                        <div className="flex items-center shrink-0">
+                        <td className="px-2 py-3 align-top">
                           <input
                             type="checkbox"
                             checked={selectedPapers.has(paper.id)}
@@ -2742,46 +2758,62 @@ export default function ManagementPage() {
                             }}
                             className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
                           />
-                        </div>
+                        </td>
                       )}
 
                       {/* 题图 */}
-                      <div
-                        className={`w-14 h-[4.5rem] rounded-lg overflow-hidden bg-ink-100 flex-shrink-0 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
-                        onClick={(e) => {
-                          if (paper.coverImage) {
-                            e.stopPropagation()
-                            setShowImageLightbox(paper.coverImage)
-                          }
-                        }}
-                      >
-                        {paper.coverImage ? (
-                          <img src={paper.coverImage} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-ink-300">
-                            {paper.tier === 2 ? <Book className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
-                          </div>
-                        )}
-                      </div>
+                      <td className="px-2 py-3 align-top">
+                        <div
+                          className={`w-14 h-[4.5rem] rounded-lg overflow-hidden bg-ink-100 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                          onClick={(e) => {
+                            if (paper.coverImage) {
+                              e.stopPropagation()
+                              setShowImageLightbox(paper.coverImage)
+                            }
+                          }}
+                        >
+                          {paper.coverImage ? (
+                            <img src={paper.coverImage} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-ink-300">
+                              {paper.tier === 2 ? <Book className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                            </div>
+                          )}
+                        </div>
+                      </td>
 
-                      {/* 主信息 */}
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-start gap-2">
+                      {/* 标题（关键词跟着标题走，同一个格子里换行） */}
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex items-start gap-2 min-w-0">
                           <span className="text-sm shrink-0">{paper.tier === 2 ? '📖' : '📄'}</span>
-                          <h3 className="text-sm font-medium text-ink-800 line-clamp-2 min-w-0">{paper.title}</h3>
+                          <h3 className="text-sm font-medium text-ink-800 min-w-0">{paper.title}</h3>
                         </div>
 
-                        {/* 作者：一作 / 通讯各一行（通讯由 PDF 转换时从 md 里抽出） */}
-                        <div className="text-xs text-ink-500">
+                        {paper.keywords.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5 ml-6">
+                            {paper.keywords.slice(0, 2).map((kw) => (
+                              <span key={kw} className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
+                                {kw}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 作者：一作 / 通讯各一行（通讯由 PDF 转换时从 md 里抽出） */}
+                      <td className="px-3 py-3 align-top">
+                        <div className="text-xs text-ink-500 space-y-0.5">
                           <div>一作 {first || '—'}</div>
                           {corresponding && <div>★ {corresponding}</div>}
                         </div>
+                      </td>
 
-                        {/* 期刊缩写 · 年份 */}
-                        <div className="flex items-center gap-1 text-xs text-ink-400 min-w-0">
+                      {/* 期刊缩写 · 年份 */}
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex items-center gap-1 flex-wrap text-xs text-ink-400">
                           {paper.journal && (
                             <>
-                              <span className="truncate">{abbrev}</span>
+                              <span>{abbrev}</span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -2796,22 +2828,12 @@ export default function ManagementPage() {
                           )}
                           {paper.year && <span className="shrink-0">{paper.journal ? `· ${paper.year}` : paper.year}</span>}
                         </div>
+                      </td>
 
-                        {/* 关键词：最多 2 个 */}
-                        {paper.keywords.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {paper.keywords.slice(0, 2).map((kw) => (
-                              <span key={kw} className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
-                                {kw}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 分类：一行一个 */}
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        {paper.categoryIds.length > 0 ? (
+                      {/* 分类 */}
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex flex-wrap gap-1">
+                          {paper.categoryIds.length > 0 ? (
                           paper.categoryIds.map((cid, i) => {
                             const cat = getAllLeafCategories.find((c) => c.id === cid)
                             if (!cat) return null
@@ -2833,11 +2855,12 @@ export default function ManagementPage() {
                         ) : (
                           <span className="text-xs text-ink-400">未分类</span>
                         )}
-                      </div>
+                        </div>
+                      </td>
 
-                      {/* 状态 + 操作 */}
-                      <div className="flex flex-col items-end gap-2 shrink-0">
-                        <div className="flex items-center gap-1">
+                      {/* 状态 */}
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex flex-wrap items-center gap-1">
                           <StatusBadge status={paper.mdStatus} />
                           {paper.hasPdf && (
                             <span className="inline-flex items-center px-1.5 py-0.5 bg-ink-100 text-ink-500 text-[0.625rem] font-medium rounded shrink-0">
@@ -2845,7 +2868,11 @@ export default function ManagementPage() {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1">
+                      </td>
+
+                      {/* 操作 */}
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex items-center justify-end gap-1">
                           {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
                           {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
                             <label
@@ -2944,29 +2971,33 @@ export default function ManagementPage() {
                             )}
                           </button>
                         </div>
-                      </div>
-                    </div>
+                      </td>
+                    </tr>
                   )
                 })}
-                {pagedPapers.length === 0 && (
-                  <div className="py-16 text-center">
-                    <div className="text-ink-400 mb-3">
-                      <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">暂无文献数据</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
-                        setShowAddPaperModal(true)
-                      }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
-                    >
-                      <Plus className="w-4 h-4" />
-                      添加第一篇文献
-                    </button>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {pagedPapers.length === 0 && (
+                <div className="py-16 text-center">
+                  <div className="text-ink-400 mb-3">
+                    <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">暂无文献数据</p>
                   </div>
-                )}
-              </div>
+                  <button
+                    onClick={() => {
+                      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                      setShowAddPaperModal(true)
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    添加第一篇文献
+                  </button>
+                </div>
+              )}
 
               {totalPages > 0 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-ink-100 bg-paper-100/50">
