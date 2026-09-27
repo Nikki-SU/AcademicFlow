@@ -1791,6 +1791,9 @@ const [aligned_content, set_aligned_content] = useState('')
     userScrolledRef.current = true
     // 浮层是视口定位（fixed），滚动后会和原选区脱开，直接收起避免"飘"在错地方
     setShowToolbar(false)
+    // "从这里听"同理：滚动时它钉在旧坐标上，先收起，鼠标停下再悬停会重新浮出
+    setTtsStartBtn(null)
+    ttsHoverElRef.current = null
     if (scrollRafRef.current) return
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = 0
@@ -2405,6 +2408,9 @@ const [aligned_content, set_aligned_content] = useState('')
   /** 本轮朗读的块序列与当前念到的下标：改倍速时要从"正在念的这块"重念 */
   const ttsBlocksRef = useRef<HTMLElement[]>([])
   const ttsIndexRef = useRef(0)
+  /** 鼠标悬停某段时浮出的"从这里听"按钮（fixed 定位，跟着鼠标所在段落走） */
+  const [ttsStartBtn, setTtsStartBtn] = useState<{ el: HTMLElement; top: number; left: number } | null>(null)
+  const ttsHoverElRef = useRef<HTMLElement | null>(null)
 
   const ttsClearHighlight = useCallback(() => {
     ttsActiveElRef.current?.classList.remove('tts-reading-block')
@@ -2416,6 +2422,9 @@ const [aligned_content, set_aligned_content] = useState('')
     if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel()
     ttsLiveRef.current = []
     ttsClearHighlight()
+    // 停完把悬停记忆也清掉，否则再悬停同一段会因为"没换段"而不弹按钮
+    ttsHoverElRef.current = null
+    setTtsStartBtn(null)
     setTtsState('idle')
   }, [ttsClearHighlight])
 
@@ -2477,39 +2486,90 @@ const [aligned_content, set_aligned_content] = useState('')
     speechSynthesis.speak(u)
   }, [stopTts, ttsClearHighlight, ttsScrollTo])
 
-  const startTts = useCallback(() => {
+  /** 收集可朗读的正文块（"从这里听"和主按钮共用同一套筛选，保证下标一致） */
+  const collectTtsBlocks = useCallback((): HTMLElement[] => {
     const root = readerRef.current
-    if (!root || typeof speechSynthesis === 'undefined') {
-      toast.error('当前浏览器不支持朗读')
-      return
-    }
-    // 可读块：优先按 data-block-id（图书/文档是 b-N，文献是 en-N / cn-N）；
+    if (!root) return []
+    // 优先按 data-block-id（图书/文档是 b-N，文献是 en-N / cn-N）；
     // 没有块标记的（如尚未转出块结构的全文）退化成按块级标签取，保证仍能朗读。
     const root_blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-block-id]'))
     const candidates = root_blocks.length
       ? root_blocks
       : Array.from(root.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6, li, blockquote, dd'))
-    // 跳过纯图块与代码块
-    const blocks = candidates.filter((el) => {
+    return candidates.filter((el) => {
+      // 跳过纯图块与代码块
       if (el.closest('pre')) return false
       return (el.textContent || '').replace(/\s+/g, ' ').trim().length > 1
     })
-    if (!blocks.length) {
-      toast.error('这篇还没有可朗读的正文')
-      return
-    }
+  }, [])
 
-    stopTts()
-    setTtsState('playing')
-    ttsBlocksRef.current = blocks
+  /**
+   * 开始朗读。给了 startEl 就从这一段开始（点"从这里听"），
+   * 否则从当前视口顶部那一段开始 —— 两种都会先弹一条提示，说清楚是从哪段念起。
+   */
+  const startTts = useCallback(
+    (startEl?: HTMLElement) => {
+      const root = readerRef.current
+      if (!root || typeof speechSynthesis === 'undefined') {
+        toast.error('当前浏览器不支持朗读')
+        return
+      }
+      const blocks = collectTtsBlocks()
+      if (!blocks.length) {
+        toast.error('这篇还没有可朗读的正文')
+        return
+      }
 
-    // 从"当前看到的地方"开始：第一块其底部还在视口顶以下的块
-    const boxTop = scrollRef.current?.getBoundingClientRect().top ?? 0
-    let start = blocks.findIndex((el) => el.getBoundingClientRect().bottom > boxTop + 8)
-    if (start < 0) start = 0
+      stopTts()
+      setTtsStartBtn(null)
+      ttsHoverElRef.current = null
+      setTtsState('playing')
+      ttsBlocksRef.current = blocks
 
-    speakTtsAt(start)
-  }, [stopTts, speakTtsAt])
+      let start = 0
+      if (startEl) {
+        const idx = blocks.indexOf(startEl)
+        if (idx >= 0) start = idx
+      } else {
+        // 从"当前看到的地方"开始：第一块其底部还在视口顶以下的块
+        const boxTop = scrollRef.current?.getBoundingClientRect().top ?? 0
+        start = blocks.findIndex((el) => el.getBoundingClientRect().bottom > boxTop + 8)
+        if (start < 0) start = 0
+      }
+
+      // 明确告诉用户从哪一段开始念 —— 否则按了播放根本不知道起点在哪
+      const snippet = (blocks[start].textContent || '').replace(/\s+/g, ' ').trim().slice(0, 16)
+      toast(startEl ? `从这里开始朗读：「${snippet}${snippet.length >= 16 ? '…' : ''}」` : `从当前段落开始朗读`)
+
+      speakTtsAt(start)
+    },
+    [stopTts, speakTtsAt, collectTtsBlocks],
+  )
+
+  /** 鼠标移到某一段上就浮出"从这里听"；正在念 / 正在划词时不弹，免得打扰 */
+  const handleReaderHover = useCallback(
+    (e: React.MouseEvent) => {
+      if (ttsState !== 'idle') return
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) return
+      const block = (e.target as HTMLElement).closest<HTMLElement>('[data-block-id]')
+      if (!block || block.closest('pre')) return
+      if (block === ttsHoverElRef.current) return
+      ttsHoverElRef.current = block
+      const r = block.getBoundingClientRect()
+      // 落在段落左侧的空白（页边距）里，尽量不压住正文；左边不够就贴住视口左沿
+      setTtsStartBtn({ el: block, top: r.top, left: Math.max(8, r.left - 80) })
+    },
+    [ttsState],
+  )
+
+  /** 离开正文：若鼠标是移到了按钮上就保留，否则收起 */
+  const handleReaderHoverEnd = useCallback((e: React.MouseEvent) => {
+    const next = e.relatedTarget as HTMLElement | null
+    if (next && next.closest?.('[data-tts-start-btn]')) return
+    ttsHoverElRef.current = null
+    setTtsStartBtn(null)
+  }, [])
 
   /** 改倍速：立刻生效 —— 取消正在念的这块，从当前块按新倍速重念 */
   const changeTtsRate = useCallback(
@@ -2663,6 +2723,24 @@ const [aligned_content, set_aligned_content] = useState('')
           className="hidden max-[1100px]:block fixed inset-0 z-30 bg-ink-900/30"
           onClick={() => { setLeftDrawer(false); setRightDrawer(false) }}
         />
+      )}
+
+      {/*
+       * 悬停某段时浮出的"从这里听"：解决"按了播放根本不知道从哪一段念起"。
+       * fixed 定位在段落左侧空白处，点了就从这一段开始念（不用先把它滚到视口顶）。
+       */}
+      {ttsState === 'idle' && ttsStartBtn && (
+        <button
+          data-tts-start-btn=""
+          onMouseLeave={() => setTtsStartBtn(null)}
+          onClick={() => startTts(ttsStartBtn.el)}
+          className="fixed z-40 flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-paper-50 border border-ink-200 shadow-md text-seal-700 hover:bg-seal-50 transition"
+          style={{ top: ttsStartBtn.top, left: ttsStartBtn.left, fontSize: '1rem' }}
+          title="从这一段开始朗读"
+        >
+          <Play className="w-3 h-3" />
+          从这里听
+        </button>
       )}
 
       <aside className={`bg-paper-50 border-r border-ink-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
@@ -3234,9 +3312,12 @@ const [aligned_content, set_aligned_content] = useState('')
                     <div className="bg-paper-50 rounded-xl shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
                       <div
                         ref={readerRef}
+                        onMouseOver={handleReaderHover}
+                        onMouseLeave={handleReaderHoverEnd}
                         onMouseUp={handleTextSelection}
                         onMouseDown={() => {
                           setShowToolbar(false)
+                          setTtsStartBtn(null)
                         }}
                         onCopy={(e) => {
                           const sel = window.getSelection()
@@ -3493,9 +3574,12 @@ const [aligned_content, set_aligned_content] = useState('')
                   <div className="bg-paper-50 rounded-xl shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
                     <div
                       ref={readerRef}
+                      onMouseOver={handleReaderHover}
+                      onMouseLeave={handleReaderHoverEnd}
                       onMouseUp={handleTextSelection}
                       onMouseDown={() => {
                         setShowToolbar(false)
+                        setTtsStartBtn(null)
                       }}
                       onCopy={(e) => {
                         const sel = window.getSelection()
