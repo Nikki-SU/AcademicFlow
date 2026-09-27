@@ -767,6 +767,8 @@ const [aligned_content, set_aligned_content] = useState('')
   const [checkedAnnotationIds, setCheckedAnnotationIds] = useState<string[]>([])
   /** 长文本隔块底色（荧光笔式交替底色，防串行） */
   const [zebraBands, setZebraBands] = useState(true)
+  /** 宽度变化时 +1，用来触发条纹相位重算（见下方 ResizeObserver） */
+  const [zebraTick, setZebraTick] = useState(0)
 
   // ── 阅读进度：读到哪个标题，下次打开跳回去 ──
   /** 正文的滚动容器（文献 / 图书各一处，共用同一个 ref） */
@@ -2269,6 +2271,30 @@ const [aligned_content, set_aligned_content] = useState('')
   }, [findTarget, docKey, paperRenderedHtml, bookRenderedHtml])
 
   /**
+   * 拖窗口 / 开合侧栏 / 切模式都会改变正文栏宽度，正文重新折行、行数变化，
+   * 条纹相位就得跟着重算（和改字号同理，见下面 zebra 副作用）。
+   * 用 ResizeObserver 盯滚动容器，**只在宽度变化时**防抖触发；高度变化（图片加载等）不管。
+   */
+  useEffect(() => {
+    const box = scrollRef.current
+    if (!box || typeof ResizeObserver === 'undefined') return
+    let lastW = box.clientWidth
+    let timer = 0
+    const ro = new ResizeObserver(() => {
+      const w = box.clientWidth
+      if (w === lastW) return
+      lastW = w
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setZebraTick((t) => t + 1), 120)
+    })
+    ro.observe(box)
+    return () => {
+      window.clearTimeout(timer)
+      ro.disconnect()
+    }
+  }, [docKey, paperRenderedHtml, bookRenderedHtml])
+
+  /**
    * 逐行交替底色（防看漏）。
    *
    * 粒度取「1 行有色 / 1 行无色」：这是唯一能保证**任意相邻两行都不同色**的粒度。
@@ -2360,9 +2386,9 @@ const [aligned_content, set_aligned_content] = useState('')
       counted.add(el)
       lineIndex += lines
     }
-    // fontSize 必须进依赖：条纹按每块的实际 lineHeight 和累计行号算相位，
-    // 改字号会导致整篇重排、行高和行数都变，不重算就会按旧行高错位。
-  }, [zebraBands, paperRenderedHtml, bookRenderedHtml, fontSize])
+    // fontSize：改字号会整篇重排，行高和行数都变，不重算就按旧行高错位。
+    // zebraTick：窗口 / 侧栏宽度变化触发的信号（见上面的 ResizeObserver）。
+  }, [zebraBands, paperRenderedHtml, bookRenderedHtml, fontSize, zebraTick])
 
   useEffect(() => {
     if (selectedAnnotationId && activeSideTab === 'annotations') {
