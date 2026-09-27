@@ -44,6 +44,9 @@ export const SETTING_KEYS = {
   AI_PROVIDER_MODE: 'ai_provider_mode',
   DEEPSEEK_API_KEY: 'deepseek_api_key',
   DEEPSEEK_API_KEY_2: 'deepseek_api_key_2',
+  // 智谱 GLM（OpenAI 兼容端点）—— key 同样按槽位独立存
+  ZHIPU_API_KEY: 'zhipu_api_key',
+  ZHIPU_API_KEY_2: 'zhipu_api_key_2',
   AI_1_MODEL: 'ai_1_model',
   AI_2_MODEL: 'ai_2_model',
   CUSTOM_AI_1_BASE_URL: 'custom_ai_1_base_url',

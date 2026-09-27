@@ -88,9 +88,12 @@ export interface WorkspaceState {
 
 /**
  * AI Provider 类型 + 配置
- * 硬编码 2 家，不用配置文件
+ * 硬编码这几家，不用配置文件
+ *
+ * 每加一家公司，都要在 SettingsData 里配一对 key 字段（槽位 1 / 槽位 2）：
+ * key 按公司独立存，切 provider 不会把别家的 key 洗掉，切回来不用重填。
  */
-export type AIProviderMode = 'deepseek' | 'custom'
+export type AIProviderMode = 'deepseek' | 'zhipu' | 'custom'
 
 /**
  * 思考模式（reasoning）档位
@@ -197,6 +200,20 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
       },
     ],
   },
+  zhipu: {
+    label: '智谱 GLM',
+    // OpenAI 兼容端点。注意路径是 /api/paas/v4，runner / 前端都在它后面拼 /chat/completions
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModel1: 'glm-4.7-flash',
+    defaultModel2: 'glm-4.7-flash',
+    apiKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
+    note: 'glm-4.7-flash 免费；国内直连，不用绕太平洋',
+    // 不做推荐价目块：glm-4.7-flash 是免费档，套 DeepSeek 那套「空闲/高峰」价目表反而误导。
+    // 用户可以在设置页点「拉取模型清单」拿这家真实在售的模型。
+    recommendedModels: [
+      { id: 'glm-4.7-flash', desc: '免费' },
+    ],
+  },
   custom: {
     label: '自定义端点',
     baseUrl: '',
@@ -233,6 +250,10 @@ export interface SettingsData {
   ai2ProviderMode: AIProviderMode
   /** AI-2 位的 DeepSeek API Key（与 AI-1 位的 deepseekApiKey 平等独立，切 provider 不丢） */
   deepseekApiKey2: string
+  /** 智谱 GLM API Key（AI-1 位）—— 与 DeepSeek 位平等独立，切 provider 不丢 */
+  zhipuApiKey: string
+  /** 智谱 GLM API Key（AI-2 位） */
+  zhipuApiKey2: string
   /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string

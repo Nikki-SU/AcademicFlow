@@ -294,6 +294,8 @@ export default function ConnectivityPanel() {
         ai2Model: store.ai2Model,
         ai2ProviderMode: store.ai2ProviderMode,
         deepseekApiKey2: store.deepseekApiKey2,
+        zhipuApiKey: store.zhipuApiKey,
+        zhipuApiKey2: store.zhipuApiKey2,
         customAi1BaseUrl: store.customAi1BaseUrl,
         customAi1ApiKey: store.customAi1ApiKey,
         customAi1Model: store.customAi1Model,

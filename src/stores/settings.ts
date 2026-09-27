@@ -55,10 +55,18 @@ function normalizeModelsProvider(raw: string | null | undefined): AIProviderMode
     : ''
 }
 
-/** 根据 provider mode + store 状态拿到对应的 apiKey 字段值 */
-function getProviderApiKey(mode: keyof typeof AI_PROVIDERS, s: SettingsData): string {
+/**
+ * 取「某槽位 + 当前 provider」对应的 apiKey。
+ *
+ * key 按公司独立存（槽位 1 用 deepseekApiKey / zhipuApiKey，槽位 2 用各自的 2 号字段），
+ * 所以切 provider 不会把别家的 key 洗掉，切回来也不用重填。
+ * custom 不走这里 —— 它的 key 在 customAi1ApiKey / customAi2ApiKey，
+ * 与自己的 baseUrl 配套，由调用方直接取。
+ */
+function getProviderApiKey(mode: keyof typeof AI_PROVIDERS, slot: 1 | 2, s: SettingsData): string {
   switch (mode) {
-    case 'deepseek': return s.deepseekApiKey.trim()
+    case 'deepseek': return (slot === 1 ? s.deepseekApiKey : s.deepseekApiKey2).trim()
+    case 'zhipu': return (slot === 1 ? s.zhipuApiKey : s.zhipuApiKey2).trim()
     default: return ''
   }
 }
@@ -73,6 +81,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   ai2Model: 'deepseek-flash',
   ai2ProviderMode: 'deepseek',
   deepseekApiKey2: '',
+  zhipuApiKey: '',
+  zhipuApiKey2: '',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
@@ -114,6 +124,8 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'customAi1ApiKey',
   'customAi2ApiKey',
   'deepseekApiKey2',
+  'zhipuApiKey',
+  'zhipuApiKey2',
   'mineruToken',
   'simpletexToken',
 ]
@@ -156,6 +168,8 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
   customAi1ApiKey: SETTING_KEYS.CUSTOM_AI_1_API_KEY,
   customAi2ApiKey: SETTING_KEYS.CUSTOM_AI_2_API_KEY,
   deepseekApiKey2: SETTING_KEYS.DEEPSEEK_API_KEY_2,
+  zhipuApiKey: SETTING_KEYS.ZHIPU_API_KEY,
+  zhipuApiKey2: SETTING_KEYS.ZHIPU_API_KEY_2,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
   simpletexToken: SETTING_KEYS.SIMPLETEX_TOKEN,
 }
@@ -218,6 +232,8 @@ function detectPatContamination(
     'customAi1ApiKey',
     'customAi2ApiKey',
     'deepseekApiKey2',
+    'zhipuApiKey',
+    'zhipuApiKey2',
     'mineruToken',
     'simpletexToken',
   ]
@@ -491,7 +507,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           apiKey = state.customAi1ApiKey.trim()
         } else {
           baseUrl = AI_PROVIDERS[mode].baseUrl
-          apiKey = getProviderApiKey(mode, state)
+          apiKey = getProviderApiKey(mode, 1, state)
         }
       } else {
         mode = state.ai2ProviderMode
@@ -501,8 +517,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         } else {
           baseUrl = AI_PROVIDERS[mode].baseUrl
           // AI-2 位 key：独立槽位优先；同家留空沿用 AI-1 位 key
-          const key2 = state.deepseekApiKey2.trim()
-          apiKey = key2 || (mode === state.aiProviderMode ? getProviderApiKey(mode, state) : '')
+          const key2 = getProviderApiKey(mode, 2, state)
+          apiKey = key2 || (mode === state.aiProviderMode ? getProviderApiKey(mode, 1, state) : '')
         }
       }
 
@@ -638,7 +654,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         ai1 = { baseUrl, apiKey, model }
       } else {
         const cfg = AI_PROVIDERS[state.aiProviderMode]
-        const apiKey = getProviderApiKey(state.aiProviderMode, state)
+        const apiKey = getProviderApiKey(state.aiProviderMode, 1, state)
         if (!apiKey) {
           throw new Error(`请先填写 AI-1 位的 ${cfg.label} API Key`)
         }
@@ -668,7 +684,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         const cfg2 = AI_PROVIDERS[state.ai2ProviderMode]
         // AI-2 位 key 按公司独立槽位，与 AI-1 位平等；
         // 同公司且 AI-2 位留空 → 沿用 AI-1 位 key（同 key 双模型的平滑默认）
-        const key2Raw = state.deepseekApiKey2.trim()
+        const key2Raw = getProviderApiKey(state.ai2ProviderMode, 2, state)
         const apiKey2 = key2Raw || (state.ai2ProviderMode === state.aiProviderMode ? ai1.apiKey : '')
         if (!apiKey2) {
           throw new Error(`请先填写 AI-2 位的 ${cfg2.label} API Key`)
@@ -730,6 +746,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         customAi1ApiKey: get().customAi1ApiKey,
         customAi2ApiKey: get().customAi2ApiKey,
         deepseekApiKey2: get().deepseekApiKey2,
+        zhipuApiKey: get().zhipuApiKey,
+        zhipuApiKey2: get().zhipuApiKey2,
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }
       set(merged)

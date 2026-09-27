@@ -227,10 +227,26 @@ export interface SyncAllSecretsInput {
   ai2ProviderMode: AIProviderMode
   /** AI-2 位的 DeepSeek key（与 AI-1 位字段平等独立） */
   deepseekApiKey2: string
+  /** 智谱 GLM key（AI-1 位）—— 同样按公司独立槽位 */
+  zhipuApiKey: string
+  /** 智谱 GLM key（AI-2 位） */
+  zhipuApiKey2: string
   mineruToken: string
   /** SimpleTex 公式识图令牌（UAT）——同步到 secrets 做持久化，
    *  浏览器被清空后 runner 仍能靠 SIMPLETEX_TOKEN 环境变量兜底 */
   simpletexToken: string
+}
+
+/**
+ * 预置 provider 在某槽位上的 key（custom 不走这里，它的 key 与自定义 baseUrl 配套）。
+ *
+ * 按 mode 取对应公司的字段：key 是按公司独立存的，取错字段会把别家的 key
+ * 塞进 AI1_API_KEY / AI2_API_KEY，runner 端直接 401，而且从 UI 上看不出来。
+ */
+function presetKey(mode: AIProviderMode, slot: 1 | 2, s: SyncAllSecretsInput): string {
+  if (mode === 'deepseek') return (slot === 1 ? s.deepseekApiKey : s.deepseekApiKey2).trim()
+  if (mode === 'zhipu') return (slot === 1 ? s.zhipuApiKey : s.zhipuApiKey2).trim()
+  return ''
 }
 
 /**
@@ -270,7 +286,7 @@ export async function syncAllSecrets(
   } else {
     const cfg = AI_PROVIDERS[mode]
     baseUrl1 = cfg.baseUrl
-    apiKey1 = s.deepseekApiKey
+    apiKey1 = presetKey(mode, 1, s)
     // 模型信任 store 值（UI 切 provider 时已重置、syncFromGitHub 已做
     // 一致性校验），此处只兜空值——不再用 recommendedModels 白名单过滤，
     // 因为用户可能从「拉取」的真实清单里选非推荐模型
@@ -289,7 +305,7 @@ export async function syncAllSecrets(
     baseUrl2 = cfg2.baseUrl
     // AI-2 位 key 按公司独立槽位，与 AI-1 位平等；
     // 同公司且 AI-2 位留空 → 沿用 AI-1 位 key（同 key 双模型的平滑默认）
-    const key2 = s.deepseekApiKey2
+    const key2 = presetKey(mode2, 2, s)
     // mode2 === mode 已保证两家同家（mode 为 custom 时该等式必为 false，本分支不会误用自定义 key）
     apiKey2 = key2 || (mode2 === mode ? apiKey1 : '')
     model2 = s.ai2Model || cfg2.defaultModel2

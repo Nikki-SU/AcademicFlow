@@ -36,13 +36,15 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { CODE_LANGS } from '../constants/codeLangs'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
-import type { AIProviderMode, AIThinkingMode, AISlotThinking } from '../types'
+import type { AIProviderMode, AIThinkingMode, AISlotThinking, SettingsData } from '../types'
 import { AI_PROVIDERS } from '../types'
 
 /**
  * 槽位级推理模式选项 —— 多一个「不干预」。
- * 交互式调用（问 AI、双引擎、检索）加这个开关之前从来不发 thinking 参数，
- * 默认必须是「什么都不发」，否则等于替用户改了一次行为。
+ * 「不干预」= 请求体里不带 thinking 字段，沿用模型自己的默认；
+ * 「关闭思考」= 明确发 thinking:{type:'disabled'}。
+ * 默认值是「关闭思考」（见 DEFAULT_SETTINGS）—— 这两个槽位干的都是格式搬运 / 抽取，
+ * 不需要推理，而推理会和正文抢同一个输出预算。
  */
 const SLOT_THINKING_OPTIONS: {
   value: AISlotThinking
@@ -55,6 +57,18 @@ const SLOT_THINKING_OPTIONS: {
   { value: 'high', label: '开启 · 高强度', hint: 'reasoning_effort=high' },
   { value: 'max', label: '开启 · 最高强度', hint: 'reasoning_effort=max（最慢最贵）' },
 ]
+
+/**
+ * 「provider × 槽位」→ API Key 存在 SettingsData 的哪个字段。
+ *
+ * key 按公司独立存：切 provider 只是换字段读写，不会把别家的 key 洗掉
+ * （不然切回来还得重填）。custom 的 key 与自己的 baseUrl 配套，不走这张表。
+ */
+const SLOT_KEY_FIELDS: Record<AIProviderMode, { 1?: keyof SettingsData; 2?: keyof SettingsData }> = {
+  deepseek: { 1: 'deepseekApiKey', 2: 'deepseekApiKey2' },
+  zhipu: { 1: 'zhipuApiKey', 2: 'zhipuApiKey2' },
+  custom: {},
+}
 
 /** 思考模式下拉选项 —— off 关闭，其余为开启并控制强度 */
 const THINKING_OPTIONS: { value: AIThinkingMode; label: string }[] = [
@@ -153,6 +167,8 @@ function Settings() {
     ai2Model,
     ai2ProviderMode,
     deepseekApiKey2,
+    zhipuApiKey,
+    zhipuApiKey2,
     customAi1BaseUrl,
     customAi1ApiKey,
     customAi1Model,
@@ -199,6 +215,8 @@ function Settings() {
         customAi1ApiKey: '自定义 AI-1 API Key',
         customAi2ApiKey: '自定义 AI-2 API Key',
         deepseekApiKey2: 'DeepSeek API Key（AI-2 位）',
+        zhipuApiKey: '智谱 GLM API Key',
+        zhipuApiKey2: '智谱 GLM API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
         simpletexToken: 'SimpleTex 令牌',
       }
@@ -247,6 +265,8 @@ function Settings() {
         ai2Model,
         ai2ProviderMode,
         deepseekApiKey2,
+        zhipuApiKey,
+        zhipuApiKey2,
         customAi1BaseUrl,
         customAi1ApiKey,
         customAi1Model,
@@ -282,6 +302,8 @@ function Settings() {
     deepseekApiKey, ai1Model, ai2Model,
     ai2ProviderMode,
     deepseekApiKey2,
+    zhipuApiKey,
+    zhipuApiKey2,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
@@ -307,16 +329,18 @@ function Settings() {
     )
   }
 
-  // ── AI-1 位：当前 provider 对应的 key 槽位（custom 模式走自定义 Key，不用此槽位） ──
-  const slot1Key = aiProviderMode === 'deepseek' ? deepseekApiKey : ''
+  // ── 槽位 key：按「当前 provider × 槽位」读写对应字段（custom 不用此槽位） ──
+  const keyField1 = SLOT_KEY_FIELDS[aiProviderMode][1]
+  const slot1Key = keyField1 ? (store[keyField1] as string) : ''
   const setSlot1Key = (v: string) => {
-    if (aiProviderMode === 'deepseek') updateSettings({ deepseekApiKey: v })
+    if (keyField1) updateSettings({ [keyField1]: v } as Partial<SettingsData>)
   }
 
-  // ── AI-2 位：当前 provider 对应的 key2 槽位（与 AI-1 完全对称） ──
-  const slot2Key = ai2ProviderMode === 'deepseek' ? deepseekApiKey2 : ''
+  // ── AI-2 位：与 AI-1 完全对称（key 同样按公司独立存） ──
+  const keyField2 = SLOT_KEY_FIELDS[ai2ProviderMode][2]
+  const slot2Key = keyField2 ? (store[keyField2] as string) : ''
   const setSlot2Key = (v: string) => {
-    if (ai2ProviderMode === 'deepseek') updateSettings({ deepseekApiKey2: v })
+    if (keyField2) updateSettings({ [keyField2]: v } as Partial<SettingsData>)
   }
 
   /** 拉取某槽位的真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */
