@@ -43,6 +43,7 @@ import {
   Trash2,
   CloudUpload,
   Square,
+  Columns2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getAllTemplates, createTemplate, updateTemplate, listTemplateAssets, loadTemplateAsset } from '../services/journal-templates'
@@ -437,10 +438,16 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
   )
 }
 
+/**
+ * 左右两窗格的比例档位 —— 只保留这三档，拖动松手即吸附。
+ * 整页口径：左侧「项目导航」占 1 份，右边两个窗格合起来占 3 份。
+ * 所以窗格之间取 2:1 时，整页正好是 1:2:1（和阅读页一致，看着才协调）。
+ * 旧的 7:3 / 3:7 已去掉（1.5 这种比例不好对齐，也不利于调试）。
+ */
 const PANEL_RATIOS = [
-  { value: '7:3', label: '7 : 3', left: 70 },
-  { value: '5:5', label: '5 : 5', left: 50 },
-  { value: '3:7', label: '3 : 7', left: 30 },
+  { value: '2:1', label: '2 : 1', left: (2 / 3) * 100 },
+  { value: '1:1', label: '1 : 1', left: 50 },
+  { value: '1:2', label: '1 : 2', left: (1 / 3) * 100 },
 ]
 
 interface BookChapter {
@@ -818,7 +825,8 @@ export default function WritingPage() {
   const [rightPanelMode, setRightPanelMode] = useState<PanelMode>('ai')
   const [showLeftDropdown, setShowLeftDropdown] = useState(false)
   const [showRightDropdown, setShowRightDropdown] = useState(false)
-  const [panelRatio, setPanelRatio] = useState(70)
+  // 默认档位 = PANEL_RATIOS 第一档（窗格 2:1 → 整页 1:2:1）
+  const [panelRatio, setPanelRatio] = useState(PANEL_RATIOS[0].left)
   const [isDragging, setIsDragging] = useState(false)
 
   const [trustedSearch, setTrustedSearch] = useState(true)
@@ -2907,7 +2915,8 @@ export default function WritingPage() {
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return
       const container = containerRef.current
-      const navWidth = navCollapsed ? 0 : 256
+      // 左侧导航占整页 1/4（与 aside 的 w-1/4 + min-w-[15rem] 对齐）
+      const navWidth = navCollapsed ? 0 : Math.max(container.clientWidth * 0.25, 240)
       const usableWidth = container.clientWidth - navWidth - 6
       const deltaX = e.clientX - dragStartX.current
       const deltaPercent = (deltaX / usableWidth) * 100
@@ -2919,7 +2928,7 @@ export default function WritingPage() {
       setIsDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-      // 松手即吸附：只允许 3:7 / 5:5 / 7:3 三档
+      // 松手即吸附：只允许 2:1 / 1:1 / 1:2 三档
       setPanelRatio((cur) =>
         PANEL_RATIOS.map((r) => r.left).reduce((best, v) =>
           Math.abs(v - cur) < Math.abs(best - cur) ? v : best,
@@ -3021,11 +3030,45 @@ export default function WritingPage() {
   const LeftPanelIcon = PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || PenTool
   const RightPanelIcon = PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
 
+  /**
+   * 两侧选了同一个功能 → 合成一栏。
+   * 硬摆两个一样的窗格没意义（还会渲染两份编辑器、抢同一份状态），
+   * 所以这时只渲染一个满宽窗格，并在标题栏给一个「恢复双栏」入口。
+   */
+  const isPanelMerged = leftPanelMode === rightPanelMode
+  const restoreDualPanels = () => {
+    setLeftPanelMode('editor')
+    setRightPanelMode('ai')
+  }
+
+  // 两栏用同一份实现（任何功能都能放到任意一侧）；合并时只留左栏、占满整宽
+  const leftPanelEntry = {
+    side: 'left' as const,
+    mode: leftPanelMode,
+    setMode: setLeftPanelMode,
+    icon: LeftPanelIcon,
+    dropdownRef: leftDropdownRef,
+    showDropdown: showLeftDropdown,
+    setShowDropdown: setShowLeftDropdown,
+    editorRef: leftEditorRef,
+  }
+  const rightPanelEntry = {
+    side: 'right' as const,
+    mode: rightPanelMode,
+    setMode: setRightPanelMode,
+    icon: RightPanelIcon,
+    dropdownRef: rightDropdownRef,
+    showDropdown: showRightDropdown,
+    setShowDropdown: setShowRightDropdown,
+    editorRef: rightEditorRef,
+  }
+  const panelEntries = isPanelMerged ? [leftPanelEntry] : [leftPanelEntry, rightPanelEntry]
+
   return (
     <div ref={containerRef} className="h-full flex bg-paper-100 relative overflow-hidden">
       <aside
         className={`bg-paper-50 border-r border-ink-200 flex flex-col flex-shrink-0 transition-all duration-300 ${
-          navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-64 opacity-100'
+          navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-1/4 min-w-[15rem] opacity-100'
         }`}
       >
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -3293,36 +3336,15 @@ export default function WritingPage() {
       <button
         onClick={() => setNavCollapsed(!navCollapsed)}
         className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-paper-50 border border-ink-200 rounded-r-lg p-1 shadow-md hover:bg-paper-100 transition text-ink-400 hover:text-seal-600"
-        style={{ left: navCollapsed ? '0' : '16rem' }}
+        style={{ left: navCollapsed ? '0px' : 'max(25%, 15rem)' }}
         title={navCollapsed ? '展开项目导航' : '折叠项目导航'}
       >
         {navCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
 
       <div className="flex-1 flex min-w-0">
-        {/* 左右两块用同一份实现：任何功能都能放到任意一侧 */}
-        {([
-          {
-            side: 'left' as const,
-            mode: leftPanelMode,
-            setMode: setLeftPanelMode,
-            icon: LeftPanelIcon,
-            dropdownRef: leftDropdownRef,
-            showDropdown: showLeftDropdown,
-            setShowDropdown: setShowLeftDropdown,
-            editorRef: leftEditorRef,
-          },
-          {
-            side: 'right' as const,
-            mode: rightPanelMode,
-            setMode: setRightPanelMode,
-            icon: RightPanelIcon,
-            dropdownRef: rightDropdownRef,
-            showDropdown: showRightDropdown,
-            setShowDropdown: setShowRightDropdown,
-            editorRef: rightEditorRef,
-          },
-        ]).map((p) => (
+        {/* 左右两块用同一份实现：任何功能都能放到任意一侧；同功能时只渲染一栏 */}
+        {panelEntries.map((p) => (
           <Fragment key={p.side}>
             {p.side === 'right' && (
               <div
@@ -3341,7 +3363,11 @@ export default function WritingPage() {
                 p.side === 'right' ? 'border-l border-ink-200' : ''
               }`}
               style={{
-                width: p.side === 'left' ? `${panelRatio}%` : `calc(${100 - panelRatio}% - 0.375rem)`,
+                width: isPanelMerged
+                  ? '100%'
+                  : p.side === 'left'
+                    ? `${panelRatio}%`
+                    : `calc(${100 - panelRatio}% - 0.375rem)`,
               }}
             >
               <div className="bg-paper-50 border-b border-ink-200 px-3 py-2 flex items-center gap-2 flex-shrink-0">
@@ -3402,6 +3428,16 @@ export default function WritingPage() {
                       {activeProject.title}
                     </span>
                   </>
+                )}
+                {isPanelMerged && (
+                  <button
+                    onClick={restoreDualPanels}
+                    className="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                    title="两侧选了同一个功能，已合并成一栏；点这里恢复默认双栏（编辑区 | AI 助手）"
+                  >
+                    <Columns2 className="w-3.5 h-3.5" />
+                    恢复双栏
+                  </button>
                 )}
               </div>
 
@@ -4439,10 +4475,13 @@ export default function WritingPage() {
                       {currentTemplate.short_name || currentTemplate.name}
                     </div>
                     <div>
-                      文档类：{currentTemplate.document_class}
-                      {currentTemplate.document_options ? ` [${currentTemplate.document_options}]` : ''}
+                      文档类：
+                      <span className="font-mono">
+                        {currentTemplate.document_class}
+                        {currentTemplate.document_options ? ` [${currentTemplate.document_options}]` : ''}
+                      </span>
                       {' · '}
-                      {currentTemplate.bibtex_style}
+                      <span className="font-mono">{currentTemplate.bibtex_style}</span>
                       {' · '}
                       {currentTemplate.two_column ? '双栏' : '单栏'}
                     </div>
