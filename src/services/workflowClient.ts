@@ -123,6 +123,70 @@ export async function dispatchAiConnectivityTest(
   await dispatchWorkflow('ai_connectivity_test', { target }, owner, repo, token)
 }
 
+// ===================== 每日追踪（立即追踪） =====================
+
+/**
+ * 「立即追踪」触发的 workflow 文件名（私库 .github/workflows/ 下）。
+ *
+ * 走 **workflow_dispatch API**，不走 repository_dispatch：
+ * 该 workflow 的 `on:` 只声明了 `workflow_dispatch` + `schedule`，
+ * 没有 repository_dispatch；它的 `name:`（"Daily Tracking"）带空格，
+ * 也不满足 event_type 的命名约束，所以不能沿用 dispatchWorkflow 那套。
+ */
+const DAILY_TRACKING_WORKFLOW_FILE = 'daily-tracking.yml'
+const DAILY_TRACKING_REF = 'main'
+
+/** 触发私库的「每日追踪」（等同在 Actions 页面点一次 Run workflow） */
+export async function dispatchDailyTracking(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<void> {
+  const res = await githubFetch(
+    `/repos/${owner}/${repo}/actions/workflows/${DAILY_TRACKING_WORKFLOW_FILE}/dispatches`,
+    token,
+    { method: 'POST', body: JSON.stringify({ ref: DAILY_TRACKING_REF }) },
+  )
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`触发追踪失败：HTTP ${res.status} ${body.slice(0, 200)}`)
+  }
+}
+
+/**
+ * 等刚刚触发的追踪 run 跑完（尽力而为）。
+ * 追踪是"跑完才写候选"，所以前端触发后要等它结束再去读 inbox.csv，否则读到的是旧数据。
+ * 超时不报错 —— 后端可能只是慢，前端提示"稍后自动刷新"即可。
+ */
+export async function waitForDailyTracking(
+  owner: string,
+  repo: string,
+  token: string,
+  sinceIso: string,
+  timeoutMs = 120000,
+): Promise<'success' | 'failure' | 'timeout'> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 4000))
+    try {
+      const res = await githubFetch(
+        `/repos/${owner}/${repo}/actions/workflows/${DAILY_TRACKING_WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=10`,
+        token,
+      )
+      if (!res.ok) continue
+      interface _Run { status: string; conclusion: string | null; created_at: string }
+      const data = (await res.json()) as { workflow_runs?: _Run[] }
+      const mine = (data.workflow_runs ?? []).find((r) => r.created_at > sinceIso)
+      if (mine && mine.status === 'completed') {
+        return mine.conclusion === 'success' ? 'success' : 'failure'
+      }
+    } catch {
+      // 网络抖动继续等
+    }
+  }
+  return 'timeout'
+}
+
 // ===================== run 查询 =====================
 
 /**

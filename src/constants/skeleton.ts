@@ -89,6 +89,9 @@ const CSV_HEADERS = {
   keyword_groups: 'group_id,group_name,expression,enabled,translate_abstract,created_at',
   textbooks: 'textbook_id,title,author,edition,pages,added_at,scope,chapters,included_chapters',
   projects: 'project_id,title,target_journal,textbook_refs,status,created_at,updated_at',
+  // ⚠️ 必须与 src/services/trackingData.ts 的 TRACKING_INBOX_HEADERS 逐字一致（顺序也一致）：
+  //    这是「追踪候选」表——后端每日追踪把命中的文献写这里，前端据此裁决（入库 / 忽略）。
+  tracking_inbox: 'doi,title,journal,year,authors,keywords,abstract_en,source,tracking_group,found_at,status',
 } as const
 
 
@@ -211,9 +214,14 @@ const DAILY_TRACKING_SCRIPT = `#!/usr/bin/env python3
 AcademicFlow Daily Tracking Script
 -------------------------------------------------
 从 keyword_groups/keyword_groups.csv 读取关键词组，
-调用 OpenAlex API 搜索近7天的新文献，
-与现有 literatures/literatures.csv 去重后，
-将新文献追加到 CSV，并在 logs/tracking/{date}.md 写入追踪报告。
+调用 OpenAlex API 搜索近 7 天的新文献。
+
+**筛选制**：命中的文献**不再直接进文献库**，而是写成「候选」——
+写进 tracking/inbox.csv（status=pending），由用户在追踪页逐条裁决
+（入库 / 忽略）。同时写一份 logs/tracking/{date}.md 报告。
+
+去重口径 = 已入库的（literatures.csv）∪ 候选表里的**全部行**（含已忽略）。
+这样"忽略"过的文献不会在第二天又被重新命中。
 """
 
 import csv
@@ -228,6 +236,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 LITERATURES_CSV = BASE_DIR / "literatures" / "literatures.csv"
 KEYWORD_GROUPS_CSV = BASE_DIR / "keyword_groups" / "keyword_groups.csv"
+INBOX_CSV = BASE_DIR / "tracking" / "inbox.csv"
 LOGS_DIR = BASE_DIR / "logs" / "tracking"
 
 OPENALEX_API = "https://api.openalex.org/works"
@@ -255,18 +264,18 @@ def load_keyword_groups():
     return groups
 
 
-def load_existing_dois():
-    """加载已有文献的 DOI 集合用于去重"""
+def load_seen_dois():
+    """去重口径 = 已入库(文献库) ∪ 候选表全部行(含已忽略的)"""
     dois = set()
-    if not LITERATURES_CSV.exists():
-        return dois
-
-    with open(LITERATURES_CSV, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            doi = row.get("doi", "").strip().lower()
-            if doi:
-                dois.add(doi)
+    for path in (LITERATURES_CSV, INBOX_CSV):
+        if not path.exists():
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                doi = (row.get("doi") or "").strip().lower()
+                if doi:
+                    dois.add(doi)
     return dois
 
 
@@ -351,21 +360,37 @@ def openalex_to_literature(work, tracking_group=""):
     }
 
 
-def append_literatures(new_papers):
-    """追加新文献到 CSV"""
-    fieldnames = [
-        "doi", "title", "journal", "year", "authors", "keywords",
-        "abstract_en", "abstract_cn", "tier", "has_graphical_abstract",
-        "added_at", "pdf_added_at", "source", "tracking_group",
-    ]
+# 候选表列契约（必须与前端 src/services/trackingData.ts 的
+# TRACKING_INBOX_HEADERS 逐字一致、顺序一致；新列一律追加在末尾）
+INBOX_HEADERS = [
+    "doi", "title", "journal", "year", "authors", "keywords", "abstract_en",
+    "source", "tracking_group", "found_at", "status",
+]
 
-    file_exists = LITERATURES_CSV.exists()
-    with open(LITERATURES_CSV, "a", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+
+def append_candidates(new_papers):
+    """把命中的文献写成「候选」(status=pending)，**不直接进文献库**"""
+    INBOX_CSV.parent.mkdir(parents=True, exist_ok=True)
+    file_exists = INBOX_CSV.exists()
+    now = int(time.time())
+    with open(INBOX_CSV, "a", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=INBOX_HEADERS)
         if not file_exists:
             writer.writeheader()
         for paper in new_papers:
-            writer.writerow(paper)
+            writer.writerow({
+                "doi": paper.get("doi", ""),
+                "title": paper.get("title", ""),
+                "journal": paper.get("journal", ""),
+                "year": paper.get("year", ""),
+                "authors": paper.get("authors", ""),
+                "keywords": paper.get("keywords", ""),
+                "abstract_en": paper.get("abstract_en", ""),
+                "source": paper.get("source", "openalex"),
+                "tracking_group": paper.get("tracking_group", ""),
+                "found_at": str(now),
+                "status": "pending",
+            })
 
 
 def write_log(date_str, group_results):
@@ -385,10 +410,10 @@ def write_log(date_str, group_results):
         content += f"## {grp['name']}\\n\\n"
         content += f"- 搜索表达式：\`{grp['expression']}\`\\n"
         content += f"- 检索到：{grp['total_found']} 篇\\n"
-        content += f"- 新增：{len(grp['new_papers'])} 篇\\n\\n"
+        content += f"- 新增候选：{len(grp['new_papers'])} 篇\\n\\n"
 
         if grp["new_papers"]:
-            content += "### 新增文献\\n\\n"
+            content += "### 新增候选（待裁决）\\n\\n"
             for p in grp["new_papers"]:
                 doi = p["doi"] or "no-doi"
                 title = p["title"] or "(无标题)"
@@ -424,9 +449,9 @@ def main():
         print("[INFO] 没有启用的关键词组，跳过追踪。")
         return 0
 
-    # 加载已有 DOI
-    existing_dois = load_existing_dois()
-    print(f"[INFO] 已有文献数: {len(existing_dois)}")
+    # 加载已见过的 DOI（文献库 ∪ 候选表）
+    existing_dois = load_seen_dois()
+    print(f"[INFO] 已见过的 DOI 数: {len(existing_dois)}")
 
     # 逐组搜索
     group_results = []
@@ -461,12 +486,12 @@ def main():
         # OpenAlex 礼貌等待
         time.sleep(0.5)
 
-    # 保存新文献
+    # 写入「候选」（筛选制：等用户在追踪页裁决，**不直接进文献库**）
     if all_new_papers:
-        print(f"\\n[INFO] 共新增 {len(all_new_papers)} 篇文献，写入 CSV...")
-        append_literatures(all_new_papers)
+        print(f"\\n[INFO] 共 {len(all_new_papers)} 篇候选，写入 tracking/inbox.csv ...")
+        append_candidates(all_new_papers)
     else:
-        print("\\n[INFO] 没有新文献。")
+        print("\\n[INFO] 没有新的候选文献。")
 
     # 写日志
     write_log(date_str, group_results)
@@ -564,6 +589,7 @@ export const WORKSPACE_SKELETON: SkeletonFile[] = [
   { path: 'keyword_groups/keyword_groups.csv', content: CSV_HEADERS.keyword_groups + '\n' },
   { path: 'textbooks/textbooks.csv', content: CSV_HEADERS.textbooks + '\n' },
   { path: 'projects/projects.csv', content: CSV_HEADERS.projects + '\n' },
+  { path: 'tracking/inbox.csv', content: CSV_HEADERS.tracking_inbox + '\n' },
 
   { path: 'templates/journals/_sample-generic/meta.md', content: SAMPLE_JOURNAL_META },
   { path: 'templates/journals/_sample-generic/template.tex', content: SAMPLE_JOURNAL_TEMPLATE },
@@ -626,4 +652,7 @@ export const PIPELINE_FILES = [
   { path: '.github/workflows/latex_compile.yml', raw: LATEX_COMPILE_YML },
   { path: '.github/workflows/book_convert.yml', raw: BOOK_CONVERT_YML },
   { path: '.github/scripts/book_convert.mjs', raw: BOOK_CONVERT_MJS },
+  // 每日追踪（筛选制）：放进 PIPELINE_FILES 才能被「重装后端」更新到老私库
+  { path: '.github/workflows/daily-tracking.yml', raw: DAILY_TRACKING_YML },
+  { path: '.github/scripts/daily_tracking.py', raw: DAILY_TRACKING_SCRIPT },
 ] as const

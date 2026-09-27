@@ -35,7 +35,15 @@ import { normalizeDoi, getCitationEntries } from '../services/citation'
 import { DoiLink } from '../components/DoiLink'
 import { readCsvFile, writeCsvFile } from '../services/userData'
 import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
+import {
+  loadTrackingInbox,
+  saveTrackingInbox,
+  pendingCandidates,
+  type TrackingCandidate,
+} from '../services/trackingData'
+import { dispatchDailyTracking, waitForDailyTracking } from '../services/workflowClient'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useAuthStore } from '../stores/auth'
 
 // ============================================================
 // 类型定义
@@ -46,6 +54,10 @@ interface KeywordGroup {
   name: string
   keywords: string[]
   enabled: boolean
+  /** 后端列 translate_abstract（前端暂未暴露开关，读取时保留原值） */
+  translateAbstract: boolean
+  /** 后端列 created_at（Unix 秒） */
+  createdAt: number
 }
 
 interface JournalItem {
@@ -82,16 +94,6 @@ interface SearchSite {
   color: string
 }
 
-interface TrackedPaper {
-  id: string
-  title: string
-  authors: string
-  year: number
-  journal: string
-  doi: string
-  source: string
-}
-
 // ============================================================
 // 常量
 // ============================================================
@@ -104,14 +106,8 @@ const DEFAULT_SEARCH_SITES: SearchSite[] = [
   { id: 'arxiv', name: 'arXiv', urlTemplate: 'https://arxiv.org/search/?query={query}&searchtype=all', color: 'bg-ink-100 text-ink-600' },
 ]
 
-const TRACKING_SOURCES = [
-  { label: 'CrossRef', count: 0, color: 'text-ink-400' },
-  { label: 'OpenAlex', count: 0, color: 'text-ink-400' },
-  { label: 'arXiv', count: 0, color: 'text-ink-400' },
-  { label: 'RSS', count: 0, color: 'text-ink-400' },
-]
-
-const DEMO_TRACKED_PAPERS: TrackedPaper[] = []
+/** 追踪来源（计数按「候选」实算，不再写死 0） */
+const TRACKING_SOURCES = ['CrossRef', 'OpenAlex', 'arXiv', 'RSS']
 
 // ============================================================
 // SPEC §0/§2.3：用户数据全部存 GitHub 私库，不使用 localStorage。
@@ -166,9 +162,10 @@ export default function TrackingPage() {
   const [searchFormColor, setSearchFormColor] = useState('bg-seal-50 text-seal-600')
   const searchDropdownRef = useRef<HTMLDivElement>(null)
 
-  // ---------- 立即追踪 ----------
+  // ---------- 立即追踪 / 候选 ----------
   const [isTracking, setIsTracking] = useState(false)
-  const [trackedPapers, setTrackedPapers] = useState<TrackedPaper[]>(DEMO_TRACKED_PAPERS)
+  /** 追踪候选（tracking/inbox.csv）：含「待裁决」与「已忽略」两类，页面只显示待裁决 */
+  const [inbox, setInbox] = useState<TrackingCandidate[]>([])
 
   // ============================================================
   // 持久化（全部存 GitHub 私库，不使用 localStorage —— SPEC §0/§2.3）
@@ -188,8 +185,11 @@ export default function TrackingPage() {
             return rows.slice(1).map((r) => ({
               id: r[0] || '',
               name: r[1] || '',
-              keywords: (r[2] || '').split(',').filter(Boolean),
+              // expression 是给 OpenAlex 的检索式：空格或逗号分隔都认
+              keywords: (r[2] || '').split(/[,\s]+/).filter(Boolean),
               enabled: r[3] === '1' || r[3] === 'true',
+              translateAbstract: r[4] === '1' || r[4] === 'true',
+              createdAt: parseInt(r[5] || '0', 10) || 0,
             }))
           },
         )
@@ -218,6 +218,14 @@ export default function TrackingPage() {
         }
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载期刊失败:', err)
+      }
+
+      // 追踪候选（后端「每日追踪」的产物，不再是前端占位数据）
+      try {
+        const inboxRows = await loadTrackingInbox()
+        if (!cancelled) setInbox(inboxRows)
+      } catch (err) {
+        console.warn('[Tracking] 从 GitHub 加载追踪候选失败:', err)
       }
 
       // 搜索源从 GitHub 私库加载
@@ -271,8 +279,18 @@ export default function TrackingPage() {
         await writeCsvFile(
           'keyword_groups/keyword_groups.csv',
           keywordGroups,
-          ['id', 'name', 'keywords', 'enabled'],
-          (g) => [g.id, g.name, g.keywords.join(','), g.enabled ? '1' : '0'],
+          // ⚠️ 表头必须与骨架 CSV_HEADERS.keyword_groups 逐字一致：
+          //   后端 daily_tracking.py 按 group_id / group_name / expression 读取，
+          //   字段名对不上（例如写成 keywords）后端就取不到关键词。
+          ['group_id', 'group_name', 'expression', 'enabled', 'translate_abstract', 'created_at'],
+          (g) => [
+            g.id,
+            g.name,
+            g.keywords.join(' '),
+            g.enabled ? 'true' : 'false',
+            g.translateAbstract ? 'true' : 'false',
+            String(g.createdAt || Date.now()),
+          ],
         )
       } catch (err) {
         console.error('[Tracking] 保存关键词组到 GitHub 失败:', err)
@@ -451,6 +469,8 @@ export default function TrackingPage() {
         name: keywordFormName.trim(),
         keywords: keywordFormKeywords,
         enabled: true,
+        translateAbstract: false,
+        createdAt: Date.now(),
       }
       setKeywordGroups((prev) => [...prev, newGroup])
       toast.success('关键词组已创建')
@@ -653,53 +673,102 @@ export default function TrackingPage() {
   }
 
   // ============================================================
-  // 立即追踪
+  // 立即追踪（真触发后端 workflow，不再造假动画）
   // ============================================================
 
-  const handleTrackNow = () => {
+  const handleTrackNow = async () => {
     const enabledGroups = keywordGroups.filter((g) => g.enabled)
     const enabledJournals = journals.filter((j) => j.enabled)
     if (enabledGroups.length === 0 && enabledJournals.length === 0) {
       toast.error('请先启用至少一个关键词组或期刊')
       return
     }
+    const { token, user } = useAuthStore.getState()
+    if (!token || !user || !repo) {
+      toast.error('未登录或工作区未就绪')
+      return
+    }
+
     setIsTracking(true)
-    setTimeout(() => {
+    try {
+      const sinceIso = new Date().toISOString()
+      await dispatchDailyTracking(user.login, repo.name, token)
+      toast.message('已触发追踪，等待后端返回…')
+
+      const result = await waitForDailyTracking(user.login, repo.name, token, sinceIso)
+      if (result === 'failure') {
+        toast.error('追踪任务失败，请到 Actions 查看日志')
+      } else if (result === 'timeout') {
+        toast.message('后端仍在运行，稍后会自动出现在候选里')
+      }
+
+      const rows = await loadTrackingInbox(true)
+      setInbox(rows)
+      const n = pendingCandidates(rows).length
+      if (result === 'success') {
+        toast.success(n > 0 ? `追踪完成：${n} 篇待裁决` : '追踪完成：没有新的候选文献')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`追踪失败：${msg}`)
+    } finally {
       setIsTracking(false)
-      setTrackedPapers([])
-      toast.success('追踪完成，暂无新文献命中')
-    }, 1500)
+    }
   }
 
-  const handleAddPaperToLibrary = async (paper: TrackedPaper) => {
-    if (!paper.doi) {
-      toast.error('该文献缺少 DOI，无法入库')
+  // ============================================================
+  // 候选裁决：入库 / 忽略
+  // ============================================================
+
+  const handleIngestCandidate = async (c: TrackingCandidate) => {
+    if (!c.doi) {
+      toast.error('该候选缺少 DOI，无法入库')
       return
     }
     try {
       const newLit: Literature = {
-        doi: paper.doi,
-        title: paper.title,
-        journal: paper.journal,
-        year: paper.year,
-        authors: paper.authors,
-        keywords: '',
-        abstractEn: '',
+        doi: c.doi,
+        title: c.title,
+        journal: c.journal,
+        year: c.year,
+        authors: c.authors,
+        keywords: c.keywords,
+        abstractEn: c.abstractEn,
         abstractCn: '',
         tier: 0,
         hasGraphicalAbstract: false,
         addedAt: Date.now(),
         pdfAddedAt: 0,
-        source: paper.source || '追踪',
-        trackingGroup: '',
+        source: c.source || '追踪',
+        trackingGroup: c.trackingGroup,
         mdStatus: 'none',
         correspondingAuthor: '',
       }
       const status = await addLiteratureToLibrary(newLit)
-      toastAdded(paper.title, status)
+      // 入库后从候选里移除：它已经在 literatures.csv，后续靠 DOI 去重
+      const next = inbox.filter((r) => r.doi !== c.doi)
+      await saveTrackingInbox(next)
+      setInbox(next)
+      toastAdded(c.title, status)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`入库失败：${msg}`)
+    }
+  }
+
+  const handleDismissCandidate = async (c: TrackingCandidate) => {
+    try {
+      // 保留这一行、标 dismissed：否则明天追踪会把同一篇又命中一遍、重新冒出来
+      const next = inbox.map((r) =>
+        r.doi === c.doi ? { ...r, status: 'dismissed' as const } : r,
+      )
+      await saveTrackingInbox(next)
+      setInbox(next)
+      const short = c.title.slice(0, 40)
+      toast.message(`已忽略：${short}${c.title.length > 40 ? '...' : ''}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`忽略失败：${msg}`)
     }
   }
 
@@ -709,6 +778,12 @@ export default function TrackingPage() {
 
   const enabledKeywordGroupCount = keywordGroups.filter((g) => g.enabled).length
   const enabledJournalCount = journals.filter((j) => j.enabled).length
+
+  /** 待裁决的候选（页面只显示这些；已忽略的留在 inbox 里做去重） */
+  const candidates = pendingCandidates(inbox)
+  /** 各来源的命中数（按候选实算） */
+  const sourceCount = (label: string) =>
+    candidates.filter((c) => (c.source || '').toLowerCase() === label.toLowerCase()).length
 
   // ============================================================
   // 颜色选项
@@ -794,12 +869,17 @@ export default function TrackingPage() {
 
             {/* 追踪源统计 */}
             <div className="grid grid-cols-4 gap-3 text-center">
-              {TRACKING_SOURCES.map((source) => (
-                <div key={source.label} className="p-3 bg-paper-100 rounded-lg">
-                  <div className={`text-lg font-bold ${source.color}`}>{source.count}</div>
-                  <div className="text-xs text-ink-500">{source.label}</div>
-                </div>
-              ))}
+              {TRACKING_SOURCES.map((label) => {
+                const count = sourceCount(label)
+                return (
+                  <div key={label} className="p-3 bg-paper-100 rounded-lg">
+                    <div className={`text-lg font-bold ${count > 0 ? 'text-ink-700' : 'text-ink-300'}`}>
+                      {count}
+                    </div>
+                    <div className="text-xs text-ink-500">{label}</div>
+                  </div>
+                )
+              })}
             </div>
           </div>
 
@@ -889,55 +969,91 @@ export default function TrackingPage() {
 
           {/* ---------- 追踪结果 ---------- */}
           <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
-            <h2 className="font-semibold text-ink-800 mb-4 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-seal-600" />
-              追踪结果
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-ink-800 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-seal-600" />
+                追踪结果
+                {candidates.length > 0 && (
+                  <span className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
+                    {candidates.length} 篇待裁决
+                  </span>
+                )}
+              </h2>
+              {inbox.some((r) => r.status === 'dismissed') && (
+                <span className="text-xs text-ink-400">
+                  已忽略 {inbox.filter((r) => r.status === 'dismissed').length} 篇（不再重复出现）
+                </span>
+              )}
+            </div>
 
-            {trackedPapers.length === 0 ? (
+            {candidates.length === 0 ? (
               <div className="text-center py-12 text-ink-400">
                 <Rss className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm font-medium">今日暂无新文献</p>
-                <p className="text-xs mt-1">配置关键词组或期刊后自动追踪</p>
+                <p className="text-sm font-medium">暂无待裁决的文献</p>
+                <p className="text-xs mt-1">点「立即追踪」，或等每天自动追踪把命中的文献放进候选</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {trackedPapers.map((paper) => (
+                {candidates.map((paper) => (
                   <div
-                    key={paper.id}
+                    key={paper.doi}
                     className="p-4 border border-ink-200 rounded-lg hover:border-seal-200 hover:bg-seal-50/30 transition"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium text-ink-800 text-sm leading-snug mb-2">
-                          {paper.title}
+                          {paper.title || '(无标题)'}
                         </h3>
                         <p className="text-xs text-ink-500 mb-1.5">
                           {paper.authors}
                         </p>
                         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-ink-400">
-                          <span>{paper.year}</span>
-                          <span className="text-ink-300">·</span>
-                          <span className="text-seal-600">{paper.journal}</span>
+                          {paper.year > 0 && <span>{paper.year}</span>}
+                          {paper.journal && (
+                            <>
+                              <span className="text-ink-300">·</span>
+                              <span className="text-seal-600">{paper.journal}</span>
+                            </>
+                          )}
                           {paper.doi && (
                             <>
                               <span className="text-ink-300">·</span>
                               <DoiLink doi={paper.doi} mode="label" showIcon className="text-xs inline-flex items-center gap-0.5" />
                             </>
                           )}
-                          <span className="text-ink-300">·</span>
-                          <span className="px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded">
-                            {paper.source}
-                          </span>
+                          {paper.source && (
+                            <>
+                              <span className="text-ink-300">·</span>
+                              <span className="px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded">
+                                {paper.source}
+                              </span>
+                            </>
+                          )}
+                          {paper.trackingGroup && (
+                            <>
+                              <span className="text-ink-300">·</span>
+                              <span className="text-ink-400">来自「{paper.trackingGroup}」</span>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleAddPaperToLibrary(paper)}
-                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs font-medium rounded-lg hover:bg-seal-700 transition"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        入库
-                      </button>
+                      <div className="flex-shrink-0 flex items-center gap-2">
+                        <button
+                          onClick={() => handleDismissCandidate(paper)}
+                          title="忽略这篇（以后不再出现）"
+                          className="flex items-center gap-1.5 px-3 py-1.5 border border-ink-200 text-ink-500 text-xs font-medium rounded-lg hover:bg-ink-100 transition"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          忽略
+                        </button>
+                        <button
+                          onClick={() => handleIngestCandidate(paper)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs font-medium rounded-lg hover:bg-seal-700 transition"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          入库
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
