@@ -175,11 +175,13 @@ export async function writePipelineFiles(
 }
 
 /**
- * 7 个必需 Secrets 的模板（用户从 Settings 页面复制粘贴到 GitHub）
+ * 8 个必需 Secrets 的模板（用户从 Settings 页面复制粘贴到 GitHub）
  */
 export const REQUIRED_SECRETS = [
   { name: 'MINERU_API_TOKEN',   from: 'MinerU 设置页面（https://op.mineru.ai）',
     hint: 'MinerU 用户中心生成的 API token' },
+  { name: 'SIMPLETEX_TOKEN',    from: 'SimpleTex 用户中心（https://simpletex.cn/user/center）',
+    hint: '「用户授权令牌」里的 UAT，公式识图用（只有一个 key）' },
   { name: 'AI1_BASE_URL',       from: '你选择的 AI Provider 控制台',
     hint: 'AI-1（生成位）的 API base URL，如 https://api.deepseek.com/v1' },
   { name: 'AI1_API_KEY',        from: '你选择的 AI Provider 控制台',

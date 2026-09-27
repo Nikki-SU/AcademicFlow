@@ -20,6 +20,7 @@
  */
 import { getSetting, SETTING_KEYS } from './db'
 import { uploadRepoBinaryFile, readRepoTextFile } from './github'
+import { listRepoSecrets } from './repoSecrets'
 import { dispatchAiCall } from './workflowClient'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -45,6 +46,34 @@ function getBackendContext(): { token: string; owner: string; repo: string } {
     throw new Error('未登录或私库未配置 — 无法触发后端识图服务')
   }
   return { token, owner, repo }
+}
+
+/**
+ * 决定这次识图用哪个令牌 —— 本机没有时，看私库 Secrets 里有没有兜底。
+ *
+ * 令牌有两个来源：本机 IndexedDB（设置页填的）和私库 Actions Secrets
+ * 的 `SIMPLETEX_TOKEN`（前端同步上去的）。本机那份会被清浏览器清掉，
+ * 所以本机为空时不能直接判死刑 —— 先去私库确认 secret 在不在：
+ *   - 在 → 返回空串，让 runner 用环境变量兜底（不白等一轮 Actions）
+ *   - 不在 → 当场给人话，而不是让用户等一分钟才知道缺令牌
+ */
+async function resolveSimpleTexToken(
+  cred: SimpleTexCredentials,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<string> {
+  if (cred.token) return cred.token
+  try {
+    const secrets = await listRepoSecrets(owner, repo, token)
+    if (secrets.some((s) => s.name === 'SIMPLETEX_TOKEN')) return ''
+  } catch {
+    // 查不到 secret 列表（权限/网络）按"没有"处理，交给下面报错
+  }
+  throw new Error(
+    '还没配置 SimpleTex 令牌。请到「设置 → 文献处理 → SimpleTex 令牌」填入 UAT —— ' +
+      '填好后会自动同步到私库 Secrets，换设备或清了浏览器也还在。',
+  )
 }
 
 /** 猜图片后缀（结果文件命名用，不影响识别） */
@@ -110,11 +139,10 @@ export async function recognizeFormulaImage(
   model: SimpleTexModel = 'standard',
   onStage?: (stage: SimpleTexStage) => void,
 ): Promise<SimpleTexResult> {
-  if (!cred.token) {
-    throw new Error('还没配置 SimpleTex 令牌。请到「设置 → 文献处理 → SimpleTex 令牌」里填入 UAT。')
-  }
-
   const { token: ghToken, owner, repo } = getBackendContext()
+
+  // 本机没有令牌不直接判死刑：私库 Secrets 里可能还存着（清浏览器 / 换设备）
+  const effectiveToken = await resolveSimpleTexToken(cred, owner, repo, ghToken)
 
   const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const imagePath = `temp/ai/ocr/ocr_${stamp}.${extOf(file)}`
@@ -132,7 +160,8 @@ export async function recognizeFormulaImage(
   onStage?.('dispatch')
   await dispatchAiCall(
     taskId, 'simpletex_ocr',
-    { image_path: imagePath, model, token: cred.token },
+    // token 为空时不传 —— runner 会用私库的 SIMPLETEX_TOKEN 环境变量兜底
+    { image_path: imagePath, model, token: effectiveToken || undefined },
     outputPath, 1, owner, repo, ghToken,
   )
 

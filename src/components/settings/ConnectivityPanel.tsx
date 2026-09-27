@@ -301,6 +301,7 @@ export default function ConnectivityPanel() {
         customAi2ApiKey: store.customAi2ApiKey,
         customAi2Model: store.customAi2Model,
         mineruToken: store.mineruToken,
+        simpletexToken: store.simpletexToken,
       })
       setSteps(() => RUNNER_STEP_DEFS.map((s) => ({
         ...s,
@@ -393,7 +394,8 @@ export default function ConnectivityPanel() {
   //  把返回的 LaTeX 原样贴出来。不是走过场的"绿灯"，是拿识别结果说话。
   const runSimpleTexTest = useCallback(async () => {
     if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
-    if (!simpletexToken.trim()) { toast.warning('请先填写 SimpleTex 令牌（UAT）'); return }
+    // 不强制本机填了令牌：私库 Secrets 里可能存着 SIMPLETEX_TOKEN（换设备/清过浏览器），
+    // 真两处都没有时，recognizeFormulaImage 会当场给出人话。
     setStTesting(true)
     setStLatex(null)
     setStError(null)
@@ -537,11 +539,11 @@ export default function ConnectivityPanel() {
       <TestBlock
         icon={<Sigma className="w-4 h-4" />}
         title="SimpleTex (公式识图)"
-        subtitle="用内置公式样张走完整链路，真调 SimpleTex 并回吐 LaTeX"
+        subtitle="用内置公式样张走完整链路，真调 SimpleTex 并回吐 LaTeX（本机没填令牌时用私库 Secrets 兜底）"
         tone={stTesting ? 'running' : stLatex ? 'ok' : stError ? 'err' : 'idle'}
         buttonLabel={stTesting ? '测试中...' : '端到端测试'}
         onButton={runSimpleTexTest}
-        buttonDisabled={stTesting || !owner || !repo || !simpletexToken.trim()}
+        buttonDisabled={stTesting || !owner || !repo}
       >
         <div className="flex items-start gap-3">
           <img

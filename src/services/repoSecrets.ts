@@ -156,9 +156,10 @@ export async function putRepoSecrets(
   return { results, errors }
 }
 
-/** 支持写入的 7 个 AI/MinerU secrets 名字 */
+/** 支持写入的 8 个 AI/MinerU/SimpleTex secrets 名字 */
 export const AI_SECRET_NAMES = [
   'MINERU_API_TOKEN',
+  'SIMPLETEX_TOKEN',
   'AI1_BASE_URL', 'AI1_API_KEY', 'AI1_MODEL',
   'AI2_BASE_URL', 'AI2_API_KEY', 'AI2_MODEL',
 ] as const
@@ -227,6 +228,9 @@ export interface SyncAllSecretsInput {
   /** AI-2 位的 DeepSeek key（与 AI-1 位字段平等独立） */
   deepseekApiKey2: string
   mineruToken: string
+  /** SimpleTex 公式识图令牌（UAT）——同步到 secrets 做持久化，
+   *  浏览器被清空后 runner 仍能靠 SIMPLETEX_TOKEN 环境变量兜底 */
+  simpletexToken: string
 }
 
 /**
@@ -253,7 +257,7 @@ export async function syncAllSecrets(
     )
   }
 
-  // 根据 provider 模式拼装 —— 7 个 secrets 全部塞进去。
+  // 根据 provider 模式拼装 —— 8 个 secrets 全部塞进去。
   // AI-1 / AI-2 两端完全对称：各自 provider + 各自槽位 key + 各自模型。
   const mode = s.aiProviderMode
   let baseUrl1: string, apiKey1: string, model1: string
@@ -293,6 +297,7 @@ export async function syncAllSecrets(
 
   const secretsMap: Record<AiSecretName, string> = {
     MINERU_API_TOKEN: s.mineruToken,
+    SIMPLETEX_TOKEN: s.simpletexToken,
     AI1_BASE_URL:    baseUrl1,
     AI1_API_KEY:     apiKey1,
     AI1_MODEL:       model1,

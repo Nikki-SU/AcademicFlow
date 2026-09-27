@@ -86,7 +86,7 @@ export default function BackendCapabilitiesPanel() {
         后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上。你需要在私库安装
         <b> paper_convert.yml / book_convert.yml / ai_call.yml </b>
         三个主 workflow（外加两个连通性自测 workflow，以及「云端编译」用的
-        <b> latex_compile.yml</b>），并配置 7 个 Secrets。<b>老用户</b>：点"检测"看看私库是否已经升级。
+        <b> latex_compile.yml</b>），并配置 8 个 Secrets。<b>老用户</b>：点"检测"看看私库是否已经升级。
       </p>
 
       {/* 状态条 */}
@@ -170,12 +170,12 @@ export default function BackendCapabilitiesPanel() {
       <details className="border border-ink-200 rounded-md overflow-hidden">
         <summary className="cursor-pointer px-3 py-2 bg-paper-100 hover:bg-ink-100 text-sm font-medium text-ink-800 flex items-center gap-2">
           <Wrench className="w-4 h-4 text-seal-600" />
-          7 个必需 Secrets（点击展开查看模板）
+          8 个必需 Secrets（点击展开查看模板）
         </summary>
         <div className="p-3 space-y-2">
           <p className="text-xs text-ink-600 leading-relaxed">
             上一步"重写后端"只是把 workflow 文件塞进了你的私库。要让 pipeline 真跑起来，必须在 GitHub
-            Settings → Secrets and variables → Actions 里创建下面 7 个 Repository Secret。
+            Settings → Secrets and variables → Actions 里创建下面 8 个 Repository Secret。
           </p>
           <div className="grid gap-1.5">
             {REQUIRED_SECRETS.map(s => (

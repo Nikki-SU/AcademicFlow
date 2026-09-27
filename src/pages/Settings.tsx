@@ -214,7 +214,7 @@ function Settings() {
 
   /** ──── Secrets 自动同步 + 验证（前端 → GitHub Actions Secrets） ────
    *
-   *  行为：每次配置变了 → debounce 800ms → syncAllSecrets 把 7 个都 PUT 到 GitHub
+   *  行为：每次配置变了 → debounce 800ms → syncAllSecrets 把 8 个都 PUT 到 GitHub
    *        → 等 1.5s GitHub 索引 → GET list 回查确认存在
    *        → 每条结果存进 state，UI 一条条亮给用户看（拒绝黑箱）
    *  mount 后自动跑一次（didMountSyncRef 确保只跑一次）
@@ -254,6 +254,7 @@ function Settings() {
         customAi2ApiKey,
         customAi2Model,
         mineruToken,
+        simpletexToken,
       })
       setSecretItems(items)
       didMountSyncRef.current = true
@@ -284,6 +285,7 @@ function Settings() {
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
+    simpletexToken,
   ])
 
   // mount 后强制 sync 一次（即便依赖项没变）
@@ -552,7 +554,9 @@ function Settings() {
                   SimpleTex 用户中心
                 </a>{' '}
                 的「用户授权令牌」里创建（SimpleTex 只签发这一把钥匙，没有 APP Secret）。
-                仅存本机，识图时临时传给后端，不写进私库。
+                填入后会自动同步到私库 Actions Secrets（SIMPLETEX_TOKEN）——
+                <b className="font-medium text-ink-500">本机这份丢了也还在</b>，
+                识图时临时传给后端。
               </p>
             </SubBlock>
 
