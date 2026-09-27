@@ -98,10 +98,14 @@ const DEFAULT_SETTINGS: SettingsData = {
   thinkingTag: 'off',
   thinkingTranslate: 'off',
   thinkingWords: 'off',
-  // 槽位级默认「不干预」：交互式调用（问 AI / 双引擎 / 联网检索）以前就没发过
-  // thinking 字段，默认值必须是「什么都不发」，否则等于替用户改了一次行为。
-  thinkingAi1: '',
-  thinkingAi2: '',
+  // 槽位级（交互式调用：问 AI / 双引擎 / 联网检索）同样默认「关」。
+  // 这些调用绝大多数是格式搬运 / 抽取类任务，没有需要推演的推理链；开思考只会
+  // 抢正文的输出预算、把单次调用拖过超时线。实测（deepseek-v4-pro，97 KB 的稿子）：
+  // 默认开推理时正文写到 77899 字符就撞上 32000 的 max_tokens 被截断（其中 12711
+  // 被推理吃掉）；关掉后同一篇正文 179890 字符、finish=stop 完整返回。
+  // 想要推理时可在设置里逐槽位手选 low/high/max；'' 仍表示「不干预」（什么都不发）。
+  thinkingAi1: 'off',
+  thinkingAi2: 'off',
 }
 
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */

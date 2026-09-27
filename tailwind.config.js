@@ -8,8 +8,18 @@ export default {
       fontFamily: {
         /* preflight 用 sans 设 html */
         sans: appFont,
-        /* 代码/LaTeX 区必须等宽：用同族的文楷等宽切版，再兜到系统等宽 */
-        mono: ['"LXGW WenKai Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        /*
+         * 代码 / LaTeX 相关一律等宽。
+         * 字族栈**必须西文等宽在前**：以前的写法把「LXGW WenKai Mono」排在第一位，
+         * 而文楷等宽自带一套西文字面 —— 于是每一处 font-mono 里的英文和数字
+         * （字数、模板 documentclass、DOI、哈希…）都长得像中文楷体，跟正文的
+         * Crimson 割裂得很明显。
+         * 现在西文走系统等宽（ui-monospace → SFMono → Menlo → Consolas），
+         * 中文没有这些字形的字符再落到文楷等宽兜底（保证代码里中文注释仍然对齐），
+         * 最后 monospace 保底。
+         * 全站唯一来源是 index.css :root 里的 --font-mono，这里只引用它。
+         */
+        mono: ['var(--font-mono)'],
       },
       colors: {
         paper: {

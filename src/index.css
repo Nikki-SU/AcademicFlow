@@ -46,6 +46,16 @@
    * 否则同一篇稿子在两处长得不一样。改这里两处一起变。
    */
   --af-zebra-ink: rgba(132, 204, 22, 0.1);
+  /*
+   * 全站等宽字族（代码 / LaTeX 相关）—— 唯一来源。
+   * Tailwind 的 font-mono 与本文件里的两处 font-family 都引用它。
+   *
+   * 顺序不能改：西文等宽在前，中文落到末尾的文楷等宽。
+   * 反过来（文楷等宽排第一）会让英文和数字都穿上文楷的字面，
+   * 与正文的 Crimson 摆在一起非常割裂。
+   */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+    'LXGW WenKai Mono', monospace;
 }
 
 /*
