@@ -6,8 +6,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
+  CalendarDays,
   Search,
   BookOpen,
+  Users,
   GraduationCap,
   PenTool,
   FolderCog,
@@ -25,8 +27,13 @@ import { subscribeGlobalAuthError, clearGlobalAuthError } from '../services/auth
 import { useOrientation } from '../hooks/useOrientation'
 
 const tabs = [
+  // 日程是跨项目的「总页面」，排在所有页面最前面（见 架构.md §2）
+  { path: '/schedule', label: '日程', icon: CalendarDays },
   { path: '/tracking', label: '追踪', icon: Search },
   { path: '/reading', label: '阅读', icon: BookOpen },
+  // TODO(架构调整): 应按「当前项目 type」显示「会议」/「课程」；
+  // 项目体系（type 属性 / 当前任务）尚未落地，先写死双语标签。见 架构.md §2
+  { path: '/session', label: '会议/课程', icon: Users },
   { path: '/learn', label: '学习', icon: GraduationCap },
   { path: '/writing', label: '写作', icon: PenTool },
   { path: '/management', label: '管理', icon: FolderCog },

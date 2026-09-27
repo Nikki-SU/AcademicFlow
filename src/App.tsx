@@ -1,7 +1,9 @@
 /**
  * App 根组件：路由 + 全局初始化 + 路由保护
  * -------------------------------------------------
- * 顶部 Tab 导航布局，5 个核心页面（spec §5）
+ * 顶部 Tab 导航布局。
+ * 导航顺序（见 Layout.tsx 的 tabs）：日程 / 追踪 / 阅读 / 会议·课程 / 学习 / 写作 / 管理
+ * （其中「日程」「会议·课程」是架构调整新增的空壳页，见 架构.md §2）
  */
 import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
@@ -9,8 +11,10 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import Settings from './pages/Settings'
+import SchedulePage from './pages/Schedule'
 import TrackingPage from './pages/Tracking'
 import ReadingPage from './pages/Reading'
+import SessionPage from './pages/Session'
 import LearnPage from './pages/Learn'
 import WritingPage from './pages/Writing'
 import ManagementPage from './pages/Management'
@@ -84,8 +88,10 @@ function AppLayout() {
   return (
     <Layout>
       <Routes>
+        <Route path="/schedule" element={<SchedulePage />} />
         <Route path="/tracking" element={<TrackingPage />} />
         <Route path="/reading" element={<ReadingPage />} />
+        <Route path="/session" element={<SessionPage />} />
         <Route path="/learn" element={<LearnPage />} />
         <Route path="/writing" element={<WritingPage />} />
         <Route path="/management" element={<ManagementPage />} />
