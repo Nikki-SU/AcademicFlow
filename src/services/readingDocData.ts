@@ -88,6 +88,14 @@ export interface ReadingProgress {
    * 而不是被打回默认的"原文"。只有文献有这个概念，图书/其他文档为空。
    */
   mode?: string
+  /**
+   * 兜底锚点：读到的那个正文块（data-block-id，如 b-42 / en-42 / cn-42）。
+   * 很多 MinerU 出来的正文根本没有 h1~h6（小节标题被排成了普通段落），
+   * 只记标题的话这种文档永远存不下进度 —— 所以块锚点是真正保底的那一层。
+   */
+  block?: string
+  /** 再兜底：整篇滚动比例 0~1。连块都找不到了（重排版/换模式）就回到大概位置 */
+  ratio?: number
   /** ISO 时间，落盘后可直接看懂是什么时候读的 */
   updated_at: string
 }
@@ -98,7 +106,10 @@ export async function loadProgress(ref: DocRef): Promise<ReadingProgress | null>
   if (!result?.content) return null
   try {
     const parsed = JSON.parse(result.content) as ReadingProgress
-    return parsed?.heading || parsed?.anchor ? parsed : null
+    // 有任意一种定位信息就算有效：标题 / 标题锚点 / 块锚点 / 滚动比例
+    const usable =
+      !!(parsed?.heading || parsed?.anchor || parsed?.block) || typeof parsed?.ratio === 'number'
+    return usable ? parsed : null
   } catch {
     return null
   }

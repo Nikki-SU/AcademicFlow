@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, inferMdStatusByDoi, type Literature } from '../services/literatureData'
-import { loadTextbooks, saveTextbooks, type Textbook } from '../services/textbookData'
+import { loadTextbooks, saveTextbooks, bookHasContent, type Textbook } from '../services/textbookData'
 import { loadCategories, saveCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import {
   loadBookCategories,
@@ -82,7 +82,6 @@ import {
   FileJson,
   BookText,
   Github,
-  Layers,
   Sparkles,
   ExternalLink,
   CheckSquare,
@@ -181,14 +180,6 @@ function toTemplateItem(t: BackendJournalTemplate): JournalTemplateItem {
   }
 }
 
-interface BookVolume {
-  id: string
-  volume: number
-  pageRange: string
-  status: 'converting' | 'done' | 'failed'
-  progress: number
-}
-
 interface BookItem {
   id: string
   title: string
@@ -199,8 +190,6 @@ interface BookItem {
   status: 'uploading' | 'converting' | 'done' | 'failed'
   coverImage?: string
   progress: number
-  volumes?: BookVolume[]
-  isSplit: boolean
   categoryIds: string[]
 }
 
@@ -326,7 +315,6 @@ function textbookToBookItem(tb: Textbook, categories: Category[]): BookItem {
     addedAt: tb.addedAt,
     status: 'done',
     progress: 100,
-    isSplit: false,
     // 分类关系存在 textbooks/categories.csv，主键是书名（= textbook_id）
     categoryIds: categoriesOfMember(categories, tb.textbookId),
   }
@@ -902,6 +890,24 @@ export default function ManagementPage() {
               // 连 run_id 都没有：改用 GitHub 实际产物文件推断终态。
               // 否则后端已完成、progress.json 被清理、run_id 又丢失时，
               // 任务会永远卡在 words_verify/running 打转。
+              //
+              // 图书没有 doi，得走 textbooks/{书名}/ 的产物判断（content.md 在 = 转换完成）；
+              // 之前这里对图书直接 `if (!task.doi) continue`，于是图书跑完后永远停在
+              // 最后一帧 mineru_download —— 就是这个 bug。
+              if (isBook) {
+                const hasContent = await bookHasContent(slug)
+                if (hasContent === true) {
+                  await tq.update_task(task.id, {
+                    status: 'done',
+                    stage: 'done',
+                    node_index: STAGE_META.done.node,
+                    progress: 100,
+                    message: '转换完成（根据产物文件推断）',
+                    updated_at: Date.now(),
+                  })
+                }
+                continue
+              }
               if (!task.doi) continue
               const inferred = await inferMdStatusByDoi(task.doi)
               if (inferred === 'done') {
@@ -2076,8 +2082,6 @@ export default function ManagementPage() {
         addedAt: Date.now(),
         status: 'converting' as const,
         progress: 5,
-        isSplit: false,
-        volumes: undefined,
         categoryIds: uploadBookCategories,
       }
     })
@@ -3243,12 +3247,6 @@ export default function ManagementPage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium text-ink-800 line-clamp-2">{book.title}</p>
                         <BookStatusBadge status={book.status} />
-                        {book.isSplit && book.status === 'done' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-seal-100 text-seal-700 text-xs font-medium rounded-full shrink-0">
-                            <Layers className="w-3 h-3" />
-                            共{book.volumes?.length || 0}卷
-                          </span>
-                        )}
                       </div>
                       <p className="text-xs text-ink-500 truncate mt-0.5">{book.author}</p>
                       <p className="text-xs text-ink-400 truncate">
@@ -4465,58 +4463,6 @@ export default function ManagementPage() {
                 </div>
               )}
             </div>
-
-            {showBookDetail.isSplit && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Layers className="w-4 h-4 text-seal-600" />
-                  <h4 className="text-sm font-medium text-ink-700">分卷列表（超过200页按180页切分）</h4>
-                </div>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {showBookDetail.volumes?.map((vol) => (
-                    <div key={vol.id} className="flex items-center gap-3 p-3 bg-paper-100 rounded-lg border border-ink-100">
-                      <div className="w-8 h-8 flex items-center justify-center bg-seal-100 text-seal-600 rounded-md text-sm font-bold">
-                        {vol.volume}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-ink-700">第 {vol.volume} 卷</p>
-                        <p className="text-xs text-ink-500">{vol.pageRange}</p>
-                      </div>
-                      <div className="w-24">
-                        {vol.status === 'done' ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-green-600">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            已完成
-                          </span>
-                        ) : vol.status === 'converting' ? (
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex-1 h-1.5 bg-ink-200 rounded-full overflow-hidden">
-                              <div className="h-full bg-seal-500 rounded-full" style={{ width: `${vol.progress}%` }} />
-                            </div>
-                            <span className="text-xs text-ink-500 w-8">{vol.progress}%</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-red-600">失败</span>
-                        )}
-                      </div>
-                      {vol.status === 'done' && (
-                        <button className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!showBookDetail.isSplit && (
-              <div className="p-3 bg-seal-50/50 border border-seal-100 rounded-lg">
-                <p className="text-sm text-seal-700">
-                  本书页数少于200页，无需切分，单卷完整转换。
-                </p>
-              </div>
-            )}
           </div>
           <div className="flex items-center justify-between gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
@@ -4526,12 +4472,6 @@ export default function ManagementPage() {
               关闭
             </button>
             <div className="flex items-center gap-2">
-              {showBookDetail.status === 'done' && showBookDetail.isSplit && (
-                <button className="flex items-center gap-2 px-4 py-2 text-sm text-seal-600 bg-seal-50 border border-seal-200 hover:bg-seal-100 rounded-lg transition">
-                  <Layers className="w-4 h-4" />
-                  合并阅读
-                </button>
-              )}
               {showBookDetail.status === 'done' && (
                 <button className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition">
                   <Book className="w-4 h-4" />

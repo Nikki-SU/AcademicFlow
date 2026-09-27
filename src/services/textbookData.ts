@@ -134,3 +134,19 @@ export async function loadBookContent(bookId: string, force = false): Promise<st
   }
   return ''
 }
+
+/**
+ * 判断一本书的整本正文产物是否已经生成。
+ *
+ * 兜底用：book_convert 跑完时先写 `.progress.json {stage:done}` 再立刻删掉，
+ * 5s 一次的前端轮询基本抓不到那个 done（写和删之间只有几毫秒）。这时如果
+ * 任务里又没存住 run id，前端就会永远停在最后一帧 `mineru_download`。
+ * 所以直接看产物文件在不在 —— 在 = 转换确实完成了。
+ *
+ * 返回值：true 有产物；false 没有；null = 仓库树没拉到（网络/权限问题，别据此判定）。
+ */
+export async function bookHasContent(bookId: string): Promise<boolean | null> {
+  const paths = await fetchTextbookPaths()
+  if (!paths) return null
+  return BOOK_CONTENT_CANDIDATES.some((n) => paths.has(`${TEXTBOOKS_DIR}/${bookId}/${n}`))
+}

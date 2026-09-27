@@ -26,6 +26,9 @@ import {
   Upload,
   Folder,
   Loader2,
+  Play,
+  Pause,
+  Square,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
@@ -1251,7 +1254,6 @@ const [aligned_content, set_aligned_content] = useState('')
       return
     }
 
-    const readerRect = readerRef.current.getBoundingClientRect()
     const rect = range.getBoundingClientRect()
 
     // 记下选区落在哪个块上 —— 批注锚点是「语言-段号」，不是那串选中的字。
@@ -1264,15 +1266,18 @@ const [aligned_content, set_aligned_content] = useState('')
       startEl?.closest('[data-block-id]')?.getAttribute('data-block-id') || ''
 
     setSelectedText(text)
-    
+
+    // 浮层用视口坐标（position: fixed）紧贴选区。
+    // 以前按「正文容器」坐标算、又用 absolute 挂在很长的正文卡片上：滚动到后半段时，
+    // 选区在视口靠上位置 → 算出来的浮层落到视口上方、跟着内容滚走了，那片内容就点不到。
+    // 改成 fixed + 贴住选区、并夹在视口内，既近又不会跑到屏幕外。
     const toolbarWidth = 200
-    let left = rect.left - readerRect.left + rect.width / 2 - toolbarWidth / 2
-    left = Math.max(10, Math.min(left, readerRect.width - toolbarWidth - 10))
-    
-    let top = rect.top - readerRect.top - 48
-    if (top < 10) {
-      top = rect.bottom - readerRect.top + 8
-    }
+    const toolbarHeight = 40
+    let left = rect.left + rect.width / 2 - toolbarWidth / 2
+    left = Math.max(8, Math.min(left, window.innerWidth - toolbarWidth - 8))
+    // 默认紧贴选区上沿（间隙 8px）；上方空间不够就翻到选区下方
+    let top = rect.top - toolbarHeight - 8
+    if (top < 8) top = Math.min(rect.bottom + 8, window.innerHeight - toolbarHeight - 8)
 
     setToolbarPosition({ top, left })
     setShowToolbar(true)
@@ -1349,6 +1354,15 @@ const [aligned_content, set_aligned_content] = useState('')
   const updateAnnotationNote = (id: string, note: string) => {
     const newAnnotations = annotations.map((a) =>
       a.id === id ? { ...a, note } : a
+    )
+    setAnnotations(newAnnotations)
+    saveAnnotationsToStorage(newAnnotations)
+  }
+
+  /** 改已有批注的高亮颜色 —— 不满意直接换，不用删了重批 */
+  const updateAnnotationColor = (id: string, color: HighlightColor) => {
+    const newAnnotations = annotations.map((a) =>
+      a.id === id ? { ...a, color } : a
     )
     setAnnotations(newAnnotations)
     saveAnnotationsToStorage(newAnnotations)
@@ -1688,6 +1702,33 @@ const [aligned_content, set_aligned_content] = useState('')
     return current
   }, [])
 
+  /**
+   * 当前读到的正文块 = 视口顶部往上最近的那个 data-block-id 块。
+   * 没有标题的文档（MinerU 很多小节标题都排成了普通段落）靠它才存得下进度。
+   * 视口还在最顶上、一个块都没越过时，退而取第一块，保证永远有个位置可存。
+   */
+  const pickCurrentBlock = useCallback((): HTMLElement | null => {
+    const box = scrollRef.current
+    const root = readerRef.current
+    if (!box || !root) return null
+    const boxTop = box.getBoundingClientRect().top
+    const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-block-id]'))
+    let current: HTMLElement | null = null
+    for (const el of blocks) {
+      if (el.getBoundingClientRect().top - boxTop <= 12) current = el
+      else break
+    }
+    return current ?? blocks[0] ?? null
+  }, [])
+
+  /** 整篇滚动比例 0~1：连块锚点都用不上时的最后兜底 */
+  const readerScrollRatio = useCallback((): number => {
+    const box = scrollRef.current
+    if (!box) return 0
+    const max = box.scrollHeight - box.clientHeight
+    return max > 0 ? Math.min(1, Math.max(0, box.scrollTop / max)) : 0
+  }, [])
+
   /** 把上次的进度滚回视野 */
   const restoreProgress = useCallback(() => {
     const box = scrollRef.current
@@ -1702,22 +1743,36 @@ const [aligned_content, set_aligned_content] = useState('')
     const norm = (s: string) => s.replace(/\s+/g, '').trim()
     const want = norm(savedProgress.heading || '')
     const headings = Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
-    // 优先按标题文本找：锚点 id 是渲染时按顺序编的（book-h-N），切显示模式就会变
-    let target = want ? headings.find((h) => norm(h.textContent ?? '') === want) : undefined
+    // 三级兜底，越靠前越准：
+    //   1) 标题文本（最耐用，换模式也认得出）
+    //   2) 标题锚点 id（book-h-N）
+    //   3) 正文块锚点（b-N / en-N / cn-N）—— 没有标题的文档靠这层才存得下进度
+    let target: HTMLElement | null = want ? headings.find((h) => norm(h.textContent ?? '') === want) ?? null : null
     if (!target && savedProgress.anchor) {
-      target = root.querySelector<HTMLElement>(`[id="${savedProgress.anchor}"]`) ?? undefined
+      target = root.querySelector<HTMLElement>(`[id="${savedProgress.anchor}"]`)
     }
-    if (!target) return
+    if (!target && savedProgress.block) {
+      target = root.querySelector<HTMLElement>(`[data-block-id="${savedProgress.block}"]`)
+    }
 
     restoringRef.current = true
-    box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top - 8
-    setActiveAnchor(target.id)
-    // 记下回填到的位置：用户接着换个显示模式时，要落盘的就是这个标题
-    const item = outlineByAnchor.get(target.id)
-    activeHeadingRef.current = {
-      anchor: target.id,
-      heading: item?.text ?? (target.textContent ?? '').trim(),
-      level: item?.level ?? Number(target.tagName.slice(1)),
+    if (target) {
+      box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top - 8
+      // 只有标题才有"大纲高亮"，块锚点没有 id 就别去点亮大纲
+      if (target.id) setActiveAnchor(target.id)
+      // 记下回填到的位置：用户接着换个显示模式时，要落盘的就是这个标题
+      const item = target.id ? outlineByAnchor.get(target.id) : undefined
+      activeHeadingRef.current = target.id
+        ? {
+            anchor: target.id,
+            heading: item?.text ?? (target.textContent ?? '').trim(),
+            level: item?.level ?? Number(target.tagName.slice(1)),
+          }
+        : null
+    } else if (typeof savedProgress.ratio === 'number') {
+      // 4) 连块都找不到（换模式重排/内容变了）→ 按整篇比例回到大概位置，总比回到顶部强
+      const max = box.scrollHeight - box.clientHeight
+      box.scrollTop = savedProgress.ratio * (max > 0 ? max : 0)
     }
     window.setTimeout(() => { restoringRef.current = false }, 120)
   }, [savedProgress, outlineByAnchor, findTarget, docKey])
@@ -1734,27 +1789,37 @@ const [aligned_content, set_aligned_content] = useState('')
   const handleReaderScroll = useCallback(() => {
     if (restoringRef.current) return
     userScrolledRef.current = true
+    // 浮层是视口定位（fixed），滚动后会和原选区脱开，直接收起避免"飘"在错地方
+    setShowToolbar(false)
     if (scrollRafRef.current) return
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = 0
+      // 标题信息 + 块锚点 + 滚动比例：三者一起存，恢复时按精度依次回退。
+      // 标题可能压根没有（MinerU 正文常常没有 h1~h6），所以不能"没标题就不存"。
       const el = pickCurrentHeading()
-      if (!el) return
-      setActiveAnchor(el.id)
-      // 标题文本要在「当前这个模式」的 DOM 上取：切模式会整篇重渲染，回头再取就是另一段的文字了
-      const item = outlineByAnchor.get(el.id)
-      const headingInfo = {
-        anchor: el.id,
-        heading: item?.text ?? (el.textContent ?? '').trim(),
-        level: item?.level ?? Number(el.tagName.slice(1)),
+      if (el) {
+        setActiveAnchor(el.id)
+        // 标题文本要在「当前这个模式」的 DOM 上取：切模式会整篇重渲染，回头再取就是另一段的文字了
+        const item = outlineByAnchor.get(el.id)
+        activeHeadingRef.current = {
+          anchor: el.id,
+          heading: item?.text ?? (el.textContent ?? '').trim(),
+          level: item?.level ?? Number(el.tagName.slice(1)),
+        }
       }
-      activeHeadingRef.current = headingInfo
       if (!docRef) return
-      // 进度还没读出来就落盘，会拿"当前视口第一个标题"把上次的记录顶掉
+      // 进度还没读出来就落盘，会拿"当前视口位置"把上次的记录顶掉
       if (!progressLoadedRef.current) return
+      const info = activeHeadingRef.current
+      const blockEl = pickCurrentBlock()
       if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
       progressSaveTimerRef.current = setTimeout(() => {
         saveProgress(docRef, {
-          ...headingInfo,
+          anchor: info?.anchor ?? '',
+          heading: info?.heading ?? '',
+          level: info?.level ?? 0,
+          block: blockEl?.getAttribute('data-block-id') || undefined,
+          ratio: readerScrollRatio(),
           // 文献连显示模式一起记住；图书 / 其他文档没有模式，留空
           mode: isPlain ? undefined : translation_mode,
           updated_at: new Date().toISOString(),
@@ -1763,7 +1828,7 @@ const [aligned_content, set_aligned_content] = useState('')
     })
     // docRef 每次渲染都是新对象，但它只有 kind/id 有意义 —— 这里用 docKey 兜住
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickCurrentHeading, outlineByAnchor, docKey, isPlain, translation_mode])
+  }, [pickCurrentHeading, pickCurrentBlock, readerScrollRatio, outlineByAnchor, docKey, isPlain, translation_mode])
 
   /**
    * 换了显示模式 → 进度里的模式要跟着更新。
@@ -1780,16 +1845,21 @@ const [aligned_content, set_aligned_content] = useState('')
     // 同一刻可能有个"滚动落盘"在排队，里面存的是旧模式 —— 先撤掉，最后由这里统一写
     if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
     const el = pickCurrentHeading()
-    if (!el) return
-    const item = outlineByAnchor.get(el.id)
-    const info = {
-      anchor: el.id,
-      heading: item?.text ?? (el.textContent ?? '').trim(),
-      level: item?.level ?? Number(el.tagName.slice(1)),
-    }
+    const info = el
+      ? {
+          anchor: el.id,
+          heading: outlineByAnchor.get(el.id)?.text ?? (el.textContent ?? '').trim(),
+          level: outlineByAnchor.get(el.id)?.level ?? Number(el.tagName.slice(1)),
+        }
+      : null
     activeHeadingRef.current = info
+    const blockEl = pickCurrentBlock()
     saveProgress(docRef, {
-      ...info,
+      anchor: info?.anchor ?? '',
+      heading: info?.heading ?? '',
+      level: info?.level ?? 0,
+      block: blockEl?.getAttribute('data-block-id') || undefined,
+      ratio: readerScrollRatio(),
       mode: translation_mode,
       updated_at: new Date().toISOString(),
     }).catch((err) => console.error('[Reading] 保存阅读进度失败:', err))
@@ -2305,10 +2375,187 @@ const [aligned_content, set_aligned_content] = useState('')
     .replace(/[#>*`_~\-|[\]()]/g, '')
     .replace(/\s+/g, '').length
 
+  // ─────────────────────────── 听书（浏览器内置 TTS） ───────────────────────────
+  /**
+   * 朗读正文，并让页面跟着"正在念的那一段"滚。
+   *
+   * 做法：把正文里带 data-block-id 的**顶层块**（图书/文档是 b-N，文献是 en-N / cn-N）
+   * 按顺序念；每念到一块就把它滚进视野、并高亮该块 —— 声音和文字永远对得上，
+   * 不用手动翻页。中文块走 zh-CN、英文块走 en-US，按块各判各的，中英混排也不会读串。
+   *
+   * 语音走 speechSynthesis（系统自带引擎）：不联网、不要密钥，代价是音色随系统。
+   */
+  const [ttsState, setTtsState] = useState<'idle' | 'playing' | 'paused'>('idle')
+  /** 留引用：部分浏览器 GC 掉没人引用的 utterance 会"读一半停住" */
+  const ttsLiveRef = useRef<SpeechSynthesisUtterance[]>([])
+  /** 当前高亮的块（停止 / 下一块开始时清掉） */
+  const ttsActiveElRef = useRef<HTMLElement | null>(null)
+  /**
+   * 朗读代次。每停一次 +1；正在排队的回调一旦发现代次对不上就闭嘴。
+   * 不加这个：cancel() 会把当前 utterance 触发一次 onend/onerror，
+   * 而我们的 onend 是"念下一块" —— 于是点了停止它还会接着念下去。
+   */
+  const ttsGenRef = useRef(0)
+
+  const ttsClearHighlight = useCallback(() => {
+    ttsActiveElRef.current?.classList.remove('tts-reading-block')
+    ttsActiveElRef.current = null
+  }, [])
+
+  const stopTts = useCallback(() => {
+    ttsGenRef.current += 1
+    if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel()
+    ttsLiveRef.current = []
+    ttsClearHighlight()
+    setTtsState('idle')
+  }, [ttsClearHighlight])
+
+  /** 把正在念的块滚进视野：已经在视口内就不动，免得一直在抖 */
+  const ttsScrollTo = useCallback((el: HTMLElement) => {
+    const box = scrollRef.current
+    if (!box) return
+    const boxRect = box.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    const pad = 56
+    if (r.top >= boxRect.top + pad && r.bottom <= boxRect.bottom - pad) return
+    // 让这块的开头落在视口上方约 1/4 处，后面还有整段可读
+    box.scrollTo({
+      top: box.scrollTop + (r.top - boxRect.top) - boxRect.height * 0.22,
+      behavior: 'smooth',
+    })
+  }, [])
+
+  /** 取系统里最合适的音色：中文念 zh，其余念 en（取不到也不影响，浏览器会按 lang 兜底） */
+  const ttsVoiceFor = (zh: boolean): SpeechSynthesisVoice | null => {
+    if (typeof speechSynthesis === 'undefined') return null
+    const want = zh ? 'zh' : 'en'
+    return speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith(want)) || null
+  }
+
+  const startTts = useCallback(() => {
+    const root = readerRef.current
+    if (!root || typeof speechSynthesis === 'undefined') {
+      toast.error('当前浏览器不支持朗读')
+      return
+    }
+    // 可读块：优先按 data-block-id（图书/文档是 b-N，文献是 en-N / cn-N）；
+    // 没有块标记的（如尚未转出块结构的全文）退化成按块级标签取，保证仍能朗读。
+    const root_blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-block-id]'))
+    const candidates = root_blocks.length
+      ? root_blocks
+      : Array.from(root.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6, li, blockquote, dd'))
+    // 跳过纯图块与代码块
+    const blocks = candidates.filter((el) => {
+      if (el.closest('pre')) return false
+      return (el.textContent || '').replace(/\s+/g, ' ').trim().length > 1
+    })
+    if (!blocks.length) {
+      toast.error('这篇还没有可朗读的正文')
+      return
+    }
+
+    stopTts()
+    setTtsState('playing')
+    const gen = ttsGenRef.current
+
+    // 从"当前看到的地方"开始：第一块其底部还在视口顶以下的块
+    const boxTop = scrollRef.current?.getBoundingClientRect().top ?? 0
+    let start = blocks.findIndex((el) => el.getBoundingClientRect().bottom > boxTop + 8)
+    if (start < 0) start = 0
+
+    let i = start
+    const speakNext = () => {
+      if (gen !== ttsGenRef.current) return
+      if (i >= blocks.length) {
+        stopTts()
+        return
+      }
+      const el = blocks[i]
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      const zh = /[\u3400-\u9fff]/.test(text)
+      const u = new SpeechSynthesisUtterance(text)
+      u.lang = zh ? 'zh-CN' : 'en-US'
+      const voice = ttsVoiceFor(zh)
+      if (voice) u.voice = voice
+      u.rate = zh ? 1 : 0.95
+      const advance = () => {
+        i += 1
+        speakNext()
+      }
+      u.onend = advance
+      u.onerror = advance
+      u.onstart = () => {
+        if (gen !== ttsGenRef.current) return
+        ttsClearHighlight()
+        el.classList.add('tts-reading-block')
+        ttsActiveElRef.current = el
+        ttsScrollTo(el)
+      }
+      ttsLiveRef.current.push(u)
+      speechSynthesis.speak(u)
+    }
+    speakNext()
+  }, [stopTts, ttsClearHighlight, ttsScrollTo])
+
+  const pauseTts = useCallback(() => {
+    if (typeof speechSynthesis === 'undefined') return
+    speechSynthesis.pause()
+    setTtsState('paused')
+  }, [])
+
+  const resumeTts = useCallback(() => {
+    if (typeof speechSynthesis === 'undefined') return
+    speechSynthesis.resume()
+    setTtsState('playing')
+  }, [])
+
+  const toggleTts = useCallback(() => {
+    if (ttsState === 'playing') pauseTts()
+    else if (ttsState === 'paused') resumeTts()
+    else startTts()
+  }, [ttsState, pauseTts, resumeTts, startTts])
+
+  // 离开页面收工；换文档 / 换显示模式也要停 —— 正文整篇重渲染了，继续念就是念的"上一份"内容
+  useEffect(() => () => stopTts(), [stopTts])
+  useEffect(() => {
+    stopTts()
+  }, [selectedPaperId, selectedBookId, selectedDocumentId, translation_mode, paperRenderedHtml, bookRenderedHtml, stopTts])
+
+  /** 听书控件：图书 / 文档与文献两处工具栏共用同一份 */
+  const ttsControls = (
+    <>
+      <button
+        onClick={toggleTts}
+        className={`px-2 py-1.5 text-xs rounded transition flex items-center gap-1 ${
+          ttsState !== 'idle' ? 'bg-seal-100 text-seal-700' : 'text-ink-600 hover:bg-ink-100'
+        }`}
+        title={
+          ttsState === 'idle'
+            ? '听书：从当前看到的位置开始朗读，读到哪就自动滚到哪'
+            : ttsState === 'playing'
+              ? '暂停朗读'
+              : '继续朗读'
+        }
+      >
+        {ttsState === 'playing' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+        <span>{ttsState === 'idle' ? '听书' : ttsState === 'playing' ? '暂停' : '继续'}</span>
+      </button>
+      {ttsState !== 'idle' && (
+        <button
+          onClick={stopTts}
+          className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
+          title="停止朗读"
+        >
+          <Square className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </>
+  )
+
   /** 划词浮层：文献和图书的正文容器共用同一份 */
   const selectionToolbar = showToolbar ? (
     <div
-      className="absolute z-50 bg-paper-50 rounded-lg shadow-xl border border-ink-200 px-2 py-1.5 flex items-center gap-1"
+      className="fixed z-50 bg-paper-50 rounded-lg shadow-xl border border-ink-200 px-2 py-1.5 flex items-center gap-1"
       style={{
         top: toolbarPosition.top,
         left: toolbarPosition.left,
@@ -2910,6 +3157,7 @@ const [aligned_content, set_aligned_content] = useState('')
                     隔行底色
                   </button>
                   <div className="w-px h-5 bg-ink-200 mx-1" />
+                  {ttsControls}
                   <button
                     onClick={() => setFontSize((s) => Math.max(12, s - 1))}
                     className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
@@ -3060,6 +3308,7 @@ const [aligned_content, set_aligned_content] = useState('')
                   隔行底色
                 </button>
                 <div className="w-px h-5 bg-ink-200 mx-1" />
+                {ttsControls}
                 {editMode ? (
                   <>
                     <span className="text-xs text-ink-400 px-1 tabular-nums">
@@ -3509,6 +3758,24 @@ const [aligned_content, set_aligned_content] = useState('')
                                     )}
                                   </div>
                                 )}
+                                {/* 换色：不满意直接改（不用删了重批）*/}
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                  {HIGHLIGHT_COLORS.map((c) => (
+                                    <button
+                                      key={c.value}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        updateAnnotationColor(anno.id, c.value)
+                                      }}
+                                      className={`w-3.5 h-3.5 rounded-full ${c.dot} transition ${
+                                        anno.color === c.value
+                                          ? 'ring-2 ring-offset-1 ring-ink-400'
+                                          : 'opacity-50 hover:opacity-100'
+                                      }`}
+                                      title={`改为${c.label}`}
+                                    />
+                                  ))}
+                                </div>
                               </div>
                               <button
                                 onClick={() => {

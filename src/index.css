@@ -47,6 +47,11 @@
    */
   --af-zebra-ink: rgba(132, 204, 22, 0.1);
   /*
+   * 听书：当前朗读到的块标出来的颜色（Reading.tsx 的 tts-reading-block）。
+   * 用琥珀色，和隔行底色（浅绿条纹）不会看混。
+   */
+  --af-tts-ink: rgba(217, 119, 6, 0.16);
+  /*
    * 全站等宽字族（代码 / LaTeX 相关）—— 唯一来源。
    * Tailwind 的 font-mono 与本文件里的两处 font-family 都引用它。
    *
@@ -229,6 +234,19 @@
     transparent 0 1lh,
     var(--af-zebra-ink) 1lh 2lh
   );
+}
+
+/*
+ * 听书：当前正在朗读的那一块
+ * -------------------------------------------------
+ * 左侧一条琥珀色竖条 + 极浅底色，让"读到哪"一眼可见。用 box-shadow 而不是 border，
+ * 免得插进边框把正文挤动一行、读的时候整篇跟着跳。
+ */
+.prose-reader .tts-reading-block {
+  background-color: var(--af-tts-ink);
+  box-shadow: inset 3px 0 0 0 rgba(217, 119, 6, 0.75);
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
 }
 
 /*
