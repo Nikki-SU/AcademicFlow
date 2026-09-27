@@ -2706,23 +2706,20 @@ const [aligned_content, set_aligned_content] = useState('')
 
   return (
     /*
-     * 三栏用 Grid 而不是 flex + 固定宽度：
-     *  - 左栏**严格占整页 1/4（1:3，与写作页 aside 的 w-1/4 同口径）**，
-     *    不再随中栏宽度浮动、也不会比右栏窄
-     *  - 中栏宽度**由正文决定**（--reader-column = 正文 + 卡片内边距 + 中栏内边距）：
-     *    正文正好铺满卡片内容区，不再"白卡铺满一栏、文字居中、两侧挂白带"
-     *  - 右栏吃掉剩下的全部宽度（minmax(17rem,1fr)）：三栏合起来仍然填满视口，
-     *    而且屏幕越宽右栏越宽，不会把富余宽度变成中栏里的留白
+     * 三栏用 Grid：
+     *  - 左右两栏**等宽，各占整页 25%（1:2:1）**，中栏自然居中，与写作页左栏同口径
+     *  - 中栏 1fr 吃掉剩下的一半：正文卡片在里面按 --reader-column 限宽并居中
+     *    （--reader-column = 正文宽 + 卡片内边距 + 中栏内边距，保证正文铺满卡片内容区）
      *  - 高度 h-full：由 Layout 的 main（h-screen 外壳下的确定高度）撑，不自己算 calc(100vh-3rem)
      *  - <1100px：栅格塌成单列，两侧栏变覆盖式抽屉，正文独占全宽
      *
      * 字号挂在**栅格容器**上：--reader-column 里的 ch 必须和 .measure-reader 用同一个
-     * ch，中栏宽度才会随字号一起变（否则调小字号时中栏不变、正文缩了，两侧又露出白带）。
+     * ch，正文卡片宽度才会随字号一起变。
      * 代价是三个子块的字号会被继承下来，所以下面逐个把两侧栏和中栏工具条重置回 1rem
      * （正文卡片本来就有自己的字号，不受影响）。
      */
     <div
-      className="h-full overflow-hidden bg-paper-100 grid grid-cols-[minmax(15rem,25%)_minmax(0,var(--reader-column))_minmax(17rem,1fr)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
+      className="h-full overflow-hidden bg-paper-100 grid grid-cols-[minmax(15rem,25%)_minmax(0,1fr)_minmax(15rem,25%)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
       style={{ fontSize: `${fontSize / 16}rem` }}
     >
       {/* 窄屏专用：两个抽屉开关 */}
