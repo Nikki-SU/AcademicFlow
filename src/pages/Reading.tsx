@@ -29,6 +29,7 @@ import {
   Play,
   Pause,
   Square,
+  Headphones,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
@@ -2762,12 +2763,11 @@ const [aligned_content, set_aligned_content] = useState('')
           data-tts-start-btn=""
           onMouseLeave={() => setTtsStartBtn(null)}
           onClick={() => startTts(ttsStartBtn.el)}
-          className="fixed z-40 flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-paper-50 border border-ink-200 shadow-md text-seal-700 hover:bg-seal-50 transition"
-          style={{ top: ttsStartBtn.top, left: ttsStartBtn.left, fontSize: '1rem' }}
-          title="从这一段开始朗读"
+          className="fixed z-40 flex items-center justify-center w-7 h-7 rounded-full bg-paper-50 border border-ink-200 shadow-md text-seal-700 hover:bg-seal-50 transition"
+          style={{ top: ttsStartBtn.top, left: ttsStartBtn.left }}
+          title="从这里开始朗读"
         >
-          <Play className="w-3 h-3" />
-          从这里听
+          <Headphones className="w-3.5 h-3.5" />
         </button>
       )}
 
