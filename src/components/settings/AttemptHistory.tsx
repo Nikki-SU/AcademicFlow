@@ -67,6 +67,8 @@ function AttemptHistory({
           const contradicted = claims.filter(
             (c) => c.verdict === 'contradicted',
           ).length
+          // omitted 只是覆盖度提示，不算问题（不进通过判定）
+          const omitted = claims.filter((c) => c.verdict === 'omitted').length
           // out_of_scope 归化：UI 层视觉上等同于 supported（静默通过），
           // 不单独显示徽章或计数（详见 dual-engine.ts M3.6.2-a-fix 注释）
           const ec = a.ai2Feedback.evidenceCheck
@@ -109,7 +111,8 @@ function AttemptHistory({
                   {fmtMs(a.ai2Ms)}
                 </span>
                 <span className="font-mono text-ink-500">
-                  ⊕{added} ✗{contradicted} · {evidenceLine}
+                  ⊕{added} ✗{contradicted}
+                  {omitted > 0 ? ` ○${omitted}` : ''} · {evidenceLine}
                 </span>
                 {ai1EvidenceLine && (
                   <span className={`font-mono ${ai1ec?.ok ? 'text-green-600' : 'text-red-600'}`}>
@@ -165,6 +168,10 @@ function AttemptHistory({
                           case 'contradicted':
                             tag = '✗'
                             tagColor = 'text-red-700'
+                            break
+                          case 'omitted':
+                            tag = '○'
+                            tagColor = 'text-ink-400'
                             break
                           // M3.6.3: verdict 严格三分类。旧 IndexedDB 记录里若含 out_of_scope，
                           // normalizeVerdict 已在读取时降级为 supported，这里无需再列 case。

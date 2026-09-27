@@ -100,6 +100,13 @@ const VERDICT_STYLE: Record<
     color: 'bg-red-100 text-red-800 border-red-300',
     icon: <XCircle className="w-3.5 h-3.5" />,
   },
+  // omitted：覆盖度提示，不算错误。中性灰，且不进「发现问题」计数、不阻断 passed。
+  // 实际渲染在主清单之外单列一块（见下方「未被覆盖」区），这里保留只为类型完整。
+  omitted: {
+    label: '未覆盖 omitted',
+    color: 'bg-ink-100 text-ink-600 border-ink-300',
+    icon: <ClipboardList className="w-3.5 h-3.5" />,
+  },
   // M3.6.3: 废除 out_of_scope verdict —— 元陈述改由 AI-1 硬编码输出
   // `[NOT_IN_SOURCE] <字段>` tag，AI-2 抽取阶段直接跳过，不进入 verdict 池。
   // 旧 IndexedDB 记录里若含 out_of_scope，normalizeVerdict 会静默降级为 supported。
@@ -372,6 +379,8 @@ function DualEngineTestPanel() {
   const contradictedCount = claims.filter(
     (c) => c.verdict === 'contradicted',
   ).length
+  // omitted 只是「还可以补什么」的提示，不算问题：不参与 passed、不进问题计数。
+  const omittedCount = claims.filter((c) => c.verdict === 'omitted').length
 
   // M3.6.3 兜底：即便 AI-2 抽取阶段没跳过 [NOT_IN_SOURCE] tag，
   // 前端也把它渲染成对用户友好的中文，避免暴露技术标签。
@@ -668,6 +677,8 @@ function DualEngineTestPanel() {
               ) : (
                 <ul className="space-y-2">
                   {claims.map((c, idx) => {
+                    // omitted 不并入主清单（它不是"问题"），统一放到下方「未被覆盖」提示区
+                    if (c.verdict === 'omitted') return null
                     const style = VERDICT_STYLE[c.verdict]
                     const evidenceFailed =
                       evidence?.failedIndices.includes(idx) ?? false
@@ -718,6 +729,37 @@ function DualEngineTestPanel() {
                     )
                   })}
                 </ul>
+              )}
+              {/* omitted 提示区：源材料里有、AI-1 没写的内容。
+                  只作参考，不算问题、不影响通过（总结天然有损，漏内容本身不是错）。 */}
+              {omittedCount > 0 && (
+                <div className="p-2 border border-ink-200 rounded bg-paper-100">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-ink-600 mb-1">
+                    <ClipboardList className="w-3.5 h-3.5" />
+                    源材料中未被覆盖的内容（{omittedCount} 条 · 仅供参考，不影响通过）
+                  </div>
+                  <ul className="space-y-1">
+                    {claims.map((c, idx) =>
+                      c.verdict !== 'omitted' ? null : (
+                        <li
+                          key={idx}
+                          className="text-xs text-ink-600 leading-relaxed flex items-start gap-1.5"
+                        >
+                          <span className="shrink-0 font-mono text-ink-400">○</span>
+                          <span className="break-words">
+                            {renderClaimText(c.claim)}
+                            {c.source_span && (
+                              <span className="text-ink-400 italic">
+                                {' '}
+                                —— "{c.source_span}"
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                </div>
               )}
               {/* 原始 JSON */}
               <details className="text-xs text-ink-500">

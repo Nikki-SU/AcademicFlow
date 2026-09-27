@@ -419,6 +419,9 @@ export type TaskType = 'paper_convert' | 'mineru_pdf' | 'ai_batch' | 'book_conve
  *  - supported: 源材料明确支撑该 claim
  *  - added: 源材料未提及但 AI-1 引入了外部内容（"加戏"，需追责，AI-1 必须删除或替换为占位）
  *  - contradicted: 源材料与该 claim 矛盾（AI-1 曲解原文，需追责）
+ *  - omitted: 源材料里有、AI-1 没写的内容（覆盖度提示，**不算错误**）。
+ *    与 added/contradicted 不同，omitted **不参与 passed 判定、不触发重写**：
+ *    总结天然有损，漏内容本身不是忠实性错误；它只是给用户「还可以补什么」的参考。
  *
  *  M3.6.3 关键变更（治本方案）：
  *   - 废除 out_of_scope verdict：AI-1 用户指令索取源材料未覆盖信息时，
@@ -433,6 +436,7 @@ export type FaithfulnessVerdict =
   | 'supported'
   | 'added'
   | 'contradicted'
+  | 'omitted'
 
 /** SPEC §9.2 (M3.5): AI-2 输出的单条 claim 核查 */
 export interface FaithfulnessClaim {
@@ -444,6 +448,8 @@ export interface FaithfulnessClaim {
    *  - supported: 支撑该 claim 的源材料原文片段（≥10 字符）
    *  - contradicted: 被 claim 矛盾的源材料原文片段（≥10 字符）
    *  - added: 空字符串（源材料未提及，无需 span）
+   *  - omitted: 源材料中被 AI-1 漏掉的那段原文（≥10 字符）。仅作提示展示，
+   *    不参与锚定校验、不影响 passed（见下）。
    *
    *  M3.6.3: 元陈述（含 `[NOT_IN_SOURCE]` tag 的 AI-1 输出）由 AI-2 在抽取阶段
    *  就跳过，不成为 claim，因此不会出现在此 span 校验流程中。
