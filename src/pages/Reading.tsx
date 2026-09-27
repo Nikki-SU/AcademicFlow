@@ -2360,7 +2360,9 @@ const [aligned_content, set_aligned_content] = useState('')
       counted.add(el)
       lineIndex += lines
     }
-  }, [zebraBands, paperRenderedHtml, bookRenderedHtml])
+    // fontSize 必须进依赖：条纹按每块的实际 lineHeight 和累计行号算相位，
+    // 改字号会导致整篇重排、行高和行数都变，不重算就会按旧行高错位。
+  }, [zebraBands, paperRenderedHtml, bookRenderedHtml, fontSize])
 
   useEffect(() => {
     if (selectedAnnotationId && activeSideTab === 'annotations') {
