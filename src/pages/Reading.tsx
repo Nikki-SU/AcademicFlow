@@ -2396,6 +2396,15 @@ const [aligned_content, set_aligned_content] = useState('')
    * 而我们的 onend 是"念下一块" —— 于是点了停止它还会接着念下去。
    */
   const ttsGenRef = useRef(0)
+  /**
+   * 朗读倍速。系统自带语音默认偏慢，给用户一个可调档位。
+   * 倍速不是 utterance 的快照就完事 —— 改档位要立刻生效，见 changeTtsRate。
+   */
+  const [ttsRate, setTtsRate] = useState(1.25)
+  const ttsRateRef = useRef(1.25)
+  /** 本轮朗读的块序列与当前念到的下标：改倍速时要从"正在念的这块"重念 */
+  const ttsBlocksRef = useRef<HTMLElement[]>([])
+  const ttsIndexRef = useRef(0)
 
   const ttsClearHighlight = useCallback(() => {
     ttsActiveElRef.current?.classList.remove('tts-reading-block')
@@ -2432,6 +2441,42 @@ const [aligned_content, set_aligned_content] = useState('')
     return speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith(want)) || null
   }
 
+  /**
+   * 念第 index 块，念完自动念下一块。提成独立回调是为了让"改倍速"能从当前块重入。
+   */
+  const speakTtsAt = useCallback((index: number) => {
+    const gen = ttsGenRef.current
+    const el = ttsBlocksRef.current[index]
+    if (!el) {
+      stopTts()
+      return
+    }
+    ttsIndexRef.current = index
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+    const zh = /[\u3400-\u9fff]/.test(text)
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = zh ? 'zh-CN' : 'en-US'
+    const voice = ttsVoiceFor(zh)
+    if (voice) u.voice = voice
+    // 用户档位叠加语言基准：中文 ×1、英文 ×0.95，再夹到浏览器能接受的区间
+    u.rate = Math.min(3, Math.max(0.5, ttsRateRef.current * (zh ? 1 : 0.95)))
+    const advance = () => {
+      if (gen !== ttsGenRef.current) return
+      speakTtsAt(index + 1)
+    }
+    u.onend = advance
+    u.onerror = advance
+    u.onstart = () => {
+      if (gen !== ttsGenRef.current) return
+      ttsClearHighlight()
+      el.classList.add('tts-reading-block')
+      ttsActiveElRef.current = el
+      ttsScrollTo(el)
+    }
+    ttsLiveRef.current.push(u)
+    speechSynthesis.speak(u)
+  }, [stopTts, ttsClearHighlight, ttsScrollTo])
+
   const startTts = useCallback(() => {
     const root = readerRef.current
     if (!root || typeof speechSynthesis === 'undefined') {
@@ -2456,46 +2501,31 @@ const [aligned_content, set_aligned_content] = useState('')
 
     stopTts()
     setTtsState('playing')
-    const gen = ttsGenRef.current
+    ttsBlocksRef.current = blocks
 
     // 从"当前看到的地方"开始：第一块其底部还在视口顶以下的块
     const boxTop = scrollRef.current?.getBoundingClientRect().top ?? 0
     let start = blocks.findIndex((el) => el.getBoundingClientRect().bottom > boxTop + 8)
     if (start < 0) start = 0
 
-    let i = start
-    const speakNext = () => {
-      if (gen !== ttsGenRef.current) return
-      if (i >= blocks.length) {
-        stopTts()
-        return
-      }
-      const el = blocks[i]
-      const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
-      const zh = /[\u3400-\u9fff]/.test(text)
-      const u = new SpeechSynthesisUtterance(text)
-      u.lang = zh ? 'zh-CN' : 'en-US'
-      const voice = ttsVoiceFor(zh)
-      if (voice) u.voice = voice
-      u.rate = zh ? 1 : 0.95
-      const advance = () => {
-        i += 1
-        speakNext()
-      }
-      u.onend = advance
-      u.onerror = advance
-      u.onstart = () => {
-        if (gen !== ttsGenRef.current) return
-        ttsClearHighlight()
-        el.classList.add('tts-reading-block')
-        ttsActiveElRef.current = el
-        ttsScrollTo(el)
-      }
-      ttsLiveRef.current.push(u)
-      speechSynthesis.speak(u)
-    }
-    speakNext()
-  }, [stopTts, ttsClearHighlight, ttsScrollTo])
+    speakTtsAt(start)
+  }, [stopTts, speakTtsAt])
+
+  /** 改倍速：立刻生效 —— 取消正在念的这块，从当前块按新倍速重念 */
+  const changeTtsRate = useCallback(
+    (rate: number) => {
+      ttsRateRef.current = rate
+      setTtsRate(rate)
+      if (typeof speechSynthesis === 'undefined') return
+      if (ttsState !== 'playing' && ttsState !== 'paused') return
+      ttsGenRef.current += 1
+      speechSynthesis.cancel()
+      ttsLiveRef.current = []
+      setTtsState('playing')
+      speakTtsAt(ttsIndexRef.current)
+    },
+    [ttsState, speakTtsAt],
+  )
 
   const pauseTts = useCallback(() => {
     if (typeof speechSynthesis === 'undefined') return
@@ -2540,6 +2570,18 @@ const [aligned_content, set_aligned_content] = useState('')
         {ttsState === 'playing' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
         <span>{ttsState === 'idle' ? '听书' : ttsState === 'playing' ? '暂停' : '继续'}</span>
       </button>
+      <select
+        value={ttsRate}
+        onChange={(e) => changeTtsRate(Number(e.target.value))}
+        className="px-1 py-1 text-xs rounded border border-ink-200 bg-paper-50 text-ink-600 cursor-pointer hover:bg-ink-100 transition"
+        title="朗读倍速"
+      >
+        {[0.75, 1, 1.25, 1.5, 2, 2.5].map((r) => (
+          <option key={r} value={r}>
+            {r}×
+          </option>
+        ))}
+      </select>
       {ttsState !== 'idle' && (
         <button
           onClick={stopTts}
