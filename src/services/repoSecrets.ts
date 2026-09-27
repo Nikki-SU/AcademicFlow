@@ -231,6 +231,10 @@ export interface SyncAllSecretsInput {
   zhipuApiKey: string
   /** 智谱 GLM key（AI-2 位） */
   zhipuApiKey2: string
+  /** 讯飞星火 key（AI-1 位）—— 同样按公司独立槽位 */
+  xfyunApiKey: string
+  /** 讯飞星火 key（AI-2 位） */
+  xfyunApiKey2: string
   mineruToken: string
   /** SimpleTex 公式识图令牌（UAT）——同步到 secrets 做持久化，
    *  浏览器被清空后 runner 仍能靠 SIMPLETEX_TOKEN 环境变量兜底 */
@@ -246,6 +250,7 @@ export interface SyncAllSecretsInput {
 function presetKey(mode: AIProviderMode, slot: 1 | 2, s: SyncAllSecretsInput): string {
   if (mode === 'deepseek') return (slot === 1 ? s.deepseekApiKey : s.deepseekApiKey2).trim()
   if (mode === 'zhipu') return (slot === 1 ? s.zhipuApiKey : s.zhipuApiKey2).trim()
+  if (mode === 'xfyun') return (slot === 1 ? s.xfyunApiKey : s.xfyunApiKey2).trim()
   return ''
 }
 

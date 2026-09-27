@@ -47,6 +47,9 @@ export const SETTING_KEYS = {
   // 智谱 GLM（OpenAI 兼容端点）—— key 同样按槽位独立存
   ZHIPU_API_KEY: 'zhipu_api_key',
   ZHIPU_API_KEY_2: 'zhipu_api_key_2',
+  // 讯飞星火（OpenAI 兼容端点）—— 同上
+  XFYUN_API_KEY: 'xfyun_api_key',
+  XFYUN_API_KEY_2: 'xfyun_api_key_2',
   AI_1_MODEL: 'ai_1_model',
   AI_2_MODEL: 'ai_2_model',
   CUSTOM_AI_1_BASE_URL: 'custom_ai_1_base_url',

@@ -67,6 +67,7 @@ const SLOT_THINKING_OPTIONS: {
 const SLOT_KEY_FIELDS: Record<AIProviderMode, { 1?: keyof SettingsData; 2?: keyof SettingsData }> = {
   deepseek: { 1: 'deepseekApiKey', 2: 'deepseekApiKey2' },
   zhipu: { 1: 'zhipuApiKey', 2: 'zhipuApiKey2' },
+  xfyun: { 1: 'xfyunApiKey', 2: 'xfyunApiKey2' },
   custom: {},
 }
 
@@ -169,6 +170,8 @@ function Settings() {
     deepseekApiKey2,
     zhipuApiKey,
     zhipuApiKey2,
+    xfyunApiKey,
+    xfyunApiKey2,
     customAi1BaseUrl,
     customAi1ApiKey,
     customAi1Model,
@@ -217,6 +220,8 @@ function Settings() {
         deepseekApiKey2: 'DeepSeek API Key（AI-2 位）',
         zhipuApiKey: '智谱 GLM API Key',
         zhipuApiKey2: '智谱 GLM API Key（AI-2 位）',
+        xfyunApiKey: '讯飞星火 API Key',
+        xfyunApiKey2: '讯飞星火 API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
         simpletexToken: 'SimpleTex 令牌',
       }
@@ -267,6 +272,8 @@ function Settings() {
         deepseekApiKey2,
         zhipuApiKey,
         zhipuApiKey2,
+        xfyunApiKey,
+        xfyunApiKey2,
         customAi1BaseUrl,
         customAi1ApiKey,
         customAi1Model,
@@ -304,6 +311,8 @@ function Settings() {
     deepseekApiKey2,
     zhipuApiKey,
     zhipuApiKey2,
+    xfyunApiKey,
+    xfyunApiKey2,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,

@@ -93,7 +93,7 @@ export interface WorkspaceState {
  * 每加一家公司，都要在 SettingsData 里配一对 key 字段（槽位 1 / 槽位 2）：
  * key 按公司独立存，切 provider 不会把别家的 key 洗掉，切回来不用重填。
  */
-export type AIProviderMode = 'deepseek' | 'zhipu' | 'custom'
+export type AIProviderMode = 'deepseek' | 'zhipu' | 'xfyun' | 'custom'
 
 /**
  * 思考模式（reasoning）档位
@@ -214,6 +214,21 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
       { id: 'glm-4.7-flash', desc: '免费' },
     ],
   },
+  xfyun: {
+    label: '讯飞星火',
+    // 讯飞 MaaS 同时开了 Anthropic(/anthropic/v1/messages) 和 OpenAI 兼容两套端点。
+    // 这里用后者：runner / 前端都在 baseUrl 后面拼 /chat/completions。
+    baseUrl: 'https://maas-api.cn-huabei-1.xf-yun.com/v1',
+    defaultModel1: 'spark-x2.5-4b',
+    defaultModel2: 'spark-x2.5-4b',
+    apiKeyUrl: 'https://console.xfyun.cn/services/maas',
+    note: '免费档只有 spark-x2.5-4b（4B）；做 AI-1 可以，整篇做 AI-2 核查会空过',
+    // 这家 /models 返回空清单（实测 200 但 data: []），只能靠这份写死的推荐项。
+    // 另一个原因见 Settings.tsx 里 recs 的说明：/models 不保证是全集。
+    recommendedModels: [
+      { id: 'spark-x2.5-4b', desc: '免费 · 4B' },
+    ],
+  },
   custom: {
     label: '自定义端点',
     baseUrl: '',
@@ -254,6 +269,10 @@ export interface SettingsData {
   zhipuApiKey: string
   /** 智谱 GLM API Key（AI-2 位） */
   zhipuApiKey2: string
+  /** 讯飞星火 API Key（AI-1 位）—— 与其它公司平等独立，切 provider 不丢 */
+  xfyunApiKey: string
+  /** 讯飞星火 API Key（AI-2 位） */
+  xfyunApiKey2: string
   /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string
