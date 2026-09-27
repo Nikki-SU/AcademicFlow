@@ -44,10 +44,13 @@ function parseBackendResult(raw: string): DualEngineResult {
  * 轮询 output_path 直到文件出现且可解析
  * 后端 commit 文件需要几秒，所以间隔 3s。
  *
- * 上限必须**大于** ai_call.yml 的 job timeout-minutes（25 分钟）：
- * runner 内部总预算是 18 分钟，到点会带着已有结果正常收尾并写文件；
+ * 上限必须**大于** ai_call.yml 的 job timeout-minutes（50 分钟）：
+ * runner 内部总预算是 40 分钟，到点会带着已有结果正常收尾并写文件；
  * 只有 job 被 SIGKILL（连文件都写不出来）时前端才会真的等到这里。
  * 前端比 job 短的话，会出现"job 其实还在跑、前端已经报超时"的假失败。
+ *
+ * ⚠️ 这是四条时间线里的最后一条（单次调用 15min / 总预算 40min / job 50min /
+ *    前端轮询 60min），改任意一个都要回头核对其余三个，见 docs/BACKEND_PENDING.md §2。
  */
 async function pollResultFile(
   outputPath: string,
@@ -57,7 +60,7 @@ async function pollResultFile(
   onProgress?: DualEngineProgressCallback,
   signal?: AbortSignal,
 ): Promise<DualEngineResult> {
-  const maxAttempts = 520 // 3s × 520 = 26min
+  const maxAttempts = 1200 // 3s × 1200 = 60min
   for (let i = 0; i < maxAttempts; i++) {
     if (signal?.aborted) throw abortError()
     await new Promise((r) => setTimeout(r, 3000))
@@ -80,7 +83,7 @@ async function pollResultFile(
       })
     }
   }
-  throw new Error('双引擎后端任务超时（26 分钟未返回结果）')
+  throw new Error('双引擎后端任务超时（60 分钟未返回结果）')
 }
 
 export async function runDualEngine(

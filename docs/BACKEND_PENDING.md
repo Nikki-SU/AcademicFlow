@@ -4,26 +4,32 @@
 > 前端通过 Contents API 把 base64 嵌在 `src/constants/skeleton.ts` 里的副本「安装」进去。
 > 本文档记三件事：**现在两边是否一致**、**改后端必须遵守什么**、**还剩什么没做**。
 >
-> 最后更新：2026-09-25
+> 最后更新：2026-09-28
 
 ---
 
-## 0. 当前状态（2026-09-25 已推私库，全部一致）
+## 0. 当前状态（2026-09-28 已推私库，10/10 逐字节一致）
 
 **前端嵌入副本与私库 `main` 线上版本逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
 
-> ✅ **2026-09-25 已推送完成**：`ai_call.mjs`（60744 B，commit `de933e0a`）与
-> `paper_convert.mjs`（106346 B，commit `70b85560`）都已 push 到私库 `main`，
-> 推完重新逐字节核对通过 —— **§8/§9/§10/§11 的「私库待推」已经全部清掉**。
-> 现在点「重装后端」是安全的。
+> ✅ **2026-09-28 本轮**（commit `8070754`，私库 `main`）：四条时间线整体上调 +
+> `MAX_TOKENS` 32000→64000，并把 `ai_call.yml` 补上 `SIMPLETEX_TOKEN`。
+> 改完重新逐字节核对：**10/10 全部一致**，现在点「重装后端」是安全的。
+>
+> 一个**本轮顺带修掉的漂移**：`ai_call.yml` 的前端嵌入副本早已含 `SIMPLETEX_TOKEN`，
+> 私库那份没有（两边 2826B vs 2572B）—— 也就是说线上 workflow 其实一直没把
+> SimpleTex 令牌传给 runner。本轮以**前端副本为准**把私库补齐，两边收敛。
+>
+> ✅ **2026-09-25**（commit `de933e0a` / `70b85560`）：`ai_call.mjs` 与 `paper_convert.mjs`
+> 已 push 到私库 `main` —— **§8/§9/§10/§11 的「私库待推」已经全部清掉**。
 
 | 文件 | 字节 | 本轮变化 |
 |------|------|---------|
-| `scripts/ai_call.mjs` | 60744 | ✅ 加了 `input_path` 落盘读取（§8） |
-| `scripts/dual_engine_runner.mjs` | 29183 | ✅ 之前前端**根本没有**这个文件；现已补进安装清单并修了超时/预算；【源材料】改为共享稳定前缀 |
-| `scripts/paper_convert.mjs` | 106346 | ✅ 提词 prompt 加 `example_zh` + `morphemes`、CSV 加两批同名列、新增词素表汇总（§9、§10）、**新增通讯作者抽取**（§11） |
+| `scripts/ai_call.mjs` | 60744 | 一致（上一轮加了 `input_path` 落盘读取，§8） |
+| `scripts/dual_engine_runner.mjs` | 30129 | ✅ 时间线整体上调 + `MAX_TOKENS` 64000（§2） |
+| `scripts/paper_convert.mjs` | 106346 | 一致（上一轮的提词/词素/通讯作者） |
 | `scripts/blocks.mjs` | 14196 | 一致 |
-| `workflows/ai_call.yml` | 2572 | ✅ job timeout 15 → 25 分钟 |
+| `workflows/ai_call.yml` | 2992 | ✅ job timeout 25 → 50 分钟；补 `SIMPLETEX_TOKEN` |
 | `workflows/paper_convert.yml` | 2450 | 一致 |
 | `mineru_connectivity_test` / `ai_connectivity_test`（yml+mjs） | — | 一致 |
 | `book_convert.mjs` / `book_convert.yml` / `latex_compile.yml` | — | 一致（走 `?raw` 引源文件） |
@@ -69,10 +75,19 @@ handler 抛错也会写一份 `{ error: "..." }` 的结果文件，前端 `parse
 
 | 位置 | 值 | 作用 |
 |------|-----|------|
-| `dual_engine_runner.mjs` `CALL_TIMEOUT_MS` | 300 s | 单次模型调用的硬超时（AbortController） |
-| `dual_engine_runner.mjs` `TOTAL_BUDGET_MS` | 18 min | 整个任务的总预算，到点不再发起调用、带着已有结果正常返回 |
-| `ai_call.yml` `timeout-minutes` | 25 min | GitHub job 上限，**必须大于总预算**（给收尾留余量） |
-| `src/services/ai/dual-engine.ts` `maxAttempts` | 520 × 3s = 26 min | 前端轮询上限，**必须大于 job 上限** |
+| `dual_engine_runner.mjs` `CALL_TIMEOUT_MS` | 900 s (15 min) | 单次模型调用的硬超时（AbortController） |
+| `dual_engine_runner.mjs` `TOTAL_BUDGET_MS` | 40 min | 整个任务的总预算，到点不再发起调用、带着已有结果正常返回 |
+| `ai_call.yml` `timeout-minutes` | 50 min | GitHub job 上限，**必须大于总预算**（给收尾留余量） |
+| `src/services/ai/dual-engine.ts` `maxAttempts` | 1200 × 3s = 60 min | 前端轮询上限，**必须大于 job 上限** |
+
+> **2026-09-28 为什么整体上调**：接 GLM / 讯飞两家免费档 provider 时实测，
+> 免费档吞吐远低于 DeepSeek —— `spark-x2.5-4b` 转一篇 97KB 的 md，**AI-1 单次就要 437 秒**。
+> 原来 300s 的单次超时会在正文写到一半时被掐断；更糟的是被掐断后服务端往往**仍在继续生成**，
+> 紧接着的重试会直接撞 429 限流（GLM 那边因此 5 次重试全败）。
+> 另外 `MAX_TOKENS` 也从 32000 抬到 **64000**：实测 AI-1 正文要 34000+ token
+> （DeepSeek 那次到 48000），32000 会让整篇论文以 `finish_reason=length` 收尾。
+>
+> 注意 `MAX_TOKENS` 不在这四条时间线里，但它和总预算一起决定"一篇论文能不能一次跑完"。
 
 **为什么这么在意**：job 被 `timeout-minutes` 砍掉 = SIGKILL，runner 连结果文件都写不出来，
 前端只能干等到轮询超时 —— 用户看到的就是「非常慢、后台像静默失败了」。
@@ -155,10 +170,10 @@ for(const n of ['AI_CALL_MJS_B64','PAPER_CONVERT_MJS_B64','DUAL_ENGINE_RUNNER_MJ
 
 ## 5. dual_engine_runner 的容错（已完成）
 
-- **单次调用超时**（`AbortController`，300s）：provider 挂住不再无限等
-- **总预算 18 分钟**：到点停止发起调用，带着已有结果正常返回（`stopReason: 'budget_exceeded'`）
+- **单次调用超时**（`AbortController`，900s）：provider 挂住不再无限等
+- **总预算 40 分钟**：到点停止发起调用，带着已有结果正常返回（`stopReason: 'budget_exceeded'`）
 - **空正文 / `finish_reason === 'length'` 当可重试错误**，并且**从第二次重试起把思考关掉**
-  （32k 输出预算 reasoning 与正文共用，推理型模型容易把预算烧在思考上、正文吐空）
+  （64k 输出预算 reasoning 与正文共用，推理型模型容易把预算烧在思考上、正文吐空）
 - **AI-2 哑掉不再丢掉 AI-1 的成果**：降级返回正文 + `ai2Silent: true` + `stopReason: 'ai2_silent'`，
   并**停止后续轮次**（再让 AI-1 重写一遍也换不来复核，纯白花钱）。
   例外：401/403/404 鉴权错误照旧抛出，不伪装成"AI-2 没说话"
@@ -203,7 +218,7 @@ token 就分叉。要共享就得把两个角色提示都挪到源材料之后 �
 ### 6.2 端到端回归（需要真机跑一次）
 
 - [ ] 新库走一遍「安装后端」→ 确认 `dual_engine_runner.mjs` 被写进去、检测页显示已安装
-- [ ] 写作页可信检索（长材料，验证 18 分钟预算内能出结果、AI-2 哑掉时提示正确）
+- [ ] 写作页可信检索（长材料，验证 40 分钟预算内能出结果、AI-2 哑掉时提示正确）
 - [ ] 学习页 AI 补例句 + 历史批量补提
 - [ ] 阅读页问 AI
 - [ ] 转一篇新 PDF，确认 `sentences/sentences.csv` 收到新行且列对齐、逐字回贴生效
