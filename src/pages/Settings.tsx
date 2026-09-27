@@ -851,26 +851,29 @@ function AISlotSection(props: {
   // 清单只在「有内容 且 属于当前 provider」时才可用于验证（防切 provider 后误用旧清单）
   const hasFetched = fetchedModels.length > 0 && fetchedProvider === providerMode
   const fetchedSet = new Set(fetchedModels)
-  // 拉取过后：推荐组只显示真实存在的模型（防接不存在的模型）；未拉取时显示全部推荐
-  const verifiedRecs = hasFetched ? recs.filter((m) => fetchedSet.has(m.id)) : recs
+  // 推荐组**永远**显示全部推荐项，不用拉取到的清单去过滤。
+  // 理由：/models 不保证是全集。实测智谱 glm-4.7-flash 能正常调用（200 OK），
+  // 但该账号的 /models 里根本没有这个 id —— 一旦按清单过滤，下面的自动纠正会把
+  // 用户选好的 glm-4.7-flash 悄悄换成清单里的第一个模型，界面上还看不出来。
   const recIds = new Set(recs.map((m) => m.id))
   // 第二组：拉取清单里推荐之外的真实模型
   const extraFetched = Array.from(new Set(fetchedModels.filter((id) => !recIds.has(id)))).sort()
-  // 下拉显示值：优先用户已选且真实存在的；死模型回落到第一个已验证推荐（或清单首项）
+  // 下拉显示值：优先用户已选且确实可用的；死模型回落到第一个推荐（或清单首项）
   const displayIds = hasFetched
-    ? new Set([...verifiedRecs.map((m) => m.id), ...fetchedModels])
+    ? new Set([...recs.map((m) => m.id), ...fetchedModels])
     : recIds
   const fallbackModel = hasFetched
-    ? (verifiedRecs[0]?.id ?? fetchedModels[0])
+    ? (recs[0]?.id ?? fetchedModels[0])
     : (defaultModel || model)
   const shownModel = displayIds.has(model) ? model : fallbackModel
   /** 当前选中模型的官方价目（只有预置 provider 的推荐模型带 pricing，自定义端点没有） */
   const selectedPricing = recs.find((m) => m.id === shownModel)?.pricing
 
-  // 已拉取且存储的模型被证实不存在 → 自动纠正（防止 secrets 同步把死模型带给 runner）
+  // 已拉取且存储的模型既不在推荐清单、也不在真实清单里 → 判定为死模型并自动纠正
+  // （防止 secrets 同步把死模型带给 runner）。推荐项永远豁免，理由见上方注释。
   useEffect(() => {
     if (isCustom || !hasFetched || !model) return
-    if (!fetchedSet.has(model) && fallbackModel && fallbackModel !== model) {
+    if (!recIds.has(model) && !fetchedSet.has(model) && fallbackModel && fallbackModel !== model) {
       onModelChange(fallbackModel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -993,9 +996,9 @@ function AISlotSection(props: {
               className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 font-mono text-sm
                          focus:border-transparent focus:outline-none focus:ring-2 focus:ring-seal-500"
             >
-              {verifiedRecs.length > 0 && (
-                <optgroup label={hasFetched ? '推荐（已验证存在）' : '推荐'}>
-                  {verifiedRecs.map((m) => (
+              {recs.length > 0 && (
+                <optgroup label="推荐">
+                  {recs.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.id} · {m.desc}
                     </option>
