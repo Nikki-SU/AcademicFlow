@@ -169,7 +169,6 @@ function Settings() {
     isLoadingSlot2Models,
     mineruToken,
     simpletexToken,
-    simpletexSecret,
     thinkingAi1,
     thinkingAi2,
     updateSettings,
@@ -202,7 +201,6 @@ function Settings() {
         deepseekApiKey2: 'DeepSeek API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
         simpletexToken: 'SimpleTex 令牌',
-        simpletexSecret: 'SimpleTex APP Secret',
       }
       const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
       toast.warning(
@@ -539,20 +537,13 @@ function Settings() {
 
             <SubBlock
               title="SimpleTex 令牌"
-              hint="写作页「公式识图」用"
+              hint="写作页「公式识图」用 · 只需这一个 key"
             >
               <input
                 type="password"
-                placeholder="UAT 或 APP ID"
+                placeholder="用户授权令牌（UAT）"
                 value={simpletexToken}
                 onChange={(e) => updateSettings({ simpletexToken: e.target.value })}
-                className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              />
-              <input
-                type="password"
-                placeholder="APP Secret（仅 APP 鉴权需要，UAT 留空）"
-                value={simpletexSecret}
-                onChange={(e) => updateSettings({ simpletexSecret: e.target.value })}
                 className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
               />
               <p className="text-xs text-ink-400">
@@ -560,7 +551,8 @@ function Settings() {
                 <a href="https://simpletex.cn/user/center" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
                   SimpleTex 用户中心
                 </a>{' '}
-                创建。仅存本机，识图时临时传给后端，不写进私库。
+                的「用户授权令牌」里创建（SimpleTex 只签发这一把钥匙，没有 APP Secret）。
+                仅存本机，识图时临时传给后端，不写进私库。
               </p>
             </SubBlock>
 

@@ -58,9 +58,8 @@ export const SETTING_KEYS = {
   AI_MODELS_CACHE_AT: 'ai_models_cache_at',
   // MinerU 相关（M3.7）
   MINERU_TOKEN: 'mineru_token',
-  // SimpleTex 相关（公式识图）
+  // SimpleTex 相关（公式识图；只有 UAT 一把钥匙）
   SIMPLETEX_TOKEN: 'simpletex_token',
-  SIMPLETEX_SECRET: 'simpletex_secret',
   EXTRACT_COVER_IMAGE: 'extract_cover_image',
   AUTO_EXTRACT_WORDS: 'auto_extract_words',
   MINERU_DEBUG_MODE: 'mineru_debug_mode',

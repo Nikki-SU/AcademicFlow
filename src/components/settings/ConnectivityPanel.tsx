@@ -18,6 +18,7 @@ import {
   Zap,
   Cloud,
   Bot,
+  Sigma,
   AlertTriangle,
   CheckCircle2,
   CircleDashed,
@@ -34,6 +35,11 @@ import {
   type RunStatus,
   type WorkflowEvent,
 } from '../../services/workflowClient'
+import {
+  recognizeFormulaImage,
+  getSimpleTexSampleImage,
+  SIMPLETEX_SAMPLE_DATA_URL,
+} from '../../services/simpletex'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../../constants/skeleton'
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -66,6 +72,14 @@ const RUNNER_STEP_DEFS: { key: string; label: string }[] = [
 const GITHUB_STEP_DEFS: { key: string; label: string }[] = [
   { key: 'header', label: 'Header 模式 (Authorization: token xxx)' },
   { key: 'query',  label: 'Query 模式 (?access_token=xxx)' },
+]
+
+// SimpleTex 识图测试的 4 个步骤（令牌随 input_json 传，不需要写 secrets）
+const SIMPLETEX_STEP_DEFS: { key: string; label: string }[] = [
+  { key: 'image',    label: '载入内置公式样张' },
+  { key: 'upload',   label: '图片提交进私库' },
+  { key: 'dispatch', label: 'Dispatch simpletex_ocr' },
+  { key: 'ocr',      label: 'Runner 调 SimpleTex 真识别' },
 ]
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -210,9 +224,19 @@ export default function ConnectivityPanel() {
   )
   const [mineruResult, setMineruResult] = useState<RunnerTestResult | null>(null)
 
+  // ── SimpleTex 识图步骤 + 结果 ──
+  const [stTesting, setStTesting] = useState(false)
+  const [stSteps, setStSteps] = useState<Step[]>(
+    SIMPLETEX_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })),
+  )
+  /** 真识别出来的 LaTeX（拿到就是硬证据，和界面上那张样张对得上） */
+  const [stLatex, setStLatex] = useState<string | null>(null)
+  const [stError, setStError] = useState<string | null>(null)
+
   const [allTesting, setAllTesting] = useState(false)
 
   const mineruToken = store.mineruToken
+  const simpletexToken = store.simpletexToken
   const isInitialized = store.isInitialized
 
   // ═══════ GitHub 测试 ═══════
@@ -364,6 +388,50 @@ export default function ConnectivityPanel() {
     }
   }, [owner, repo, ghToken, mineruToken, ensureAllSecrets])
 
+  // ═══════ SimpleTex 公式识图端到端测试 ═══════
+  //  拿内置的真实公式样张当"用户截图"，走完整链路（私库 → Actions → SimpleTex），
+  //  把返回的 LaTeX 原样贴出来。不是走过场的"绿灯"，是拿识别结果说话。
+  const runSimpleTexTest = useCallback(async () => {
+    if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
+    if (!simpletexToken.trim()) { toast.warning('请先填写 SimpleTex 令牌（UAT）'); return }
+    setStTesting(true)
+    setStLatex(null)
+    setStError(null)
+    setStSteps(SIMPLETEX_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
+    const mark = (key: string, status: StepStatus, detail?: string) =>
+      setStSteps((prev) => patchSteps(prev, { [key]: { status, detail } }))
+
+    try {
+      mark('image', 'running')
+      const blob = getSimpleTexSampleImage()
+      mark('image', 'done', `${(blob.size / 1024).toFixed(1)} KB PNG`)
+
+      const result = await recognizeFormulaImage(
+        blob,
+        { token: simpletexToken.trim() },
+        'standard',
+        (stage) => {
+          if (stage === 'upload') mark('upload', 'running')
+          if (stage === 'dispatch') { mark('upload', 'done'); mark('dispatch', 'running') }
+          if (stage === 'poll') { mark('dispatch', 'done'); mark('ocr', 'running') }
+        },
+      )
+      mark('ocr', 'done')
+      setStLatex(result.latex)
+      toast.success('SimpleTex 端到端通过 ✅')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // 卡在哪个 running 步骤，就让哪一步变红
+      setStSteps((prev) => prev.map((s) => (
+        s.status === 'running' ? { ...s, status: 'error' as StepStatus, detail: msg } : s
+      )))
+      setStError(msg)
+      toast.error(`SimpleTex 端到端失败：${msg}`)
+    } finally {
+      setStTesting(false)
+    }
+  }, [owner, repo, ghToken, simpletexToken])
+
   // ═══════ 全部测试 ═══════
   const runAll = useCallback(async () => {
     if (!isInitialized) { toast.warning('等待初始化...'); return }
@@ -373,11 +441,12 @@ export default function ConnectivityPanel() {
       await runGitHubTest()
       await runAITest()
       await runMineruE2ETest()
+      await runSimpleTexTest()
       toast.success('全部测试完成!')
     } finally {
       setAllTesting(false)
     }
-  }, [isInitialized, runGitHubTest, runAITest, runMineruE2ETest])
+  }, [isInitialized, runGitHubTest, runAITest, runMineruE2ETest, runSimpleTexTest])
 
   // ── 首次挂载自动跑 GitHub ──
   const didAutoRunRef = useRef(false)
@@ -398,6 +467,7 @@ export default function ConnectivityPanel() {
     ghReport?.flowOk,
     aiResult?.ok,
     mineruResult?.ok,
+    !!stLatex,
   ].filter(Boolean).length
 
   return (
@@ -415,7 +485,7 @@ export default function ConnectivityPanel() {
           {allTesting ? '全部测试中...' : '🔌 全部测试'}
         </button>
         <span className="text-xs text-ink-500">
-          {greenCount} / 3 通过 · dispatch 目标:{owner}/{repo}
+          {greenCount} / 4 通过 · dispatch 目标:{owner}/{repo}
         </span>
       </div>
 
@@ -461,6 +531,47 @@ export default function ConnectivityPanel() {
       >
         <StepTimeline steps={mineruSteps} />
         <RunnerResultView result={mineruResult} />
+      </TestBlock>
+
+      {/* SimpleTex 公式识图 */}
+      <TestBlock
+        icon={<Sigma className="w-4 h-4" />}
+        title="SimpleTex (公式识图)"
+        subtitle="用内置公式样张走完整链路，真调 SimpleTex 并回吐 LaTeX"
+        tone={stTesting ? 'running' : stLatex ? 'ok' : stError ? 'err' : 'idle'}
+        buttonLabel={stTesting ? '测试中...' : '端到端测试'}
+        onButton={runSimpleTexTest}
+        buttonDisabled={stTesting || !owner || !repo || !simpletexToken.trim()}
+      >
+        <div className="flex items-start gap-3">
+          <img
+            src={SIMPLETEX_SAMPLE_DATA_URL}
+            alt="内置公式样张"
+            className="h-10 rounded border border-ink-200 bg-white px-1 py-0.5 shrink-0"
+          />
+          <div className="flex-1 min-w-0">
+            <StepTimeline steps={stSteps} />
+          </div>
+        </div>
+
+        {stLatex && (
+          <div className="rounded-md border border-green-200 bg-green-50 p-2.5 text-[11px] space-y-1">
+            <div className="flex items-center gap-1.5 text-green-800 font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              SimpleTex 返回的 LaTeX（和左边样张对一眼）
+            </div>
+            <pre className="whitespace-pre-wrap break-all font-mono text-green-900 select-all">
+              {stLatex}
+            </pre>
+          </div>
+        )}
+
+        {stError && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-[11px] text-red-700">
+            <span className="font-semibold">识别失败：</span>
+            {stError}
+          </div>
+        )}
       </TestBlock>
     </div>
   )
