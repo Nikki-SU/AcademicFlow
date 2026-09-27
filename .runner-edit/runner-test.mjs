@@ -218,14 +218,14 @@ function buildAI1FirstMessages(params) {
 
 function buildAI1RewriteMessages(params, previousOutput, previousFeedback, attemptIndex, maxAttempts) {
   const feedbackLines = []
+  // omitted 不进反馈 —— 它不是重写的原因（覆盖度不算忠实性错误），也不该被写成"必须补上"。
   previousFeedback.claims.forEach((c, i) => {
+    if (c.verdict === 'omitted') return
     const tag = c.verdict === 'added' ? '❌ added（必须删除或改写）'
               : c.verdict === 'contradicted' ? '❌ contradicted（必须改写或删除）'
-              : c.verdict === 'omitted' ? '⚠️ omitted（源材料里有、你漏了 —— 必须补上）'
               : '✅ supported（可保留）'
     feedbackLines.push(`${i + 1}. ${tag}\n   claim: ${c.claim}`)
     if (c.explanation) feedbackLines.push(`   审查意见: ${c.explanation}`)
-    if (c.verdict === 'omitted' && c.source_span) feedbackLines.push(`   源材料原文（补写依据）: ${c.source_span}`)
   })
 
   // 第一项固定是 buildSourcePrefix(params)，一个字都不能改（见函数上方说明）。
@@ -237,10 +237,8 @@ function buildAI1RewriteMessages(params, previousOutput, previousFeedback, attem
     '重写时额外遵守：',
     '1. 对反馈中被判 "added" 的 claim：**必须删除**，或改写为源材料明确支持的说法。',
     '2. 对反馈中被判 "contradicted" 的 claim：**改写为源材料明确支持的说法**，或直接删掉。',
-    '3. 对反馈中被判 "omitted" 的 claim：**必须补上**——源材料里确实有这段内容，你上一版漏掉了。',
-    '   按反馈里给出的「源材料原文」把这段信息补进正文，数值 / 条件要一字不差。',
-    '4. 对反馈中被判 "通过" 的 claim：保留原意。',
-    '5. **禁止**为了凑字数补充新的、源材料没有的信息。',
+    '3. 对反馈中被判 "supported" 的 claim：保留原意。',
+    '4. **禁止**为了凑字数补充新的、源材料没有的信息。',
     `这是第 ${attemptIndex}/${maxAttempts} 轮尝试。`,
     '',
     '【上一版你的总结】', previousOutput, '',
@@ -269,9 +267,10 @@ const AI2_SYSTEM = [
   '- supported: 源材料明确支撑该 claim',
   '- added: AI-1 编造/补充了源材料未提及的内容',
   '- contradicted: 源材料的内容与该 claim 矛盾', '',
-  '【任务 B：反向扫描源材料，找 AI-1 漏了什么】',
-  '任务 A 只核查「AI-1 写出来的内容对不对」，**抓不到「源材料里有、AI-1 没写」的遗漏**。',
-  '所以还要反向扫一遍源材料，把 AI-1 漏掉的关键内容报出来，verdict 标 omitted：',
+  '【任务 B：反向扫描源材料，找 AI-1 漏了什么（仅供提示，不影响判定）】',
+  '总结天然是有损的 —— 源材料里注定有内容不会进总结，这是正常现象，不是错误。',
+  '反向扫描只是给用户一个「还可以补什么」的提示：omitted **不参与 passed 判定、不会触发重写**。',
+  '把 AI-1 完全没提到、但用户可能想知道的关键内容列出来，verdict 标 omitted：',
   '- omitted: 源材料中的重要内容，AI-1 完全没有覆盖', '',
   '**omitted 只报这两类**：',
   '  ① 硬信息 —— 数值、实验条件 / 参数、结论性断言、否定性陈述（如"不反应""无活性"）。',
@@ -282,15 +281,15 @@ const AI2_SYSTEM = [
   '  · 行文风格、修辞、措辞详略的差异',
   '  · 次要举例、补充说明、图注细节', '',
   '**数量与把握**：只报最关键的，**最多 5 条**；没把握的一律不报（宁缺勿滥）。',
-  '误报一条 omitted 会让 AI-1 白改一轮 —— 代价比漏报高。', '',
+  '这条列表只是给用户看的提示，报多报少都不会让 AI-1 返工；但噪音会淹没真正有用的提示，仍以少而准为佳。', '',
   '【严格要求】',
   '1. supported / contradicted 的 source_span **必须是源材料的原文引用**（≥10 字符，逐字复制）。',
-  '2. omitted 的 source_span 也**必须是源材料里被漏掉的那段原文**（≥10 字符，逐字复制）；',
-  '   系统会拿它去源材料里做字面匹配 —— 若你编了一段源材料里根本没有的 span，本轮核查结论直接作废。',
+  '2. omitted 的 source_span 也**必须是源材料里被漏掉的那段原文**（≥10 字符，逐字复制）——',
+  '   它只是展示给用户看的依据，不再做字面匹配校验，但仍要逐字复制，不要意译。',
   '3. added 的 source_span 为空字符串。',
   '4. omitted 的 claim 字段写「源材料中的这段内容未被覆盖」的简述，不要写成 AI-1 的句子。',
   '5. 只处理 AI-1 总结中真正对源材料做出的事实断言。',
-  '6. **passed 定义**：无 added、无 contradicted、无 omitted 时 passed=true。',
+  '6. **passed 定义**：无 added、无 contradicted 时 passed=true（omitted 仅作提示，不影响 passed）。',
   '7. 输出严格 JSON，不要 markdown 代码块。', '',
   '【输出 JSON 结构】',
   '{',
@@ -327,8 +326,7 @@ function buildAI2SelfCorrectMessages(params, ai1Output, previousRawOutput, previ
     '1. AI-1 的总结保持不变，你需要基于同一份 (源材料, AI-1 总结) 重新给出核查报告。',
     '2. source_span 必须原样 copy 自源材料（≥10 字符，逐字对齐）。',
     '3. 找不到能字面对齐的 span → 先判断该 claim 是否含 [NOT_IN_SOURCE] tag（tag 行应直接剔除）；',
-    '   若该 claim 的 verdict 是 omitted，说明你以为漏掉的那段原文其实并不在源材料里 ——',
-    '   这是误报，直接删掉这条 claim；否则标 added。',
+    '   否则该 claim 应标 added（而不是 supported / contradicted）。',
     '4. 输出严格 JSON，格式与首次核查完全一致。', '',
     `这是第 ${attemptIndex}/${maxAttempts} 轮尝试（AI-2 自我纠错模式）。`, '',
     '【AI-1 输出的总结（保持不变）】', ai1Output, '',
@@ -419,9 +417,10 @@ function verifyEvidence(sourceMaterial, claims) {
   claims.forEach((c, idx) => {
     if (isMetaClaim(c)) return
     // added 无需 span（源材料未提及，本来就找不到原文）；
-    // omitted 相反 —— 它报的正是"源材料里有这段但你漏了"，所以 **必须**带 span 并接受校验：
-    // 校验通过 = 这段原文确实存在，"漏"成立；校验失败 = AI-2 凭空说漏，本轮作废。
-    if (c.verdict === 'added') return
+    // omitted 也只是提示、不影响 passed，同样不参与锚定校验 ——
+    // 否则"漏报的 span 猜错了"就又变成了一种隐性否决（和"summary 里一句漏了 XX 就把
+    // passed 填 false"是同一类 bug：拿没有 claim 支撑的东西去否决 AI-1）。
+    if (c.verdict === 'added' || c.verdict === 'omitted') return
     checked++
     if (!c.source_span || c.source_span.length < 10) { failedIndices.push(idx); return }
     if (haystack.includes(normalizeForMatch(c.source_span))) matched++
@@ -504,8 +503,10 @@ async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previ
   // 一句「漏了 XX」就把 passed 填成 false —— 那个 false 没有任何 claim 支撑，
   // 界面上显示成「处处正常却被打回重写」，用户完全无从判断错在哪。判定权必须收回代码。
   // （AI-2 的 summary 仍然照常透出，作为文字评论，但不再是否决依据。）
+  // 只有"说错了"才拦：added（编造）/ contradicted（曲解）。
+  // omitted（覆盖度）不参与 —— 总结必然有损，"没写全"不该被当成忠实性错误去否决 AI-1。
   const hasBlocking = report.claims.some(
-    (c) => c.verdict === 'added' || c.verdict === 'contradicted' || c.verdict === 'omitted'
+    (c) => c.verdict === 'added' || c.verdict === 'contradicted'
   )
   const passed = !ai2Silent && !hasBlocking && evidenceCheck.ok
 

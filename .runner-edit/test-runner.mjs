@@ -1,6 +1,9 @@
 /**
  * runner 改动的本地验证 —— 用一个 mock HTTP server 假扮 AI-1 / AI-2 的 OpenAI 兼容端点，
- * 端到端跑 runDualEngine，覆盖三个关键场景。
+ * 端到端跑 runDualEngine，覆盖「omitted 降级为提示」后的判定语义。
+ *
+ * 核心断言：passed 只由 added / contradicted + 引证锚定决定；
+ * omitted 无论真假都不阻断，只是多出来一条提示。
  */
 import http from 'node:http'
 import { runDualEngine } from './runner-test.mjs'
@@ -15,23 +18,34 @@ const AI1_CONTENT = [
   '@@END_EVIDENCE@@',
 ].join('\n')
 
+// passed 一律故意填 false —— 就是要证明代码不再采信 AI-2 自填的这个字段
 const ai2 = (claims, summary) => JSON.stringify({ passed: false, claims, summary })
 
 const SCENARIOS = {
-  // 场景 1：复现用户踩的坑 —— claims 全 supported、引证全过，但 AI-2 自填 passed:false
+  // 1. 复现用户踩的坑：claims 全 supported、引证全过，但 AI-2 自填 passed:false
   'ai2-all-supported': ai2(
     [{ claim: '本实验在 200 °C 下反应', verdict: 'supported', source_span: EVIDENCE_SPAN, explanation: '源材料支撑' }],
     '缺少源材料提到的反应时间24小时，不过这不构成事实性错误。'
   ),
-  // 场景 2：omitted 且 source_span 真实存在于源材料
+  // 2. omitted，span 真实存在（以前会打回，现在只提示）
   'ai2-omitted-real': ai2(
     [{ claim: '源材料提到的 5 MPa 压力未被覆盖', verdict: 'omitted', source_span: EVIDENCE_SPAN, explanation: '漏了压力条件' }],
     '漏掉了关键实验条件。'
   ),
-  // 场景 3：omitted 但 source_span 是编造的
+  // 3. omitted，span 编造（以前会打回，现在也只提示、不做锚定校验）
   'ai2-omitted-fake': ai2(
     [{ claim: '源材料某内容未被覆盖', verdict: 'omitted', source_span: '这段原文在源材料里根本不存在啊啊啊', explanation: '瞎报' }],
     '漏了。'
+  ),
+  // 4. added —— 编造，必须阻断
+  'ai2-added': ai2(
+    [{ claim: '实验在 120 °C 下进行', verdict: 'added', source_span: '', explanation: '源材料未提及此温度' }],
+    'AI-1 编造了温度条件。'
+  ),
+  // 5. contradicted —— 曲解，必须阻断
+  'ai2-contradicted': ai2(
+    [{ claim: '光照不是必需条件', verdict: 'contradicted', source_span: EVIDENCE_SPAN, explanation: '与源材料矛盾' }],
+    'AI-1 曲解了实验结论。'
   ),
 }
 
@@ -63,21 +77,31 @@ const input = {
   ai2: { ...base, model: 'ai2-model' },
 }
 
-const show = (tag, r) => {
+let failed = 0
+async function check(tag, scenarioKey, expect) {
+  scenario = scenarioKey
+  const r = await runDualEngine(input)
   const f = r.ai2Feedback
-  console.log(`\n=== ${tag} ===`)
-  console.log('finalPassed  :', r.finalPassed)
-  console.log('evidenceCheck:', JSON.stringify(f.evidenceCheck))
-  console.log('verdicts     :', f.claims.map((c) => c.verdict).join(', ') || '(无)')
+  const verdicts = f.claims.map((c) => c.verdict).join(', ') || '(无)'
+  const got = {
+    finalPassed: r.finalPassed,
+    evidenceOk: f.evidenceCheck.ok,
+    checked: f.evidenceCheck.checked,
+  }
+  const ok = Object.entries(expect).every(([k, v]) => got[k] === v)
+  if (!ok) failed++
+  console.log(`\n${ok ? '✅' : '❌'} ${tag}`)
+  console.log(`   verdicts     : ${verdicts}`)
+  console.log(`   finalPassed  : ${got.finalPassed}  (期望 ${expect.finalPassed})`)
+  console.log(`   evidenceCheck: ok=${got.evidenceOk} checked=${got.checked}  (期望 ok=${expect.evidenceOk}${'checked' in expect ? ` checked=${expect.checked}` : ''})`)
 }
 
-scenario = 'ai2-all-supported'
-show('场景1 全supported但passed自填false  → 期望 finalPassed=true', await runDualEngine(input))
-
-scenario = 'ai2-omitted-real'
-show('场景2 omitted + span真实存在        → 期望 finalPassed=false, evidenceOk=true', await runDualEngine(input))
-
-scenario = 'ai2-omitted-fake'
-show('场景3 omitted + span编造            → 期望 finalPassed=false, evidenceOk=false', await runDualEngine(input))
+await check('场景1 全 supported + AI-2 自填 passed:false → 应通过', 'ai2-all-supported', { finalPassed: true, evidenceOk: true })
+await check('场景2 omitted + span 真实 → 通过（仅提示），omitted 不进锚定校验', 'ai2-omitted-real', { finalPassed: true, evidenceOk: true, checked: 0 })
+await check('场景3 omitted + span 编造 → 仍通过（omitted 不校验、不阻断）', 'ai2-omitted-fake', { finalPassed: true, evidenceOk: true, checked: 0 })
+await check('场景4 added → 阻断', 'ai2-added', { finalPassed: false })
+await check('场景5 contradicted → 阻断', 'ai2-contradicted', { finalPassed: false })
 
 server.close()
+console.log(failed === 0 ? '\n全部通过 🎉' : `\n${failed} 个场景未达预期 ❌`)
+process.exit(failed === 0 ? 0 : 1)
