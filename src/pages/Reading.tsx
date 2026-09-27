@@ -3229,13 +3229,11 @@ const [aligned_content, set_aligned_content] = useState('')
 
         {/*
          * 堆叠面板 2/2：大纲（文献按当前显示模式的内容生成，图书按 content.md）。
-         * 展开时按内容高度、最多占左栏 45% 并内部滚动 —— 这样它既不侵占上面的列表，
-         * 也不会像 flex-1 那样在列表短时被撑成一大块空白。
-         * 只有列表被收起时才让它 flex-1 填补剩余空间。
+         * 规则：上排（列表）按自然高度，下排（大纲）适应上排、吃掉剩余空间，**不封顶**。
+         * flex-1 且不配 min-h-0 —— 它的自动最小高度就是自己的标题行，
+         * 所以即使上排全展开把空间吃光，它被压到极限也仍留在栏里、点得到。
          */}
-        <div className={`flex flex-col overflow-hidden border-t border-ink-200 ${
-          !outlineOpen ? 'flex-none' : listExpanded ? 'flex-none max-h-[45%]' : 'flex-1 min-h-0'
-        }`}>
+        <div className={`flex flex-col overflow-hidden border-t border-ink-200 ${outlineOpen ? 'flex-1' : 'flex-none'}`}>
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
             className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"

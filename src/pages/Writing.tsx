@@ -3074,7 +3074,7 @@ export default function WritingPage() {
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {/* ── 堆叠面板 1/3：项目（收起后只剩标题行，标题显示当前项目） ── */}
           <div
-            className={`flex flex-col ${
+            className={`flex flex-col overflow-hidden ${
               projectsExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
@@ -3180,7 +3180,7 @@ export default function WritingPage() {
 
           {/* ── 堆叠面板 2/3：文献检索（只搜库内） ── */}
           <div
-            className={`border-t border-ink-200 flex flex-col ${
+            className={`border-t border-ink-200 flex flex-col overflow-hidden ${
               libSearchExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
@@ -3285,10 +3285,15 @@ export default function WritingPage() {
             )}
           </div>
 
-          {/* ── 堆叠面板 3/3：大纲（收起后只剩标题行） ── */}
+          {/*
+           * ── 堆叠面板 3/3：大纲（收起后只剩标题行） ──
+           * 与阅读页同一规则：上排按自然高度，最后这栏适应上排、吃掉剩余空间，不封顶。
+           * flex-1 且不配 min-h-0 —— 最小高度即自己的标题行，被挤到极限也留在栏里。
+           * overflow-hidden 兜底，避免被压过头时内容溢出盖住邻居。
+           */}
           <div
-            className={`border-t border-ink-200 flex flex-col ${
-              outlineExpanded ? 'min-h-0' : 'flex-none'
+            className={`border-t border-ink-200 flex flex-col overflow-hidden ${
+              outlineExpanded ? 'flex-1' : 'flex-none'
             }`}
           >
             <button
