@@ -3764,6 +3764,24 @@ const [aligned_content, set_aligned_content] = useState('')
                                 }
                               />
                               <div className="flex-1 min-w-0">
+                                {/* 换色：不满意直接改（不用删了重批）。放最上面，一眼看到当前颜色 */}
+                                <div className="mb-1.5 flex items-center gap-1.5">
+                                  {HIGHLIGHT_COLORS.map((c) => (
+                                    <button
+                                      key={c.value}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        updateAnnotationColor(anno.id, c.value)
+                                      }}
+                                      className={`w-3.5 h-3.5 rounded-full ${c.dot} transition ${
+                                        anno.color === c.value
+                                          ? 'ring-2 ring-offset-1 ring-ink-400'
+                                          : 'opacity-50 hover:opacity-100'
+                                      }`}
+                                      title={`改为${c.label}`}
+                                    />
+                                  ))}
+                                </div>
                                 {/* 原文：点它跳到正文里的对应位置 */}
                                 <p
                                   onClick={() => scrollToAnnotation(anno)}
@@ -3800,24 +3818,6 @@ const [aligned_content, set_aligned_content] = useState('')
                                     )}
                                   </div>
                                 )}
-                                {/* 换色：不满意直接改（不用删了重批）*/}
-                                <div className="mt-1.5 flex items-center gap-1.5">
-                                  {HIGHLIGHT_COLORS.map((c) => (
-                                    <button
-                                      key={c.value}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        updateAnnotationColor(anno.id, c.value)
-                                      }}
-                                      className={`w-3.5 h-3.5 rounded-full ${c.dot} transition ${
-                                        anno.color === c.value
-                                          ? 'ring-2 ring-offset-1 ring-ink-400'
-                                          : 'opacity-50 hover:opacity-100'
-                                      }`}
-                                      title={`改为${c.label}`}
-                                    />
-                                  ))}
-                                </div>
                               </div>
                               <button
                                 onClick={() => {
