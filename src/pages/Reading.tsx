@@ -2801,8 +2801,13 @@ const [aligned_content, set_aligned_content] = useState('')
           </div>
         </div>
 
-        {/* 堆叠面板 1/2：列表（收起只剩标题行；展开到实际高度，不超出左栏） */}
-        <div className={`flex flex-col ${listExpanded ? 'min-h-0' : 'flex-none'}`}>
+        {/*
+         * 堆叠面板 1/2：列表。
+         * flex-none（不主动撑高）按内容占高；空间不够时由它先收缩、内部滚动，
+         * 而不是把固定高度的头部（标题/搜索/筛选）压出去溢到下面的大纲上。
+         * overflow-hidden 是兜底：万一被压到比最小内容还矮，也只会裁掉，不会盖住邻居。
+         */}
+        <div className={`flex flex-col overflow-hidden ${listExpanded ? 'min-h-0' : 'flex-none'}`}>
           <button
             onClick={() => setListExpanded(!listExpanded)}
             className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
@@ -3220,8 +3225,15 @@ const [aligned_content, set_aligned_content] = useState('')
           )}
         </div>
 
-        {/* 堆叠面板 2/2：大纲（文献按当前显示模式的内容生成，图书按 content.md） */}
-        <div className={`flex flex-col border-t border-ink-200 ${outlineOpen ? 'min-h-0' : 'flex-none'}`}>
+        {/*
+         * 堆叠面板 2/2：大纲（文献按当前显示模式的内容生成，图书按 content.md）。
+         * 展开时按内容高度、最多占左栏 45% 并内部滚动 —— 这样它既不侵占上面的列表，
+         * 也不会像 flex-1 那样在列表短时被撑成一大块空白。
+         * 只有列表被收起时才让它 flex-1 填补剩余空间。
+         */}
+        <div className={`flex flex-col overflow-hidden border-t border-ink-200 ${
+          !outlineOpen ? 'flex-none' : listExpanded ? 'flex-none max-h-[45%]' : 'flex-1 min-h-0'
+        }`}>
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
             className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
