@@ -1523,10 +1523,16 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCard, question?.wordId, settings.voiceEnabled])
 
-  // ── 语音：听音选中文要靠"放音"出题，题目一换就自动放一次 ──
+  // ── 语音：题面本身就是英文单词的题型，题目一换就自动念出来 ──
+  // - listen_select_cn：靠"放音"出题，本就该自动放；
+  // - en_select_cn / en_select_def：单词已经显示在题面上，念它不会泄题，正好沉浸。
+  // 其它题型（中选英 / 定义选英 / 中选读音 / 拼写 / 挖空句）题面不含英文单词，
+  // 提前念会直接把答案报出来，所以只在答完之后念（见 submitAnswer）。
   useEffect(() => {
     if (!settings.voiceEnabled || showCard || !question) return
-    if (question.type === 'listen_select_cn') speakEnglish(question.question)
+    if (question.type === 'listen_select_cn' || QUESTION_SPEAKABLE_TYPES.includes(question.type)) {
+      speakEnglish(question.question)
+    }
   }, [question, showCard, settings.voiceEnabled])
 
   // 统计（对齐 CAT wordStats）
@@ -1859,7 +1865,10 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           autoTimer.current = null
           advance(nextSession)
         }
-        if (settings.voiceEnabled && cur?.word.trim()) {
+        // 题面已含英文单词的题型刚才已经念过了，别重复念
+        const spokeOnPrompt =
+          question.type === 'listen_select_cn' || QUESTION_SPEAKABLE_TYPES.includes(question.type)
+        if (settings.voiceEnabled && !spokeOnPrompt && cur?.word.trim()) {
           speakEnglish(cur.word, go)
           // 兜底：个别浏览器 onend 不触发，别把会话卡死
           autoTimer.current = setTimeout(go, 4000)
