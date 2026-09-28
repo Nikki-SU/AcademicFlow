@@ -89,6 +89,17 @@ const NEW_QUESTION_TYPES: WordQuestionType[] = ['listen_select_cn', 'cn_select_s
 const QUESTION_SPEAKABLE_TYPES: WordQuestionType[] = ['en_select_cn', 'en_select_def']
 
 /**
+ * 题面里到底有没有出现英文。
+ * 题面本来就不给看英文的题型（中选英 / 定义选英 / 中选读音 / 拼写…），
+ * **答完之后也不必硬补一个英文读音** —— 题干都没出现英文，突然读一句英文很怪。
+ * 只有题面确实显示了英文（如英文例句题、复习轮用英文定义出的题），
+ * 「答完后补读一遍」才顺理成章；而这类正是补读的初衷（复习轮不亮卡片时仍能听到读音）。
+ */
+function promptShowsEnglish(q: GeneratedWordQuestion): boolean {
+  return /[A-Za-z]/.test(q.question)
+}
+
+/**
  * 当前语音模式下真正可用的题型。
  * 静音时把听音类剔掉，但**设置里仍保留勾选** —— 切回语音模式即恢复，
  * 不让用户为了"临时静音"重勾一遍。
@@ -1865,10 +1876,11 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           autoTimer.current = null
           advance(nextSession)
         }
-        // 题面已含英文单词的题型刚才已经念过了，别重复念
+        // 题面已含英文单词的题型刚才已经念过了，别重复念；
+        // 题面压根没显示英文的题型，也不该在答完后硬补一句英文读音（那样很怪）
         const spokeOnPrompt =
           question.type === 'listen_select_cn' || QUESTION_SPEAKABLE_TYPES.includes(question.type)
-        if (settings.voiceEnabled && !spokeOnPrompt && cur?.word.trim()) {
+        if (settings.voiceEnabled && !spokeOnPrompt && promptShowsEnglish(question) && cur?.word.trim()) {
           speakEnglish(cur.word, go)
           // 兜底：个别浏览器 onend 不触发，别把会话卡死
           autoTimer.current = setTimeout(go, 4000)
