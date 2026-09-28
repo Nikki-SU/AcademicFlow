@@ -92,8 +92,20 @@ export interface WorkspaceState {
  *
  * 每加一家公司，都要在 SettingsData 里配一对 key 字段（槽位 1 / 槽位 2）：
  * key 按公司独立存，切 provider 不会把别家的 key 洗掉，切回来不用重填。
+ *
+ * 火山方舟两套**订阅制**端点各算一个 provider：
+ *   volcengine-coding  Coding Plan → /api/coding/v3（专属 Key）
+ *   volcengine-agent   Agent Plan  → /api/plan/v3（专属 Key）
+ * 两者 key 互不通用，所以各自独立存一对。官方明确「请勿使用 /api/v3，
+ * 接入会产生额外费用」——按量计费的 /api/v3 故意不在这里预置。
  */
-export type AIProviderMode = 'deepseek' | 'zhipu' | 'xfyun' | 'volcengine' | 'custom'
+export type AIProviderMode =
+  | 'deepseek'
+  | 'zhipu'
+  | 'xfyun'
+  | 'volcengine-coding'
+  | 'volcengine-agent'
+  | 'custom'
 
 /**
  * 思考模式（reasoning）档位
@@ -229,6 +241,37 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
       { id: 'spark-x2.5-4b', desc: '免费 · 4B' },
     ],
   },
+  'volcengine-coding': {
+    label: '火山方舟 Coding Plan',
+    // 订阅制专属端点。官方明确：请勿使用 /api/v3（按量计费），否则不走套餐额度还会产生额外费用。
+    // OpenAI 兼容协议在 baseUrl 后拼 /chat/completions；Anthropic 协议版本是 .../api/coding（本项目不用）。
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
+    // ark-code-latest = 控制台切换模型（Auto），始终被套餐覆盖，最稳的默认
+    defaultModel1: 'ark-code-latest',
+    defaultModel2: 'ark-code-latest',
+    apiKeyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+    note: '订阅制 · 走套餐额度不按量计费；专属 Key；模型用 ark-code-latest 或 doubao-seed-2.1-*',
+    recommendedModels: [
+      { id: 'ark-code-latest', desc: 'Auto 调度（推荐）' },
+      { id: 'doubao-seed-2.1-pro', desc: '旗舰' },
+      { id: 'deepseek-v4-flash', desc: '快速' },
+      { id: 'glm-5.3', desc: 'GLM 最新' },
+    ],
+  },
+  'volcengine-agent': {
+    label: '火山方舟 Agent Plan',
+    // 订阅制专属端点（Agent Plan）。OpenAI 兼容协议在 baseUrl 后拼 /chat/completions。
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3',
+    defaultModel1: 'ark-code-latest',
+    defaultModel2: 'ark-code-latest',
+    apiKeyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+    note: '订阅制 · 走套餐额度不按量计费；专属 Key；模型用 ark-code-latest / deepseek-v4-* / glm-5.3',
+    recommendedModels: [
+      { id: 'ark-code-latest', desc: 'Auto 调度（推荐）' },
+      { id: 'deepseek-v4-flash', desc: '快速' },
+      { id: 'glm-5.3', desc: 'GLM 最新' },
+    ],
+  },
   custom: {
     label: '自定义端点',
     baseUrl: '',
@@ -273,6 +316,14 @@ export interface SettingsData {
   xfyunApiKey: string
   /** 讯飞星火 API Key（AI-2 位） */
   xfyunApiKey2: string
+  /** 火山方舟 Coding Plan 专属 API Key（AI-1 位）—— 订阅制端点，与 Agent Plan key 不通用 */
+  volcengineCodingApiKey: string
+  /** 火山方舟 Coding Plan 专属 API Key（AI-2 位） */
+  volcengineCodingApiKey2: string
+  /** 火山方舟 Agent Plan 专属 API Key（AI-1 位） */
+  volcengineAgentApiKey: string
+  /** 火山方舟 Agent Plan 专属 API Key（AI-2 位） */
+  volcengineAgentApiKey2: string
   /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string

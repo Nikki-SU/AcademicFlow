@@ -50,6 +50,12 @@ export const SETTING_KEYS = {
   // 讯飞星火（OpenAI 兼容端点）—— 同上
   XFYUN_API_KEY: 'xfyun_api_key',
   XFYUN_API_KEY_2: 'xfyun_api_key_2',
+  // 火山方舟 Coding Plan（订阅制，专属 Key）—— 与 Agent Plan key 不通用
+  VOLCENGINE_CODING_API_KEY: 'volcengine_coding_api_key',
+  VOLCENGINE_CODING_API_KEY_2: 'volcengine_coding_api_key_2',
+  // 火山方舟 Agent Plan（订阅制，专属 Key）
+  VOLCENGINE_AGENT_API_KEY: 'volcengine_agent_api_key',
+  VOLCENGINE_AGENT_API_KEY_2: 'volcengine_agent_api_key_2',
   AI_1_MODEL: 'ai_1_model',
   AI_2_MODEL: 'ai_2_model',
   CUSTOM_AI_1_BASE_URL: 'custom_ai_1_base_url',

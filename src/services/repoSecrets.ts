@@ -235,6 +235,14 @@ export interface SyncAllSecretsInput {
   xfyunApiKey: string
   /** 讯飞星火 key（AI-2 位） */
   xfyunApiKey2: string
+  /** 火山方舟 Coding Plan 专属 key（AI-1 位）—— 订阅制端点，与 Agent Plan key 不通用 */
+  volcengineCodingApiKey: string
+  /** 火山方舟 Coding Plan 专属 key（AI-2 位） */
+  volcengineCodingApiKey2: string
+  /** 火山方舟 Agent Plan 专属 key（AI-1 位） */
+  volcengineAgentApiKey: string
+  /** 火山方舟 Agent Plan 专属 key（AI-2 位） */
+  volcengineAgentApiKey2: string
   mineruToken: string
   /** SimpleTex 公式识图令牌（UAT）——同步到 secrets 做持久化，
    *  浏览器被清空后 runner 仍能靠 SIMPLETEX_TOKEN 环境变量兜底 */
@@ -251,6 +259,8 @@ function presetKey(mode: AIProviderMode, slot: 1 | 2, s: SyncAllSecretsInput): s
   if (mode === 'deepseek') return (slot === 1 ? s.deepseekApiKey : s.deepseekApiKey2).trim()
   if (mode === 'zhipu') return (slot === 1 ? s.zhipuApiKey : s.zhipuApiKey2).trim()
   if (mode === 'xfyun') return (slot === 1 ? s.xfyunApiKey : s.xfyunApiKey2).trim()
+  if (mode === 'volcengine-coding') return (slot === 1 ? s.volcengineCodingApiKey : s.volcengineCodingApiKey2).trim()
+  if (mode === 'volcengine-agent') return (slot === 1 ? s.volcengineAgentApiKey : s.volcengineAgentApiKey2).trim()
   return ''
 }
 

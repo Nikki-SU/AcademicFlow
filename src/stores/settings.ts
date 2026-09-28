@@ -68,6 +68,8 @@ function getProviderApiKey(mode: keyof typeof AI_PROVIDERS, slot: 1 | 2, s: Sett
     case 'deepseek': return (slot === 1 ? s.deepseekApiKey : s.deepseekApiKey2).trim()
     case 'zhipu': return (slot === 1 ? s.zhipuApiKey : s.zhipuApiKey2).trim()
     case 'xfyun': return (slot === 1 ? s.xfyunApiKey : s.xfyunApiKey2).trim()
+    case 'volcengine-coding': return (slot === 1 ? s.volcengineCodingApiKey : s.volcengineCodingApiKey2).trim()
+    case 'volcengine-agent': return (slot === 1 ? s.volcengineAgentApiKey : s.volcengineAgentApiKey2).trim()
     default: return ''
   }
 }
@@ -86,6 +88,10 @@ const DEFAULT_SETTINGS: SettingsData = {
   zhipuApiKey2: '',
   xfyunApiKey: '',
   xfyunApiKey2: '',
+  volcengineCodingApiKey: '',
+  volcengineCodingApiKey2: '',
+  volcengineAgentApiKey: '',
+  volcengineAgentApiKey2: '',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
@@ -131,6 +137,10 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'zhipuApiKey2',
   'xfyunApiKey',
   'xfyunApiKey2',
+  'volcengineCodingApiKey',
+  'volcengineCodingApiKey2',
+  'volcengineAgentApiKey',
+  'volcengineAgentApiKey2',
   'mineruToken',
   'simpletexToken',
 ]
@@ -177,6 +187,10 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
   zhipuApiKey2: SETTING_KEYS.ZHIPU_API_KEY_2,
   xfyunApiKey: SETTING_KEYS.XFYUN_API_KEY,
   xfyunApiKey2: SETTING_KEYS.XFYUN_API_KEY_2,
+  volcengineCodingApiKey: SETTING_KEYS.VOLCENGINE_CODING_API_KEY,
+  volcengineCodingApiKey2: SETTING_KEYS.VOLCENGINE_CODING_API_KEY_2,
+  volcengineAgentApiKey: SETTING_KEYS.VOLCENGINE_AGENT_API_KEY,
+  volcengineAgentApiKey2: SETTING_KEYS.VOLCENGINE_AGENT_API_KEY_2,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
   simpletexToken: SETTING_KEYS.SIMPLETEX_TOKEN,
 }
@@ -243,6 +257,10 @@ function detectPatContamination(
     'zhipuApiKey2',
     'xfyunApiKey',
     'xfyunApiKey2',
+    'volcengineCodingApiKey',
+    'volcengineCodingApiKey2',
+    'volcengineAgentApiKey',
+    'volcengineAgentApiKey2',
     'mineruToken',
     'simpletexToken',
   ]
@@ -759,6 +777,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         zhipuApiKey2: get().zhipuApiKey2,
         xfyunApiKey: get().xfyunApiKey,
         xfyunApiKey2: get().xfyunApiKey2,
+        volcengineCodingApiKey: get().volcengineCodingApiKey,
+        volcengineCodingApiKey2: get().volcengineCodingApiKey2,
+        volcengineAgentApiKey: get().volcengineAgentApiKey,
+        volcengineAgentApiKey2: get().volcengineAgentApiKey2,
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }
       set(merged)
