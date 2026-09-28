@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo, type DragEvent } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, type DragEvent } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   BookOpen,
@@ -38,6 +38,7 @@ import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Ca
 import { loadCategories as loadPaperCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { loadNotes, saveNotes, loadProgress, saveProgress, notesPath, type DocRef, type ReadingProgress } from '../services/readingDocData'
+import { getLastRead, setLastRead } from '../services/uiState'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
@@ -922,6 +923,44 @@ const [aligned_content, set_aligned_content] = useState('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docParam, qParam, location.key, papers, papersLoading, books, booksLoading, documents, documentsLoading])
 
+  /**
+   * 恢复上次在读的对象：没有 ?doc= 指路时，打开阅读页就回到上次那本书 / 那篇文献，
+   * 而不是被丢回默认的「第一篇文献」。状态存在本机（localStorage），换设备各记各的。
+   */
+  const lastReadAppliedRef = useRef(false)
+  useEffect(() => {
+    if (lastReadAppliedRef.current || docParam) return
+    const last = getLastRead()
+    if (!last) { lastReadAppliedRef.current = true; return }
+    if (last.kind === 'paper') {
+      if (papersLoading) return
+      if (papers.some((p) => p.id === last.id)) {
+        setDocType('paper')
+        setSelectedPaperId(last.id)
+      }
+      lastReadAppliedRef.current = true
+    } else if (last.kind === 'book') {
+      if (booksLoading) return
+      if (books.some((b) => b.id === last.id)) {
+        setDocType('book')
+        setSelectedBookId(last.id)
+      }
+      lastReadAppliedRef.current = true
+    } else {
+      if (documentsLoading) return
+      if (documents.some((d) => d.id === last.id)) {
+        setDocType('document')
+        setSelectedDocumentId(last.id)
+      }
+      lastReadAppliedRef.current = true
+    }
+  }, [docParam, papers, papersLoading, books, booksLoading, documents, documentsLoading])
+
+  /** 当前在读对象一旦变化就记到本机，供下次打开时恢复 */
+  useEffect(() => {
+    if (docRef) setLastRead({ kind: docRef.kind, id: docRef.id })
+  }, [docRef])
+
   /** 点漏斗开合筛选菜单；打开时把"已生效的筛选"播种成草稿，关掉就等于放弃这次选择 */
   const toggleFilterMenu = () => {
     if (filterOpen) {
@@ -1746,21 +1785,31 @@ const [aligned_content, set_aligned_content] = useState('')
     const norm = (s: string) => s.replace(/\s+/g, '').trim()
     const want = norm(savedProgress.heading || '')
     const headings = Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
-    // 三级兜底，越靠前越准：
-    //   1) 标题文本（最耐用，换模式也认得出）
-    //   2) 标题锚点 id（book-h-N）
-    //   3) 正文块锚点（b-N / en-N / cn-N）—— 没有标题的文档靠这层才存得下进度
-    let target: HTMLElement | null = want ? headings.find((h) => norm(h.textContent ?? '') === want) ?? null : null
+    const boxTop = box.getBoundingClientRect().top
+    // 四级兜底，越靠前越准：
+    //   1) 正文块锚点（b-N / en-N / cn-N）—— 直接落到**具体那一段**。
+    //      只认标题的话，标题下的正文再长，下次也只会被丢回标题开头，还得自己找。
+    //   2) 标题文本（换显示模式后块号带语言前缀、对不上了，靠它接上）
+    //   3) 标题锚点 id（book-h-N）
+    //   4) 整篇比例
+    let target: HTMLElement | null = savedProgress.block
+      ? root.querySelector<HTMLElement>(`[data-block-id="${savedProgress.block}"]`)
+      : null
+    let targetOffset = savedProgress.blockOffset
+    if (!target && want) {
+      target = headings.find((h) => norm(h.textContent ?? '') === want) ?? null
+      targetOffset = undefined
+    }
     if (!target && savedProgress.anchor) {
       target = root.querySelector<HTMLElement>(`[id="${savedProgress.anchor}"]`)
-    }
-    if (!target && savedProgress.block) {
-      target = root.querySelector<HTMLElement>(`[data-block-id="${savedProgress.block}"]`)
+      targetOffset = undefined
     }
 
     restoringRef.current = true
     if (target) {
-      box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top - 8
+      // blockOffset 有值就用它精确复现当初的视线位置；没有（标题/锚点兜底）就贴顶 -8。
+      const delta = targetOffset ?? -8
+      box.scrollTop += target.getBoundingClientRect().top - boxTop - delta
       // 只有标题才有"大纲高亮"，块锚点没有 id 就别去点亮大纲
       if (target.id) setActiveAnchor(target.id)
       // 记下回填到的位置：用户接着换个显示模式时，要落盘的就是这个标题
@@ -1773,7 +1822,7 @@ const [aligned_content, set_aligned_content] = useState('')
           }
         : null
     } else if (typeof savedProgress.ratio === 'number') {
-      // 4) 连块都找不到（换模式重排/内容变了）→ 按整篇比例回到大概位置，总比回到顶部强
+      // 连块都找不到（换模式重排/内容变了）→ 按整篇比例回到大概位置，总比回到顶部强
       const max = box.scrollHeight - box.clientHeight
       box.scrollTop = savedProgress.ratio * (max > 0 ? max : 0)
     }
@@ -1787,6 +1836,43 @@ const [aligned_content, set_aligned_content] = useState('')
     const timers = [0, 400, 1200].map((ms) => window.setTimeout(restoreProgress, ms))
     return () => timers.forEach((t) => window.clearTimeout(t))
   }, [savedProgress, restoreProgress, isPlain, bookRenderedHtml, paperRenderedHtml])
+
+  /**
+   * 改字号 → 整篇按新字号重排：行高、行数、每行字数全变，滚动条若停在原来的像素高度上
+   * 就会跑到别处去。所以改之前先记住「视口顶上是哪一段、它离顶边多少像素」，重排后把这一段
+   * 重新对回那个位置。锚的是**段落（块号）**不是行号 —— 行号本来就随字号变，锚不牢。
+   */
+  const fontSizeAnchorRef = useRef<{ block: string; offset: number } | null>(null)
+  const changeFontSize = useCallback(
+    (next: number) => {
+      const box = scrollRef.current
+      const el = pickCurrentBlock()
+      const id = el?.getAttribute('data-block-id')
+      if (box && el && id) {
+        fontSizeAnchorRef.current = {
+          block: id,
+          offset: el.getBoundingClientRect().top - box.getBoundingClientRect().top,
+        }
+      }
+      setFontSize(next)
+    },
+    [pickCurrentBlock],
+  )
+
+  // 用 useLayoutEffect：要在浏览器绘制前就把位置对回去，否则用户会先看到一次跳动
+  useLayoutEffect(() => {
+    const a = fontSizeAnchorRef.current
+    if (!a) return
+    fontSizeAnchorRef.current = null
+    const box = scrollRef.current
+    const root = readerRef.current
+    if (!box || !root) return
+    const el = root.querySelector<HTMLElement>(`[data-block-id="${a.block}"]`)
+    if (!el) return
+    restoringRef.current = true
+    box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.offset
+    window.setTimeout(() => { restoringRef.current = false }, 120)
+  }, [fontSize])
 
   /** 滚动：rAF 节流更新大纲高亮，停稳 1.2s 后落盘 */
   const handleReaderScroll = useCallback(() => {
@@ -1818,6 +1904,13 @@ const [aligned_content, set_aligned_content] = useState('')
       if (!progressLoadedRef.current) return
       const info = activeHeadingRef.current
       const blockEl = pickCurrentBlock()
+      const box = scrollRef.current
+      // 块顶边相对视口顶边的像素偏移：恢复时靠它精确回到"当初看到的那一行"，
+      // 而不是被丢回整段的开头（长段落尤其明显）
+      const blockOffset =
+        blockEl && box
+          ? blockEl.getBoundingClientRect().top - box.getBoundingClientRect().top
+          : undefined
       if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current)
       progressSaveTimerRef.current = setTimeout(() => {
         saveProgress(docRef, {
@@ -1825,6 +1918,7 @@ const [aligned_content, set_aligned_content] = useState('')
           heading: info?.heading ?? '',
           level: info?.level ?? 0,
           block: blockEl?.getAttribute('data-block-id') || undefined,
+          blockOffset,
           ratio: readerScrollRatio(),
           // 文献连显示模式一起记住；图书 / 其他文档没有模式，留空
           mode: isPlain ? undefined : translation_mode,
@@ -1860,11 +1954,17 @@ const [aligned_content, set_aligned_content] = useState('')
       : null
     activeHeadingRef.current = info
     const blockEl = pickCurrentBlock()
+    const box = scrollRef.current
+    const blockOffset =
+      blockEl && box
+        ? blockEl.getBoundingClientRect().top - box.getBoundingClientRect().top
+        : undefined
     saveProgress(docRef, {
       anchor: info?.anchor ?? '',
       heading: info?.heading ?? '',
       level: info?.level ?? 0,
       block: blockEl?.getAttribute('data-block-id') || undefined,
+      blockOffset,
       ratio: readerScrollRatio(),
       mode: translation_mode,
       updated_at: new Date().toISOString(),
@@ -3316,7 +3416,7 @@ const [aligned_content, set_aligned_content] = useState('')
                   <div className="w-px h-5 bg-ink-200 mx-1" />
                   {ttsControls}
                   <button
-                    onClick={() => setFontSize((s) => Math.max(12, s - 1))}
+                    onClick={() => changeFontSize(Math.max(12, fontSize - 1))}
                     className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                     title="减小字号"
                   >
@@ -3324,7 +3424,7 @@ const [aligned_content, set_aligned_content] = useState('')
                   </button>
                   <span className="text-xs text-ink-400 w-8 text-center">{fontSize / 16}rem</span>
                   <button
-                    onClick={() => setFontSize((s) => Math.min(24, s + 1))}
+                    onClick={() => changeFontSize(Math.min(24, fontSize + 1))}
                     className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                     title="增大字号"
                   >
@@ -3423,7 +3523,7 @@ const [aligned_content, set_aligned_content] = useState('')
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 <button
-                  onClick={() => setFontSize((s) => Math.max(12, s - 1))}
+                  onClick={() => changeFontSize(Math.max(12, fontSize - 1))}
                   className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                   title="减小字号"
                 >
@@ -3431,7 +3531,7 @@ const [aligned_content, set_aligned_content] = useState('')
                 </button>
                 <span className="text-xs text-ink-400 w-8 text-center">{fontSize / 16}rem</span>
                 <button
-                  onClick={() => setFontSize((s) => Math.min(24, s + 1))}
+                  onClick={() => changeFontSize(Math.min(24, fontSize + 1))}
                   className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition"
                   title="增大字号"
                 >

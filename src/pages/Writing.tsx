@@ -81,6 +81,7 @@ import { DoiLink } from '../components/DoiLink'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { abortError, isAbortError } from '../services/ai/abort'
 import { loadAiSourceText } from '../services/literatureData'
+import { getLastProjectId, setLastProjectId } from '../services/uiState'
 import {
   loadProjects,
   saveProjects,
@@ -122,21 +123,16 @@ import CitationPanel from '../components/CitationPanel'
 import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, deleteFormulas, setImageSize } from '../services/formula'
 
 /**
- * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边。
+ * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边，互不干涉。
  * 大纲不在其中：按需求它固定挂在左侧「项目导航」下方，可收起/展开（仿 Obsidian）。
- *
- * `hint` 是「选中后会自动把另一侧切成什么」的提示 —— 只有需要左右联动的两项才有：
- * - 选「期刊模板」→ 另一侧自动变 LaTeX 工作区 = 模板调试
- * - 选「编辑区」  → 另一侧自动变 LaTeX 工作区 = 排版
  */
 const PANEL_MODES: {
   value: PanelMode
   label: string
   icon: typeof PenTool
-  hint?: string
 }[] = [
-  { value: 'editor', label: '编辑区', icon: PenTool, hint: '排版' },
-  { value: 'template', label: '期刊模板', icon: LayoutTemplate, hint: '模板调试' },
+  { value: 'editor', label: '编辑区', icon: PenTool },
+  { value: 'template', label: '期刊模板', icon: LayoutTemplate },
   { value: 'typesetting', label: 'LaTeX 工作区', icon: FileCode },
   { value: 'proofread', label: '文稿校对', icon: ScanEye },
   { value: 'citations', label: '引用表', icon: BookMarked },
@@ -144,9 +140,6 @@ const PANEL_MODES: {
   { value: 'library', label: '文献库', icon: Library },
   { value: 'knowledge', label: '知识库', icon: GraduationCap },
 ]
-
-/** 需要和「LaTeX 工作区」配对的模式：选中它们时另一侧自动切过去（左右联动） */
-const LATEX_PAIRED_MODES: PanelMode[] = ['editor', 'template']
 
 /**
  * 缺包时给日志加一段人话。
@@ -1186,8 +1179,10 @@ export default function WritingPage() {
         setProjects(loadedProjects)
 
         if (loadedProjects.length > 0) {
-          const firstProject = loadedProjects[0]
-          setActiveProjectId(firstProject.projectId)
+          // 回到上次编辑的项目；找不到（被删了）再退回第一个
+          const lastId = getLastProjectId()
+          const pick = loadedProjects.find((p) => p.projectId === lastId) ?? loadedProjects[0]
+          setActiveProjectId(pick.projectId)
         } else {
           const defaultProject: Project = {
             projectId: 'default',
@@ -1213,6 +1208,11 @@ export default function WritingPage() {
     initData()
     return () => { cancelled = true }
   }, [repo])
+
+  /** 当前项目一旦切换就记到本机，供下次打开写作页时恢复 */
+  useEffect(() => {
+    if (activeProjectId) setLastProjectId(activeProjectId)
+  }, [activeProjectId])
 
   useEffect(() => {
     if (!activeProjectId) return
@@ -3494,15 +3494,6 @@ export default function WritingPage() {
                             key={mode.value}
                             onClick={() => {
                               p.setMode(mode.value)
-                              // 左右联动：选「编辑区」或「期刊模板」时，
-                              // 自动把另一侧切成 LaTeX 工作区 —— 排版 / 模板调试都靠这一对
-                              if (LATEX_PAIRED_MODES.includes(mode.value)) {
-                                const otherSet =
-                                  p.side === 'left' ? setRightPanelMode : setLeftPanelMode
-                                const otherMode =
-                                  p.side === 'left' ? rightPanelMode : leftPanelMode
-                                if (otherMode !== 'typesetting') otherSet('typesetting')
-                              }
                               p.setShowDropdown(false)
                             }}
                             className={`w-full px-3 py-2 text-left hover:bg-paper-100 transition flex items-center gap-2 ${
@@ -3513,9 +3504,6 @@ export default function WritingPage() {
                             <span className={`text-sm ${active ? 'text-seal-700 font-medium' : 'text-ink-700'}`}>
                               {mode.label}
                             </span>
-                            {mode.hint && (
-                              <span className="text-[0.625rem] text-ink-400">{mode.hint}</span>
-                            )}
                             {active && <Check className="w-4 h-4 text-seal-600 ml-auto" />}
                           </button>
                         )
