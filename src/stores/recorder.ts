@@ -42,8 +42,12 @@ interface RecorderState {
   sessionId: string | null
   segments: RecorderSegment[]
   error: string | null
+  /** 转写失败、暂存在内存里待重试的片数（>0 = 有内容还没转成，别关页面） */
+  pendingCount: number
   start: (targetTaskId: string) => Promise<void>
   stop: () => Promise<void>
+  /** 重试所有暂存失败的片，并把新补回的写入私库 */
+  retryPending: () => Promise<void>
   setTarget: (taskId: string | null) => void
   clear: () => void
 }
@@ -55,6 +59,7 @@ const IDLE = {
   sessionId: null as string | null,
   segments: [] as RecorderSegment[],
   error: null as string | null,
+  pendingCount: 0,
 }
 
 // ── 模块级句柄（组件卸载不停录音，故不放组件里） ──
@@ -66,12 +71,20 @@ let chunkChain: Promise<void> = Promise.resolve()
 /** 每片时长（ms）：只切 dataavailable 事件，录音本身不中断。
  *  10 秒一片 —— 越短首字越快、丢字风险越小；代价是请求更密（SenseVoice 免费，可承受）。 */
 const SEGMENT_MS = 10000
-/** 单片转写超时（ms）：超时就放弃这一片并继续下一片。
- *  不设超时的话，一次卡住的请求会把整条串行链堵死，后面所有片都跟着出不来 ——
- *  表现就是「录着录着一个字都不出，直到停止才一次性全冒出来」。 */
+/** 单片转写的「正常」超时（ms）：一次尝试卡住就中止它，避免拖住整条串行链。
+ *  ⚠️ 中止 ≠ 丢弃：这一片的音频会**留在内存里等重试**（见 pendingChunks），
+ *  因为音频本就不入库，丢了就真没了。 */
 const CHUNK_TIMEOUT_MS = 25000
+/** 补转写（对暂存片重试）的超时（ms）：宽裕些，宁可慢也要把它转出来。 */
+const DRAIN_TIMEOUT_MS = 90000
 /** 容器头（第一片里的 EBML/Tracks 或 ftyp+moov），拼到后续每片前面 */
 let initSegmentBytes: Uint8Array | null = null
+/** 转写失败、暂存待重试的片（音频仍在内存 —— 录完不停、失败不丢，停止后还能补） */
+let pendingChunks: { at: number; blob: Blob }[] = []
+/** 是否正在补转写（避免并发重复补同一片） */
+let draining = false
+/** 已写入私库的 segment id：停止时已保存的，重试补写时不再重复追加 */
+const savedSegIds = new Set<string>()
 
 /** 是不是中文（转写接口可能返回 zh / zh-CN / Chinese / cmn / yue 等） */
 function isZhLanguage(lang: string): boolean {
@@ -141,7 +154,7 @@ function extractInitSegment(buf: Uint8Array, mime: string): Uint8Array | null {
 }
 
 /** 处理一片录音数据：第一片抽头并直接转写，后续片「头 + 裸簇」拼接后再转写 */
-async function processChunk(data: Blob, mimeType: string | undefined): Promise<void> {
+async function processChunk(data: Blob, mimeType: string | undefined, at: number): Promise<void> {
   if (!data || data.size === 0) {
     console.warn('[recorder] 收到空分片，跳过')
     return
@@ -154,23 +167,21 @@ async function processChunk(data: Blob, mimeType: string | undefined): Promise<v
       console.warn('[recorder] 未识别的音频容器，未能抽出容器头，后续分片可能无法转写：', mime)
     }
     console.log(`[recorder] 首片到达：${buf.length} 字节，容器头 ${initSegmentBytes?.length ?? 0} 字节`)
-    await handleChunk(new Blob([buf as BlobPart], { type: mime }))
+    await handleChunk(new Blob([buf as BlobPart], { type: mime }), at)
   } else {
     console.log(`[recorder] 分片到达：${buf.length} 字节（已拼接容器头）`)
-    await handleChunk(new Blob([initSegmentBytes as BlobPart, buf as BlobPart], { type: mime }))
+    await handleChunk(new Blob([initSegmentBytes as BlobPart, buf as BlobPart], { type: mime }), at)
   }
 }
 
-async function handleChunk(blob: Blob): Promise<void> {
+/** 单次转写一片；失败 / 超时一律 throw（重试与兜底交给 handleChunk）。 */
+async function transcribeOnce(blob: Blob, at: number, timeoutMs: number): Promise<void> {
   const cfg = readAsrConfig()
-  if (!cfg.apiKey) {
-    // 录音中途把 Key 删了：不静默，明确报出来
-    toast.error('会议转写 Key 为空，本段未转写（设置 → 会议转写）', { duration: 8000 })
-    return
-  }
+  if (!cfg.apiKey) throw new Error('会议转写 Key 为空（设置 → 会议转写）')
+
   const startedAt = Date.now()
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), CHUNK_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const { text, language } = await transcribeAudio(
       blob,
@@ -202,30 +213,74 @@ async function handleChunk(blob: Blob): Promise<void> {
 
     const seg: RecorderSegment = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      at: Date.now(),
+      at,
       text,
       language,
       translation,
     }
-    useRecorderStore.setState((s) => ({ segments: [...s.segments, seg] }))
-  } catch (e) {
-    // 超时（abort）单独说清楚：这一片被丢弃，但录音与后续分片继续，不能因此停摆
-    const aborted = e instanceof DOMException && e.name === 'AbortError'
-    const msg = aborted
-      ? `本片转写超时（>${CHUNK_TIMEOUT_MS / 1000}s），已跳过，继续下一片`
-      : e instanceof Error
-        ? e.message
-        : String(e)
-    useRecorderStore.setState({ error: msg })
-    toast.error(aborted ? msg : `转写失败：${msg}`, { duration: 8000 })
+    // 按到达时间插入：补回来的片（at 是原始时刻）也能落到正确位置
+    useRecorderStore.setState((s) => ({
+      segments: [...s.segments, seg].sort((a, b) => a.at - b.at),
+    }))
   } finally {
     clearTimeout(timer)
   }
 }
 
-/** 把一片数据挂到串行链上（含抽头/拼接），保证 segments 顺序 = 录音顺序 */
+/** 同步「待重试片数」到 store，供 UI 显示/重试 */
+function syncPending(): void {
+  useRecorderStore.setState({ pendingCount: pendingChunks.length })
+}
+
+/**
+ * 补转写所有暂存失败的片。**不阻塞主链**：一次卡住就跳出，留给下一次机会
+ * （每成功转一片后、以及停止时都会再调一次）。音频一直在内存里，不会丢。
+ */
+async function drainPending(): Promise<void> {
+  if (draining) return
+  draining = true
+  try {
+    while (pendingChunks.length > 0) {
+      const item = pendingChunks[0]
+      try {
+        await transcribeOnce(item.blob, item.at, DRAIN_TIMEOUT_MS)
+        pendingChunks.shift()
+        syncPending()
+      } catch (e) {
+        // 还是不行（网络/Key）：保留这一片，等下次机会，绝不丢弃
+        console.warn('[asr] 补转写仍失败，保留待下次：', e instanceof Error ? e.message : String(e))
+        break
+      }
+    }
+  } finally {
+    draining = false
+  }
+}
+
+async function handleChunk(blob: Blob, at: number): Promise<void> {
+  try {
+    await transcribeOnce(blob, at, CHUNK_TIMEOUT_MS)
+    if (pendingChunks.length > 0) void drainPending()
+  } catch (e) {
+    // 超时 / 失败都**不丢弃**：这一片音频放进 pending，稍后（或停止时）再补
+    const aborted = e instanceof DOMException && e.name === 'AbortError'
+    const msg = aborted
+      ? `本片转写超时（>${CHUNK_TIMEOUT_MS / 1000}s）`
+      : e instanceof Error
+        ? e.message
+        : String(e)
+    pendingChunks.push({ at, blob })
+    syncPending()
+    useRecorderStore.setState({ error: `${msg}（已暂存待重试，不会丢）` })
+    toast.error(`本片转写失败，已暂存待重试（不会丢）：${msg}`, { duration: 8000 })
+    if (!draining) void drainPending()
+  }
+}
+
+/** 把一片数据挂到串行链上（含抽头/拼接）；到达时刻 at 一并带上，供乱序补写时排序 */
 function enqueueData(data: Blob, mimeType: string | undefined): void {
-  chunkChain = chunkChain.then(() => processChunk(data, mimeType)).catch(() => {})
+  const at = Date.now()
+  chunkChain = chunkChain.then(() => processChunk(data, mimeType, at)).catch(() => {})
 }
 
 export const useRecorderStore = create<RecorderState>((set, get) => ({
@@ -234,6 +289,14 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   start: async (targetTaskId) => {
     const { status } = get()
     if (status === 'recording' || status === 'stopping') return
+
+    // 上一轮还有没转成的片（音频只在内存里）：先重试补完再录，否则会被清掉丢失
+    if (pendingChunks.length > 0) {
+      toast.error(`上一轮还有 ${pendingChunks.length} 片没转成，先点「重试未完成」补完再开始新录音`, {
+        duration: 10000,
+      })
+      return
+    }
 
     const cfg = readAsrConfig()
     if (!cfg.apiKey) {
@@ -254,6 +317,8 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
       mediaRecorder = recorder
       initSegmentBytes = null
+      pendingChunks = []
+      savedSegIds.clear()
       recorder.ondataavailable = (e) => {
         enqueueData(e.data, mimeType)
       }
@@ -278,6 +343,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
         sessionId: useSessionStore.getState().ensure(targetTaskId),
         segments: [],
         error: null,
+        pendingCount: 0,
       })
     } catch (err) {
       // 权限被拒 / 设备不可用：写 error 并提示，不静默
@@ -303,6 +369,8 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
 
     // flush：等所有分片的转写 / 翻译跑完
     await chunkChain
+    // 停止后再给暂存失败的片一次机会（宽裕超时）—— 音频还在内存，尽量都转出来
+    await drainPending()
 
     // 停掉麦克风轨道，释放设备
     mediaStream?.getTracks().forEach((t) => t.stop())
@@ -314,16 +382,66 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
     if (targetTaskId && sessionId && segments.length > 0) {
       try {
         await saveTranscript(targetTaskId, sessionId, segments)
+        segments.forEach((s) => savedSegIds.add(s.id))
         toast.success('本轮转写已保存到私库')
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         toast.error(`转写保存失败：${msg}`, { duration: 8000 })
       }
     }
+
+    if (pendingChunks.length > 0) {
+      // 还有没转成的片：**绝不清空** —— 音频留在内存，UI 给「重试」，提示别关页面
+      set({
+        status: 'idle',
+        startedAt: null,
+        pendingCount: pendingChunks.length,
+        error: `还有 ${pendingChunks.length} 片未转写成功，点「重试未完成」再试（音频仍在内存，先别关页面）`,
+      })
+      toast.error(`还有 ${pendingChunks.length} 片未转写成功，点「重试未完成」再试`, {
+        duration: 12000,
+      })
+      return
+    }
     get().clear()
+  },
+
+  retryPending: async () => {
+    const { status } = get()
+    if (status === 'recording' || status === 'stopping') return
+    await drainPending()
+
+    // 只补写「还没落库」的片，避免和停止时已保存的重复
+    const { targetTaskId, sessionId, segments } = get()
+    const fresh = segments.filter((s) => !savedSegIds.has(s.id))
+    if (fresh.length > 0 && targetTaskId && sessionId) {
+      try {
+        await saveTranscript(targetTaskId, sessionId, fresh)
+        fresh.forEach((s) => savedSegIds.add(s.id))
+        toast.success(`已补写 ${fresh.length} 片到私库`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        toast.error(`补写失败：${msg}`, { duration: 8000 })
+      }
+    }
+
+    if (pendingChunks.length === 0) {
+      get().clear()
+      toast.success('未完成的片已全部转写并保存')
+    } else {
+      set({
+        pendingCount: pendingChunks.length,
+        error: `仍有 ${pendingChunks.length} 片未转写成功，请检查网络 / Key 后再试`,
+      })
+      toast.error(`仍有 ${pendingChunks.length} 片未成功，可稍后再试`, { duration: 10000 })
+    }
   },
 
   setTarget: (taskId) => set({ targetTaskId: taskId }),
 
-  clear: () => set({ ...IDLE, segments: [] }),
+  clear: () => {
+    pendingChunks = []
+    savedSegIds.clear()
+    set({ ...IDLE, segments: [] })
+  },
 }))

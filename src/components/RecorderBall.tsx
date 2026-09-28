@@ -10,7 +10,7 @@
  * 录音中球身变红并走表；展开即见本轮转写。卸载 / 切页都不影响录音。
  */
 import { useEffect, useRef, useState } from 'react'
-import { Mic, Square, ChevronDown, Loader2, Camera } from 'lucide-react'
+import { Mic, Square, ChevronDown, Loader2, Camera, RotateCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRecorderStore } from '../stores/recorder'
 import { useTaskStore } from '../stores/task'
@@ -48,12 +48,15 @@ export default function RecorderBall() {
   const startedAt = useRecorderStore((s) => s.startedAt)
   const segments = useRecorderStore((s) => s.segments)
   const error = useRecorderStore((s) => s.error)
+  const pendingCount = useRecorderStore((s) => s.pendingCount)
   const start = useRecorderStore((s) => s.start)
   const stop = useRecorderStore((s) => s.stop)
+  const retryPending = useRecorderStore((s) => s.retryPending)
 
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [uploading, setUploading] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -151,6 +154,16 @@ export default function RecorderBall() {
       return
     }
     await uploadImages(list)
+  }
+
+  /** 重试停止时仍没转成的片：音频还在内存里，补转后写回私库 */
+  const handleRetryPending = async () => {
+    setRetrying(true)
+    try {
+      await retryPending()
+    } finally {
+      setRetrying(false)
+    }
   }
 
   const elapsed = startedAt ? now - startedAt : 0
@@ -279,6 +292,24 @@ export default function RecorderBall() {
         <span className="max-w-xs truncate rounded bg-red-50 px-2 py-0.5 text-[11px] text-red-600">
           {error}
         </span>
+      )}
+
+      {/* 停止后仍有没转成的片：音频还在内存里，给一个明确的重试入口（别让用户无从下手） */}
+      {pendingCount > 0 && !isRecording && (
+        <button
+          type="button"
+          onClick={() => void handleRetryPending()}
+          disabled={retrying}
+          title="音频仍在内存中，重试后会把新转出的内容补写进私库；重试前别关页面"
+          className="flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1.5 text-[11px] font-medium text-paper-50 shadow-lift transition hover:bg-amber-600 disabled:opacity-60"
+        >
+          {retrying ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RotateCw className="h-3.5 w-3.5" />
+          )}
+          {retrying ? '重试中…' : `重试未完成的 ${pendingCount} 片`}
+        </button>
       )}
 
       {/* 无摄像头环境的兜底：文件选择（正常走上面的应用内相机） */}
