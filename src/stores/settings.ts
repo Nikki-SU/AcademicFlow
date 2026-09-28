@@ -133,8 +133,9 @@ const DEFAULT_SETTINGS: SettingsData = {
   asrTranslateToZh: true,
 }
 
-/** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
-const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
+/** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8
+ *  注意：这份清单也是「凭据保险箱」credentialsVault 加密上私库的字段集合 */
+export const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'deepseekApiKey',
   'customAi1ApiKey',
   'customAi2ApiKey',

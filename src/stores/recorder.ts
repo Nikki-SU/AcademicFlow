@@ -4,10 +4,16 @@
  * 状态放 zustand、MediaRecorder 句柄放模块级变量 —— 于是**切页面 / 路由不中断录音**：
  * 组件卸载只解绑 UI，录音与转写链路在 store 里继续跑。
  *
- * 每 30 秒切一段：**每段都单独起停一次 MediaRecorder**（不是 start(30000) 的
- * 分片）—— 这样每一段都是**完整可解码的独立音频文件**。用 start(30000) 切出来的
- * 第 2 段起只有数据簇、没有容器头，后端（硅基流动）解不出来，正是「录了一分钟
- * 一个字都没有」的根因。每段立即直连硅基流动转写；language 非中文且开了翻译 → 再翻译。
+ * 录音：**一条 MediaRecorder 从头录到尾，绝不中断**（一节 90 分钟也不丢一秒），
+ * 用 start(30000) 每 30 秒切一个 dataavailable 事件而已。
+ *
+ * 切片后仍要能转写，靠的是**容器头复用**：第一片里带着 WebM 的 EBML/Tracks 前导
+ * （Safari 是 MP4 的 ftyp+moov），把它抠出来存下来，拼到后续每一片的前面 ——
+ * 于是「头 + 本片数据簇」拼出来又是一个完整可解码的文件（同 MSE 追加分段的原理）。
+ * 只切事件、不停采集，既没有启停空窗，每片后端也能解。之前用 start(30000) 直接
+ * 把裸数据簇发出去，后端没有头解不出来，正是「录了一分钟一个字都没有」的根因。
+ *
+ * 每片立即直连硅基流动转写；language 非中文且开了翻译 → 再翻译。
  * **音频片段用完即弃，不落任何存储**；只有文本进 segments，停止时才落私库。
  */
 import { create } from 'zustand'
@@ -53,12 +59,13 @@ const IDLE = {
 // ── 模块级句柄（组件卸载不停录音，故不放组件里） ──
 let mediaRecorder: MediaRecorder | null = null
 let mediaStream: MediaStream | null = null
-let rotateTimer: ReturnType<typeof setInterval> | null = null
 let stopResolve: (() => void) | null = null
-/** 串行处理每一段，保证 segments 顺序与录音顺序一致 */
+/** 串行处理每一片，保证 segments 顺序与录音顺序一致 */
 let chunkChain: Promise<void> = Promise.resolve()
-/** 每段时长（ms）：一段一段独立起停，保证每段都是完整容器 */
+/** 每片时长（ms）：只切 dataavailable 事件，录音本身不中断 */
 const SEGMENT_MS = 30000
+/** 容器头（第一片里的 EBML/Tracks 或 ftyp+moov），拼到后续每片前面 */
+let initSegmentBytes: Uint8Array | null = null
 
 /** 是不是中文（转写接口可能返回 zh / zh-CN / Chinese / cmn / yue 等） */
 function isZhLanguage(lang: string): boolean {
@@ -92,39 +99,55 @@ function readAsrConfig(): AsrRuntimeConfig {
   }
 }
 
-/** 起一段独立录音：onstop 时把这一整段（完整容器）交给转写链路 */
-function startRecorderCycle(stream: MediaStream): void {
-  const mimeType = pickAudioMimeType()
-  const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-  mediaRecorder = recorder
-  const chunks: BlobPart[] = [] // 闭包持有，避免与下一段的缓冲区串台
-  recorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data)
+/** 在字节流里找一段 ASCII 串，返回首次出现的下标（找不到 -1） */
+function indexOfAscii(buf: Uint8Array, ascii: string): number {
+  const needle = [...ascii].map((c) => c.charCodeAt(0))
+  outer: for (let i = 0; i + needle.length <= buf.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (buf[i + j] !== needle[j]) continue outer
+    }
+    return i
   }
-  recorder.onstop = () => {
-    const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' })
-    if (blob.size > 0) enqueueChunk(blob)
-    stopResolve?.()
-    stopResolve = null
-  }
-  recorder.onerror = (ev) => {
-    const err = (ev as unknown as { error?: DOMException }).error
-    const msg = err?.message || '录音器发生错误'
-    useRecorderStore.setState({ error: msg })
-    toast.error(`录音出错：${msg}`)
-  }
-  recorder.start()
+  return -1
 }
 
-/** 到点换段：停掉当前段（触发转写），立刻用同一个 stream 起下一段 */
-function rotateRecorder(): void {
-  // 已经不在录音状态就别再起新段（避免和 stop() 抢）
-  if (useRecorderStore.getState().status !== 'recording') return
-  const stream = mediaStream
-  if (!stream) return
-  const old = mediaRecorder
-  if (old && old.state !== 'inactive') old.stop()
-  startRecorderCycle(stream)
+/**
+ * 从第一片数据里抠出「容器头」，供后续裸数据簇复用。
+ * - WebM：Cluster 元素 ID = 1F 43 B6 75，之前的部分（EBML + Segment + Info + Tracks）就是头
+ * - MP4（Safari 的 fMP4）：第一个 'moof' 之前的部分（ftyp + moov）就是头
+ * 找不到就返回 null（未知容器），调用方退回「原样发送」并告警。
+ */
+function extractInitSegment(buf: Uint8Array, mime: string): Uint8Array | null {
+  const m = mime.toLowerCase()
+  if (m.includes('webm')) {
+    for (let i = 0; i + 4 <= buf.length; i++) {
+      if (buf[i] === 0x1f && buf[i + 1] === 0x43 && buf[i + 2] === 0xb6 && buf[i + 3] === 0x75) {
+        return buf.slice(0, i)
+      }
+    }
+    return null
+  }
+  if (m.includes('mp4') || m.includes('m4a') || m.includes('aac')) {
+    const idx = indexOfAscii(buf, 'moof')
+    return idx > 0 ? buf.slice(0, idx) : null
+  }
+  return null
+}
+
+/** 处理一片录音数据：第一片抽头并直接转写，后续片「头 + 裸簇」拼接后再转写 */
+async function processChunk(data: Blob, mimeType: string | undefined): Promise<void> {
+  if (!data || data.size === 0) return
+  const mime = data.type || mimeType || 'audio/webm'
+  const buf = new Uint8Array(await data.arrayBuffer())
+  if (!initSegmentBytes) {
+    initSegmentBytes = extractInitSegment(buf, mime)
+    if (!initSegmentBytes) {
+      console.warn('[recorder] 未识别的音频容器，未能抽出容器头，后续分片可能无法转写：', mime)
+    }
+    await handleChunk(new Blob([buf as BlobPart], { type: mime }))
+  } else {
+    await handleChunk(new Blob([initSegmentBytes as BlobPart, buf as BlobPart], { type: mime }))
+  }
 }
 
 async function handleChunk(blob: Blob): Promise<void> {
@@ -177,8 +200,9 @@ async function handleChunk(blob: Blob): Promise<void> {
   }
 }
 
-function enqueueChunk(blob: Blob): void {
-  chunkChain = chunkChain.then(() => handleChunk(blob)).catch(() => {})
+/** 把一片数据挂到串行链上（含抽头/拼接），保证 segments 顺序 = 录音顺序 */
+function enqueueData(data: Blob, mimeType: string | undefined): void {
+  chunkChain = chunkChain.then(() => processChunk(data, mimeType)).catch(() => {})
 }
 
 export const useRecorderStore = create<RecorderState>((set, get) => ({
@@ -202,9 +226,25 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStream = stream
 
-      // 起第一段，并每 30 秒换一段（每段都是完整独立文件，后端可解码）
-      startRecorderCycle(stream)
-      rotateTimer = setInterval(rotateRecorder, SEGMENT_MS)
+      // 一条 recorder 连录到底，只每 30 秒切一个 dataavailable —— 录音零中断
+      const mimeType = pickAudioMimeType()
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      mediaRecorder = recorder
+      initSegmentBytes = null
+      recorder.ondataavailable = (e) => {
+        enqueueData(e.data, mimeType)
+      }
+      recorder.onstop = () => {
+        stopResolve?.()
+        stopResolve = null
+      }
+      recorder.onerror = (ev) => {
+        const err = (ev as unknown as { error?: DOMException }).error
+        const msg = err?.message || '录音器发生错误'
+        set({ error: msg })
+        toast.error(`录音出错：${msg}`)
+      }
+      recorder.start(SEGMENT_MS)
 
       set({
         status: 'recording',
@@ -227,13 +267,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
     if (status !== 'recording' && status !== 'stopping') return
     set({ status: 'stopping' })
 
-    // 先停掉换段定时器，收尾不再切新段
-    if (rotateTimer) {
-      clearInterval(rotateTimer)
-      rotateTimer = null
-    }
-
-    // 停掉当前段：触发 onstop → 这一段入库；等它 resolve
+    // 停止 recorder：触发最后一次 dataavailable（头 + 尾段）与 onstop；等 onstop resolve
     const recorder = mediaRecorder
     if (recorder && recorder.state !== 'inactive') {
       await new Promise<void>((resolve) => {
@@ -242,13 +276,14 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       })
     }
 
-    // flush：等所有段的转写 / 翻译跑完
+    // flush：等所有分片的转写 / 翻译跑完
     await chunkChain
 
     // 停掉麦克风轨道，释放设备
     mediaStream?.getTracks().forEach((t) => t.stop())
     mediaRecorder = null
     mediaStream = null
+    initSegmentBytes = null
 
     const { targetTaskId, sessionId, segments } = get()
     if (targetTaskId && sessionId && segments.length > 0) {

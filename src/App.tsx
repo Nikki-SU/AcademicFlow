@@ -20,10 +20,14 @@ import LearnPage from './pages/Learn'
 import WritingPage from './pages/Writing'
 import ManagementPage from './pages/Management'
 import { useAuthStore } from './stores/auth'
-import { useSettingsStore } from './stores/settings'
+import { useSettingsStore, SENSITIVE_FIELDS } from './stores/settings'
 import { useWorkspaceStore } from './stores/workspace'
 import { useTaskStore } from './stores/task'
 import { probeAsrKey } from './services/asr'
+import {
+  saveCredentialsVault,
+  restoreCredentialsFromVault,
+} from './services/credentialsVault'
 
 function App() {
   const initAuth = useAuthStore((s) => s.init)
@@ -85,6 +89,37 @@ function App() {
       loadCurrentTask()
     }
   }, [isChecked, repo, loadCurrentTask])
+
+  // 跨设备凭据回填：GitHub Secrets 只写不可读，新设备拿不到 Key；
+  // 于是从私库保险箱（PAT 派生密钥加密的密文）解密，只回填本机为空的敏感字段。
+  useEffect(() => {
+    if (!isChecked || !repo || !token) return
+    void restoreCredentialsFromVault(repo.owner.login, repo.name, token).then((filled) => {
+      if (filled.length > 0) {
+        toast.success(`已从私库保险箱回填 ${filled.length} 项凭据`)
+      }
+    })
+  }, [isChecked, repo, token])
+
+  // 敏感字段变化 → 防抖加密写回私库保险箱（sig 去重，内容没变不产生空提交）
+  useEffect(() => {
+    if (!isChecked || !repo || !token) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsub = useSettingsStore.subscribe((state, prev) => {
+      const changed = SENSITIVE_FIELDS.some((f) => state[f] !== prev[f])
+      if (!changed) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        void saveCredentialsVault(repo.owner.login, repo.name, token).catch((e) =>
+          console.warn('[credentialsVault] 保存失败：', e),
+        )
+      }, 1500)
+    })
+    return () => {
+      unsub()
+      if (timer) clearTimeout(timer)
+    }
+  }, [isChecked, repo, token])
 
   return (
     <Routes>
