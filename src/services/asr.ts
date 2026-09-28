@@ -41,10 +41,12 @@ export async function transcribeAudio(
   blob: Blob,
   cfg: AsrConfig,
   signal?: AbortSignal,
+  /** 上传文件名（后端按扩展名判容器）；默认 webm/opus = 录音产物 */
+  fileName = 'audio.webm',
 ): Promise<{ text: string; language: string }> {
   const form = new FormData()
   // 文件名给个占位（很多后端按扩展名判容器；webm/opus 就是我们录出来的格式）
-  form.append('file', blob, 'audio.webm')
+  form.append('file', blob, fileName)
   form.append('model', cfg.model)
 
   const res = await fetch(joinUrl(cfg.baseUrl, '/audio/transcriptions'), {
