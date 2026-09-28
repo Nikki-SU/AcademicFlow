@@ -52,6 +52,7 @@ export default function RecorderBall() {
   const start = useRecorderStore((s) => s.start)
   const stop = useRecorderStore((s) => s.stop)
   const retryPending = useRecorderStore((s) => s.retryPending)
+  const resume = useRecorderStore((s) => s.resume)
 
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(Date.now())
@@ -71,6 +72,11 @@ export default function RecorderBall() {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [isRecording])
+
+  // App 启动即续转：上次没转成、暂存在 IndexedDB 里的片，刷新后自动接着转
+  useEffect(() => {
+    void resume()
+  }, [resume])
 
   // 点面板外 / 按 Esc 收起
   useEffect(() => {

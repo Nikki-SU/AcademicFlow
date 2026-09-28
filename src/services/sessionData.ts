@@ -167,29 +167,105 @@ function formatClock(at: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+/** 秒级时刻（同一天内单调）：把新片段按时间插回已有转写的依据 */
+function clockOf(at: number): number {
+  const d = new Date(at)
+  return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()
+}
+
 /** 单行化：md 列表项里不能带换行，否则一条记录会被劈成多条 */
 function oneLine(s: string): string {
   return s.replace(/\s*\n+\s*/g, ' ').trim()
 }
 
+/** 单条片段 → md 块（列表项 + 可选的独立译文块）及其秒级时刻 */
+function segmentBlock(seg: TranscriptSegment): { clock: number; lines: string[] } {
+  // 原文自成一个块（列表项）；译文另起一个块（引用块），不做原文的子项。
+  const lines = [`- [${formatClock(seg.at)}]（${seg.language || 'unknown'}）${oneLine(seg.text)}`]
+  if (seg.translation.trim()) {
+    // 空行 + 两空格缩进：译文块仍属于该条记录，但渲染上是独立的一段（左侧竖线），
+    // 与文献页「一块原文一块译文」一致。
+    lines.push('')
+    lines.push(`  > 译文：${oneLine(seg.translation)}`)
+  }
+  return { clock: clockOf(seg.at), lines }
+}
+
 export function formatTranscript(segments: TranscriptSegment[]): string {
   const lines: string[] = ['# 会议/课程转写', '']
-  for (const seg of segments) {
-    // 原文自成一个块（列表项）；译文另起一个块（引用块），不做原文的子项。
-    lines.push(`- [${formatClock(seg.at)}]（${seg.language || 'unknown'}）${oneLine(seg.text)}`)
-    if (seg.translation.trim()) {
-      // 空行 + 两空格缩进：译文块仍属于该条记录，但渲染上是独立的一段（左侧竖线），
-      // 与文献页「一块原文一块译文」一致。
-      lines.push('')
-      lines.push(`  > 译文：${oneLine(seg.translation)}`)
-    }
-  }
+  for (const seg of segments) lines.push(...segmentBlock(seg).lines)
   lines.push('')
   return lines.join('\n')
 }
 
+/** 去掉数组末尾的空行（用于块/头部的规范化） */
+function trimTrailingBlank(lines: string[]): void {
+  while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+}
+
+const BLOCK_START = /^- \[(\d{2}):(\d{2}):(\d{2})\]/
+
+/** 把已有 transcript.md 拆成「头部 + 每条记录块（含秒级时刻）」，供按时间归并 */
+function parseTranscript(content: string): {
+  header: string[]
+  blocks: { clock: number; lines: string[] }[]
+} {
+  const header: string[] = []
+  const blocks: { clock: number; lines: string[] }[] = []
+  let cur: { clock: number; lines: string[] } | null = null
+  for (const line of content.split('\n')) {
+    const m = BLOCK_START.exec(line)
+    if (m) {
+      if (cur) {
+        trimTrailingBlank(cur.lines)
+        blocks.push(cur)
+      }
+      cur = { clock: +m[1] * 3600 + +m[2] * 60 + +m[3], lines: [line] }
+    } else if (cur) {
+      cur.lines.push(line)
+    } else {
+      header.push(line)
+    }
+  }
+  if (cur) {
+    trimTrailingBlank(cur.lines)
+    blocks.push(cur)
+  }
+  trimTrailingBlank(header)
+  return { header, blocks }
+}
+
+/**
+ * 把新片段**按时刻归并**进已有转写 —— 这是「严格顺序」的保证：
+ * 补回来的早片会插到正确位置，绝不追加到末尾。
+ * 已存在的同一条（同一秒 + 同一行正文）会被跳过，避免重试补写时重复。
+ *
+ * ⚠️ 归并依据是「当天的秒级时刻」；同一节课跨午夜录制（极罕见）会顺序错乱。
+ */
+function mergeTranscript(existing: string, incoming: TranscriptSegment[]): string {
+  const { header, blocks } = parseTranscript(existing)
+  const seen = new Set(blocks.map((b) => `${b.clock}|${b.lines[0]}`))
+  const merged = blocks.slice()
+  for (const seg of incoming) {
+    const b = segmentBlock(seg)
+    const key = `${b.clock}|${b.lines[0]}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(b)
+  }
+  merged.sort((a, b) => a.clock - b.clock)
+
+  const out = header.length > 0 ? header.slice() : ['# 会议/课程转写']
+  out.push('')
+  for (const b of merged) out.push(...b.lines)
+  out.push('')
+  return out.join('\n')
+}
+
 /**
  * 把本轮转写落私库，返回写入的仓库路径。
+ * 同一课时可能录了不止一段、也可能有失败重试补回来的片段 —— 一律**按时刻归并**，
+ * 保证 transcript.md 严格时序（不是简单追加）。
  * 写失败会 throw（由调用方 toast，不静默）。
  */
 export async function saveTranscript(
@@ -198,18 +274,14 @@ export async function saveTranscript(
   segments: TranscriptSegment[],
 ): Promise<string> {
   const path = `${sessionDir(taskId, sessionId)}/transcript.md`
-  let content = formatTranscript(segments)
-  // 同一课时可能录了不止一段（中途停了又开录）：追加，别把上一段覆盖掉。
-  // 追加时去掉新内容自带的标题行，避免标题重复。
+  let existing: string | null = null
   try {
-    const existing = await readMdFile(path)
-    if (existing?.content?.trim()) {
-      const body = content.replace(/^# .*\n+/, '')
-      content = `${existing.content.trimEnd()}\n\n${body}`
-    }
+    const doc = await readMdFile(path)
+    if (doc?.content?.trim()) existing = doc.content
   } catch {
     /* 读不到（首次）→ 直接写 */
   }
+  const content = existing ? mergeTranscript(existing, segments) : formatTranscript(segments)
   await writeMdFile(path, content, 'Add session transcript')
   return path
 }
