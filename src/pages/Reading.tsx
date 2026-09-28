@@ -3122,10 +3122,6 @@ const [aligned_content, set_aligned_content] = useState('')
             ) : books.length === 0 ? (
               <div className="text-center py-8 text-ink-400 text-sm px-4">
                 <BookCopy className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-ink-500 font-medium mb-1">还没有图书</p>
-                <p className="text-xs text-ink-400 mb-3">
-                  上传图书 PDF 转换后，正文会落到 textbooks/&lt;书名&gt;/content.md
-                </p>
                 <button
                   onClick={() => navigate('/management')}
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs rounded-md hover:bg-seal-700 transition"
@@ -3175,11 +3171,6 @@ const [aligned_content, set_aligned_content] = useState('')
             ) : documents.length === 0 ? (
               <div className="text-center py-8 text-ink-400 text-sm px-4">
                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-ink-500 font-medium mb-1">还没有其他文档</p>
-                <p className="text-xs text-ink-400 mb-3">
-                  导入 .md 文件、粘贴 markdown 或上传 zip，
-                  正文会落到 documents/&lt;目录名&gt;/content.md
-                </p>
                 <button
                   onClick={() => setShowImportDocModal(true)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs rounded-md hover:bg-seal-700 transition"

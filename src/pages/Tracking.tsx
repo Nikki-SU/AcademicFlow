@@ -1040,7 +1040,7 @@ export default function TrackingPage() {
                       <div className="flex-shrink-0 flex items-center gap-2">
                         <button
                           onClick={() => handleDismissCandidate(paper)}
-                          title="忽略这篇（以后不再出现）"
+                          title="忽略这篇"
                           className="flex items-center gap-1.5 px-3 py-1.5 border border-ink-200 text-ink-500 text-xs font-medium rounded-lg hover:bg-ink-100 transition"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -1119,7 +1119,6 @@ export default function TrackingPage() {
                     openAddKeywordGroup()
                   }}
                   className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                  title="新建关键词组"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -1231,7 +1230,6 @@ export default function TrackingPage() {
                     openAddJournal()
                   }}
                   className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                  title="添加期刊"
                 >
                   <Plus className="w-4 h-4" />
                 </button>

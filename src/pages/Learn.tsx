@@ -1862,7 +1862,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   onClick={() => speakEnglish(question.question)}
                   disabled={showCard}
                   className="w-20 h-20 rounded-full bg-seal-50 text-seal-600 hover:bg-seal-100 transition flex items-center justify-center mx-auto disabled:opacity-40"
-                  title="再听一遍"
                 >
                   <Volume2 className="w-9 h-9" />
                 </button>
@@ -1881,7 +1880,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   <button
                     onClick={() => speakEnglish(question.question)}
                     className="p-2 text-ink-400 hover:text-seal-600 transition"
-                    title="朗读"
                   >
                     <Volume2 className="w-5 h-5" />
                   </button>
@@ -1915,7 +1913,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                       onClick={() => removeBlockAt(slot)}
                       disabled={answered || showCard || !filled}
                       className={slotCls}
-                      title={filled ? '点一下取下来' : undefined}
                     >
                       {filled ? question.blockPool![bi] : '·'}
                     </button>
@@ -1983,7 +1980,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                         type="button"
                         onClick={() => speakEnglish(option)}
                         className="shrink-0 w-11 rounded-lg border border-ink-200 bg-paper-50 text-ink-400 hover:text-seal-600 hover:border-seal-300 transition flex items-center justify-center"
-                        title="试听这个读音"
                       >
                         <Volume2 className="w-4 h-4" />
                       </button>
@@ -2021,7 +2017,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 onClick={handleZhan}
                 disabled={showCard}
                 className="px-4 py-3 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition disabled:opacity-40"
-                title="斩词：直接标记为已掌握"
+                title="斩词"
               >
                 斩词
               </button>
@@ -2074,7 +2070,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                       // 卡片上的喇叭跟"语音模式自动连读"保持一致：单词 → 例句
                       onClick={(e) => { e.stopPropagation(); speakSequence([currentWord.word, currentWord.exampleEn]) }}
                       className="text-ink-400 hover:text-seal-600"
-                      title="连读单词与例句"
                     >
                       <Volume2 className="w-4 h-4" />
                     </button>
@@ -2262,7 +2257,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   return (
                     <label
                       key={t.key}
-                      title={needsVoice ? '该题型需要语音模式' : undefined}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition ${
                         needsVoice
                           ? 'bg-paper-100 border-ink-200 text-ink-300 cursor-not-allowed'
@@ -2530,7 +2524,6 @@ function PracticePanel({
               type="button"
               onClick={() => speakEnglish(question)}
               className="shrink-0 p-2 text-ink-400 hover:text-seal-600 transition"
-              title="朗读这句"
             >
               <Volume2 className="w-4 h-4" />
             </button>

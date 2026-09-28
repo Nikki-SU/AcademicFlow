@@ -409,14 +409,12 @@ function JournalTemplatesPage() {
                         <button
                           onClick={() => openEdit(t)}
                           className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                          title="编辑"
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(t)}
                           className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                          title="删除"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

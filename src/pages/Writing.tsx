@@ -3179,7 +3179,6 @@ export default function WritingPage() {
               <button
                 onClick={() => setProjectsExpanded(!projectsExpanded)}
                 className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-paper-100 transition"
-                title={projectsExpanded ? '收起项目' : '展开项目'}
               >
                 {projectsExpanded ? (
                   <ChevronDown className="w-3.5 h-3.5 text-ink-400 flex-shrink-0" />
@@ -3194,7 +3193,6 @@ export default function WritingPage() {
               <button
                 onClick={() => setShowNewProjectInput(!showNewProjectInput)}
                 className="p-1 flex-shrink-0 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                title="新建项目"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -3283,7 +3281,6 @@ export default function WritingPage() {
             <button
               onClick={() => setLibSearchExpanded(!libSearchExpanded)}
               className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
-              title={libSearchExpanded ? '收起文献检索' : '展开文献检索'}
             >
               {libSearchExpanded ? (
                 <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
@@ -3312,7 +3309,6 @@ export default function WritingPage() {
                       <button
                         onClick={() => setLibSearch('')}
                         className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600"
-                        title="清空"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -3395,7 +3391,6 @@ export default function WritingPage() {
             <button
               onClick={() => setOutlineExpanded(!outlineExpanded)}
               className="w-full flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
-              title={outlineExpanded ? '收起大纲' : '展开大纲'}
             >
               {outlineExpanded ? (
                 <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
@@ -3438,7 +3433,6 @@ export default function WritingPage() {
         onClick={() => setNavCollapsed(!navCollapsed)}
         className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-paper-50 border border-ink-200 rounded-r-lg p-1 shadow-md hover:bg-paper-100 transition text-ink-400 hover:text-seal-600"
         style={{ left: navCollapsed ? '0px' : 'max(25%, 15rem)' }}
-        title={navCollapsed ? '展开项目导航' : '折叠项目导航'}
       >
         {navCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
@@ -3989,7 +3983,6 @@ export default function WritingPage() {
                             ? 'bg-seal-600 border-seal-600 text-paper-50 shadow-sm'
                             : 'bg-paper-100 border-ink-200 text-ink-600 hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700'
                         }`}
-                        title={action.template}
                       >
                         <Icon className="w-3 h-3" />
                         {action.label}
@@ -4011,7 +4004,6 @@ export default function WritingPage() {
                         <button
                           onClick={() => toggleQuickAction(key)}
                           className="pl-2.5 pr-1 py-1 max-w-[10rem] truncate"
-                          title={`${action.label}\n\n${action.prompt}`}
                         >
                           {action.label}
                         </button>
@@ -4020,7 +4012,6 @@ export default function WritingPage() {
                           className={`pr-1.5 pl-0.5 py-1 transition ${
                             active ? 'text-seal-200 hover:text-paper-50' : 'text-ink-300 hover:text-red-500'
                           }`}
-                          title="删除该指令"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -4030,7 +4021,6 @@ export default function WritingPage() {
                   <button
                     onClick={() => setShowActionModal(true)}
                     className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-full transition"
-                    title="添加自定义指令"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -4091,7 +4081,6 @@ export default function WritingPage() {
                         isAiGenerating || isAiReviewing || !!actionIncomplete || !composeActionPrompt()
                       }
                       className="px-3 py-2 bg-gradient-to-r from-seal-600 to-seal-700 text-paper-50 rounded-xl text-sm hover:from-seal-700 hover:to-seal-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                      title={actionIncomplete ? '把这条指令要的空填完' : '发送时自动拼成完整提示词'}
                     >
                       <Send className="w-4 h-4" />
                     </button>
@@ -4101,7 +4090,6 @@ export default function WritingPage() {
                     <button
                       onClick={handleOpenFolder}
                       className="flex items-center gap-1.5 px-3 py-2 text-[0.6875rem] bg-paper-100 border border-ink-200 text-ink-600 rounded-xl hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700 transition flex-shrink-0"
-                      title="从文件夹导入文献"
                     >
                       <FolderOpen className="w-4 h-4" />
                       <span>导入</span>
@@ -4678,7 +4666,6 @@ export default function WritingPage() {
                     onClick={() => handleCopyContent(latexCode)}
                     disabled={!latexCode}
                     className="flex-shrink-0 p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
-                    title="复制 LaTeX 源码"
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
@@ -4686,7 +4673,6 @@ export default function WritingPage() {
                     onClick={downloadLatexSource}
                     disabled={!latexCode}
                     className="flex-shrink-0 p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
-                    title="下载 .tex"
                   >
                     <Download className="w-3.5 h-3.5" />
                   </button>
@@ -4731,7 +4717,7 @@ export default function WritingPage() {
                                 className={`px-2 py-0.5 text-[0.625rem] transition ${
                                   !fig.span ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-500 hover:bg-seal-50'
                                 }`}
-                                title="单栏图（figure，宽度基准为 \columnwidth）"
+                                title="单栏图"
                               >
                                 单栏
                               </button>
@@ -4740,7 +4726,7 @@ export default function WritingPage() {
                                 className={`px-2 py-0.5 text-[0.625rem] transition border-l border-ink-200 ${
                                   fig.span ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-500 hover:bg-seal-50'
                                 }`}
-                                title="跨栏通图（figure*，宽度基准为 \textwidth）"
+                                title="跨栏通图"
                               >
                                 跨栏
                               </button>
@@ -4813,7 +4799,6 @@ export default function WritingPage() {
                         ? 'bg-seal-100 text-seal-700'
                         : 'text-ink-500 hover:text-seal-600 hover:bg-seal-50'
                     }`}
-                    title="导入 .sty / .cls 宏包，编译时自动带上"
                   >
                     <Package className="w-3 h-3" />
                     宏包
@@ -4827,7 +4812,6 @@ export default function WritingPage() {
                     <button
                       onClick={downloadCompiledPdf}
                       className="flex-shrink-0 p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                      title="下载 PDF"
                     >
                       <Download className="w-3.5 h-3.5" />
                     </button>
@@ -4836,7 +4820,7 @@ export default function WritingPage() {
                     onClick={compileInCloud}
                     disabled={isCloudCompiling || isCompiling}
                     className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-seal-700 bg-seal-50 border border-seal-200 rounded hover:bg-seal-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="正式编译（后端）：在你自己的私库里跑 GitHub Actions + 官方 TeX Live 镜像，宏包最全、版本最新；代价是提交源码并等排队（几分钟）"
+                    title="正式编译"
                   >
                     {isCloudCompiling ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -4849,7 +4833,7 @@ export default function WritingPage() {
                     onClick={compileCurrentLatex}
                     disabled={isCompiling || isCloudCompiling}
                     className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[0.6875rem] text-paper-50 bg-emerald-600 rounded hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="预览（前端）：在本机浏览器里跑 XeLaTeX（首次要先下约 110MB 运行时，之后走缓存），几秒出 PDF、不联网、源码不出本机；但宏包被运行时钉死"
+                    title="预览"
                   >
                     {isCompiling ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -4900,7 +4884,6 @@ export default function WritingPage() {
                         onClick={() => packageFolderInputRef.current?.click()}
                         disabled={isImportingPackages || !activeProjectId}
                         className="flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-ink-700 bg-paper-50 border border-ink-200 rounded hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="整包拖进来更省事：一个宏包常有好几个 .sty/.def/.cfg"
                       >
                         <FolderOpen className="w-3 h-3" />
                         选择文件夹
@@ -4937,7 +4920,6 @@ export default function WritingPage() {
                             <button
                               onClick={() => handleDeletePackage(pkg.name)}
                               className="flex-shrink-0 p-0.5 text-ink-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
-                              title={`删除 ${pkg.name}`}
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -5064,7 +5046,6 @@ export default function WritingPage() {
                       onClick={handleSummarizeOnline}
                       disabled={isSummarizingOnline || isSearchingOnline || onlineResults.length === 0}
                       className="px-2.5 py-1 text-xs bg-ink-100 text-ink-600 rounded-lg hover:bg-seal-50 hover:text-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                      title="让 AI 给当前这批结果各写一句中文小结（走一次后端 AI，通常一分钟上下）"
                     >
                       {isSummarizingOnline ? (
                         <Loader2 className="w-3 h-3 animate-spin" />

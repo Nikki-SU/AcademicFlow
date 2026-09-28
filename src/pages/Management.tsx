@@ -2497,7 +2497,6 @@ export default function ManagementPage() {
                 <button
                   onClick={() => handleAddCategory()}
                   className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-seal-600 hover:bg-seal-50 rounded transition"
-                  title="新建分类"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   新建
@@ -2509,7 +2508,6 @@ export default function ManagementPage() {
               <button
                 onClick={() => handleAddCategory()}
                 className="mt-2 w-full flex items-center justify-center gap-1 py-1.5 text-xs text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-lg transition"
-                title="新建分类"
               >
                 <Plus className="w-3.5 h-3.5" />
                 新建分类
@@ -2553,13 +2551,12 @@ export default function ManagementPage() {
                     onKeyDown={(e) => e.key === 'Enter' && !isAddingByDoi && handleAddByDoi()}
                     placeholder="输入 DOI 或链接..."
                     className="w-56 px-2 py-1.5 text-sm bg-transparent focus:outline-none"
-                    title="快捷 DOI 入库（Enter 触发）"
+                    title="快捷 DOI 入库"
                   />
                   <button
                     onClick={handleAddByDoi}
                     disabled={isAddingByDoi || !doiQuickInput.trim()}
                     className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                    title="通过 DOI 快捷添加"
                   >
                     {isAddingByDoi ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2824,7 +2821,6 @@ export default function ManagementPage() {
                                   void handleEditJournalAbbrev(paper.journal)
                                 }}
                                 className="p-0.5 text-ink-300 hover:text-seal-600 rounded transition shrink-0"
-                                title="修改期刊缩写"
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
@@ -2849,7 +2845,7 @@ export default function ManagementPage() {
                                   handleEditPaper(paper)
                                 }}
                                 className={`px-1.5 py-0.5 text-xs rounded whitespace-nowrap hover:opacity-80 transition ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
-                                title="点击修改所属分类（可多选）"
+                                title="修改所属分类"
                               >
                                 <Tag className="w-3 h-3 inline mr-0.5" />
                                 {cat.name}
@@ -2881,7 +2877,6 @@ export default function ManagementPage() {
                           {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
                             <label
                               className="p-1.5 rounded-md transition cursor-pointer text-seal-500 hover:text-seal-600 hover:bg-seal-50"
-                              title="上传 PDF 开始转换"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Upload className="w-4 h-4" />
@@ -2906,7 +2901,6 @@ export default function ManagementPage() {
                                 toast.success('DOI 已复制')
                               }}
                               className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                              title="复制 DOI"
                             >
                               <Copy className="w-4 h-4" />
                             </button>
@@ -2922,7 +2916,6 @@ export default function ManagementPage() {
                                 ? 'text-ink-300 cursor-not-allowed'
                                 : 'text-ink-400 hover:text-seal-600 hover:bg-seal-50'
                             }`}
-                            title={paper.mdStatus === 'converting' ? '转换中，暂时无法阅读' : '阅读'}
                           >
                             <Eye className="w-4 h-4" />
                           </button>
@@ -2937,7 +2930,6 @@ export default function ManagementPage() {
                                 ? 'text-ink-300 cursor-not-allowed'
                                 : 'text-ink-400 hover:text-amber-600 hover:bg-amber-50'
                             }`}
-                            title={!paper.doi ? '无 DOI 无法转换' : paper.mdStatus === 'converting' ? '正在转换' : '重新转换'}
                           >
                             <RefreshCw className={`w-4 h-4 ${paper.mdStatus === 'converting' ? 'animate-spin' : ''}`} />
                           </button>
@@ -2947,7 +2939,6 @@ export default function ManagementPage() {
                               handleEditPaper(paper)
                             }}
                             className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                            title="编辑"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
@@ -2962,7 +2953,6 @@ export default function ManagementPage() {
                                 ? 'text-red-500 bg-red-50 cursor-not-allowed'
                                 : 'text-ink-400 hover:text-red-600 hover:bg-red-50'
                             }`}
-                            title={deletingIds.has(paper.id) ? '删除中...' : '删除'}
                           >
                             {deletingIds.has(paper.id) ? (
                               <span className="inline-flex items-center gap-0.5">
@@ -3089,7 +3079,6 @@ export default function ManagementPage() {
                       setShowTemplateModal(true)
                     }}
                     className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                    title="编辑"
                   >
                     <Edit3 className="w-4 h-4" />
                   </button>
@@ -3097,7 +3086,6 @@ export default function ManagementPage() {
                     <button
                       onClick={() => handleSetDefaultTemplate(tpl.id)}
                       className="p-1.5 text-ink-400 hover:text-amber-500 hover:bg-amber-50 rounded-md transition"
-                      title="设为默认"
                     >
                       <Star className="w-4 h-4" />
                     </button>
@@ -3105,7 +3093,6 @@ export default function ManagementPage() {
                   <button
                     onClick={() => handleDeleteTemplate(tpl.id)}
                     className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                    title="删除"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -3157,7 +3144,6 @@ export default function ManagementPage() {
                 <button
                   onClick={handleAddBookCategory}
                   className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                  title="添加分类"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -3281,7 +3267,6 @@ export default function ManagementPage() {
                       <button
                         onClick={() => handleOpenBookReading(book)}
                         className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                        title="阅读"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -3289,7 +3274,6 @@ export default function ManagementPage() {
                         <button
                           onClick={() => openBookDetail(book)}
                           className="p-1.5 text-ink-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
-                          title="查看转换进度"
                         >
                           <Loader2 className="w-4 h-4 animate-spin" />
                         </button>
@@ -3297,7 +3281,6 @@ export default function ManagementPage() {
                       <button
                         onClick={() => handleDeleteBook(book.id)}
                         className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                        title="删除"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -3338,7 +3321,7 @@ export default function ManagementPage() {
                 其他文档
               </h3>
               <p className="text-sm text-ink-500 mt-0.5">
-                导入自己的 markdown（.md 文件 / 粘贴文本 / zip），直接阅读，不经过转换
+                导入 markdown，直接阅读
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -3378,7 +3361,7 @@ export default function ManagementPage() {
               <div className="text-ink-400 mb-3">
                 <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">还没有其他文档</p>
-                <p className="text-xs mt-1">去导入 .md 文件、粘贴 markdown，或上传 zip 批量导入</p>
+                <p className="text-xs mt-1">支持 .md / 粘贴文本 / zip</p>
               </div>
               <button
                 onClick={() => setShowImportDocModal(true)}
@@ -3432,21 +3415,18 @@ export default function ManagementPage() {
                       <button
                         onClick={() => handleOpenDocumentReading(doc)}
                         className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                        title="打开阅读"
                       >
                         <BookOpen className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleEditDocument(doc)}
                         className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                        title="编辑"
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteDocument(doc)}
                         className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                        title="删除"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -4711,13 +4691,12 @@ export default function ManagementPage() {
           ) : (
             <div className="space-y-2">
               <div className="text-xs text-ink-400">
-                {ftHits.length} 篇命中，点结果直达正文命中处
+                {ftHits.length} 篇命中
               </div>
               {ftHits.map((hit) => (
                 <button
                   key={`${hit.kind}:${hit.id}`}
                   onClick={() => openHitInReader(hit)}
-                  title="跳到正文命中处"
                   className="w-full text-left p-3 rounded-lg border border-ink-200 hover:border-seal-300 hover:bg-seal-50/40 transition"
                 >
                   <div className="flex items-center gap-2">
