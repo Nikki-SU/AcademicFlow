@@ -61,7 +61,10 @@ export interface WordData {
   /** word_cn：中文释义（短词，选择题答案用） */
   meaning: string
   phonetic: string
-  /** definition_cn：中文详细定义（"定义"类题型用） */
+  /**
+   * definition_cn：中文定义（"定义"类题型用），与 definition_en 相对。
+   * 注意：这不是 meaning（中文释义是答题用的短词），两者不可互相顶替。
+   */
   definitionCn: string
   /**
    * definition_en：英文定义。
@@ -293,21 +296,20 @@ export function missingWordFields(w: WordData): WordCoreField[] {
 
 /**
  * 纯规则补全（不调 AI、不编造）：
- * - 中文解释 ↔ 中文释义 互相回填（旧词常只有其中一个）
  * - 数值字段缺省/非法时归位（防 NaN 把 SM-2 间隔算崩）
  * - 词素切分拼不回原词的整组丢弃（脏切分会缺字母、拼写题永远答不对）
+ *
+ * **不动 meaning / definitionCn / definitionEn**：中文释义（meaning，答题用短词）与
+ * 中文解释（definitionCn，跟 definitionEn 相对的"定义"）是两回事，英文/中文解释也不能互造，
+ * 这些语义字段规则补不出来，只能由 AI 或人工填（见学习页「一键修复」）。
  * 返回新对象与"是否发生改动"。
  */
 export function repairWordByRules(w: WordData): { word: WordData; changed: boolean } {
-  const meaning = w.meaning.trim() || w.definitionCn.trim()
-  const definitionCn = w.definitionCn.trim() || meaning
   const morphemes = isValidMorphemeSplit(w.word, w.morphemes) ? w.morphemes : []
   const nonNeg = (v: number, d: number) => (Number.isFinite(v) && v >= 0 ? v : d)
   const finite = (v: number, d: number) => (Number.isFinite(v) ? v : d)
   const next: WordData = {
     ...w,
-    meaning,
-    definitionCn,
     morphemes,
     addedAt: finite(w.addedAt, 0),
     lastReview: nonNeg(w.lastReview, 0),
@@ -318,8 +320,6 @@ export function repairWordByRules(w: WordData): { word: WordData; changed: boole
     wrongCount: nonNeg(w.wrongCount, 0),
   }
   const changed =
-    next.meaning !== w.meaning ||
-    next.definitionCn !== w.definitionCn ||
     next.morphemes !== w.morphemes ||
     next.addedAt !== w.addedAt ||
     next.lastReview !== w.lastReview ||
@@ -470,7 +470,8 @@ export async function loadWords(force = false): Promise<WordData[]> {
           if (!hasNewCols && !VALID_WORD_STATUS.has(s7) && VALID_WORD_STATUS.has(s8)) {
             return {
               ...base,
-              meaning: r[1] || r[3] || '',
+              // meaning 与 definitionCn 是不同字段，不用定义回填释义
+              meaning: r[1] || '',
               definitionCn: r[3] || '',
               definitionEn: r[4] || '',
               exampleEn: r[5] || '',

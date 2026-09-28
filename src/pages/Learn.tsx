@@ -128,10 +128,17 @@ function getTodayString(): string {
  * - review_count = 0（还没走完任何一轮）＝ 第一次接触 → 中文定义（初学者看不懂英文定义）；
  * - 之后（学习模式后续轮 + 复习轮）→ 英文定义。
  * 这样历史词即使一导入就落进复习模式，第一次看到的仍是中文。
+ *
+ * 只用 definitionCn / definitionEn —— 它们是"定义"，不能用 meaning（中文释义短词）顶替。
  */
 function wordDefinition(w: WordData): string {
-  if (w.reviewCount > 0) return w.definitionEn || w.definitionCn || w.meaning || ''
-  return w.definitionCn || w.meaning || ''
+  if (w.reviewCount > 0) return w.definitionEn || w.definitionCn || ''
+  return w.definitionCn || ''
+}
+
+/** 定义题当前该用哪一侧定义 —— 与 wordDefinition 的分支保持一致（首轮中文，之后英文） */
+function definitionSide(w: WordData): 'cn' | 'en' {
+  return w.reviewCount > 0 ? 'en' : 'cn'
 }
 
 /** 例句中挖空目标单词（大小写不敏感，只替换第一次出现） */
@@ -144,8 +151,9 @@ function blankSentence(sentence: string, word: string): string {
 /** 该单词是否适合出某题型（缺字段的题型直接整轮跳过该词，对齐 CAT 行为） */
 function isWordEligible(w: WordData, type: WordQuestionType): boolean {
   const hasMeaning = !!w.meaning.trim()
-  // 定义题要有"真定义"（不能用中文释义顶替），否则跟"选中文释义"变成同一道题
-  const hasDef = !!(w.definitionCn.trim() || w.definitionEn.trim())
+  // 定义题要有"真定义"（definition_cn / definition_en，不能用中文释义顶替），否则跟"选中文释义"变成同一道题。
+  // 首轮看中文定义、之后看英文定义 —— 直接按"这一轮实际会用的那串定义"判断在不在。
+  const hasDef = !!wordDefinition(w).trim()
   const hasSentence =
     !!w.exampleEn.trim() && w.word.length >= 2 &&
     new RegExp(w.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(w.exampleEn)
@@ -282,8 +290,16 @@ function buildQuestion(
       case 'sent_select_def': return wordDefinition(w)
     }
   }
+  // 定义题（问题=英文单词、选项=定义）：干扰项必须跟答案同一语言 ——
+  // 同一组里可能有"首轮用中文定义"的新词和"之后用英文定义"的学习中词，
+  // 不筛的话选项里中英混排，用户看语言就能选出答案。
+  const sameDefSide = type === 'en_select_def' || type === 'sent_select_def'
+  const targetSide = definitionSide(word)
+  const candidates = pool.filter(
+    (x) => x.id !== word.id && (!sameDefSide || definitionSide(x) === targetSide),
+  )
   const distractors: string[] = []
-  for (const w of shuffleArray(pool.filter((x) => x.id !== word.id))) {
+  for (const w of shuffleArray(candidates)) {
     const v = answerOf(w).trim()
     if (v && v !== answer.trim() && !distractors.includes(v)) distractors.push(v)
     if (distractors.length >= 3) break
@@ -499,9 +515,9 @@ function buildLearningInstruction(
   if (o.words) {
     tasks.push(
       `生词卡片：从原文中挑选 ${o.wordCount} 个学术核心单词，每条含 ` +
-        `word / phonetic / meaning(中文释义，简短短语) / definitionCn(中文解释，一句话) / ` +
-        `definitionEn(英文解释，一句话) / exampleEn(原文中含该词的那句，逐字) / exampleZh(该例句的中文译文) / ` +
-        `morphemes(词根词缀切分，见下方规则)`,
+        `word / phonetic / meaning(中文释义，答题用的简短短词) / definitionCn(中文定义，一句话，与 definitionEn 相对) / ` +
+        `definitionEn(英文定义，一句话) / exampleEn(原文中含该词的那句，逐字) / exampleZh(该例句的中文译文) / ` +
+        `morphemes(词根词缀切分，见下方规则)。注意 meaning 是释义、definitionCn 是定义，两者内容不同，都要单独给`,
     )
   }
   if (o.sentences) {
@@ -1029,9 +1045,9 @@ export default function LearnPage() {
           word: w.word || '',
           phonetic: w.phonetic || '',
           meaning: w.meaning || '',
-          // 中文解释与中文释义是两回事：释义是答题用的短词，解释是一句话。
-          // AI 没给解释时退回释义 —— 至少不让「定义」类题型缺字段。
-          definitionCn: w.definitionCn || w.meaning || '',
+          // 中文定义与中文释义是两回事（前者跟英文定义相对），AI 没给就留空 ——
+          // 绝不用释义顶替定义，缺了交给「一键修复」补。
+          definitionCn: w.definitionCn || '',
           definitionEn: w.definitionEn || '',
           exampleEn: w.exampleEn || '',
           exampleZh: w.exampleZh || '',
@@ -1317,8 +1333,10 @@ async function completeWordFieldsWithAI(
         role: 'system',
         content:
           '你是学术词汇库的补全工具。把每条单词里**空着**的字段补齐；已有字段一个字都不许改，也不许新增其它字段。' +
-          'meaning 是中文释义（简短短语）；definitionCn 是中文解释（一句话）；definitionEn 是英文解释（一句话）；' +
-          'exampleZh 是 exampleEn 的中文译文（没有 exampleEn 就留空）。只输出 JSON，不要 markdown 代码块。',
+          'meaning 是中文释义（答题用的简短短词，如"催化剂"）；definitionCn 是中文定义（一句话，与 definitionEn 相对）；' +
+          'definitionEn 是英文定义（一句话）；' +
+          'exampleZh 是 exampleEn 的中文译文（没有 exampleEn 就留空）。' +
+          '注意：释义和定义是两回事，不许把中文释义当定义填进 definitionCn，也不许拿定义当释义填进 meaning。只输出 JSON，不要 markdown 代码块。',
       },
       {
         role: 'user',
@@ -2349,7 +2367,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                   .join(' · ')}），会影响定义/例句类题型出题。
               </p>
               <p className="text-xs text-amber-600 mt-1">
-                先按规则回填（中文释义↔中文解释互填、校正数值、丢弃脏词素），规则补不了的（英文解释、例句译文）再交给 AI。
+                先按规则校正数值、丢弃脏词素；中文定义/英文定义/例句译文这些语义字段规则补不了，交给 AI 补。
               </p>
             </div>
             <button
@@ -3615,7 +3633,8 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
       word: word.trim(),
       phonetic: phonetic.trim() || '',
       meaning: meaning.trim(),
-      definitionCn: definitionCn.trim() || meaning.trim(),
+      // 中文定义是"定义"，不是中文释义，留空就留空（缺了由「一键修复」补）
+      definitionCn: definitionCn.trim(),
       definitionEn: definitionEn.trim() || '',
       exampleEn: exampleEn.trim() || '',
       exampleZh: exampleZh.trim() || '',
@@ -3704,13 +3723,13 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1">中文解释（选填，用于"定义"类题型）</label>
+            <label className="block text-sm font-medium text-ink-700 mb-1">中文解释/定义（选填，用于"定义"类题型）</label>
             <input
               type="text"
               value={definitionCn}
               onChange={(e) => setDefinitionCn(e.target.value)}
               className="w-full px-3 py-2 border border-ink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
-              placeholder="留空则与中文释义相同"
+              placeholder="一句话的中文定义，例如：能加快化学反应速率的物质"
             />
           </div>
 
