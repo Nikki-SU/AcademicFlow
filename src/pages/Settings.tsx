@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
 import ConnectivityPanel from '../components/settings/ConnectivityPanel'
+import AsrTestPanel from '../components/settings/AsrTestPanel'
 
 
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
@@ -304,6 +305,7 @@ function Settings() {
         customAi2Model,
         mineruToken,
         simpletexToken,
+        siliconflowApiKey: asrApiKey,
       })
       setSecretItems(items)
       didMountSyncRef.current = true
@@ -343,6 +345,7 @@ function Settings() {
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
     simpletexToken,
+    asrApiKey,
   ])
 
   // mount 后强制 sync 一次（即便依赖项没变）
@@ -727,7 +730,10 @@ function Settings() {
             open={openGroups.session}
             onToggle={() => toggleGroup('session')}
           >
-            <SubBlock title="API Key" hint="只存本机 IndexedDB，不进私库">
+            <SubBlock
+              title="API Key"
+              hint="本机 IndexedDB + 私库 Secrets 各存一份；音频只在内存里走一趟，转写完即丢弃"
+            >
               <APIKeyInput
                 label="硅基流动 API Key"
                 fieldId="asr"
@@ -735,6 +741,10 @@ function Settings() {
                 onChange={(v) => updateSettings({ asrApiKey: v })}
                 hint="转写与翻译共用此 Key；音频只在内存里走一趟，转写完即丢弃，不进私库。"
               />
+            </SubBlock>
+
+            <SubBlock title="连通性测试" hint="改完 Key / 端点就点一下，确认真的能转写再开录">
+              <AsrTestPanel />
             </SubBlock>
 
             <SubBlock title="转写端点与模型" hint="OpenAI 兼容端点，默认硅基流动">

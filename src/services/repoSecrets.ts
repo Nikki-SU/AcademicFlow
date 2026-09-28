@@ -156,10 +156,11 @@ export async function putRepoSecrets(
   return { results, errors }
 }
 
-/** 支持写入的 8 个 AI/MinerU/SimpleTex secrets 名字 */
+/** 支持写入的 AI / MinerU / SimpleTex / 会议转写 secrets 名字 */
 export const AI_SECRET_NAMES = [
   'MINERU_API_TOKEN',
   'SIMPLETEX_TOKEN',
+  'SILICONFLOW_API_KEY',
   'AI1_BASE_URL', 'AI1_API_KEY', 'AI1_MODEL',
   'AI2_BASE_URL', 'AI2_API_KEY', 'AI2_MODEL',
 ] as const
@@ -247,6 +248,9 @@ export interface SyncAllSecretsInput {
   /** SimpleTex 公式识图令牌（UAT）——同步到 secrets 做持久化，
    *  浏览器被清空后 runner 仍能靠 SIMPLETEX_TOKEN 环境变量兜底 */
   simpletexToken: string
+  /** 硅基流动 API Key —— 会议/课程转写用。同步到 secrets 做一份加密落盘，
+   *  避免「只活在浏览器里」（注意：GitHub secrets 只写不可读，换设备仍需本机 Key） */
+  siliconflowApiKey: string
 }
 
 /**
@@ -329,6 +333,7 @@ export async function syncAllSecrets(
   const secretsMap: Record<AiSecretName, string> = {
     MINERU_API_TOKEN: s.mineruToken,
     SIMPLETEX_TOKEN: s.simpletexToken,
+    SILICONFLOW_API_KEY: s.siliconflowApiKey,
     AI1_BASE_URL:    baseUrl1,
     AI1_API_KEY:     apiKey1,
     AI1_MODEL:       model1,

@@ -310,6 +310,7 @@ export default function ConnectivityPanel() {
         customAi2Model: store.customAi2Model,
         mineruToken: store.mineruToken,
         simpletexToken: store.simpletexToken,
+        siliconflowApiKey: store.asrApiKey,
       })
       setSteps(() => RUNNER_STEP_DEFS.map((s) => ({
         ...s,
