@@ -24,7 +24,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS } from '../services/learningData'
+import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS, missingWordFields, repairWordByRules, WORD_CORE_FIELD_LABELS } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { WordData, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
@@ -43,8 +43,8 @@ type TabId = 'words' | 'sentences' | 'translation'
 type WordQuestionType =
   | 'en_select_cn'     // 英文单词 → 选中文释义
   | 'cn_select_en'     // 中文释义 → 选英文单词
-  | 'en_select_def'    // 英文单词 → 选（中文）定义
-  | 'def_select_en'    // （中文）定义 → 选英文单词
+  | 'en_select_def'    // 英文单词 → 选定义（第一次接触用中文定义，之后用英文定义）
+  | 'def_select_en'    // 定义 → 选英文单词（同上）
   | 'sent_select_cn'   // 例句挖空 → 选中文释义
   | 'sent_select_def'  // 例句挖空 → 选定义
   | 'listen_select_cn' // 听音（只放音，不显示单词）→ 选中文释义（需语音模式）
@@ -123,9 +123,14 @@ function getTodayString(): string {
 // 单词选择题引擎（移植自 CAT 项目 study_service.QUESTION_TYPES）
 // ============================================================
 
-/** 单词的"定义"：复习模式优先英文定义，缺失时回退中文定义/中文释义 */
-function wordDefinition(w: WordData, mode: 'learn' | 'review'): string {
-  if (mode === 'review') return w.definitionEn || w.definitionCn || w.meaning || ''
+/**
+ * 单词"定义"该用哪种语言：按**是否第一次接触**切，而不是按会话模式。
+ * - review_count = 0（还没走完任何一轮）＝ 第一次接触 → 中文定义（初学者看不懂英文定义）；
+ * - 之后（学习模式后续轮 + 复习轮）→ 英文定义。
+ * 这样历史词即使一导入就落进复习模式，第一次看到的仍是中文。
+ */
+function wordDefinition(w: WordData): string {
+  if (w.reviewCount > 0) return w.definitionEn || w.definitionCn || w.meaning || ''
   return w.definitionCn || w.meaning || ''
 }
 
@@ -137,19 +142,20 @@ function blankSentence(sentence: string, word: string): string {
 }
 
 /** 该单词是否适合出某题型（缺字段的题型直接整轮跳过该词，对齐 CAT 行为） */
-function isWordEligible(w: WordData, type: WordQuestionType, mode: 'learn' | 'review'): boolean {
+function isWordEligible(w: WordData, type: WordQuestionType): boolean {
   const hasMeaning = !!w.meaning.trim()
-  const hasDef = !!wordDefinition(w, mode).trim()
+  // 定义题要有"真定义"（不能用中文释义顶替），否则跟"选中文释义"变成同一道题
+  const hasDef = !!(w.definitionCn.trim() || w.definitionEn.trim())
   const hasSentence =
     !!w.exampleEn.trim() && w.word.length >= 2 &&
     new RegExp(w.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(w.exampleEn)
   switch (type) {
     case 'en_select_cn': return !!w.word.trim() && hasMeaning
     case 'cn_select_en': return hasMeaning && !!w.word.trim()
-    case 'en_select_def': return !!w.word.trim() && !!w.definitionCn.trim()
+    case 'en_select_def': return !!w.word.trim() && hasDef
     case 'def_select_en': return hasDef && !!w.word.trim()
     case 'sent_select_cn': return hasSentence && hasMeaning
-    case 'sent_select_def': return hasSentence && !!w.definitionCn.trim()
+    case 'sent_select_def': return hasSentence && hasDef
     // 听音/读音题只要求"有单词 + 有中文释义"：释义是选项或题面
     case 'listen_select_cn': return !!w.word.trim() && hasMeaning
     case 'cn_select_sound': return !!w.word.trim() && hasMeaning
@@ -231,10 +237,9 @@ function buildQuestion(
   word: WordData,
   type: WordQuestionType,
   pool: WordData[],
-  mode: 'learn' | 'review',
   affixes: AffixData[] = [],
 ): GeneratedWordQuestion | null {
-  if (!isWordEligible(word, type, mode)) return null
+  if (!isWordEligible(word, type)) return null
   const typeMeta = WORD_QUESTION_TYPES.find((t) => t.key === type)!
 
   let question = ''
@@ -246,13 +251,13 @@ function buildQuestion(
     case 'cn_select_en':
       question = word.meaning; answer = word.word; break
     case 'en_select_def':
-      question = word.word; answer = wordDefinition(word, mode); break
+      question = word.word; answer = wordDefinition(word); break
     case 'def_select_en':
-      question = wordDefinition(word, mode); answer = word.word; break
+      question = wordDefinition(word); answer = word.word; break
     case 'sent_select_cn':
       question = blankSentence(word.exampleEn, word.word); answer = word.meaning; isSentence = true; break
     case 'sent_select_def':
-      question = blankSentence(word.exampleEn, word.word); answer = wordDefinition(word, mode); isSentence = true; break
+      question = blankSentence(word.exampleEn, word.word); answer = wordDefinition(word); isSentence = true; break
     // 题面只显示"听发音"按钮，单词藏在 question 里给播放用（不渲染出来）
     case 'listen_select_cn':
       question = word.word; answer = word.meaning; break
@@ -274,7 +279,7 @@ function buildQuestion(
       case 'cn_select_sound':
       case 'spell_block': return w.word
       case 'en_select_def':
-      case 'sent_select_def': return wordDefinition(w, mode)
+      case 'sent_select_def': return wordDefinition(w)
     }
   }
   const distractors: string[] = []
@@ -1256,6 +1261,94 @@ function pickStudyQueue(all: WordData[], mode: 'learn' | 'review', queueLength: 
     .slice(0, 20)
 }
 
+// ============================================================
+// 旧词缺字段：AI 补全（只补空字段，绝不编造原文例句）
+// ============================================================
+
+/** AI 补全返回的单条补丁：只含原本空着的字段 */
+interface WordFieldPatch {
+  meaning?: string
+  definitionCn?: string
+  definitionEn?: string
+  exampleZh?: string
+}
+
+/** 从可能带代码块/前后缀的文本里抠出第一个 JSON 对象 */
+function parseLooseJson(text: string): any {
+  const t = (text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
+  const start = t.indexOf('{')
+  const end = t.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try {
+    return JSON.parse(t.slice(start, end + 1))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 缺字段的 AI 补全：把一批单词里空着的「中文释义 / 中文解释 / 英文解释 / 例句译文」补齐。
+ * 只补能凭单词本身写出来的字段 —— 原文例句 exampleEn 必须逐字来自源材料，绝不生成。
+ */
+async function completeWordFieldsWithAI(
+  targets: WordData[],
+  signal?: AbortSignal,
+): Promise<Record<string, WordFieldPatch>> {
+  const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+  if (!ai1 || !ai1.baseUrl || !ai1.apiKey || !ai1.model) {
+    throw new Error('未配置 AI 服务，只能做规则补全')
+  }
+  const payload = targets.map((w) => ({
+    id: w.id,
+    word: w.word,
+    meaning: w.meaning,
+    definitionCn: w.definitionCn,
+    definitionEn: w.definitionEn,
+    exampleEn: w.exampleEn,
+    exampleZh: w.exampleZh || '',
+  }))
+  const resp = await callAI({
+    baseUrl: ai1.baseUrl,
+    apiKey: ai1.apiKey,
+    model: ai1.model,
+    temperature: 0,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是学术词汇库的补全工具。把每条单词里**空着**的字段补齐；已有字段一个字都不许改，也不许新增其它字段。' +
+          'meaning 是中文释义（简短短语）；definitionCn 是中文解释（一句话）；definitionEn 是英文解释（一句话）；' +
+          'exampleZh 是 exampleEn 的中文译文（没有 exampleEn 就留空）。只输出 JSON，不要 markdown 代码块。',
+      },
+      {
+        role: 'user',
+        content: [
+          '只补下面每条里空着的字段，返回格式：',
+          '{"items":[{"id":"...","meaning":"...","definitionCn":"...","definitionEn":"...","exampleZh":"..."}]}',
+          '某字段原本不空就不要输出它；补不出就省略。',
+          '',
+          JSON.stringify(payload),
+        ].join('\n'),
+      },
+    ],
+    signal,
+  })
+  const json = parseLooseJson(resp.content || '')
+  const items: any[] = Array.isArray(json?.items) ? json.items : []
+  const out: Record<string, WordFieldPatch> = {}
+  for (const it of items) {
+    const id = String(it?.id ?? '').trim()
+    if (!id) continue
+    const patch: WordFieldPatch = {}
+    for (const k of ['meaning', 'definitionCn', 'definitionEn', 'exampleZh'] as const) {
+      const v = it?.[k]
+      if (typeof v === 'string' && v.trim()) patch[k] = v.trim()
+    }
+    if (Object.keys(patch).length) out[id] = patch
+  }
+  return out
+}
+
 interface WordSectionProps {
   words: WordData[]
   setWords: React.Dispatch<React.SetStateAction<WordData[]>>
@@ -1326,6 +1419,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  /** 「一键修复」进行中 —— 防连点；AI 补全那步会慢 */
+  const [repairing, setRepairing] = useState(false)
 
   const [session, setSession] = useState<StudySession | null>(null)
   const [question, setQuestion] = useState<GeneratedWordQuestion | null>(null)
@@ -1418,6 +1513,58 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     return { total: words.length, new: newC, learning, learned, mastered, errorBook, due }
   }, [words, nowTick])
 
+  /**
+   * 缺字段的旧词（导入的历史词常缺英文解释/例句译文/中文解释）。
+   * 只统计"有英文单词但核心字段不全"的 —— 空壳行修不了，不该混进来。
+   */
+  const incompleteWords = useMemo(
+    () => words.filter((w) => w.word.trim() && missingWordFields(w).length > 0),
+    [words],
+  )
+
+  /**
+   * 一键修复：先用规则补（回填中文释义/解释、校正数值、丢弃脏词素），
+   * 剩下的空字段（英文解释、例句译文等）再交给 AI 批量补。
+   * AI 没配 / 补不动也不影响规则那部分已落地。
+   */
+  const handleRepairAll = useCallback(async () => {
+    if (repairing) return
+    setRepairing(true)
+    try {
+      const before = incompleteWords.length
+      let next = words.map((w) => repairWordByRules(w).word)
+      const needsAi = next.filter((w) => w.word.trim() && missingWordFields(w).length > 0)
+      if (needsAi.length > 0) {
+        try {
+          // 单次别塞太多：一次 60 条，超出的等用户再点一次
+          const patches = await completeWordFieldsWithAI(needsAi.slice(0, 60))
+          next = next.map((w) => {
+            const p = patches[w.id]
+            if (!p) return w
+            return {
+              ...w,
+              meaning: w.meaning || p.meaning || '',
+              definitionCn: w.definitionCn || p.definitionCn || '',
+              definitionEn: w.definitionEn || p.definitionEn || '',
+              exampleZh: w.exampleZh || p.exampleZh || '',
+            }
+          })
+        } catch (e) {
+          toast.error(`AI 补全失败：${(e as Error).message}`)
+        }
+      }
+      setWords(next)
+      const left = next.filter((w) => w.word.trim() && missingWordFields(w).length > 0).length
+      toast.success(
+        left === 0
+          ? `已补全 ${before} 个单词的缺失字段`
+          : `已补全，仍有 ${left} 个单词缺字段（可再点一次或用 AI 补）`,
+      )
+    } finally {
+      setRepairing(false)
+    }
+  }, [words, repairing, incompleteWords.length, setWords])
+
   // ── 设置持久化（learningProgress） ──
   // 先读回用户上次的选择，读完才把 settingsLoaded 置真。下面的回写 effect 必须等它 ——
   // 否则组件一挂载就拿**默认值**回写一次，而首次从私库读取一旦慢过 2s 的防抖窗口，
@@ -1484,7 +1631,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       return
     }
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    const eligible = pool.filter((w) => isWordEligible(w, type, s.mode))
+    const eligible = pool.filter((w) => isWordEligible(w, type))
     // 有待重做的错题时优先它；否则按 wordIdx 走第一遍
     const wid = s.retryId ?? eligible[s.wordIdx]?.id
     if (!wid) {
@@ -1495,7 +1642,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       return
     }
     const w = byId.get(wid)
-    const q = w ? buildQuestion(w, type, eligible, s.mode, affixes) : null
+    const q = w ? buildQuestion(w, type, eligible, affixes) : null
     if (!q) {
       setFinished(s)
       setSession(null)
@@ -1524,7 +1671,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     // 选第一个对这组词"有题可出"的题型
     let typeIdx = -1
     activeTypes.some((t, i) => {
-      if (queue.some((w) => isWordEligible(w, t, mode))) { typeIdx = i; return true }
+      if (queue.some((w) => isWordEligible(w, t))) { typeIdx = i; return true }
       return false
     })
     if (typeIdx < 0) return false
@@ -1548,7 +1695,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const advance = useCallback((s: StudySession) => {
     const types = activeTypes
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    const eligibleNow = pool.filter((w) => isWordEligible(w, types[s.typeIdx], s.mode))
+    const eligibleNow = pool.filter((w) => isWordEligible(w, types[s.typeIdx]))
 
     // 本轮还没走完 → 下一词（错题已在 handleNext 里就地重做过，这里不会漏题）
     if (s.wordIdx < eligibleNow.length - 1) {
@@ -1557,7 +1704,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     }
     // 本轮清空 → 切下一个"有题可出"的题型
     for (let ni = s.typeIdx + 1; ni < types.length; ni++) {
-      const eligibleNext = pool.filter((w) => isWordEligible(w, types[ni], s.mode))
+      const eligibleNext = pool.filter((w) => isWordEligible(w, types[ni]))
       if (eligibleNext.length > 0) {
         presentQuestion({ ...s, typeIdx: ni, wordIdx: 0, retryId: null })
         return
@@ -1619,7 +1766,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         let next: WordData = { ...cur, streak: cur.streak + 1 }
         // 走完一轮 = 这个词把本轮选中的、且它适用的题型各答对了一遍。
         // 掌握以「轮次」计量：走满 masterRounds 轮才算掌握，单个题型答得再顺也不算。
-        const applicable = selectedTypes.filter((t) => isWordEligible(cur, t, mode))
+        const applicable = selectedTypes.filter((t) => isWordEligible(cur, t))
         if (applicable.every((t) => doneTypes.includes(t))) {
           const rounds = cur.reviewCount + 1
           masteredNow = rounds >= masterRounds && cur.status !== 'mastered'
@@ -1814,7 +1961,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   if (session && question) {
     const currentType = activeTypes[session.typeIdx]
     const pool = session.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    const eligible = pool.filter((w) => isWordEligible(w, currentType, session.mode))
+    const eligible = pool.filter((w) => isWordEligible(w, currentType))
     const isRetry = session.retryId !== null
     const currentWord = byId.get(question.wordId)
     const progressPct = ((isRetry ? session.wordIdx : session.wordIdx + 1) / Math.max(eligible.length, 1)) * 100
@@ -2181,6 +2328,41 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
           </div>
         </div>
       </div>
+
+      {/* 旧词缺字段：一键修复（规则 + AI 补全） */}
+      {incompleteWords.length > 0 && (
+        <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-amber-800">
+                有 <span className="font-semibold">{incompleteWords.length}</span> 个单词缺字段
+                （{(
+                  ['meaning', 'definitionCn', 'definitionEn', 'exampleZh'] as const
+                )
+                  .map((f) => ({
+                    f,
+                    n: incompleteWords.filter((w) => missingWordFields(w).includes(f)).length,
+                  }))
+                  .filter((x) => x.n > 0)
+                  .map((x) => `${x.n} 缺${WORD_CORE_FIELD_LABELS[x.f]}`)
+                  .join(' · ')}），会影响定义/例句类题型出题。
+              </p>
+              <p className="text-xs text-amber-600 mt-1">
+                先按规则回填（中文释义↔中文解释互填、校正数值、丢弃脏词素），规则补不了的（英文解释、例句译文）再交给 AI。
+              </p>
+            </div>
+            <button
+              onClick={handleRepairAll}
+              disabled={repairing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
+            >
+              {repairing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {repairing ? '修复中…' : '一键修复'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 设置面板 */}
       <div className="bg-paper-50 rounded-xl border border-ink-200 p-4">

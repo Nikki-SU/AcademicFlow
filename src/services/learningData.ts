@@ -63,7 +63,11 @@ export interface WordData {
   phonetic: string
   /** definition_cn：中文详细定义（"定义"类题型用） */
   definitionCn: string
-  /** definition_en：英文定义（复习模式的定义题用，缺失时回退中文定义） */
+  /**
+   * definition_en：英文定义。
+   * 「定义」类题型首次接触（review_count = 0）用中文定义，之后各轮改用英文定义；
+   * 英文定义缺失时回退中文定义。
+   */
   definitionEn: string
   /** example_context：原文例句（例句挖空题用） */
   exampleEn: string
@@ -257,6 +261,74 @@ export function isValidMorphemeSplit(word: string, morphemes: Morpheme[] | undef
   const list = morphemes || []
   if (list.length < 2) return false
   return list.map((m) => m.text).join('').toLowerCase() === String(word || '').trim().toLowerCase()
+}
+
+// ============================================================
+// 旧词缺字段检测 & 规则补全
+// ============================================================
+
+/**
+ * 「缺字段检测」关注的字段。
+ * 不含 exampleEn：原文例句必须逐字来自源材料，无法凭规则/AI 生成；
+ * 也不含 morphemes：拆不出词缀的词本就应该留空，不算缺。
+ */
+export type WordCoreField = 'meaning' | 'definitionCn' | 'definitionEn' | 'exampleZh'
+
+export const WORD_CORE_FIELD_LABELS: Record<WordCoreField, string> = {
+  meaning: '中文释义',
+  definitionCn: '中文解释',
+  definitionEn: '英文解释',
+  exampleZh: '例句译文',
+}
+
+/** 一个单词缺了哪些核心字段（空白算缺；没有英文例句时不追究例句译文） */
+export function missingWordFields(w: WordData): WordCoreField[] {
+  const miss: WordCoreField[] = []
+  if (!w.meaning.trim()) miss.push('meaning')
+  if (!w.definitionCn.trim()) miss.push('definitionCn')
+  if (!w.definitionEn.trim()) miss.push('definitionEn')
+  if (w.exampleEn.trim() && !(w.exampleZh || '').trim()) miss.push('exampleZh')
+  return miss
+}
+
+/**
+ * 纯规则补全（不调 AI、不编造）：
+ * - 中文解释 ↔ 中文释义 互相回填（旧词常只有其中一个）
+ * - 数值字段缺省/非法时归位（防 NaN 把 SM-2 间隔算崩）
+ * - 词素切分拼不回原词的整组丢弃（脏切分会缺字母、拼写题永远答不对）
+ * 返回新对象与"是否发生改动"。
+ */
+export function repairWordByRules(w: WordData): { word: WordData; changed: boolean } {
+  const meaning = w.meaning.trim() || w.definitionCn.trim()
+  const definitionCn = w.definitionCn.trim() || meaning
+  const morphemes = isValidMorphemeSplit(w.word, w.morphemes) ? w.morphemes : []
+  const nonNeg = (v: number, d: number) => (Number.isFinite(v) && v >= 0 ? v : d)
+  const finite = (v: number, d: number) => (Number.isFinite(v) ? v : d)
+  const next: WordData = {
+    ...w,
+    meaning,
+    definitionCn,
+    morphemes,
+    addedAt: finite(w.addedAt, 0),
+    lastReview: nonNeg(w.lastReview, 0),
+    reviewCount: nonNeg(w.reviewCount, 0),
+    sm2Ease: Number.isFinite(w.sm2Ease) && w.sm2Ease > 0 ? w.sm2Ease : 2.5,
+    sm2Interval: Number.isFinite(w.sm2Interval) && w.sm2Interval > 0 ? w.sm2Interval : 1,
+    streak: nonNeg(w.streak, 0),
+    wrongCount: nonNeg(w.wrongCount, 0),
+  }
+  const changed =
+    next.meaning !== w.meaning ||
+    next.definitionCn !== w.definitionCn ||
+    next.morphemes !== w.morphemes ||
+    next.addedAt !== w.addedAt ||
+    next.lastReview !== w.lastReview ||
+    next.reviewCount !== w.reviewCount ||
+    next.sm2Ease !== w.sm2Ease ||
+    next.sm2Interval !== w.sm2Interval ||
+    next.streak !== w.streak ||
+    next.wrongCount !== w.wrongCount
+  return { word: next, changed }
 }
 
 /**
