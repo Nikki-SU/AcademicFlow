@@ -14,6 +14,7 @@ import { verifyPAT } from '../services/github'
 import { clearGlobalAuthError } from '../services/authError'
 import type { AuthState, GitHubUser } from '../types'
 import { useWorkspaceStore } from './workspace'
+import { useTaskStore } from './task'
 
 interface AuthActions {
   /** 应用启动时调用：从 IndexedDB 恢复登录态 */
@@ -151,6 +152,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set) => ({
   logout: async () => {
     await deleteAuth()
     useWorkspaceStore.getState().reset()
+    useTaskStore.getState().reset()
     set({ ...initialState, isInitialized: true })
   },
 

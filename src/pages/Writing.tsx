@@ -1192,6 +1192,10 @@ export default function WritingPage() {
             status: 'draft',
             createdAt: Date.now(),
             updatedAt: Date.now(),
+            type: 'research',
+            parentId: null,
+            startAt: 0,
+            dueAt: 0,
           }
           const newProjects = [defaultProject]
           setProjects(newProjects)
@@ -3056,6 +3060,10 @@ export default function WritingPage() {
         status: 'draft',
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        type: 'research',
+        parentId: null,
+        startAt: 0,
+        dueAt: 0,
       }
       setProjects((prev) => {
         const updated = [...prev, newProject]

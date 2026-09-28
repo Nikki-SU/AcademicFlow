@@ -10,6 +10,19 @@
 
 import { readCsvFile, writeCsvFile, readMdFile, writeMdFile } from './userData'
 
+/** 任务大类：研究 / 课程（节点属性，不是独立层级） */
+export type ProjectType = 'research' | 'course'
+
+/**
+ * 任务（≡ 项目 ≡ DDL）
+ * -------------------------------------------------
+ * 只有一棵树：节点 = 任务，任务由 DDL 驱动 —— 分层就用 `parentId` 串起来
+ * （论文 = 大 DDL，节点 = 子 DDL，每周任务 = 再下一层），`dueAt` 就是它的截止时间。
+ * - `type`     大类（研究 / 课程）
+ * - `parentId` 父任务；`null` = 根
+ * - `startAt`  开始时间（Unix ms）；`0` = 未设（「只有 DDL」时起始即创建时刻）
+ * - `dueAt`    截止 / 结束时间（Unix ms）；`0` = 无截止（纯容器 / 无期限任务）
+ */
 export interface Project {
   projectId: string
   title: string
@@ -18,6 +31,10 @@ export interface Project {
   status: 'draft' | 'submitted' | 'accepted' | 'rejected'
   createdAt: number
   updatedAt: number
+  type: ProjectType
+  parentId: string | null
+  startAt: number
+  dueAt: number
 }
 
 export interface CitationRef {
@@ -31,9 +48,12 @@ export interface CitationRef {
 }
 
 const PROJECTS_PATH = 'projects/projects.csv'
+// ⚠️ 必须与 src/constants/skeleton.ts 的 CSV_HEADERS.projects 完全一致（顺序也一致）：
+//    type/parent_id/start_at/due_at 为本轮新增，一律追加在末尾（守「新列一律追加末尾」）。
 const PROJECT_HEADERS = [
   'project_id', 'title', 'target_journal', 'textbook_refs',
   'status', 'created_at', 'updated_at',
+  'type', 'parent_id', 'start_at', 'due_at',
 ]
 
 const CITATION_HEADERS = [
@@ -53,6 +73,11 @@ export async function loadProjects(force = false): Promise<Project[]> {
         status: (r[4] as Project['status']) || 'draft',
         createdAt: parseInt(r[5] || '0', 10),
         updatedAt: parseInt(r[6] || '0', 10),
+        // 老 CSV 无这些列 → 全部读作研究类根任务、无起止（不破坏老数据）
+        type: (r[7] as ProjectType) || 'research',
+        parentId: r[8] || null,
+        startAt: parseInt(r[9] || '0', 10),
+        dueAt: parseInt(r[10] || '0', 10),
       }))
     },
     force,
@@ -72,8 +97,31 @@ export async function saveProjects(projects: Project[]): Promise<void> {
       p.status,
       String(p.createdAt),
       String(p.updatedAt),
+      p.type || 'research',
+      p.parentId ?? '',
+      String(p.startAt || 0),
+      String(p.dueAt || 0),
     ],
   )
+}
+
+/**
+ * 当前任务（跨设备同步）
+ * -------------------------------------------------
+ * 落私库 `settings/current-task.md`（只一行 project_id），换设备打开即同一个任务。
+ */
+const CURRENT_TASK_PATH = 'settings/current-task.md'
+
+export async function loadCurrentTaskId(): Promise<string | null> {
+  const result = await readMdFile(CURRENT_TASK_PATH)
+  const content = result?.content || ''
+  const m = content.match(/project_id\s*[:=]\s*(\S+)/)
+  return m ? m[1] : null
+}
+
+export async function saveCurrentTaskId(projectId: string | null): Promise<void> {
+  const content = `# 当前任务\n\nproject_id:${projectId ? ` ${projectId}` : ''}\n\n---\n`
+  await writeMdFile(CURRENT_TASK_PATH, content, 'Switch current task')
 }
 
 export async function loadManuscript(projectId: string): Promise<string> {
@@ -94,6 +142,22 @@ export async function loadMemory(projectId: string): Promise<string> {
 
 export async function saveMemory(projectId: string, content: string): Promise<void> {
   await writeMdFile(`projects/${projectId}/memory.md`, content, 'Update AI memory')
+}
+
+/**
+ * 任务简报（brief.md）
+ * -------------------------------------------------
+ * 任务的「详细描述」原文，日程页详情弹层里可编辑与粘贴。
+ * 也是「AI 总结交付物」唯一允许引用的材料 —— 材料为空就不许凭空生成。
+ * 单独存文件（而非塞进 projects.csv），因为它是大段自由文本。
+ */
+export async function loadBrief(projectId: string): Promise<string> {
+  const result = await readMdFile(`projects/${projectId}/brief.md`)
+  return result?.content || ''
+}
+
+export async function saveBrief(projectId: string, content: string): Promise<void> {
+  await writeMdFile(`projects/${projectId}/brief.md`, content, 'Update task brief')
 }
 
 /**

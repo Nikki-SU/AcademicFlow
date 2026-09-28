@@ -21,12 +21,14 @@ import ManagementPage from './pages/Management'
 import { useAuthStore } from './stores/auth'
 import { useSettingsStore } from './stores/settings'
 import { useWorkspaceStore } from './stores/workspace'
+import { useTaskStore } from './stores/task'
 
 function App() {
   const initAuth = useAuthStore((s) => s.init)
   const initSettings = useSettingsStore((s) => s.init)
   const syncSettingsFromGitHub = useSettingsStore((s) => s.syncFromGitHub)
   const initWorkspace = useWorkspaceStore((s) => s.checkAndMaybeInit)
+  const loadCurrentTask = useTaskStore((s) => s.loadCurrent)
   const { isChecked, repo } = useWorkspaceStore()
   const token = useAuthStore((s) => s.token)
 
@@ -49,6 +51,13 @@ function App() {
       syncSettingsFromGitHub()
     }
   }, [isChecked, repo, syncSettingsFromGitHub])
+
+  // workspace 就绪后拉取「当前任务」（跨设备同步，见 stores/task.ts）
+  useEffect(() => {
+    if (isChecked && repo) {
+      loadCurrentTask()
+    }
+  }, [isChecked, repo, loadCurrentTask])
 
   return (
     <Routes>
