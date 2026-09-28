@@ -91,6 +91,12 @@ export const SETTING_KEYS = {
   // 槽位级思考开关（交互式调用：问 AI / 双引擎 / 检索）—— '' | off | low | high | max
   THINKING_AI_1: 'ai_thinking_ai1',
   THINKING_AI_2: 'ai_thinking_ai2',
+  // 会议/课程转写 ASR（浏览器直连硅基流动）
+  ASR_API_KEY: 'asr_api_key',
+  ASR_BASE_URL: 'asr_base_url',
+  ASR_MODEL: 'asr_model',
+  ASR_TRANSLATE_MODEL: 'asr_translate_model',
+  ASR_TRANSLATE_TO_ZH: 'asr_translate_to_zh',
 } as const
 
 class AcademicFlowDB extends Dexie {

@@ -10,6 +10,7 @@ import {
   Database,
   FileText,
   Loader2,
+  Mic,
   RefreshCw,
   Settings as SettingsIcon,
   Sparkles,
@@ -194,6 +195,11 @@ function Settings() {
     isLoadingSlot2Models,
     mineruToken,
     simpletexToken,
+    asrApiKey,
+    asrBaseUrl,
+    asrModel,
+    asrTranslateModel,
+    asrTranslateToZh,
     thinkingAi1,
     thinkingAi2,
     updateSettings,
@@ -205,6 +211,7 @@ function Settings() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     ai: true,
     processing: true,
+    session: true,
     data: false,
     diag: false,
   })
@@ -234,6 +241,7 @@ function Settings() {
         volcengineAgentApiKey2: '火山方舟 Agent Plan API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
         simpletexToken: 'SimpleTex 令牌',
+        asrApiKey: '会议转写 API Key',
       }
       const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
       toast.warning(
@@ -708,6 +716,85 @@ function Settings() {
                   </span>
                 </span>
               </label>
+            </SubBlock>
+          </SettingsGroup>
+
+          {/* ── 会议转写（ASR · 浏览器直连硅基流动） ── */}
+          <SettingsGroup
+            icon={Mic}
+            title="会议转写"
+            summary="会议/课程页录音 → 浏览器直连硅基流动转写（全站唯一一处前端直连模型）"
+            open={openGroups.session}
+            onToggle={() => toggleGroup('session')}
+          >
+            <SubBlock title="API Key" hint="只存本机 IndexedDB，不进私库">
+              <APIKeyInput
+                label="硅基流动 API Key"
+                fieldId="asr"
+                value={asrApiKey}
+                onChange={(v) => updateSettings({ asrApiKey: v })}
+                hint="转写与翻译共用此 Key；音频只在内存里走一趟，转写完即丢弃，不进私库。"
+              />
+            </SubBlock>
+
+            <SubBlock title="转写端点与模型" hint="OpenAI 兼容端点，默认硅基流动">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-ink-700">Base URL</label>
+                <input
+                  type="text"
+                  value={asrBaseUrl}
+                  onChange={(e) => updateSettings({ asrBaseUrl: e.target.value })}
+                  placeholder="https://api.siliconflow.cn/v1"
+                  spellCheck={false}
+                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+                <p className="text-xs text-ink-400">
+                  末尾不带斜杠；固定拼 <code className="font-mono">/audio/transcriptions</code> 与{' '}
+                  <code className="font-mono">/chat/completions</code>。
+                </p>
+              </div>
+              <div className="space-y-2 pt-4">
+                <label className="block text-sm font-medium text-ink-700">转写模型</label>
+                <input
+                  type="text"
+                  value={asrModel}
+                  onChange={(e) => updateSettings({ asrModel: e.target.value })}
+                  placeholder="FunAudioLLM/SenseVoiceSmall"
+                  spellCheck={false}
+                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+              </div>
+            </SubBlock>
+
+            <SubBlock title="翻译" hint="讲者是外国人时，把非中文转写译成中文">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-seal-600"
+                  checked={asrTranslateToZh}
+                  onChange={(e) => updateSettings({ asrTranslateToZh: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-ink-700">非中文自动译成中文</span>
+                  <span className="block text-xs text-ink-400">
+                    转写返回的语种不是中文时，再调 chat 端点翻译一遍，附在原文下方。
+                  </span>
+                </span>
+              </label>
+              <div className="mt-4 space-y-2">
+                <label className="block text-sm font-medium text-ink-700">翻译模型</label>
+                <input
+                  type="text"
+                  value={asrTranslateModel}
+                  onChange={(e) => updateSettings({ asrTranslateModel: e.target.value })}
+                  placeholder="留空 = 不翻译"
+                  spellCheck={false}
+                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+                <p className="text-xs text-ink-400">
+                  留空表示不翻译；填模型 id 才启用（如 <code className="font-mono">Qwen/Qwen2.5-7B-Instruct</code>）。
+                </p>
+              </div>
             </SubBlock>
           </SettingsGroup>
 

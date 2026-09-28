@@ -125,6 +125,12 @@ const DEFAULT_SETTINGS: SettingsData = {
   // 想要推理时可在设置里逐槽位手选 low/high/max；'' 仍表示「不干预」（什么都不发）。
   thinkingAi1: 'off',
   thinkingAi2: 'off',
+  // 会议/课程转写（ASR）：浏览器直连硅基流动。SenseVoiceSmall 免费。
+  asrBaseUrl: 'https://api.siliconflow.cn/v1',
+  asrApiKey: '',
+  asrModel: 'FunAudioLLM/SenseVoiceSmall',
+  asrTranslateModel: 'Qwen/Qwen2.5-7B-Instruct',
+  asrTranslateToZh: true,
 }
 
 /** 敏感字段（只存 IndexedDB，不进 GitHub md 文件）—— SPEC §2.3/§4.8 */
@@ -143,6 +149,7 @@ const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'volcengineAgentApiKey2',
   'mineruToken',
   'simpletexToken',
+  'asrApiKey',
 ]
 
 /** 非敏感字段也存 IndexedDB 做本地备份
@@ -164,6 +171,10 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'thinkingWords', key: SETTING_KEYS.THINKING_WORDS },
   { field: 'thinkingAi1', key: SETTING_KEYS.THINKING_AI_1 },
   { field: 'thinkingAi2', key: SETTING_KEYS.THINKING_AI_2 },
+  { field: 'asrBaseUrl', key: SETTING_KEYS.ASR_BASE_URL },
+  { field: 'asrModel', key: SETTING_KEYS.ASR_MODEL },
+  { field: 'asrTranslateModel', key: SETTING_KEYS.ASR_TRANSLATE_MODEL },
+  { field: 'asrTranslateToZh', key: SETTING_KEYS.ASR_TRANSLATE_TO_ZH },
 ]
 
 /** 思考模式字段（pipeline 阶段）—— 校验时复用同一套合法值 */
@@ -193,10 +204,15 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
   volcengineAgentApiKey2: SETTING_KEYS.VOLCENGINE_AGENT_API_KEY_2,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
   simpletexToken: SETTING_KEYS.SIMPLETEX_TOKEN,
+  asrApiKey: SETTING_KEYS.ASR_API_KEY,
 }
 
 /** 字段 → 序列化/反序列化（boolean 需转字符串） */
-function serialize(_key: keyof SettingsData, value: unknown): string {
+function serialize(key: keyof SettingsData, value: unknown): string {
+  // 翻译模型「留空」是合法且需要持久化的状态，但不能直接写字面空串 ——
+  // NON_SENSITIVE_LOCAL_BACKUP 的恢复逻辑把空串当「没配过」跳过。
+  // 用一个哨兵值占位，反序列化时再还原成空串。
+  if (key === 'asrTranslateModel') return String(value ?? '') || 'none'
   if (typeof value === 'boolean') return value ? '1' : '0'
   return String(value ?? '')
 }
@@ -206,6 +222,9 @@ function deserialize(
 ): SettingsData[typeof key] {
   const def = DEFAULT_SETTINGS[key]
   if (raw === null) return def as SettingsData[typeof key]
+  if (key === 'asrTranslateModel') {
+    return (raw === 'none' ? '' : raw) as SettingsData[typeof key]
+  }
   if (typeof def === 'boolean') {
     return (raw === '1') as SettingsData[typeof key]
   }
@@ -263,6 +282,7 @@ function detectPatContamination(
     'volcengineAgentApiKey2',
     'mineruToken',
     'simpletexToken',
+    'asrApiKey',
   ]
   const patPrefixes = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_']
   return secretFields.filter((field) => {
@@ -350,6 +370,10 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         thinkingWords: s.thinkingWords,
         thinkingAi1: s.thinkingAi1,
         thinkingAi2: s.thinkingAi2,
+        asrBaseUrl: s.asrBaseUrl,
+        asrModel: s.asrModel,
+        asrTranslateModel: s.asrTranslateModel,
+        asrTranslateToZh: s.asrTranslateToZh,
       })
     } catch (err) {
       console.error('[settings] 保存非敏感设置到 GitHub 失败:', err)
@@ -482,6 +506,12 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           // 槽位级推理模式：''（不干预）是合法值，不能用 truthy 判断跳过
           if (loaded.thinkingAi1 !== undefined) patch.thinkingAi1 = normalizeSlotThinking(loaded.thinkingAi1, DEFAULT_SETTINGS.thinkingAi1)
           if (loaded.thinkingAi2 !== undefined) patch.thinkingAi2 = normalizeSlotThinking(loaded.thinkingAi2, DEFAULT_SETTINGS.thinkingAi2)
+          // 会议转写（ASR）：4 个非敏感字段
+          if (loaded.asrBaseUrl !== undefined) patch.asrBaseUrl = String(loaded.asrBaseUrl)
+          if (loaded.asrModel !== undefined) patch.asrModel = String(loaded.asrModel)
+          // 翻译模型：空串是合法值（= 不翻译），直接透传
+          if (loaded.asrTranslateModel !== undefined) patch.asrTranslateModel = String(loaded.asrTranslateModel)
+          if (loaded.asrTranslateToZh !== undefined) patch.asrTranslateToZh = loaded.asrTranslateToZh
           set(patch)
         }
       } catch (err) {
@@ -781,6 +811,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         volcengineCodingApiKey2: get().volcengineCodingApiKey2,
         volcengineAgentApiKey: get().volcengineAgentApiKey,
         volcengineAgentApiKey2: get().volcengineAgentApiKey2,
+        asrApiKey: get().asrApiKey,
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }
       set(merged)
@@ -823,6 +854,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           thinkingWords: merged.thinkingWords,
           thinkingAi1: merged.thinkingAi1,
           thinkingAi2: merged.thinkingAi2,
+          asrBaseUrl: merged.asrBaseUrl,
+          asrModel: merged.asrModel,
+          asrTranslateModel: merged.asrTranslateModel,
+          asrTranslateToZh: merged.asrTranslateToZh,
         })
       } catch (err) {
         console.error('[settings] 重置后保存到 GitHub 失败:', err)

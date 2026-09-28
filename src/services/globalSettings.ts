@@ -41,6 +41,13 @@ export interface GlobalSettingsData {
   /** 槽位级思考开关（交互式调用）—— '' 表示不干预，见 AISlotThinking */
   thinkingAi1: string
   thinkingAi2: string
+  /** 会议/课程转写（ASR）：baseUrl / 模型（非敏感，跨设备同步）；Key 不入此处 */
+  asrBaseUrl: string
+  asrModel: string
+  /** 翻译模型；空串 = 不翻译（用 'none' 哨兵占位，避免空值行被解析器跳过） */
+  asrTranslateModel: string
+  /** 非中文自动译成中文 */
+  asrTranslateToZh: boolean
 }
 
 /** 从 GitHub 私库读取非敏感全局设置 */
@@ -152,6 +159,19 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
       case 'ai_thinking_ai2':
         result.thinkingAi2 = value === 'default' ? '' : value
         break
+      case 'asr_base_url':
+        result.asrBaseUrl = value
+        break
+      case 'asr_model':
+        result.asrModel = value
+        break
+      case 'asr_translate_model':
+        // 'none' = 用户显式留空（不翻译）
+        result.asrTranslateModel = value === 'none' ? '' : value
+        break
+      case 'asr_translate_to_zh':
+        result.asrTranslateToZh = value === 'true'
+        break
     }
   }
   return result
@@ -185,6 +205,13 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 # default = 不干预，沿用模型默认；off = 强制关闭思考；low/high/max = 开启并控制强度
 - ai_thinking_ai1: ${s.thinkingAi1 || 'default'}
 - ai_thinking_ai2: ${s.thinkingAi2 || 'default'}
+
+## 会议转写（ASR · 浏览器直连硅基流动）
+# Key 只存本机 IndexedDB，不写这里；翻译模型留空（none）= 不翻译
+- asr_base_url: ${s.asrBaseUrl}
+- asr_model: ${s.asrModel}
+- asr_translate_model: ${s.asrTranslateModel || 'none'}
+- asr_translate_to_zh: ${s.asrTranslateToZh}
 
 ## PDF 处理
 - pdf_retention_days: 30

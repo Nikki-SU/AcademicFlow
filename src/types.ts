@@ -388,6 +388,19 @@ export interface SettingsData {
    */
   thinkingAi1: AISlotThinking
   thinkingAi2: AISlotThinking
+
+  // ── 会议/课程转写（ASR · 浏览器直连硅基流动）──
+  // 「前端不直连模型」根原则的**明确例外**：仅限转写/翻译，直连硅基流动 OpenAI 兼容端点。
+  /** ASR 端点 baseUrl（OpenAI 兼容，末尾不带 /） */
+  asrBaseUrl: string
+  /** ASR API Key（**敏感**：只存本机 IndexedDB，不进私库） */
+  asrApiKey: string
+  /** 转写模型 id */
+  asrModel: string
+  /** 翻译模型 id —— 留空则不翻译（空串是合法值，会持久化） */
+  asrTranslateModel: string
+  /** 非中文转写自动译成中文 */
+  asrTranslateToZh: boolean
 }
 
 /** 设置 store 状态 */

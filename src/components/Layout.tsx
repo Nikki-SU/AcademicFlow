@@ -3,7 +3,7 @@
  * 五个核心页面：追踪、阅读、学习、写作、管理
  * （「排版」不再是独立页面 —— 已并进写作页的 LaTeX 工作区）
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
@@ -25,14 +25,17 @@ import {
 import { useAuthStore } from '../stores/auth'
 import { subscribeGlobalAuthError, clearGlobalAuthError } from '../services/authError'
 import { useOrientation } from '../hooks/useOrientation'
+import { useTaskStore } from '../stores/task'
+import { loadProjects, type Project } from '../services/projectData'
+import RecorderBall from './RecorderBall'
+import TaskSwitcher from './TaskSwitcher'
 
 const tabs = [
   // 日程是跨项目的「总页面」，排在所有页面最前面（见 架构.md §2）
   { path: '/schedule', label: '日程', icon: CalendarDays },
   { path: '/tracking', label: '追踪', icon: Search },
   { path: '/reading', label: '阅读', icon: BookOpen },
-  // TODO(架构调整): 应按「当前项目 type」显示「会议」/「课程」；
-  // 项目体系（type 属性 / 当前任务）尚未落地，先写死双语标签。见 架构.md §2
+  // 标签随「当前项目 type」走：研究 → 会议，课程 → 课程（无当前任务时回落双语）。见 架构.md §2.4
   { path: '/session', label: '会议/课程', icon: Users },
   { path: '/learn', label: '学习', icon: GraduationCap },
   { path: '/writing', label: '写作', icon: PenTool },
@@ -146,6 +149,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const orientation = useOrientation()
   const { user, method, expiresAt, logout, token } = useAuthStore()
   const [authError, setAuthError] = useState<string | null>(null)
+  const currentProjectId = useTaskStore((s) => s.currentProjectId)
+  // 任务清单：既喂 AF 下拉切换，也决定页签「会议 / 课程」的命名（同一份数据，只拉一次）
+  const [projects, setProjects] = useState<Project[]>([])
+
+  const reloadProjects = useCallback(() => {
+    void loadProjects()
+      .then(setProjects)
+      .catch((err) => console.warn('[Layout] 读取任务清单失败:', err))
+  }, [])
+
+  useEffect(() => {
+    reloadProjects()
+  }, [reloadProjects])
 
   useEffect(() => {
     return subscribeGlobalAuthError((err) => setAuthError(err))
@@ -160,6 +176,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, [token, authError])
 
   const currentPath = location.pathname
+
+  // 页签「会议 / 课程」随当前任务 type 换名（无当前任务时回落双语）
+  const sessionTabLabel = useMemo(() => {
+    const t = currentProjectId
+      ? projects.find((p) => p.projectId === currentProjectId)?.type
+      : undefined
+    return t === 'course' ? '课程' : t === 'research' ? '会议' : '会议/课程'
+  }, [projects, currentProjectId])
 
   const daysUntilExpire = expiresAt
     ? Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24))
@@ -204,21 +228,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <header className="bg-paper-50 border-b border-ink-200 z-50 flex-shrink-0">
         <div className="page-container">
           <div className="flex items-center justify-between h-12">
-            {/* Logo */}
-            <Link to="/tracking" className="flex items-center gap-2 flex-shrink-0 mr-6">
-              <div className="w-7 h-7 bg-seal-600 rounded-lg flex items-center justify-center">
-                <span className="text-paper-50 text-xs font-bold">AF</span>
-              </div>
-              {orientation === 'landscape' && (
-                <span className="font-semibold text-ink-800 text-sm">AcademicFlow</span>
-              )}
-            </Link>
+            {/* Logo（AF 图标）：兼作任务快速切换入口 */}
+            <TaskSwitcher projects={projects} orientation={orientation} onReload={reloadProjects} />
 
             {/* Tab 导航 */}
             <nav className="flex items-center gap-1 flex-1">
               {tabs.map((tab) => {
                 const isActive = currentPath === tab.path || currentPath.startsWith(tab.path + '/')
                 const Icon = tab.icon
+                const label = tab.path === '/session' ? sessionTabLabel : tab.label
                 return (
                   <Link
                     key={tab.path}
@@ -230,7 +248,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     }`}
                   >
                     <Icon className="w-4 h-4" />
-                    <span>{tab.label}</span>
+                    <span>{label}</span>
                   </Link>
                 )
               })}
@@ -278,6 +296,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 min-h-0 overflow-auto">
         {children}
       </main>
+
+      {/* 全局悬浮录音球：跨页面持续录音，不随路由卸载 */}
+      <RecorderBall />
 
       {/* 全局 Token 失效 modal */}
       {authError && (
