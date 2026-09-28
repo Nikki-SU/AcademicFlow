@@ -24,7 +24,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS, missingWordFields, repairWordByRules, WORD_CORE_FIELD_LABELS } from '../services/learningData'
+import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS, missingWordFields, repairWordByRules, hasDuplicatedMeaningDef, WORD_CORE_FIELD_LABELS } from '../services/learningData'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { WordData, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
@@ -1532,17 +1532,23 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   }, [words, nowTick])
 
   /**
-   * 缺字段的旧词（导入的历史词常缺英文解释/例句译文/中文解释）。
-   * 只统计"有英文单词但核心字段不全"的 —— 空壳行修不了，不该混进来。
+   * 需要修复的旧词：
+   * - 缺字段（导入的历史词常缺英文定义/例句译文/中文定义）；
+   * - 或旧版「一键修复」留下的脏数据（中文释义 = 中文定义，被错误互填过）。
+   * 两者都会让「定义」类题型出问题。只统计有英文单词的 —— 空壳行修不了。
    */
   const incompleteWords = useMemo(
-    () => words.filter((w) => w.word.trim() && missingWordFields(w).length > 0),
+    () => words.filter(
+      (w) => w.word.trim() && (missingWordFields(w).length > 0 || hasDuplicatedMeaningDef(w)),
+    ),
     [words],
   )
 
   /**
-   * 一键修复：先用规则补（回填中文释义/解释、校正数值、丢弃脏词素），
-   * 剩下的空字段（英文解释、例句译文等）再交给 AI 批量补。
+   * 一键修复：
+   * 1) 规则：校正数值、丢弃脏词素，并清掉旧版留下的"中文释义 = 中文定义"脏数据
+   *    （保留符合角色的一份，清空另一份，留给 AI 重填）；
+   * 2) AI：把清空后仍空着的语义字段（中文释义/中文定义/英文定义/例句译文）批量补对。
    * AI 没配 / 补不动也不影响规则那部分已落地。
    */
   const handleRepairAll = useCallback(async () => {
@@ -1550,9 +1556,12 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     setRepairing(true)
     try {
       const before = incompleteWords.length
-      let next = words.map((w) => repairWordByRules(w).word)
+      // 有 AI 才清"释义=定义"的脏数据（清掉要能补回来）；没有就原样保留
+      const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+      const aiReady = !!(ai1 && ai1.baseUrl && ai1.apiKey && ai1.model)
+      let next = words.map((w) => repairWordByRules(w, { resolveDuplicates: aiReady }).word)
       const needsAi = next.filter((w) => w.word.trim() && missingWordFields(w).length > 0)
-      if (needsAi.length > 0) {
+      if (needsAi.length > 0 && aiReady) {
         try {
           // 单次别塞太多：一次 60 条，超出的等用户再点一次
           const patches = await completeWordFieldsWithAI(needsAi.slice(0, 60))
@@ -1572,12 +1581,16 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         }
       }
       setWords(next)
-      const left = next.filter((w) => w.word.trim() && missingWordFields(w).length > 0).length
-      toast.success(
-        left === 0
-          ? `已补全 ${before} 个单词的缺失字段`
-          : `已补全，仍有 ${left} 个单词缺字段（可再点一次或用 AI 补）`,
-      )
+      const needRepair = (w: WordData) =>
+        w.word.trim() && (missingWordFields(w).length > 0 || hasDuplicatedMeaningDef(w))
+      const left = next.filter(needRepair).length
+      if (left === 0) {
+        toast.success(`已修复 ${before} 个单词的缺失/错乱字段`)
+      } else if (!aiReady) {
+        toast.error(`已做规则修复，仍有 ${left} 个单词需要 AI 补全（请先在设置里配置 AI 服务）`)
+      } else {
+        toast.success(`已修复，仍有 ${left} 个单词待处理（可再点一次）`)
+      }
     } finally {
       setRepairing(false)
     }
@@ -2354,20 +2367,22 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-amber-800">
-                有 <span className="font-semibold">{incompleteWords.length}</span> 个单词缺字段
-                （{(
-                  ['meaning', 'definitionCn', 'definitionEn', 'exampleZh'] as const
-                )
-                  .map((f) => ({
-                    f,
-                    n: incompleteWords.filter((w) => missingWordFields(w).includes(f)).length,
-                  }))
-                  .filter((x) => x.n > 0)
-                  .map((x) => `${x.n} 缺${WORD_CORE_FIELD_LABELS[x.f]}`)
-                  .join(' · ')}），会影响定义/例句类题型出题。
+                有 <span className="font-semibold">{incompleteWords.length}</span> 个单词字段有问题
+                （{(() => {
+                  const parts = (['meaning', 'definitionCn', 'definitionEn', 'exampleZh'] as const)
+                    .map((f) => ({
+                      f,
+                      n: incompleteWords.filter((w) => missingWordFields(w).includes(f)).length,
+                    }))
+                    .filter((x) => x.n > 0)
+                    .map((x) => `${x.n} 缺${WORD_CORE_FIELD_LABELS[x.f]}`)
+                  const dup = incompleteWords.filter(hasDuplicatedMeaningDef).length
+                  if (dup > 0) parts.push(`${dup} 释义与定义重复`)
+                  return parts.join(' · ')
+                })()}），会影响定义/例句类题型出题。
               </p>
               <p className="text-xs text-amber-600 mt-1">
-                先按规则校正数值、丢弃脏词素；中文定义/英文定义/例句译文这些语义字段规则补不了，交给 AI 补。
+                规则会校正数值、丢弃脏词素，并清掉旧版「释义与定义被错填成同一个值」的脏数据；释义/定义/例句译文这些语义字段由 AI 补对。
               </p>
             </div>
             <button

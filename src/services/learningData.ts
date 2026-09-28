@@ -295,21 +295,58 @@ export function missingWordFields(w: WordData): WordCoreField[] {
 }
 
 /**
+ * 判断一段文字更像"定义"（一句话/短语）还是"释义"（短词）。
+ * 只用于修旧版 bug 留下的"释义=定义"脏数据时决定保留哪一侧。
+ */
+function looksLikeDefinition(s: string): boolean {
+  const t = String(s || '').trim()
+  if (!t) return false
+  if (/[。；;，,]/.test(t)) return true
+  return t.replace(/\s/g, '').length > 8
+}
+
+/**
+ * 旧版「一键修复」把中文释义（meaning）和中文定义（definitionCn）当成一回事互填，
+ * 导致很多词这两个字段被写成**同一个值**。两者语义不同（释义=短词，定义=一句话），
+ * 相等且非空即视为脏数据，需要修正。
+ */
+export function hasDuplicatedMeaningDef(w: WordData): boolean {
+  const m = w.meaning.trim()
+  return !!m && m === w.definitionCn.trim()
+}
+
+/**
  * 纯规则补全（不调 AI、不编造）：
  * - 数值字段缺省/非法时归位（防 NaN 把 SM-2 间隔算崩）
  * - 词素切分拼不回原词的整组丢弃（脏切分会缺字母、拼写题永远答不对）
+ * - 修掉旧版留下的"中文释义 = 中文定义"脏数据：按内容判断谁是本体，
+ *   保留符合该字段角色的那份，清掉另一份（清掉后交给 AI 重填正确的）
  *
- * **不动 meaning / definitionCn / definitionEn**：中文释义（meaning，答题用短词）与
- * 中文解释（definitionCn，跟 definitionEn 相对的"定义"）是两回事，英文/中文解释也不能互造，
- * 这些语义字段规则补不出来，只能由 AI 或人工填（见学习页「一键修复」）。
+ * **不凭空造 meaning / definitionCn / definitionEn**：中文释义（meaning，答题用短词）与
+ * 中文定义（definitionCn，跟 definitionEn 相对的"定义"）是两回事，英文/中文定义也不能互造，
+ * 这些语义字段规则造不出来，只能由 AI 或人工填（见学习页「一键修复」）。
  * 返回新对象与"是否发生改动"。
  */
-export function repairWordByRules(w: WordData): { word: WordData; changed: boolean } {
+export function repairWordByRules(
+  w: WordData,
+  opts: { resolveDuplicates?: boolean } = {},
+): { word: WordData; changed: boolean } {
   const morphemes = isValidMorphemeSplit(w.word, w.morphemes) ? w.morphemes : []
+  // 释义与定义撞成同一个值 → 保留对的那份，清掉错的那份，留给 AI 重填。
+  // 清空会丢字段，所以只在"有 AI 能补回来"时才做（resolveDuplicates）；
+  // 没 AI 就原样保留，免得清出一个补不回来的空字段。
+  let meaning = w.meaning
+  let definitionCn = w.definitionCn
+  if (opts.resolveDuplicates !== false && hasDuplicatedMeaningDef(w)) {
+    if (looksLikeDefinition(w.meaning)) meaning = ''   // 这份是定义 → 留在 definitionCn
+    else definitionCn = ''                             // 这份是短释义 → 留在 meaning
+  }
   const nonNeg = (v: number, d: number) => (Number.isFinite(v) && v >= 0 ? v : d)
   const finite = (v: number, d: number) => (Number.isFinite(v) ? v : d)
   const next: WordData = {
     ...w,
+    meaning,
+    definitionCn,
     morphemes,
     addedAt: finite(w.addedAt, 0),
     lastReview: nonNeg(w.lastReview, 0),
@@ -320,6 +357,8 @@ export function repairWordByRules(w: WordData): { word: WordData; changed: boole
     wrongCount: nonNeg(w.wrongCount, 0),
   }
   const changed =
+    next.meaning !== w.meaning ||
+    next.definitionCn !== w.definitionCn ||
     next.morphemes !== w.morphemes ||
     next.addedAt !== w.addedAt ||
     next.lastReview !== w.lastReview ||
