@@ -29,6 +29,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { WordData, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
+import { playCorrectSfx, playWrongSfx } from '../services/sfx'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { callAI } from '../services/ai/client'
 import { isAbortError } from '../services/ai/abort'
@@ -358,14 +359,23 @@ function stopSpeaking() {
  * 用 onend 串起来，而不是一口气 speak 多段 —— 浏览器对多段排队的语义并不一致，
  * 后一段的 cancel 把前一段掐掉是常见现象（而且没有 onend 就没法插入停顿）。
  */
-function speakSequence(texts: string[]) {
-  if (typeof speechSynthesis === 'undefined') return
+function speakSequence(texts: string[], onDone?: () => void) {
+  if (typeof speechSynthesis === 'undefined') {
+    onDone?.()
+    return
+  }
   const items = texts.map((t) => (t || '').trim()).filter(Boolean)
-  if (!items.length) return
+  if (!items.length) {
+    onDone?.()
+    return
+  }
   stopSpeaking()
   let i = 0
   const next = () => {
-    if (i >= items.length) return
+    if (i >= items.length) {
+      onDone?.()
+      return
+    }
     const u = new SpeechSynthesisUtterance(items[i])
     // 第一段是单词：慢一点，给"记这个词"留时间；后面是例句，按正常语速
     u.lang = 'en-US'
@@ -382,10 +392,13 @@ function speakSequence(texts: string[]) {
   next()
 }
 
-function speakEnglish(text: string) {
+function speakEnglish(text: string, onDone?: () => void) {
   const t = (text || '').trim()
-  if (!t) return
-  speakSequence([t])
+  if (!t) {
+    onDone?.()
+    return
+  }
+  speakSequence([t], onDone)
 }
 
 /** 解析 AI-1 输出的学习内容 JSON（容错：去掉代码块包裹 / 提取首尾花括号） */
@@ -1826,18 +1839,37 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         masteredCount: session.masteredCount + (masteredNow ? 1 : 0),
       }
       setSession(nextSession)
+      // 答对音效：仅朗读模式（静音模式全程无声）
+      if (settings.voiceEnabled) playCorrectSfx()
       if (firstAsk) {
         // 本会话第一次遇到这个词：答完把卡片亮出来（先测后看），点一下再继续
+        // 卡片会自己朗读「单词 → 例句」
         setShowCard(true)
       } else {
-        // 答对：绿色反馈 800ms 后自动下一题（无需点击）
+        // 答对：绿色反馈 + 自动下一题（无需点击）。
+        // 朗读模式下先把这个词读出来、读完再走 —— 复习轮不亮卡片，
+        // 否则全程没机会听到读音，沉浸感就没了。
         if (autoTimer.current) clearTimeout(autoTimer.current)
-        autoTimer.current = setTimeout(() => {
+        const cur = byId.get(wid)
+        let advanced = false
+        const go = () => {
+          if (advanced) return
+          advanced = true
+          if (autoTimer.current) clearTimeout(autoTimer.current)
           autoTimer.current = null
           advance(nextSession)
-        }, 800)
+        }
+        if (settings.voiceEnabled && cur?.word.trim()) {
+          speakEnglish(cur.word, go)
+          // 兜底：个别浏览器 onend 不触发，别把会话卡死
+          autoTimer.current = setTimeout(go, 4000)
+        } else {
+          autoTimer.current = setTimeout(go, 800)
+        }
       }
     } else {
+      // 答错音效：仅朗读模式，与答对音效明显不同
+      if (settings.voiceEnabled) playWrongSfx()
       // 答错：streak 清零、wrong_count+1，并把这个词挂成"待重做" ——
       // 卡片关掉后立刻重出同一个词、同一个题型，做对才继续往下
       setWords((prev) => prev.map((w) =>
@@ -1852,7 +1884,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         wrongCount: session.wrongCount + 1,
       })
     }
-  }, [session, question, answered, firstAsk, settings.masterRounds, activeTypes, setWords, onStudied, byId, advance])
+  }, [session, question, answered, firstAsk, settings.masterRounds, settings.voiceEnabled, activeTypes, setWords, onStudied, byId, advance])
 
   /** 看完卡片后继续：答错的那道题就地重做，其余按正常顺序推进 */
   const handleNext = useCallback(() => {
