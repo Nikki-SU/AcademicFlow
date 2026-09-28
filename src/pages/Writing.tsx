@@ -3233,7 +3233,6 @@ export default function WritingPage() {
                       <button
                         onClick={() => openProjectLitModal(activeProject.projectId)}
                         className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-seal-600 bg-seal-50/60 hover:bg-seal-100 rounded-md transition"
-                        title="给当前项目补充文献（项目内临时知识库）"
                       >
                         <BookPlus className="w-3.5 h-3.5" />
                         添加项目文献
@@ -3523,7 +3522,7 @@ export default function WritingPage() {
                   <button
                     onClick={restoreDualPanels}
                     className="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
-                    title="两侧选了同一个功能，已合并成一栏；点这里恢复默认双栏（编辑区 | AI 助手）"
+                    title="恢复双栏"
                   >
                     <Columns2 className="w-3.5 h-3.5" />
                     恢复双栏
@@ -3895,7 +3894,6 @@ export default function WritingPage() {
                                       <button
                                         onClick={() => insertCitation(cit.doi)}
                                         className="text-[0.6875rem] text-ink-400 hover:text-seal-600 transition flex items-center gap-1"
-                                        title="把这条文献的 DOI 标记插到正文光标处"
                                       >
                                         <Plus className="w-3 h-3" />
                                         插入正文
@@ -3950,14 +3948,12 @@ export default function WritingPage() {
                         {/* 后端要排队跑 Actions + 多轮大模型调用，分钟级属正常；给个计时免得以为卡死 */}
                         <span
                           className="ml-1 text-[0.625rem] text-ink-400 tabular-nums"
-                          title="后端要排队跑 GitHub Actions + 多轮大模型调用，等几分钟是正常的"
                         >
                           已等 {Math.floor(aiElapsed / 60)} 分 {String(aiElapsed % 60).padStart(2, '0')} 秒
                         </span>
                         <button
                           onClick={stopAi}
                           className="ml-1 flex items-center gap-0.5 px-1.5 py-0.5 text-[0.625rem] rounded border border-ink-200 text-ink-500 hover:border-red-300 hover:text-red-600 transition flex-shrink-0"
-                          title="停止：不再接收这次回答，并让后端也停下"
                         >
                           <Square className="w-2.5 h-2.5" />
                           停止
@@ -4034,7 +4030,7 @@ export default function WritingPage() {
                   <button
                     onClick={() => setShowActionModal(true)}
                     className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-full transition"
-                    title="添加自定义指令（可直接写 prompt，也可让 AI 按需求生成）"
+                    title="添加自定义指令"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -4454,7 +4450,7 @@ export default function WritingPage() {
                         }}
                         disabled={isCreatingTemplate}
                         className="w-full py-1.5 bg-paper-50 border border-ink-200 text-ink-700 rounded-lg text-[0.6875rem] font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-                        title="上传期刊官方的 sample .tex，直接解析出 documentclass / 宏包 / 引用样式，比让 AI 从投稿须知里猜准"
+                        title="上传 sample .tex 建模板"
                       >
                         <Upload className="w-3 h-3" />
                         上传 .tex 解析建模板
@@ -4463,7 +4459,7 @@ export default function WritingPage() {
                         onClick={() => texPackageInputRef.current?.click()}
                         disabled={isCreatingTemplate}
                         className="w-full py-1.5 bg-paper-50 border border-ink-200 text-ink-700 rounded-lg text-[0.6875rem] font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-                        title="上传出版社给的整包投稿模板（.zip，含 sample .tex + .cls/.sty/.bst + 图片/字体）。后端会解包成期刊模板，附属文件一并收好"
+                        title="上传投稿模板包建模板"
                       >
                         <Package className="w-3 h-3" />
                         上传投稿包 .zip 解包建模板
@@ -4553,7 +4549,7 @@ export default function WritingPage() {
                   }}
                   disabled={!currentTemplate || isCreatingTemplate}
                   className="w-full py-1.5 bg-paper-50 border border-ink-200 text-ink-600 rounded-lg text-[0.6875rem] font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-                  title="用一份新的 .tex 覆盖当前模板：documentclass / 宏包 / 引用样式 / 正文骨架都按它重新解析，原文并存进模板"
+                  title="用新 .tex 覆盖当前模板"
                 >
                   <Upload className="w-3 h-3" />
                   上传 .tex 覆盖当前模板
@@ -4593,7 +4589,6 @@ export default function WritingPage() {
                           ? 'text-seal-600 hover:bg-seal-50'
                           : 'text-ink-400 hover:bg-paper-100'
                       }`}
-                      title="开启后会把模板的投稿须知原文作为 ground truth 交给 AI，AI-2 会核查每条改动的依据"
                     >
                       {trustedSearch ? (
                         <ToggleRight className="w-4 h-4" />
@@ -4650,7 +4645,7 @@ export default function WritingPage() {
                     onClick={() => void generateLatexFromMarkdown()}
                     disabled={isGeneratingLatex}
                     className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-paper-50 bg-seal-600 rounded hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="把左侧 markdown 正文交给 AI 转成 LaTeX（注意：正文会被发送到 AI 服务）"
+                    title="把 markdown 正文交给 AI 转成 LaTeX"
                   >
                     {isGeneratingLatex ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -4663,7 +4658,7 @@ export default function WritingPage() {
                     onClick={runLatexLocalUpdate}
                     disabled={isGeneratingLatex || !latexCode.trim()}
                     className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[0.6875rem] text-seal-700 bg-seal-50 rounded hover:bg-seal-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="把 md 里改过的文字逐字更正到 LaTeX 对应位置；只有改不动的地方才交给 AI。改文字请走这条路，别整篇重转。"
+                    title="把 md 里改过的文字逐字更正到 LaTeX 对应位置；只有改不动的地方才交给 AI。"
                   >
                     改字同步到 LaTeX
                   </button>
@@ -4674,7 +4669,7 @@ export default function WritingPage() {
                         ? 'bg-seal-100 text-seal-700'
                         : 'text-ink-500 hover:text-seal-600 hover:bg-seal-50'
                     }`}
-                    title="调整图片排版：单栏/跨栏、宽度、位置参数、图注。只改排版参数，正文一个字不碰。"
+                    title="图片排版"
                   >
                     <Columns2 className="w-3 h-3" />
                     图片排版
