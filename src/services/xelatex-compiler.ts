@@ -20,6 +20,7 @@ import type {
   XeLaTeXLogEvent,
   XeLaTeXStatusEvent,
 } from '@arnon3339/thtex'
+import { normalizeLatexForCompile } from './latex-compat'
 
 /**
  * 运行时资源根目录。
@@ -79,13 +80,17 @@ const CJK_SHIM = [
  * 否则同一份稿子在本地和云端排出来的 PDF 会长得不一样。
  */
 export function withRuntimeCompat(source: string): string {
-  if (source.includes('AcademicFlow: 中文字体')) return source
-  const needsCjk = CJK_PATTERN.test(source) && !/xeCJK|ctex/.test(source)
-  const shims = needsCjk ? CJK_SHIM : ''
+  // 编译前先做确定性规整：Unicode 标点、\bibliography 重复后缀、重复的 Wiley NJD
+  // \bibliographystyle、以及 shipout 期间改版面导致 Float(s) lost 的兼容补丁。
+  // 幂等；前端为了不丢用户手改会复用已存 LaTeX，所以老稿子在这里也能被救回来。
+  const normalized = normalizeLatexForCompile(source)
+  if (normalized.includes('AcademicFlow: 中文字体')) return normalized
+  const needsCjk = CJK_PATTERN.test(normalized) && !/xeCJK|ctex/.test(normalized)
+  if (!needsCjk) return normalized
   const marker = '\\begin{document}'
-  const idx = source.indexOf(marker)
-  if (idx === -1) return `${source}\n${shims}\n`
-  return `${source.slice(0, idx)}${shims}\n${source.slice(idx)}`
+  const idx = normalized.indexOf(marker)
+  if (idx === -1) return `${normalized}\n${CJK_SHIM}\n`
+  return `${normalized.slice(0, idx)}${CJK_SHIM}\n${normalized.slice(idx)}`
 }
 
 /** BibTeX 数据库在虚拟文件系统里的文件名，需与正文 \bibliography{...} 一致 */
