@@ -230,8 +230,9 @@ function buildAI1RetryInstruction(markdown: string, missing: MarkdownBlock[]): s
   const listed = missing.map((b) => `<!--af:blk:${b.id}-->\n${b.text}`).join('\n\n')
   return [
     '【上一轮转换有遗漏，请重新做一次完整转换】',
-    '上一轮输出漏掉了下面这些块。这是排版转换、**不允许总结或省略**：',
-    '下面每一块都必须逐字完整转成 LaTeX，并用 %⟦af:blk:块号⟧ … %⟦/af:blk:块号⟧ 锚点包好；',
+    '上一轮输出漏掉了、或写成了空片段 / 被压缩的，是下面这些块。这是排版转换、**不允许总结或省略**：',
+    '下面每一块必须在锚点里逐字完整写出内容，并用 %⟦af:blk:块号⟧ … %⟦/af:blk:块号⟧ 锚点包好'
+      + '（锚点之间必须有该块的真实内容，**空着、只写注释占位、或只写一句概括都算失败**）；',
     '**同时，原文其余所有块也必须一并完整输出**（不要只输出这几块，否则会丢掉别的块）。',
     '',
     '【上一轮漏掉的块】',
@@ -385,6 +386,47 @@ export function extractAnchoredFragments(body: string): Map<string, string> {
   let m: RegExpExecArray | null
   while ((m = re.exec(body))) out.set(m[1], m[0])
   return out
+}
+
+/** 数「实质字符」：去掉纯注释行与 LaTeX 控制序列后，剩下字母 / 数字（含中日韩）的个数 */
+function substantiveCharCount(s: string): number {
+  const body = s
+    .split('\n')
+    .filter((line) => !/^\s*%/.test(line)) // 纯注释行（锚点行也是注释）
+    .join('\n')
+    .replace(/\\[a-zA-Z@]+\*?/g, '') // TeX 控制序列
+  const m = body.match(/[\p{L}\p{N}]/gu)
+  return m ? m.length : 0
+}
+
+/**
+ * 找「锚点齐全、内容却是空心」的块。
+ *
+ * 为什么必须单独查：checkAnchors 只看锚点成不成对，下面这种**一对锚点夹着空内容**
+ *   %⟦af:blk:x⟧
+ *   %⟦/af:blk:x⟧
+ * 能骗过它 —— AI 一旦偷懒（片段空着 / 只写个 "% 略" / 把整段压成一句），
+ * 就会静默落盘一份「锚点都在、正文却缺段」的不合格 .tex。
+ * 这里按块比对实质字符量：为空 → 空心；相对原文掉到不足一半（且原文够长）→ 判为被压缩。
+ */
+export function findHollowBlocks(
+  anchoredBody: string,
+  blocks: MarkdownBlock[],
+): string[] {
+  const fragments = extractAnchoredFragments(anchoredBody)
+  const hollow: string[] = []
+  for (const b of blocks) {
+    const frag = fragments.get(b.id)
+    if (frag === undefined) continue // 锚点都不在 → 交给 checkAnchors 的 missing
+    const got = substantiveCharCount(frag)
+    if (got === 0) {
+      hollow.push(b.id)
+      continue
+    }
+    const src = substantiveCharCount(b.text)
+    if (src >= 40 && got < src * 0.5) hollow.push(b.id)
+  }
+  return hollow
 }
 
 export function wrapAnchor(id: string, tex: string): string {
@@ -1641,11 +1683,14 @@ export async function convertMarkdownToLatex(
 
       const candidate = stripCodeFence(dualResult.ai1Output)
       const check = checkAnchors(candidate, expectedIds)
+      // 除了「整块没输出」，还要抓「锚点齐全但片段是空的 / 被压缩」的偷懒块 —— 否则会静默落盘
+      const hollow = findHollowBlocks(candidate, allBlocks)
+      const notDone = [...new Set([...check.missing, ...hollow])]
 
       // keep-best：保留「漏块最少」的那一版（补漏轮可能修好旧的、又丢新的）
-      if (!haveCandidate || check.missing.length < bestMissing.length) {
+      if (!haveCandidate || notDone.length < bestMissing.length) {
         haveCandidate = true
-        bestMissing = check.missing
+        bestMissing = notDone
         latexBody = candidate
         ai1RawOutput = dualResult.ai1Output
         if (enableReview) {
@@ -1664,7 +1709,7 @@ export async function convertMarkdownToLatex(
       if (attempt < MAX_ANCHOR_RETRIES) {
         onProgress?.({
           stage: 'ai_converting',
-          message: `检测到 ${bestMissing.length}/${expectedIds.length} 个段落未输出，正在自动补全（第 ${attempt + 1}/${MAX_ANCHOR_RETRIES} 次）...`,
+          message: `检测到 ${bestMissing.length}/${expectedIds.length} 个段落未输出或内容为空，正在自动补全（第 ${attempt + 1}/${MAX_ANCHOR_RETRIES} 次）...`,
         })
       }
     }
@@ -1672,7 +1717,7 @@ export async function convertMarkdownToLatex(
     if (bestMissing.length > 0) {
       throw new Error(
         `Markdown → LaTeX 转换不完整：${bestMissing.length} 个段落（共 ${expectedIds.length} 个）` +
-        `经 ${MAX_ANCHOR_RETRIES + 1} 次尝试仍未输出对应 LaTeX。` +
+        `经 ${MAX_ANCHOR_RETRIES + 1} 次尝试仍缺对应 LaTeX（整块没输出，或锚点齐全但内容为空 / 被压缩）。` +
         `为保证排版不丢内容，已中止、未落盘。请重试；若反复失败，请检查原文结构是否异常。`,
       )
     }
