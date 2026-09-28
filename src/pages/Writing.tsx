@@ -59,7 +59,11 @@ import {
   resyncSidecar,
   buildLatexSkeletonFromTemplate,
   parseLatexTemplate,
+  parseTexFigures,
+  updateTexFigure,
   type LatexSidecar,
+  type TexFigure,
+  type FigureLayoutOptions,
 } from '../services/latex-converter'
 import { compileLatex, getCompileErrorLog, createPdfObjectUrl } from '../services/xelatex-compiler'
 import {
@@ -873,6 +877,8 @@ export default function WritingPage() {
   const [compileError, setCompileError] = useState('')
   /** 编译产物 PDF 的 blob URL，用于内嵌 iframe 预览 */
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  // ── 图片排版面板：把代码板里的 figure 环境列出来，逐图调单/跨栏·宽度·位置·图注 ──
+  const [showFigurePanel, setShowFigurePanel] = useState(false)
   // ── 导入宏包面板：用户自己带 .sty/.cls 进来，编译时自动挂进虚拟文件系统 ──
   const [showPackagesPanel, setShowPackagesPanel] = useState(false)
   const [latexPackages, setLatexPackages] = useState<LatexPackageInfo[]>([])
@@ -1026,6 +1032,34 @@ export default function WritingPage() {
     if (!selectedBookForChapters) return null
     return bookReferences.find(b => b.doi === selectedBookForChapters) || null
   }, [selectedBookForChapters, bookReferences])
+
+  /**
+   * 代码板里的图片（figure / figure*）—— 图片排版面板的数据源。
+   * 每次 latexCode 变化都重新解析，保证面板里存的 start/end 永远对得上当前文本
+   * （跨栏切换会改变环境名长度，偏移必须跟着刷新，否则改写会错位）。
+   * 正则扫描，代价很低，关着面板时不解析。
+   */
+  const texFigures = useMemo(
+    () => (showFigurePanel ? parseTexFigures(latexCode) : []),
+    [showFigurePanel, latexCode],
+  )
+
+  /**
+   * 改写某张图的排版参数并写回代码板。只动排版（环境名/位置/宽度/图注），
+   * 正文一个字不碰 —— 这是确定性的字符串替换，不走 AI。
+   */
+  const applyFigureLayout = useCallback(
+    (fig: TexFigure, patch: Partial<FigureLayoutOptions>) => {
+      const opts: FigureLayoutOptions = {
+        span: patch.span ?? fig.span,
+        percent: patch.percent ?? fig.percent,
+        placement: patch.placement ?? fig.placement,
+        caption: patch.caption ?? fig.caption,
+      }
+      setLatexCode(updateTexFigure(latexCode, fig.start, fig.end, opts))
+    },
+    [latexCode],
+  )
 
   /**
    * 用户开始在侧栏检索时，把库里所有文献的中文标题读出来。
@@ -4583,6 +4617,18 @@ export default function WritingPage() {
                     改字同步到 LaTeX
                   </button>
                   <button
+                    onClick={() => setShowFigurePanel((v) => !v)}
+                    className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[0.6875rem] transition ${
+                      showFigurePanel
+                        ? 'bg-seal-100 text-seal-700'
+                        : 'text-ink-500 hover:text-seal-600 hover:bg-seal-50'
+                    }`}
+                    title="调整图片排版：单栏/跨栏、宽度、位置参数、图注。只改排版参数，正文一个字不碰。"
+                  >
+                    <Columns2 className="w-3 h-3" />
+                    图片排版
+                  </button>
+                  <button
                     onClick={() => handleCopyContent(latexCode)}
                     disabled={!latexCode}
                     className="flex-shrink-0 p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
@@ -4602,6 +4648,98 @@ export default function WritingPage() {
                 {latexGenStatus && (
                   <div className="px-3 py-1 text-[0.625rem] text-seal-600 bg-seal-50/60 border-b border-seal-100 flex-shrink-0 truncate">
                     {latexGenStatus}
+                  </div>
+                )}
+                {showFigurePanel && (
+                  <div className="flex-shrink-0 max-h-64 overflow-y-auto border-b border-ink-200 bg-paper-100/60 px-3 py-2 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[0.625rem] text-ink-400">
+                      <Columns2 className="w-3 h-3 text-seal-600" />
+                      <span>图片排版 —— 只改排版参数，正文一个字不碰</span>
+                    </div>
+                    {texFigures.length === 0 ? (
+                      <div className="text-[0.6875rem] text-ink-400 py-1">
+                        代码板里还没有图片。先「由正文生成」LaTeX，或用 <code className="font-mono">\begin&#123;figure&#125;</code> 插入图片。
+                      </div>
+                    ) : (
+                      texFigures.map((fig, i) => (
+                        <div
+                          key={`${fig.start}-${i}`}
+                          className="rounded border border-ink-200 bg-paper-50 px-2.5 py-2 space-y-1.5"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[0.6875rem] font-semibold text-ink-700 flex-shrink-0">
+                              第 {i + 1} 张
+                            </span>
+                            <span className="text-[0.625rem] text-ink-400 font-mono truncate">
+                              {fig.path.split('/').pop() || fig.path || '（无图片路径）'}
+                            </span>
+                            {fig.paths.length > 1 && (
+                              <span className="text-[0.625rem] text-ink-400 flex-shrink-0">
+                                +{fig.paths.length - 1}
+                              </span>
+                            )}
+                            <div className="flex-1 min-w-0" />
+                            <div className="flex-shrink-0 flex rounded overflow-hidden border border-ink-200">
+                              <button
+                                onClick={() => applyFigureLayout(fig, { span: false })}
+                                className={`px-2 py-0.5 text-[0.625rem] transition ${
+                                  !fig.span ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-500 hover:bg-seal-50'
+                                }`}
+                                title="单栏图（figure，宽度基准为 \columnwidth）"
+                              >
+                                单栏
+                              </button>
+                              <button
+                                onClick={() => applyFigureLayout(fig, { span: true })}
+                                className={`px-2 py-0.5 text-[0.625rem] transition border-l border-ink-200 ${
+                                  fig.span ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-500 hover:bg-seal-50'
+                                }`}
+                                title="跨栏通图（figure*，宽度基准为 \textwidth）"
+                              >
+                                跨栏
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[0.625rem] text-ink-500 flex-shrink-0 w-7">宽度</span>
+                            <input
+                              type="range"
+                              min={10}
+                              max={100}
+                              step={5}
+                              value={fig.percent}
+                              onChange={(e) => applyFigureLayout(fig, { percent: Number(e.target.value) })}
+                              className="flex-1 min-w-0 accent-seal-600"
+                            />
+                            <span className="text-[0.625rem] text-ink-500 tabular-nums flex-shrink-0 w-8 text-right">
+                              {fig.percent}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[0.625rem] text-ink-500 flex-shrink-0 w-7">位置</span>
+                            <input
+                              type="text"
+                              value={fig.placement}
+                              onChange={(e) => applyFigureLayout(fig, { placement: e.target.value })}
+                              placeholder="htbp / t / !htbp（留空 = 不指定）"
+                              spellCheck={false}
+                              className="flex-1 min-w-0 px-1.5 py-0.5 text-[0.625rem] font-mono bg-paper-50 border border-ink-200 rounded focus:outline-none focus:border-seal-400"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[0.625rem] text-ink-500 flex-shrink-0 w-7">图注</span>
+                            <input
+                              type="text"
+                              value={fig.caption}
+                              onChange={(e) => applyFigureLayout(fig, { caption: e.target.value })}
+                              placeholder="图注文字（清空 = 删除图注）"
+                              spellCheck={false}
+                              className="flex-1 min-w-0 px-1.5 py-0.5 text-[0.625rem] bg-paper-50 border border-ink-200 rounded focus:outline-none focus:border-seal-400"
+                            />
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
                 <textarea

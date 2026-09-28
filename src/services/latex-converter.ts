@@ -116,6 +116,16 @@ function buildAI1SystemPrompt(template: JournalTemplate): string {
     '你是一名专业的学术 LaTeX 排版助手。你的任务是将 Markdown 格式的学术论文',
     '转换为符合特定期刊模板要求的 LaTeX 正文代码。',
     '',
+    '【铁律 · 内容零丢失（最高优先级，违反即判失败）】',
+    '这是一次**排版格式转换**，不是写作、不是摘要、不是润色。你只把排版标记换成 LaTeX 命令，',
+    '**必须逐块、逐句、逐字把 Markdown 里的全部内容原样搬进去**：',
+    '- 禁止总结、压缩、概括、精简、改写措辞；',
+    '- 禁止省略任何句子、列表项、表格行、脚注、引用标记、参考文献条目、代码行；',
+    '- 禁止合并或删减段落，禁止"示例性保留几段"；',
+    '- 输出正文的文字量必须与原文相当（增删只允许来自 LaTeX 命令本身，不允许来自内容取舍）。',
+    '凡出现"原文里有、你的输出里没有"的内容，一律判定为转换失败。',
+    '拿不准就照抄，绝不自行判断某段"重不重要"——取舍是你无权做的决定。',
+    '',
     '【目标期刊模板完整规格】',
     buildTemplateSpec(template),
     '',
@@ -168,6 +178,8 @@ function buildAI1SystemPrompt(template: JournalTemplate): string {
     '',
     '【块锚点（重要，用于后续「只改改动的段落」）】',
     'Markdown 原文按空行被切成若干「块」，每块前面都标了形如 `<!--af:blk:XXXX-->` 的块号。',
+    '**每一个块都必须有对应的 LaTeX 输出，一个都不能少**（这是上文「内容零丢失」铁律的落地方式：',
+    '系统会用锚点逐个核对，缺任何一块都会被判定为转换失败）。',
     '输出时，**每个块对应的 LaTeX 片段都要用注释锚点包起来**，格式严格如下（一字不差）：',
     '   %⟦af:blk:XXXX⟧',
     '   ...该块转换出来的 LaTeX...',
@@ -197,6 +209,32 @@ function buildAI1UserPrompt(markdown: string): string {
     '- 每个块对应的 LaTeX 片段用 %⟦af:blk:块号⟧ … %⟦/af:blk:块号⟧ 包起来（见 system 说明）',
     '- [@doi:xxx] 或 [@10.xxx/xxx] 形式的引用标记保持原样，不要替换',
   ].join('\n')
+}
+
+/**
+ * 补漏轮的用户指令：上一版漏了若干块，重新完整转换。
+ * 之所以把「漏掉的块」再贴一遍，是让模型明确知道差在哪，同时强调**整篇都要**，
+ * 别只把补的那几块吐出来（那样会把别的块又丢了）。
+ */
+function buildAI1RetryInstruction(markdown: string, missing: MarkdownBlock[]): string {
+  const listed = missing.map((b) => `<!--af:blk:${b.id}-->\n${b.text}`).join('\n\n')
+  return [
+    '【上一轮转换有遗漏，请重新做一次完整转换】',
+    '上一轮输出漏掉了下面这些块。这是排版转换、**不允许总结或省略**：',
+    '下面每一块都必须逐字完整转成 LaTeX，并用 %⟦af:blk:块号⟧ … %⟦/af:blk:块号⟧ 锚点包好；',
+    '**同时，原文其余所有块也必须一并完整输出**（不要只输出这几块，否则会丢掉别的块）。',
+    '',
+    '【上一轮漏掉的块】',
+    listed,
+    '',
+    buildAI1UserPrompt(markdown),
+  ].join('\n')
+}
+
+/** 去掉 AI 偶尔套上的 ```latex 代码块包裹 */
+function stripCodeFence(s: string): string {
+  const m = s.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
+  return m ? m[1].trim() : s.trim()
 }
 
 // ============================================================
@@ -1533,14 +1571,31 @@ export async function convertMarkdownToLatex(
     }
 
     const ai1RolePrompt = buildAI1SystemPrompt(template)
-    const ai1Instruction = buildAI1UserPrompt(markdown)
+    const allBlocks = splitMarkdownBlocks(markdown)
+    const expectedIds = allBlocks.map((b) => b.id)
 
-    let latexBody: string
+    let latexBody = ''
     let reviewPassed: boolean | undefined
     let reviewIssues: Array<{ type: string; description: string; suggestion: string }> | undefined
     let ai1RawOutput = ''
 
-    if (enableReview) {
+    // ── 漏块硬校验 + 自动补全 ──
+    // 排版转换的底线是「内容零丢失」（见 system 铁律）。每轮跑完用块锚点核对
+    // 「md 的每个块是否都有对应 LaTeX」；有漏就带缺失清单重转，最多补 MAX 次；
+    // 仍漏则抛错中止 —— 绝不静默落盘一份缺段落的 .tex。
+    const MAX_ANCHOR_RETRIES = 2
+    let bestMissing: string[] = expectedIds
+    let haveCandidate = false
+
+    for (let attempt = 0; attempt <= MAX_ANCHOR_RETRIES; attempt++) {
+      const isRetry = attempt > 0
+      const ai1Instruction = isRetry
+        ? buildAI1RetryInstruction(
+            markdown,
+            allBlocks.filter((b) => bestMissing.includes(b.id)),
+          )
+        : buildAI1UserPrompt(markdown)
+
       const dualResult = await runDualEngine({
         taskType: 'latex_conversion',
         sourceMaterial: markdown,
@@ -1549,38 +1604,47 @@ export async function convertMarkdownToLatex(
         ai2,
         onProgress: dualEngineProgress,
         ai1RolePrompt,
+        // 首轮按设置决定是否走完整审查轮；补漏轮只为补齐缺块，限 1 轮省成本。
+        // enableReview=false 时首轮也退化为单次调用。
+        maxAttempts: enableReview && !isRetry ? undefined : 1,
       })
 
-      latexBody = dualResult.ai1Output.trim()
-      ai1RawOutput = dualResult.ai1Output
-      reviewPassed = dualResult.finalPassed
-      reviewIssues = dualResult.ai2Feedback.claims
-        .filter((c) => c.verdict !== 'supported')
-        .map((c) => ({
-          type: c.verdict,
-          description: c.claim,
-          suggestion: c.explanation,
-        }))
-    } else {
-      // 不启用审查时，直接调 AI-1（通过 runDualEngine 的 maxAttempts=1 退化为单次调用）
-      const dualResult = await runDualEngine({
-        taskType: 'latex_conversion',
-        sourceMaterial: markdown,
-        ai1Instruction,
-        ai1,
-        ai2,
-        onProgress: dualEngineProgress,
-        ai1RolePrompt,
-        maxAttempts: 1,
-      })
-      latexBody = dualResult.ai1Output.trim()
-      ai1RawOutput = dualResult.ai1Output
+      const candidate = stripCodeFence(dualResult.ai1Output)
+      const check = checkAnchors(candidate, expectedIds)
+
+      // keep-best：保留「漏块最少」的那一版（补漏轮可能修好旧的、又丢新的）
+      if (!haveCandidate || check.missing.length < bestMissing.length) {
+        haveCandidate = true
+        bestMissing = check.missing
+        latexBody = candidate
+        ai1RawOutput = dualResult.ai1Output
+        if (enableReview) {
+          reviewPassed = dualResult.finalPassed
+          reviewIssues = dualResult.ai2Feedback.claims
+            .filter((c) => c.verdict !== 'supported')
+            .map((c) => ({
+              type: c.verdict,
+              description: c.claim,
+              suggestion: c.explanation,
+            }))
+        }
+      }
+
+      if (bestMissing.length === 0) break
+      if (attempt < MAX_ANCHOR_RETRIES) {
+        onProgress?.({
+          stage: 'ai_converting',
+          message: `检测到 ${bestMissing.length}/${expectedIds.length} 个段落未输出，正在自动补全（第 ${attempt + 1}/${MAX_ANCHOR_RETRIES} 次）...`,
+        })
+      }
     }
 
-    // 去掉可能的代码块包裹
-    const fenceMatch = latexBody.match(/```(?:latex|tex)?\s*([\s\S]*?)```/i)
-    if (fenceMatch) {
-      latexBody = fenceMatch[1].trim()
+    if (bestMissing.length > 0) {
+      throw new Error(
+        `Markdown → LaTeX 转换不完整：${bestMissing.length} 个段落（共 ${expectedIds.length} 个）` +
+        `经 ${MAX_ANCHOR_RETRIES + 1} 次尝试仍未输出对应 LaTeX。` +
+        `为保证排版不丢内容，已中止、未落盘。请重试；若反复失败，请检查原文结构是否异常。`,
+      )
     }
 
     // ---- 阶段 5: 生成 BibTeX + 替换引用标记 ----
@@ -1608,8 +1672,9 @@ export async function convertMarkdownToLatex(
       template.id,
       citeKeys,
     )
-    const anchorCheck = checkAnchors(latexBody, splitMarkdownBlocks(markdown).map((b) => b.id))
+    const anchorCheck = checkAnchors(latexBody, expectedIds)
     if (missing.length > 0) {
+      // 理论上到不了这里：上面的漏块硬校验已保证每块都有输出；留作防御
       onProgress?.({
         stage: 'ai_reviewing',
         message:
@@ -1650,4 +1715,169 @@ export async function convertMarkdownToLatex(
     onProgress?.({ stage: 'error', message: `转换失败：${msg}`, detail: err })
     throw err
   }
+}
+
+// ============================================================
+// 图片排版：解析 figure/figure* 环境 + 确定性改写
+// -------------------------------------------------
+// 「代码板旁」的图片排版面板用它：把 tex 里的每个 figure 环境列出来，
+// 让用户逐图调 单栏↔跨栏 / 宽度 / 位置 / 图注，再确定性写回 tex。
+// 全程不调 AI —— 只动排版参数，正文一个字不碰。
+// ============================================================
+
+/** tex 里的一段 figure/figure* 环境（图片排版面板的数据源） */
+export interface TexFigure {
+  /** 起始下标（指向 `\begin` 的 `\`） */
+  start: number
+  /** 结束下标（`\end{figure*}` 之后） */
+  end: number
+  /** 是否跨栏（figure*） */
+  span: boolean
+  /** 环境内第一个 \includegraphics 的路径 */
+  path: string
+  /** 环境内所有 \includegraphics 的路径 */
+  paths: string[]
+  /** 位置参数（如 'htbp'）；没有则为 '' */
+  placement: string
+  /** 宽度百分比（1-100）；解析不出按 100 */
+  percent: number
+  /** 图注文本；没有则为 '' */
+  caption: string
+  /** 是否存在 \caption */
+  hasCaption: boolean
+  /** 原始片段 */
+  raw: string
+}
+
+/** 图片排版面板的编辑结果 */
+export interface FigureLayoutOptions {
+  /** true = 跨栏 figure*；false = 单栏 figure */
+  span: boolean
+  /** 宽度百分比 1-100 */
+  percent: number
+  /** 位置参数，如 'htbp' / 't' / '!htbp'；'' = 不写 */
+  placement: string
+  /** 图注文本；'' = 删除图注 */
+  caption: string
+}
+
+/** width 表达式 → 百分比（1-100）；解析不出返回 fallback */
+function parseWidthPercent(expr: string | null | undefined, fallback = 100): number {
+  if (!expr) return fallback
+  const t = expr.trim()
+  const pct = t.match(/([\d.]+)\s*%/)
+  if (pct) return Math.min(100, Math.max(1, Math.round(parseFloat(pct[1]))))
+  const frac = t.match(/^([\d.]+)\s*\\(?:columnwidth|textwidth|linewidth)\s*$/)
+  if (frac) return Math.min(100, Math.max(1, Math.round(parseFloat(frac[1]) * 100)))
+  if (/\\(?:columnwidth|textwidth|linewidth)\s*$/.test(t)) return 100
+  return fallback
+}
+
+/** 百分比 + 单/跨栏 → width 表达式（单栏用 \columnwidth、跨栏用 \textwidth） */
+function buildWidthExpr(percent: number, span: boolean): string {
+  const base = span ? '\\textwidth' : '\\columnwidth'
+  const p = Math.min(100, Math.max(1, Math.round(percent)))
+  if (p >= 100) return base
+  const num = (p / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+  return `${num}${base}`
+}
+
+/** 扫出正文里所有 figure / figure* 环境 */
+export function parseTexFigures(tex: string): TexFigure[] {
+  const out: TexFigure[] = []
+  const beginRe = /\\begin\{(figure\*?)\}(\[[^\]]*\])?/g
+  let m: RegExpExecArray | null
+  while ((m = beginRe.exec(tex)) !== null) {
+    const env = m[1] // 'figure' | 'figure*'
+    const placement = m[2] ? m[2].slice(1, -1).trim() : ''
+    const endTag = `\\end{${env}}`
+    const endAt = tex.indexOf(endTag, beginRe.lastIndex)
+    if (endAt === -1) continue // 环境不闭合，跳过（不猜）
+    const start = m.index
+    const end = endAt + endTag.length
+    const raw = tex.slice(start, end)
+
+    const paths: string[] = []
+    let width: string | null = null
+    const incRe = /\\includegraphics\s*(?:\[([^\]]*)\])?\s*\{([^}]+)\}/g
+    let im: RegExpExecArray | null
+    while ((im = incRe.exec(raw)) !== null) {
+      paths.push(im[2].trim())
+      if (width === null && im[1]) {
+        const w = im[1].match(/width\s*=\s*([^,\]]+)/)
+        if (w) width = w[1].trim()
+      }
+    }
+
+    const capMatch = raw.match(/\\caption\s*\{([^{}]*)\}/)
+
+    out.push({
+      start,
+      end,
+      span: env === 'figure*',
+      path: paths[0] ?? '',
+      paths,
+      placement,
+      percent: parseWidthPercent(width, 100),
+      caption: capMatch ? capMatch[1].trim() : '',
+      hasCaption: !!capMatch,
+      raw,
+    })
+    beginRe.lastIndex = end
+  }
+  return out
+}
+
+/**
+ * 把索引 [figStart, figEnd) 处的 figure 片段按 opts 改写，返回新 tex。
+ * 只动：环境名（figure↔figure*）、位置参数、\includegraphics 的 width、\caption。
+ * \label、\centering 等其它内容原样保留，正文一个字不碰。
+ */
+export function updateTexFigure(
+  tex: string,
+  figStart: number,
+  figEnd: number,
+  opts: FigureLayoutOptions,
+): string {
+  const raw = tex.slice(figStart, figEnd)
+  const env = opts.span ? 'figure*' : 'figure'
+  const placement = opts.placement.trim()
+  let next = raw
+
+  // 1) 环境名 + 位置参数（\begin 与 \end 都要跟着换）
+  next = next.replace(
+    /\\begin\{figure\*?\}(\[[^\]]*\])?/,
+    placement ? `\\begin{${env}}[${placement}]` : `\\begin{${env}}`,
+  )
+  next = next.replace(/\\end\{figure\*?\}/, `\\end{${env}}`)
+
+  // 2) 宽度：环境内所有 includegraphics 统一设置（保留 trim/angle 等其它可选参数）
+  const widthExpr = buildWidthExpr(opts.percent, opts.span)
+  next = next.replace(
+    /\\includegraphics\s*(?:\[([^\]]*)\])?\s*\{([^}]+)\}/g,
+    (_full, optsStr: string | undefined, path: string) => {
+      const kept = (optsStr ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((s) => !/^width\s*=/.test(s))
+      kept.unshift(`width=${widthExpr}`)
+      return `\\includegraphics[${kept.join(',')}]{${path.trim()}}`
+    },
+  )
+
+  // 3) 图注：有文字则替换/补上，空则删掉
+  const caption = opts.caption.trim()
+  const hasCap = /\\caption\s*\{[^{}]*\}/.test(next)
+  if (caption) {
+    if (hasCap) {
+      next = next.replace(/\\caption\s*\{[^{}]*\}/, () => `\\caption{${caption}}`)
+    } else {
+      next = next.replace(/\\end\{figure\*?\}/, () => `\\caption{${caption}}\n\\end{${env}}`)
+    }
+  } else if (hasCap) {
+    next = next.replace(/\s*\\caption\s*\{[^{}]*\}/, '')
+  }
+
+  return tex.slice(0, figStart) + next + tex.slice(figEnd)
 }

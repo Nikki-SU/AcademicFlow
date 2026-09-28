@@ -860,6 +860,10 @@ Markdown 结构化配置，示例：
 6. 同时另出一份 **Word**：md → Pandoc（WASM 化或等价方案）→ .docx（引用同样按 CSL 生成，保持与 PDF 一致）
 7. 落盘到 `projects/{project-id}/exports/{journal-slug}-{yyyy-mm-dd-HHMM}.{pdf,docx}`
 
+**排版转换零丢失（硬约束）**：md → LaTeX 是**格式转换**，不是写作、摘要或润色。转换必须**逐块、逐句、逐字**把 Markdown 全部内容原样搬进 LaTeX，**禁止**总结、压缩、改写措辞、省略句子/列表项/表格行/脚注/引用标记/参考文献条目/代码行，**禁止**合并或删减段落。落地保障：① AI-1 系统提示词把"内容零丢失"列为最高优先级铁律；② 转换后按块锚点 `<!--af:blk:XXXX-->` **逐块硬校验**"md 每个块是否都有对应 LaTeX"，缺块则携带缺失清单自动补漏重转（最多 2 轮）；③ 仍缺则**抛错中止、不落盘**，绝不静默产出一份缺段落的 `.tex`。理由：用户明确"排版不能丢东西、不能总结，漏东西不可接受"。
+
+**图片排版（可调）**：LaTeX 代码板旁提供**「图片排版」面板**，把正文里的 `figure` / `figure*` 环境逐图列出，允许逐图调整：**单栏 ↔ 跨栏**（`figure` ↔ `figure*`，宽度基准随之在 `\columnwidth` ↔ `\textwidth` 间切换）、**宽度百分比**（10–100%）、**位置参数**（如 `htbp` / `t` / `!htbp`，留空则不写）、**图注**（改文字或清空删除）。该面板为**确定性字符串改写**（`parseTexFigures` / `updateTexFigure`），只动排版参数，**不调用 AI、正文一个字不碰**。
+
 **编译链路参考（v0.2.3 补充，来自上一代 PaperAssistant 实装经验）**：
 - 桌面端如需本地 LaTeX 引擎降级，可参考 PaperAssistant 后端 `typesetting.py` 的引擎链：`auto` 模式按 **xelatex → pdflatex → lualatex → tectonic** 顺序探测本机可用引擎；检测到 `latexmk` 时用多遍编译（自动处理引用回填、bibtex/biber 调度）；`tectonic` 内部自处理多遍，不走 latexmk。**xelatex 化学论文中英混排首选**。本项目走浏览器端 Tectonic WASM 是首选路径，但如未来加桌面 sidecar，直接沿用该策略。
 - 编译失败时必须解析 `.log` 拿**结构化错误（含行号）**并回显给用户，不能只丢 stderr 尾部让用户猜。这条来自 PaperAssistant 已跑通的 `_parse_latex_log` 实现。
