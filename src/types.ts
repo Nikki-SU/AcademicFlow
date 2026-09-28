@@ -93,7 +93,7 @@ export interface WorkspaceState {
  * 每加一家公司，都要在 SettingsData 里配一对 key 字段（槽位 1 / 槽位 2）：
  * key 按公司独立存，切 provider 不会把别家的 key 洗掉，切回来不用重填。
  */
-export type AIProviderMode = 'deepseek' | 'zhipu' | 'xfyun' | 'custom'
+export type AIProviderMode = 'deepseek' | 'zhipu' | 'xfyun' | 'volcengine' | 'custom'
 
 /**
  * 思考模式（reasoning）档位
