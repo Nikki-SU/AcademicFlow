@@ -126,13 +126,54 @@ async function readBuildStatus(
   return parsed.run_id === runId ? parsed : null
 }
 
+/** 「请求根本没到服务器」这类错误 —— 浏览器只会留一句 "Failed to fetch" */
+function isNetworkFailure(message: string): boolean {
+  return /Failed to fetch|NetworkError|Load failed|net::ERR_|fetch failed/i.test(message)
+}
+
 /**
  * 云端编译一份 LaTeX 源文件。
  *
  * 成功返回 PDF 字节；失败抛 Error，`.message` 里带着 workflow 截好的日志尾部，
  * 调用方可以直接展示。
+ *
+ * 外面这层只做一件事：把「网络层失败」翻译成人能看懂、能自救的提示，
+ * 并说清是在哪一步断的 —— 否则用户对着一句 "Failed to fetch" 无从下手。
  */
 export async function compileOnGitHub(
+  projectId: string,
+  source: string,
+  bib: string | undefined,
+  opts: CloudCompileOptions = {},
+): Promise<CloudCompileResult> {
+  let lastStage = '准备'
+  const wrappedOpts: CloudCompileOptions = {
+    ...opts,
+    onStage: (s) => {
+      lastStage = s
+      opts.onStage?.(s)
+    },
+  }
+  try {
+    return await compileOnGitHubInner(projectId, source, bib, wrappedOpts)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (isNetworkFailure(msg)) {
+      throw new Error(
+        `正式编译（后端）在「${lastStage}」这一步网络请求失败：${msg}\n\n` +
+          '浏览器没能把请求发到 api.github.com。常见原因与自救：\n' +
+          '  1) 代理 / VPN / 防火墙拦掉了请求（尤以带自定义头触发的 CORS 预检最常被拦）——\n' +
+          '     到设置页跑一次「连通性测试」，必要时切换认证模式；\n' +
+          '  2) 只是网络抖动 —— 稍等再点一次「正式编译（后端）」即可；\n' +
+          '  3) 私库里没装后端 workflow —— 到设置页「后端处理能力」点「重写后端」再试。',
+      )
+    }
+    throw e
+  }
+}
+
+/** 真正干活的实现；网络错误由外层包装统一翻译 */
+async function compileOnGitHubInner(
   projectId: string,
   source: string,
   bib: string | undefined,
@@ -167,7 +208,7 @@ export async function compileOnGitHub(
   const beforeCreatedAt = before?.created_at ?? new Date(Date.now() - 60_000).toISOString()
 
   const runId = newRunId()
-  stage('已触发正式编译（后端），等待 runner 接单…')
+  stage('正在触发正式编译（后端）…')
   await dispatchWorkflow(
     LATEX_CLOUD_EVENT,
     { project_id: projectId, run_id: runId },
@@ -175,6 +216,7 @@ export async function compileOnGitHub(
     repo,
     token,
   )
+  stage('已触发正式编译（后端），等待 runner 接单…')
 
   // GitHub 收到 dispatch 后要一两秒才建出 run，先等一下再找
   await new Promise((r) => setTimeout(r, 2500))

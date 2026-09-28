@@ -355,22 +355,39 @@ export async function githubFetch(
     }
   }
 
+  /**
+   * 降级到 Query 参数模式：零自定义头 → 不触发 CORS 预检。
+   * 两条触发路径都走这里：① Header 模式返回 401/403；② Header 模式的 fetch 直接抛异常
+   * （常见于带自定义头触发的预检被代理 / VPN / 防火墙拦掉，浏览器只留一句 "Failed to fetch"，
+   *  此时 fetch 根本没返回 Response，只看 status 的旧逻辑漏掉了这种情况）。
+   */
+  const fetchViaQuery = (): Promise<Response> => {
+    const sep = url.includes('?') ? '&' : '?'
+    const fallbackUrl = `${url}${sep}access_token=${encodeURIComponent(token)}`
+    const safeInit = { cache: 'no-store' as RequestCache, ...init }
+    delete safeInit.headers
+    return fetch(fallbackUrl, safeInit)
+  }
+
   if (mode === 'header') {
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${token}`)
     headers.set('Accept', 'application/vnd.github+json')
     headers.set('X-GitHub-Api-Version', '2022-11-28')
-    const res = await fetch(url, { cache: 'no-store', ...init, headers })
+    let res: Response
+    try {
+      res = await fetch(url, { cache: 'no-store', ...init, headers })
+    } catch (e) {
+      // 网络层直接失败：不抛给上层，降级 Query 模式再试一次
+      console.warn('[githubFetch] Header 模式网络失败, 降级到 Query 模式重试:', e)
+      return fetchViaQuery()
+    }
     if (res.status === 401 || res.status === 403) {
       // ⚠️ Header 模式失败 → 自动 fallback 到 Query 模式
       // 有些 PAT / GitHub Enterprise / 特定环境对 Header 认证有限制,
       // 但 Query 参数模式通常都能通。
       console.warn(`[githubFetch] Header 模式 ${res.status}, 自动 fallback 到 Query 模式`)
-      const sep = url.includes('?') ? '&' : '?'
-      const fallbackUrl = `${url}${sep}access_token=${encodeURIComponent(token)}`
-      const safeInit = { cache: 'no-store' as RequestCache, ...init }
-      delete safeInit.headers
-      const fallbackRes = await fetch(fallbackUrl, safeInit)
+      const fallbackRes = await fetchViaQuery()
       if (fallbackRes.status === 401 || fallbackRes.status === 403) {
         let detail = `GitHub 返回 ${fallbackRes.status}`
         try {
@@ -387,11 +404,7 @@ export async function githubFetch(
   }
 
   // Query 参数模式：零自定义头 → 绝对不触发 CORS 预检
-  const sep = url.includes('?') ? '&' : '?'
-  const urlWithToken = `${url}${sep}access_token=${encodeURIComponent(token)}`
-  const safeInit = { cache: 'no-store' as RequestCache, ...init }
-  delete safeInit.headers
-  const res = await fetch(urlWithToken, safeInit)
+  const res = await fetchViaQuery()
   if (res.status === 401 || res.status === 403) {
     let detail = `GitHub 返回 ${res.status}`
     try {
@@ -1338,18 +1351,37 @@ export async function dispatchWorkflow(
   token: string,
 ): Promise<void> {
   const url = `https://api.github.com/repos/${owner}/${repo}/dispatches`
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `token ${token}`,
-      Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ event_type: eventType, client_payload: payload }),
-  })
-  if (!resp.ok) {
-    const txt = await resp.text().catch(() => '')
-    throw new Error(`dispatch ${eventType} failed: ${resp.status} ${txt.slice(0, 200)}`)
+  const body = JSON.stringify({ event_type: eventType, client_payload: payload })
+  // 网络抖动（"Failed to fetch"）在这条链路上代价很大：任务根本没触发的错觉。
+  // 重试一次，两次都失败才抛 —— 且保留原始错误文本，让上层能识别成网络问题。
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body,
+      })
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => '')
+        throw new Error(`dispatch ${eventType} failed: ${resp.status} ${txt.slice(0, 200)}`)
+      }
+      console.log(`[dispatch] ${eventType} sent ? /repos/${owner}/${repo}/actions`)
+      return
+    } catch (e) {
+      lastErr = e
+      // HTTP 状态类错误（4xx/5xx）不重试，只有网络层失败才重试
+      const msg = e instanceof Error ? e.message : String(e)
+      if (/dispatch .* failed:/.test(msg)) throw e
+      if (attempt === 0) {
+        console.warn(`[dispatch] ${eventType} 网络失败, 1 次重试:`, e)
+        await new Promise((r) => setTimeout(r, 800))
+      }
+    }
   }
-  console.log(`[dispatch] ${eventType} sent ? /repos/${owner}/${repo}/actions`)
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
 }
