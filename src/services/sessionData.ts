@@ -3,7 +3,9 @@
  * -------------------------------------------------
  * 目录约定（挂在**当前任务分支**下，见 架构.md ADJ-45 / ADJ-48）：
  *   projects/{taskId}/sessions/{sessionId}/transcript.md
- *       转写文本（md：标题 + 每条 `- [HH:MM:SS]（语种）原文`，有译文则下一行 `  - 译文：…`）
+ *       转写文本（md：标题 + 每条 `- [HH:MM:SS]（语种）原文`，
+ *       有译文则空一行后接一条独立块 `  > 译文：…` —— 原文与译文各自成块，
+ *       像文献页那样「一块原文一块译文」，不把译文塞成原文的子项）
  *   projects/{taskId}/session-images/
  *       本任务「传图片」采集的图片（二进制，走 github 二进制上传）。
  *       与手稿图片（projects/{taskId}/images/）分开放，免得写论文的插图跟会议材料混在一起。
@@ -97,9 +99,13 @@ function oneLine(s: string): string {
 export function formatTranscript(segments: TranscriptSegment[]): string {
   const lines: string[] = ['# 会议/课程转写', '']
   for (const seg of segments) {
+    // 原文自成一个块（列表项）；译文另起一个块（引用块），不做原文的子项。
     lines.push(`- [${formatClock(seg.at)}]（${seg.language || 'unknown'}）${oneLine(seg.text)}`)
     if (seg.translation.trim()) {
-      lines.push(`  - 译文：${oneLine(seg.translation)}`)
+      // 空行 + 两空格缩进：译文块仍属于该条记录，但渲染上是独立的一段（左侧竖线），
+      // 与文献页「一块原文一块译文」一致。
+      lines.push('')
+      lines.push(`  > 译文：${oneLine(seg.translation)}`)
     }
   }
   lines.push('')

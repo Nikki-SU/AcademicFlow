@@ -171,9 +171,12 @@ export default function RecorderBall() {
                           {langLabel(seg.language)}
                         </span>
                       </div>
+                      {/* 原文一块、译文一块（同文献页）：原文始终保留，译文另起一段 */}
                       <p className="mt-1 text-sm leading-snug text-ink-800">{seg.text}</p>
                       {seg.translation && (
-                        <p className="mt-0.5 text-sm leading-snug text-ink-500">{seg.translation}</p>
+                        <p className="mt-1 border-l-2 border-seal-300 bg-seal-50/30 py-0.5 pl-2 pr-1.5 text-sm leading-snug text-ink-700">
+                          {seg.translation}
+                        </p>
                       )}
                     </li>
                   ))}

@@ -132,9 +132,10 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
                       {langLabel(seg.language)}
                     </span>
                   </div>
+                  {/* 原文一块、译文一块：像文献页那样并排成两段，原文不因有译文而丢掉 */}
                   <p className="mt-1 text-sm leading-relaxed text-ink-800">{seg.text}</p>
                   {seg.translation && (
-                    <p className="mt-1 border-l-2 border-seal-200 pl-2 text-sm leading-relaxed text-ink-500">
+                    <p className="mt-1.5 border-l-2 border-seal-300 bg-seal-50/30 py-1 pl-3 pr-2 text-sm leading-relaxed text-ink-700">
                       {seg.translation}
                     </p>
                   )}
