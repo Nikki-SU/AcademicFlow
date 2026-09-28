@@ -25,6 +25,12 @@ export interface TranscriptSegment {
   translation: string
 }
 
+/**
+ * 采集图片变更广播：悬浮采集球传图后派发、会议页右栏监听并重载，
+ * 让「球」和「页」两处看到的图片列表始终一致。
+ */
+export const SESSION_IMAGES_CHANGED = 'af:session-images-changed'
+
 /** 会话目录：projects/{taskId}/sessions/{sessionId} */
 export function sessionDir(taskId: string, sessionId: string): string {
   return `projects/${taskId}/sessions/${sessionId}`

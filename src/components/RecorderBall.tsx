@@ -1,14 +1,19 @@
 /**
- * 全局悬浮录音球
+ * 全局悬浮「采集球」
  * -------------------------------------------------
- * 挂在 Layout 顶层，fixed bottom-right，跨页面 / 跨任务持续录音，不绑架用户。
- * 状态全在 stores/recorder.ts —— 本组件只做 UI 绑定，卸载不影响录音。
+ * 挂在 Layout 顶层，fixed bottom-right，跨页面 / 跨任务持续可用，不绑架用户。
+ * 点开球 → 两个输入功能（这是「录音 / 传图是输入环节」的统一入口，见 架构.md ADJ-45/46）：
+ *   1. 开始 / 停止录音（状态全在 stores/recorder.ts，切页不中断）
+ *   2. 拍照（拍到的图归到「当前任务」的 session-images/，与会议页右栏同一处）
+ *
+ * 录音中球身变红并走表；展开即见本轮转写。卸载 / 切页都不影响录音。
  */
-import { useEffect, useState } from 'react'
-import { Mic, Square, ChevronDown, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Mic, Square, ChevronDown, Loader2, Camera } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRecorderStore } from '../stores/recorder'
 import { useTaskStore } from '../stores/task'
+import { uploadTaskImage, SESSION_IMAGES_CHANGED } from '../services/sessionData'
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
@@ -44,6 +49,9 @@ export default function RecorderBall() {
 
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(Date.now())
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const isRecording = status === 'recording'
   const isBusy = status === 'stopping'
@@ -56,113 +64,210 @@ export default function RecorderBall() {
     return () => clearInterval(t)
   }, [isRecording])
 
-  // 停止后收起浮层
+  // 点面板外 / 按 Esc 收起
   useEffect(() => {
-    if (status === 'idle') setExpanded(false)
-  }, [status])
-
-  const handleStart = async () => {
-    const target = useTaskStore.getState().currentProjectId
-    if (!target) {
-      toast.error('先选一个任务')
-      return
+    if (!expanded) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setExpanded(false)
     }
-    await start(target)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExpanded(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [expanded])
+
+  /** 取当前任务；没有就提示并返回 null（录音与拍照都必须归属到一个任务） */
+  const requireTask = (): string | null => {
+    const id = useTaskStore.getState().currentProjectId
+    if (!id) {
+      toast.error('先选一个任务')
+      return null
+    }
+    return id
   }
 
-  const handleStop = async () => {
-    setExpanded(false)
-    await stop()
+  const handleRecordToggle = async () => {
+    if (isBusy) return
+    if (isRecording) {
+      setExpanded(false)
+      await stop()
+      return
+    }
+    const id = requireTask()
+    if (!id) return
+    await start(id)
+  }
+
+  const handlePickPhoto = () => {
+    if (!requireTask()) return
+    fileRef.current?.click()
+  }
+
+  const handleFiles = async (files: FileList | null) => {
+    const id = useTaskStore.getState().currentProjectId
+    if (!id || !files || files.length === 0) return
+    const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (fileRef.current) fileRef.current.value = ''
+    if (list.length === 0) {
+      toast.warning('请选择图片文件')
+      return
+    }
+
+    setUploading(true)
+    const toastId = toast.loading(`正在上传 ${list.length} 张图片…`)
+    try {
+      for (const file of list) {
+        await uploadTaskImage(id, file)
+      }
+      toast.success('图片已归到当前任务', { id: toastId })
+      // 通知会议页右栏重载，两处图片列表保持一致
+      window.dispatchEvent(new Event(SESSION_IMAGES_CHANGED))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`图片上传失败：${msg}`, { id: toastId, duration: 8000 })
+    } finally {
+      setUploading(false)
+    }
   }
 
   const elapsed = startedAt ? now - startedAt : 0
   const latest = segments.length > 0 ? segments[segments.length - 1].text : ''
 
-  // ── 未录音：一个小圆球 ──
-  if (!isRecording && !isBusy) {
-    return (
-      <div className="fixed bottom-6 right-6 z-40">
-        <button
-          type="button"
-          onClick={handleStart}
-          title="开始录音（会议/课程）"
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95"
-        >
-          <Mic className="h-6 w-6" />
-        </button>
-      </div>
-    )
-  }
-
-  // ── 录音中 / 保存中 ──
   return (
-    <div className="fixed bottom-6 right-6 z-40 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2">
+    <div
+      ref={rootRef}
+      className="fixed bottom-6 right-6 z-40 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2"
+    >
       {expanded && (
         <div className="w-80 max-w-full overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-lift">
           <div className="flex items-center justify-between border-b border-ink-100 px-3 py-2">
-            <span className="text-xs font-semibold text-ink-700">本轮转写</span>
-            <span className="text-[11px] text-ink-400">{segments.length} 条</span>
-          </div>
-          <div className="max-h-72 overflow-y-auto px-3 py-2">
-            {segments.length === 0 ? (
-              <p className="py-6 text-center text-xs text-ink-400">等待第一片转写…</p>
+            <span className="text-xs font-semibold text-ink-700">
+              {isRecording ? '本轮转写' : '采集'}
+            </span>
+            {isRecording ? (
+              <span className="text-[11px] text-ink-400">{segments.length} 条</span>
             ) : (
-              <ul className="space-y-3">
-                {segments.map((seg) => (
-                  <li key={seg.id} className="border-b border-ink-100 pb-2 last:border-0">
-                    <div className="flex items-center gap-2 text-[11px]">
-                      <span className="font-mono text-ink-400">{formatClock(seg.at)}</span>
-                      <span className="rounded bg-seal-50 px-1.5 py-0.5 text-[10px] font-medium text-seal-700">
-                        {langLabel(seg.language)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm leading-snug text-ink-800">{seg.text}</p>
-                    {seg.translation && (
-                      <p className="mt-0.5 text-sm leading-snug text-ink-500">{seg.translation}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <span className="text-[11px] text-ink-400">归到「当前任务」</span>
             )}
           </div>
-          <div className="border-t border-ink-100 p-2">
+
+          {/* 录音中：实时转写列表 */}
+          {isRecording && (
+            <div className="max-h-72 overflow-y-auto px-3 py-2">
+              {segments.length === 0 ? (
+                <p className="py-6 text-center text-xs text-ink-400">等待第一片转写…</p>
+              ) : (
+                <ul className="space-y-3">
+                  {segments.map((seg) => (
+                    <li key={seg.id} className="border-b border-ink-100 pb-2 last:border-0">
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="font-mono text-ink-400">{formatClock(seg.at)}</span>
+                        <span className="rounded bg-seal-50 px-1.5 py-0.5 text-[10px] font-medium text-seal-700">
+                          {langLabel(seg.language)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm leading-snug text-ink-800">{seg.text}</p>
+                      {seg.translation && (
+                        <p className="mt-0.5 text-sm leading-snug text-ink-500">{seg.translation}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* 未录音：简短说明 */}
+          {!isRecording && (
+            <p className="px-3 py-2.5 text-xs text-ink-500">
+              录音与拍照都会归到「当前任务」下，随时可切走。
+            </p>
+          )}
+
+          {/* 两个输入功能 */}
+          <div className="flex gap-2 border-t border-ink-100 p-2">
             <button
               type="button"
-              onClick={handleStop}
+              onClick={handleRecordToggle}
               disabled={isBusy}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-seal-600 px-3 py-2 text-sm font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-60"
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-paper-50 transition disabled:opacity-60 ${
+                isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-seal-600 hover:bg-seal-700'
+              }`}
             >
-              {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
-              {isBusy ? '保存中…' : '停止并保存'}
+              {isBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isRecording ? (
+                <Square className="h-4 w-4" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+              {isBusy ? '保存中…' : isRecording ? '停止并保存' : '开始录音'}
+            </button>
+            <button
+              type="button"
+              onClick={handlePickPhoto}
+              disabled={uploading}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 transition hover:bg-paper-100 disabled:opacity-60"
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              {uploading ? '上传中…' : '拍照'}
             </button>
           </div>
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        title={expanded ? '收起' : '展开本轮转写'}
-        className="flex items-center gap-2 rounded-full bg-seal-600 py-2 pl-3 pr-4 text-paper-50 shadow-lift transition hover:bg-seal-700"
-      >
-        <span className="relative flex h-3 w-3 items-center justify-center">
-          <span className="absolute h-3 w-3 animate-ping rounded-full bg-red-400 opacity-75" />
-          <span className="h-3 w-3 rounded-full bg-red-500" />
-        </span>
-        <span className="font-mono text-sm tabular-nums">{formatElapsed(elapsed)}</span>
-        {latest && (
-          <span className="hidden max-w-[10rem] truncate text-xs text-paper-100 sm:block">
-            {latest}
+      {/* 球身：未录音=墨绿；录音中=红 + 计时 */}
+      {isRecording ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? '收起' : '展开本轮转写'}
+          className="flex items-center gap-2 rounded-full bg-red-500 py-2 pl-3 pr-4 text-paper-50 shadow-lift transition hover:bg-red-600"
+        >
+          <span className="relative flex h-3 w-3 items-center justify-center">
+            <span className="absolute h-3 w-3 animate-ping rounded-full bg-paper-50 opacity-75" />
+            <span className="h-3 w-3 rounded-full bg-paper-50" />
           </span>
-        )}
-        <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
+          <span className="font-mono text-sm tabular-nums">{formatElapsed(elapsed)}</span>
+          {latest && (
+            <span className="hidden max-w-[10rem] truncate text-xs text-paper-100 sm:block">
+              {latest}
+            </span>
+          )}
+          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          title="采集：录音 / 拍照"
+          disabled={isBusy}
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95 disabled:opacity-60"
+        >
+          {expanded ? <ChevronDown className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+        </button>
+      )}
 
       {error && (
         <span className="max-w-xs truncate rounded bg-red-50 px-2 py-0.5 text-[11px] text-red-600">
           {error}
         </span>
       )}
+
+      {/* 拍照 / 选图（拍照归到当前任务 session-images/） */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => void handleFiles(e.target.files)}
+      />
     </div>
   )
 }

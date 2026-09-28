@@ -12,6 +12,7 @@ import {
   deleteTaskImages,
   listTaskImages,
   uploadTaskImage,
+  SESSION_IMAGES_CHANGED,
   type SessionImageFile,
 } from '../../services/sessionData'
 import { forgetRepoImage, repoImageBlobUrl } from '../../services/editorImages'
@@ -81,6 +82,13 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
 
   useEffect(() => {
     void reload()
+  }, [reload])
+
+  // 悬浮采集球在别处传来的图，也让本栏实时刷新
+  useEffect(() => {
+    const onChange = () => void reload()
+    window.addEventListener(SESSION_IMAGES_CHANGED, onChange)
+    return () => window.removeEventListener(SESSION_IMAGES_CHANGED, onChange)
   }, [reload])
 
   const handleFiles = async (files: FileList | null) => {
