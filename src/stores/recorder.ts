@@ -5,7 +5,7 @@
  * 组件卸载只解绑 UI，录音与转写链路在 store 里继续跑。
  *
  * 录音：**一条 MediaRecorder 从头录到尾，绝不中断**（一节 90 分钟也不丢一秒），
- * 用 start(30000) 每 30 秒切一个 dataavailable 事件而已。
+ * 用 start(10000) 每 10 秒切一个 dataavailable 事件而已 —— 切片只切事件、不停采集。
  *
  * 切片后仍要能转写，靠的是**容器头复用**：第一片里带着 WebM 的 EBML/Tracks 前导
  * （Safari 是 MP4 的 ftyp+moov），把它抠出来存下来，拼到后续每一片的前面 ——
@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 import { transcribeAudio, translateText, pickAudioMimeType, audioFileNameFor } from '../services/asr'
 import { saveTranscript } from '../services/sessionData'
 import { useSettingsStore } from './settings'
+import { useSessionStore } from './session'
 
 export type RecorderStatus = 'idle' | 'recording' | 'paused' | 'stopping'
 
@@ -62,8 +63,13 @@ let mediaStream: MediaStream | null = null
 let stopResolve: (() => void) | null = null
 /** 串行处理每一片，保证 segments 顺序与录音顺序一致 */
 let chunkChain: Promise<void> = Promise.resolve()
-/** 每片时长（ms）：只切 dataavailable 事件，录音本身不中断 */
-const SEGMENT_MS = 30000
+/** 每片时长（ms）：只切 dataavailable 事件，录音本身不中断。
+ *  10 秒一片 —— 越短首字越快、丢字风险越小；代价是请求更密（SenseVoice 免费，可承受）。 */
+const SEGMENT_MS = 10000
+/** 单片转写超时（ms）：超时就放弃这一片并继续下一片。
+ *  不设超时的话，一次卡住的请求会把整条串行链堵死，后面所有片都跟着出不来 ——
+ *  表现就是「录着录着一个字都不出，直到停止才一次性全冒出来」。 */
+const CHUNK_TIMEOUT_MS = 25000
 /** 容器头（第一片里的 EBML/Tracks 或 ftyp+moov），拼到后续每片前面 */
 let initSegmentBytes: Uint8Array | null = null
 
@@ -136,7 +142,10 @@ function extractInitSegment(buf: Uint8Array, mime: string): Uint8Array | null {
 
 /** 处理一片录音数据：第一片抽头并直接转写，后续片「头 + 裸簇」拼接后再转写 */
 async function processChunk(data: Blob, mimeType: string | undefined): Promise<void> {
-  if (!data || data.size === 0) return
+  if (!data || data.size === 0) {
+    console.warn('[recorder] 收到空分片，跳过')
+    return
+  }
   const mime = data.type || mimeType || 'audio/webm'
   const buf = new Uint8Array(await data.arrayBuffer())
   if (!initSegmentBytes) {
@@ -144,8 +153,10 @@ async function processChunk(data: Blob, mimeType: string | undefined): Promise<v
     if (!initSegmentBytes) {
       console.warn('[recorder] 未识别的音频容器，未能抽出容器头，后续分片可能无法转写：', mime)
     }
+    console.log(`[recorder] 首片到达：${buf.length} 字节，容器头 ${initSegmentBytes?.length ?? 0} 字节`)
     await handleChunk(new Blob([buf as BlobPart], { type: mime }))
   } else {
+    console.log(`[recorder] 分片到达：${buf.length} 字节（已拼接容器头）`)
     await handleChunk(new Blob([initSegmentBytes as BlobPart, buf as BlobPart], { type: mime }))
   }
 }
@@ -157,13 +168,17 @@ async function handleChunk(blob: Blob): Promise<void> {
     toast.error('会议转写 Key 为空，本段未转写（设置 → 会议转写）', { duration: 8000 })
     return
   }
+  const startedAt = Date.now()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), CHUNK_TIMEOUT_MS)
   try {
     const { text, language } = await transcribeAudio(
       blob,
       { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model },
-      undefined,
+      ctrl.signal,
       audioFileNameFor(blob), // 按真实容器给扩展名（Safari 录的是 mp4，不能叫 webm）
     )
+    console.log(`[asr] 本片转写耗时 ${Date.now() - startedAt}ms`)
     if (!text.trim()) {
       // 端点通了但没出字（静音 / 没说话）；记一笔，别让「静默丢弃」看起来像坏了
       console.warn('[asr] 本段转写返回空文本（可能是静音或没人说话）')
@@ -194,9 +209,17 @@ async function handleChunk(blob: Blob): Promise<void> {
     }
     useRecorderStore.setState((s) => ({ segments: [...s.segments, seg] }))
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    // 超时（abort）单独说清楚：这一片被丢弃，但录音与后续分片继续，不能因此停摆
+    const aborted = e instanceof DOMException && e.name === 'AbortError'
+    const msg = aborted
+      ? `本片转写超时（>${CHUNK_TIMEOUT_MS / 1000}s），已跳过，继续下一片`
+      : e instanceof Error
+        ? e.message
+        : String(e)
     useRecorderStore.setState({ error: msg })
-    toast.error(`转写失败：${msg}`, { duration: 8000 })
+    toast.error(aborted ? msg : `转写失败：${msg}`, { duration: 8000 })
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -226,7 +249,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStream = stream
 
-      // 一条 recorder 连录到底，只每 30 秒切一个 dataavailable —— 录音零中断
+      // 一条 recorder 连录到底，只每 10 秒切一个 dataavailable —— 录音零中断
       const mimeType = pickAudioMimeType()
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
       mediaRecorder = recorder
@@ -246,11 +269,13 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       }
       recorder.start(SEGMENT_MS)
 
+      // 课时 id 由 session store 统一持有 —— 录音与照片挂在同一节课下，
+      // 于是这节课最终得到 transcript.md（本录音）+ board.md（照片识别）两份。
       set({
         status: 'recording',
         startedAt: Date.now(),
         targetTaskId,
-        sessionId: String(Date.now()),
+        sessionId: useSessionStore.getState().ensure(targetTaskId),
         segments: [],
         error: null,
       })

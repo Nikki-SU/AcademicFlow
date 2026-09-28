@@ -121,7 +121,7 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {isRecording ? (
           segments.length === 0 ? (
-            <p className="py-10 text-center text-sm text-ink-400">正在录音…每 30 秒回一片转写</p>
+            <p className="py-10 text-center text-sm text-ink-400">正在录音…每 10 秒回一片转写</p>
           ) : (
             <ul className="space-y-3">
               {segments.map((seg) => (

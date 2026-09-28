@@ -4,7 +4,8 @@
  * 挂在 Layout 顶层，fixed bottom-right，跨页面 / 跨任务持续可用，不绑架用户。
  * 点开球 → 两个输入功能（这是「录音 / 传图是输入环节」的统一入口，见 架构.md ADJ-45/46）：
  *   1. 开始 / 停止录音（状态全在 stores/recorder.ts，切页不中断）
- *   2. 拍照（拍到的图归到「当前任务」的 session-images/，与会议页右栏同一处）
+ *   2. 拍照（**申请摄像头权限后应用内实时取景**，拍到的图归到「当前课时」的 images/，
+ *      与课程页右栏同一处，并随即送进 MinerU 管道产出本节课的 board.md）
  *
  * 录音中球身变红并走表；展开即见本轮转写。卸载 / 切页都不影响录音。
  */
@@ -13,7 +14,10 @@ import { Mic, Square, ChevronDown, Loader2, Camera } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRecorderStore } from '../stores/recorder'
 import { useTaskStore } from '../stores/task'
-import { uploadTaskImage, SESSION_IMAGES_CHANGED } from '../services/sessionData'
+import { useSessionStore } from '../stores/session'
+import { useSessionImagesStore } from '../stores/sessionImages'
+import { uploadSessionImage, notifySessionImagesChanged } from '../services/sessionData'
+import CameraCapture from './CameraCapture'
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
@@ -50,6 +54,7 @@ export default function RecorderBall() {
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [uploading, setUploading] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -103,36 +108,49 @@ export default function RecorderBall() {
     await start(id)
   }
 
+  /** 是否有摄像头可用（决定走应用内相机还是退回文件选择） */
+  const canUseCamera =
+    typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
+
   const handlePickPhoto = () => {
     if (!requireTask()) return
-    fileRef.current?.click()
+    // 点「拍照」就真开相机（申请摄像头权限）；只有环境不支持时才退回文件选择
+    if (canUseCamera) setCameraOpen(true)
+    else fileRef.current?.click()
   }
 
-  const handleFiles = async (files: FileList | null) => {
+  /** 把若干图片上传到**当前课时**，随后直接送进 MinerU 管道产出 board.md */
+  const uploadImages = async (list: File[]) => {
     const id = useTaskStore.getState().currentProjectId
-    if (!id || !files || files.length === 0) return
-    const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
-    if (fileRef.current) fileRef.current.value = ''
-    if (list.length === 0) {
-      toast.warning('请选择图片文件')
-      return
-    }
-
+    if (!id || list.length === 0) return
+    const sessionId = useSessionStore.getState().ensure(id)
     setUploading(true)
     const toastId = toast.loading(`正在上传 ${list.length} 张图片…`)
     try {
       for (const file of list) {
-        await uploadTaskImage(id, file)
+        await uploadSessionImage(id, sessionId, file)
       }
-      toast.success('图片已归到当前任务', { id: toastId })
-      // 通知会议页右栏重载，两处图片列表保持一致
-      window.dispatchEvent(new Event(SESSION_IMAGES_CHANGED))
+      toast.success('图片已归到本节课', { id: toastId })
+      // 通知课程页右栏重载，两处图片列表保持一致
+      notifySessionImagesChanged(id, sessionId)
+      // 拍完即入管道：照片交给 MinerU，识别结果合并成本节课的 board.md
+      useSessionImagesStore.getState().start(id, sessionId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`图片上传失败：${msg}`, { id: toastId, duration: 8000 })
     } finally {
       setUploading(false)
     }
+  }
+
+  const handleFiles = async (files: FileList | null) => {
+    const list = Array.from(files ?? []).filter((f) => f.type.startsWith('image/'))
+    if (fileRef.current) fileRef.current.value = ''
+    if (list.length === 0) {
+      toast.warning('请选择图片文件')
+      return
+    }
+    await uploadImages(list)
   }
 
   const elapsed = startedAt ? now - startedAt : 0
@@ -215,6 +233,7 @@ export default function RecorderBall() {
               type="button"
               onClick={handlePickPhoto}
               disabled={uploading}
+              title="打开相机拍照，拍完归到当前任务"
               className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 transition hover:bg-paper-100 disabled:opacity-60"
             >
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
@@ -262,15 +281,22 @@ export default function RecorderBall() {
         </span>
       )}
 
-      {/* 拍照 / 选图（拍照归到当前任务 session-images/） */}
+      {/* 无摄像头环境的兜底：文件选择（正常走上面的应用内相机） */}
       <input
         ref={fileRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={(e) => void handleFiles(e.target.files)}
       />
+
+      {/* 应用内相机：实时取景 + 快门，拍到即归到当前任务 */}
+      {cameraOpen && (
+        <CameraCapture
+          onCapture={(file) => uploadImages([file])}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
     </div>
   )
 }

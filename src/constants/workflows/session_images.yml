@@ -1,0 +1,65 @@
+name: session_images
+
+# 会议/课程照片 → MinerU → **一节课一份** board.md
+#
+# 与 book_convert 的区别：图书是「一整本 PDF → content.md」，这里是
+# 「一节课的多张照片 → 各自识别 → 合并成同一份 markdown」。多张进、一份出。
+#
+# 触发：repository_dispatch event_type=session_images，payload { task_id, session_id }
+# 源目录：projects/{task_id}/sessions/{session_id}/images/
+# 产物：  projects/{task_id}/sessions/{session_id}/board.md        （所有照片识别合并）
+#         projects/{task_id}/sessions/{session_id}/board-images/   （识别抽出的图）
+on:
+  repository_dispatch:
+    types: [session_images]
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: '任务 id（手动调试用）'
+        required: false
+        default: ''
+      session_id:
+        description: '课时 id（手动调试用）'
+        required: false
+        default: ''
+
+# 与其它写 main 的 pipeline 共用同一个并发组，避免同时 push 打架
+concurrency:
+  group: "pipeline-write-main"
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo (full history for git push)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Configure git
+        run: |
+          git config user.name "AcademicFlow Bot"
+          git config user.email "academicflow@users.noreply.github.com"
+
+      - name: Run session images pipeline
+        env:
+          MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO:  ${{ github.event.repository.name }}
+          # payload 经环境变量传入，避免路径含特殊字符时破坏 shell 引号结构
+          PIPELINE_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          echo "task_id:    ${{ github.event.client_payload.task_id }}"
+          echo "session_id: ${{ github.event.client_payload.session_id }}"
+          node .github/scripts/session_images.mjs "$PIPELINE_PAYLOAD"

@@ -36,6 +36,7 @@ export interface RunStatus {
 export type WorkflowEvent =
   | 'paper_convert'
   | 'book_convert'
+  | 'session_images'
   | 'ai_call'
   | 'mineru_connectivity_test'
   | 'ai_connectivity_test'
@@ -63,6 +64,20 @@ export async function dispatchBookConvert(
   token: string,
 ): Promise<void> {
   await dispatchWorkflow('book_convert', { book_id: bookId, title, pdf_path }, owner, repo, token)
+}
+
+/**
+ * 触发 session_images：把一节课的照片交给 MinerU，识别结果合并成一个 board.md。
+ * 源目录 projects/{taskId}/sessions/{sessionId}/images/ 里的照片已在私库，无需随 payload 传。
+ */
+export async function dispatchSessionImages(
+  taskId: string,
+  sessionId: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<void> {
+  await dispatchWorkflow('session_images', { task_id: taskId, session_id: sessionId }, owner, repo, token)
 }
 
 /**
@@ -348,6 +363,20 @@ export async function pollBookProgressJson(
   token: string,
 ): Promise<PipelineProgress | null> {
   return readProgressAt(`textbooks/${bookId}/.progress.json`, owner, repo, token)
+}
+
+/** 课程照片识别进度：projects/{taskId}/sessions/{sessionId}/.progress.json */
+export async function pollSessionImagesProgress(
+  taskId: string,
+  sessionId: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<PipelineProgress | null> {
+  return readProgressAt(
+    `projects/${taskId}/sessions/${sessionId}/.progress.json`,
+    owner, repo, token,
+  )
 }
 
 export interface PollOptions {

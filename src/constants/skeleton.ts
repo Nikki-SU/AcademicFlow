@@ -11,6 +11,9 @@ import LATEX_COMPILE_YML from './workflows/latex_compile.yml?raw'
 // 图书转换 workflow（只走 MinerU）。同上，引原文件方便 review。
 import BOOK_CONVERT_YML from './workflows/book_convert.yml?raw'
 import BOOK_CONVERT_MJS from './workflows/book_convert.mjs?raw'
+// 会议/课程照片 → MinerU（一节课一份 board.md）。同上，引原文件。
+import SESSION_IMAGES_YML from './workflows/session_images.yml?raw'
+import SESSION_IMAGES_MJS from './workflows/session_images.mjs?raw'
 
 export interface SkeletonFile {
   path: string
@@ -673,6 +676,9 @@ export const PIPELINE_FILES = [
   { path: '.github/workflows/latex_compile.yml', raw: LATEX_COMPILE_YML },
   { path: '.github/workflows/book_convert.yml', raw: BOOK_CONVERT_YML },
   { path: '.github/scripts/book_convert.mjs', raw: BOOK_CONVERT_MJS },
+  // 会议/课程照片 → 一节课一份 board.md（多张照片 MinerU 识别后合并）
+  { path: '.github/workflows/session_images.yml', raw: SESSION_IMAGES_YML },
+  { path: '.github/scripts/session_images.mjs', raw: SESSION_IMAGES_MJS },
   // 每日追踪（筛选制）：放进 PIPELINE_FILES 才能被「重装后端」更新到老私库
   { path: '.github/workflows/daily-tracking.yml', raw: DAILY_TRACKING_YML },
   { path: '.github/scripts/daily_tracking.py', raw: DAILY_TRACKING_SCRIPT },

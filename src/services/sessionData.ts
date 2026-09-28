@@ -3,18 +3,21 @@
  * -------------------------------------------------
  * 目录约定（挂在**当前任务分支**下，见 架构.md ADJ-45 / ADJ-48）：
  *   projects/{taskId}/sessions/{sessionId}/transcript.md
- *       转写文本（md：标题 + 每条 `- [HH:MM:SS]（语种）原文`，
+ *       录音转写（md：标题 + 每条 `- [HH:MM:SS]（语种）原文`，
  *       有译文则空一行后接一条独立块 `  > 译文：…` —— 原文与译文各自成块，
  *       像文献页那样「一块原文一块译文」，不把译文塞成原文的子项）
- *   projects/{taskId}/session-images/
- *       本任务「传图片」采集的图片（二进制，走 github 二进制上传）。
- *       与手稿图片（projects/{taskId}/images/）分开放，免得写论文的插图跟会议材料混在一起。
+ *   projects/{taskId}/sessions/{sessionId}/images/
+ *       本节课采集的照片（二进制，走 github 二进制上传）
+ *   projects/{taskId}/sessions/{sessionId}/board.md
+ *       本节课所有照片经 MinerU 识别后合并成的**一份** md（后台 workflow 产出）
  *
+ * 一节课 = 一个 transcript.md + 一个 board.md，两者同属一个 sessionId。
  * 音频**不进私库**：音频只在内存里转写，用完即弃；这里只落文本与图片。
  */
 import { readMdFile, writeMdFile, getRepoContext } from './userData'
 import { githubFetch, listRepoFilesInDir, deleteRepoFiles } from './github'
 import { uploadEditorImage } from './editorImages'
+import { dispatchSessionImages, pollSessionImagesProgress } from './workflowClient'
 
 /** 一条转写片段（与 stores/recorder.ts 的 segment 同构） */
 export interface TranscriptSegment {
@@ -30,6 +33,7 @@ export interface TranscriptSegment {
 /**
  * 采集图片变更广播：悬浮采集球传图后派发、会议页右栏监听并重载，
  * 让「球」和「页」两处看到的图片列表始终一致。
+ * detail 带 { taskId, sessionId } —— 监听方只在与自己当前课时一致时才重载。
  */
 export const SESSION_IMAGES_CHANGED = 'af:session-images-changed'
 
@@ -38,9 +42,14 @@ export function sessionDir(taskId: string, sessionId: string): string {
   return `projects/${taskId}/sessions/${sessionId}`
 }
 
-/** 任务采集图片目录：projects/{taskId}/session-images */
-export function taskImageDir(taskId: string): string {
-  return `projects/${taskId}/session-images`
+/** 会话照片目录：projects/{taskId}/sessions/{sessionId}/images */
+export function sessionImagesDir(taskId: string, sessionId: string): string {
+  return `${sessionDir(taskId, sessionId)}/images`
+}
+
+/** 会话照片识别结果：projects/{taskId}/sessions/{sessionId}/board.md */
+export function sessionBoardPath(taskId: string, sessionId: string): string {
+  return `${sessionDir(taskId, sessionId)}/board.md`
 }
 
 /** 一张采集图片（listRepoFilesInDir 的最小信息） */
@@ -51,30 +60,50 @@ export interface SessionImageFile {
 }
 
 /**
- * 列出当前任务采集的图片。目录不存在 / 未登录时返回空数组（空状态），不报错。
+ * 列出某课时采集的照片。目录不存在 / 未登录时返回空数组（空状态），不报错。
  * 只认图片扩展名 —— 目录里若混入了别的文件（异常数据）不展示。
  */
-export async function listTaskImages(taskId: string): Promise<SessionImageFile[]> {
+export async function listSessionImages(
+  taskId: string,
+  sessionId: string,
+): Promise<SessionImageFile[]> {
   const ctx = getRepoContext()
   if (!ctx) return []
-  const files = await listRepoFilesInDir(ctx.owner, ctx.repo, taskImageDir(taskId), ctx.token)
+  const files = await listRepoFilesInDir(ctx.owner, ctx.repo, sessionImagesDir(taskId, sessionId), ctx.token)
   return files
     .filter((f) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /**
- * 上传一张采集图片，返回它写进仓库的路径。
- * 走 uploadEditorImage（同一套命名 / 去重 / 二进制上传），落到 session-images 子目录。
+ * 上传一张照片到**某课时**的 images/，返回它写进仓库的路径。
+ * 走 uploadEditorImage（同一套命名 / 去重 / 二进制上传）。
  */
-export async function uploadTaskImage(taskId: string, file: File): Promise<string> {
+export async function uploadSessionImage(
+  taskId: string,
+  sessionId: string,
+  file: File,
+): Promise<string> {
   return uploadEditorImage({
-    // docPath 只用来推导图片目录：projects/{taskId}/session.md → projects/{taskId}/session-images
-    docPath: `projects/${taskId}/session.md`,
+    // docPath 只用来推导图片目录：.../sessions/{sessionId}/session.md → 同级 images/
+    docPath: `${sessionDir(taskId, sessionId)}/session.md`,
     file,
     fileName: file.name,
-    sub: 'session-images',
+    sub: 'images',
   })
+}
+
+/** 读取某课时的照片识别结果 board.md；没有 / 读不到返回 null（空状态），不抛 */
+export async function readSessionBoard(
+  taskId: string,
+  sessionId: string,
+): Promise<string | null> {
+  try {
+    const doc = await readMdFile(sessionBoardPath(taskId, sessionId))
+    return doc?.content ?? null
+  } catch {
+    return null
+  }
 }
 
 /** 逐张删除采集图片（走 Tree API 批量删除）。失败会 throw，由调用方 toast，不静默。 */
@@ -82,6 +111,53 @@ export async function deleteTaskImages(paths: string[]): Promise<void> {
   const ctx = getRepoContext()
   if (!ctx) throw new Error('未登录或工作区未就绪，图片无法删除')
   await deleteRepoFiles(paths, 'Delete session images', ctx.owner, ctx.repo, ctx.token)
+}
+
+/** 广播「本节课照片变了」；带 { taskId, sessionId }，监听方只在课时一致时重载 */
+export function notifySessionImagesChanged(taskId: string, sessionId: string): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(
+    new CustomEvent(SESSION_IMAGES_CHANGED, { detail: { taskId, sessionId } }),
+  )
+}
+
+/**
+ * 触发并等待「本节课照片 → MinerU → board.md」。
+ *
+ * 先 dispatch（后端从私库读 images/，逐张识别后合并成一份 board.md），
+ * 再轮询 .progress.json 跟踪进度。**完成判据是产物 board.md 出现**，不能只盯
+ * `stage === 'done'` 这一帧 —— 后端写完 board 会立刻把进度文件删掉，很容易错过。
+ * 失败 / 超时一律 throw，由上层 toast，不静默。
+ */
+export async function recognizeSessionImages(
+  taskId: string,
+  sessionId: string,
+  onProgress?: (message: string) => void,
+): Promise<void> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('未登录或工作区未就绪，无法识别照片')
+  await dispatchSessionImages(taskId, sessionId, ctx.owner, ctx.repo, ctx.token)
+
+  const POLL_MS = 5000
+  const MAX_ROUNDS = 240 // 5s × 240 = 20 分钟上限
+  let sawRunning = false
+  for (let i = 0; i < MAX_ROUNDS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_MS))
+    const p = await pollSessionImagesProgress(taskId, sessionId, ctx.owner, ctx.repo, ctx.token)
+    if (p) {
+      if (p.message) onProgress?.(p.message)
+      if (p.stage === 'failed') throw new Error(p.error || p.message || '照片识别失败')
+      if (p.stage === 'done') {
+        if (await readSessionBoard(taskId, sessionId)) return
+      } else {
+        sawRunning = true
+      }
+    } else if (sawRunning) {
+      // 进度文件被后端清掉 = 这一轮跑完了；读产物，读到即成功
+      if (await readSessionBoard(taskId, sessionId)) return
+    }
+  }
+  throw new Error('照片识别超时，请稍后在「管理」页查看进度')
 }
 
 /** Unix ms → 本地 HH:MM:SS */
@@ -122,7 +198,19 @@ export async function saveTranscript(
   segments: TranscriptSegment[],
 ): Promise<string> {
   const path = `${sessionDir(taskId, sessionId)}/transcript.md`
-  await writeMdFile(path, formatTranscript(segments), 'Add session transcript')
+  let content = formatTranscript(segments)
+  // 同一课时可能录了不止一段（中途停了又开录）：追加，别把上一段覆盖掉。
+  // 追加时去掉新内容自带的标题行，避免标题重复。
+  try {
+    const existing = await readMdFile(path)
+    if (existing?.content?.trim()) {
+      const body = content.replace(/^# .*\n+/, '')
+      content = `${existing.content.trimEnd()}\n\n${body}`
+    }
+  } catch {
+    /* 读不到（首次）→ 直接写 */
+  }
+  await writeMdFile(path, content, 'Add session transcript')
   return path
 }
 
