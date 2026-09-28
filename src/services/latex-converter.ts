@@ -175,6 +175,11 @@ function buildAI1SystemPrompt(template: JournalTemplate): string {
     '10. 列表：itemize / enumerate 环境。',
     '11. 粗体 **text** → \\textbf{text}，斜体 *text* → \\textit{text}。',
     '12. 代码块 → verbatim 或 lstlisting 环境。',
+    '13. **标点一律用 TeX 的 ASCII 写法，禁止直接输出 Unicode 标点**：',
+    '    半角破折号 – → `--`、全角破折号 — → `---`；弯引号 ‘ ’ → `\'`、',
+    '    “ ” → `` `` / \'\'（成对）；省略号 … → \\ldots{}；不间断空格 → `~`。',
+    '    原因：期刊类（如 Wiley USG.cls）正文用的是 T1 编码字体，没有这些 Unicode 码位，',
+    '    直接输出会在 PDF 里**留空白 = 丢字**。代码块（verbatim/lstlisting）里的字符原样保留。',
     '',
     '【块锚点（重要，用于后续「只改改动的段落」）】',
     'Markdown 原文按空行被切成若干「块」，每块前面都标了形如 `<!--af:blk:XXXX-->` 的块号。',
@@ -737,15 +742,99 @@ function replaceCitationMarkers(
 // 组装完整 LaTeX 文档
 // ============================================================
 
+/**
+ * 把正文里的 Unicode 标点换成 TeX 的 ASCII 写法。
+ *
+ * 期刊类（如 Wiley USG.cls）正文用的是 T1 编码字体，没有 – — ‘ ’ “ ” … 这些码位；
+ * AI 就算拿到了第 13 条规则，也可能漏 —— 这里是**确定性的兜底**，漏了照样修。
+ * 只动这几类标点，正文内容一个字不减。代码块（verbatim/lstlisting 等）跳过。
+ */
+const TEX_PUNCT = new Map([
+  ['\u2013', '--'],      // – en dash
+  ['\u2014', '---'],     // — em dash
+  ['\u2019', "'"],       // ’ right single quote
+  ['\u2018', '`'],       // ‘ left single quote
+  ['\u201c', '``'],      // “ left double quote
+  ['\u201d', "''"],      // ” right double quote
+  ['\u2026', '\\ldots{}'], // … ellipsis
+  ['\u00a0', '~'],       // nbsp
+])
+
+/** 原样保留的片段：verbatim/lstlisting/minted 等环境，以及 \verb|...| */
+const TEX_VERBATIM_RE =
+  /(\\begin\{(?:verbatim\*?|lstlisting|Verbatim|minted|alltt|comment)\}[\s\S]*?\\end\{(?:verbatim\*?|lstlisting|Verbatim|minted|alltt|comment)\}|\\verb\*?(.)[\s\S]*?\2)/g
+
+function sanitizeTexPunctuation(tex: string): string {
+  const convert = (s: string) =>
+    s.replace(/[\u2013\u2014\u2018\u2019\u201c\u201d\u2026\u00a0]/g, (c) => TEX_PUNCT.get(c) ?? c)
+  const out: string[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  TEX_VERBATIM_RE.lastIndex = 0
+  while ((m = TEX_VERBATIM_RE.exec(tex)) !== null) {
+    out.push(convert(tex.slice(last, m.index)))
+    out.push(m[0])
+    last = m.index + m[0].length
+  }
+  out.push(convert(tex.slice(last)))
+  return out.join('')
+}
+
+/**
+ * 兼容性补丁：阻止「在 shipout 钩子里改版面」把浮动体冲掉。
+ *
+ * 背景：LaTeX 内核（≥ 2024/06）把 \c@totalpages 重新定义成「已经 shipout 的页数」，
+ * 于是每输出第 1 页时它都等于 1。可有些期刊类（Wiley USG.cls 就是）还在用
+ * \ifnum\c@totalpages=1 判断「这是不是一篇单页文档」，一旦为真就 \newgeometry{...}
+ * 改版面尺寸。多页文档的第 1 页之后必然误触发，正在排队的图/表浮动体随即丢失，
+ * 编译直接中断在 "LaTeX Error: Float(s) lost"。
+ *
+ * 这里让「在 shipout 钩子执行期间调用的 \newgeometry」变成空操作：类想改也改不动，
+ * 正文里正常位置的 \newgeometry 不受影响，\thetotalpages 的语义也一个字没动。
+ * 内核太老（没有 shipout 钩子机制）或模板没装 geometry 时，整块补丁自动跳过。
+ */
+const SHIPOUT_GEOMETRY_GUARD = [
+  '% --- 兼容性补丁：屏蔽 shipout 期间改版面（避免 Float(s) lost） ---',
+  '\\makeatletter',
+  '\\@ifundefined{AddToHook}{}{%',
+  '  \\@ifundefined{newgeometry}{}{%',
+  '    \\newif\\ifAF@inshipout',
+  '    \\AddToHook{shipout/before}{\\AF@inshipouttrue}%',
+  '    \\AddToHook{shipout/after}{\\AF@inshipoutfalse}%',
+  '    \\let\\AF@newgeometry\\newgeometry',
+  '    \\renewcommand\\newgeometry{\\ifAF@inshipout\\else\\AF@newgeometry\\fi}%',
+  '  }%',
+  '}%',
+  '\\makeatother',
+  '% --- 兼容性补丁结束 ---',
+].join('\n')
+
+/**
+ * Wiley NJD 那套文档类（USG.cls 等）会**自己**按期刊选项调用 \bibliographystyle，
+ * 而且是在 documentclass 载入写导言区时就写好 \bibstyle —— 比正文里的调用还早。
+ * 此时正文再写一条 \bibliographystyle，.aux 里就有两条 \bibstyle，BibTeX 会报
+ * "Illegal, another \bibstyle command" 并以非零状态退出（latexmk 据此判失败、
+ * 不产出 .bbl，全文引用又变 undefined）。所以这类样式不在正文里重复声明。
+ */
+const CLASS_MANAGED_BIB_STYLE = /^wileyNJD-/i
+
 function assembleFullLatex(
   body: string,
   template: JournalTemplate,
-  bibFileName: string = 'references.bib',
+  // 注意：不要带 .bib 后缀。bibtex 会自己补 .bib，写成 references.bib 会去找
+  // references.bib.bib → 打不开数据库 → 全文引用全变 undefined。
+  bibFileName: string = 'references',
 ): string {
+  // 样式为空时也别写（\bibliographystyle{} 会往 .aux 塞一条空的 \bibstyle）；
+  // 类自己管样式的（见上）同样不写，避免重复声明把 BibTeX 顶掉。
+  const bibStyleLine =
+    template.bibtex_style && !CLASS_MANAGED_BIB_STYLE.test(template.bibtex_style)
+      ? `\\bibliographystyle{${template.bibtex_style}}`
+      : ''
   const withBib = [
     body,
     '',
-    `\\bibliographystyle{${template.bibtex_style}}`,
+    ...(bibStyleLine ? [bibStyleLine] : []),
     `\\bibliography{${bibFileName}}`,
   ].join('\n')
 
@@ -761,9 +850,15 @@ function assembleFullLatex(
     const beginAt = shell.indexOf(beginTag)
     const endAt = shell.lastIndexOf(endTag)
     if (beginAt !== -1 && endAt > beginAt) {
-      return [shell.slice(0, beginAt + beginTag.length), '', withBib, '', shell.slice(endAt)].join(
-        '\n',
-      )
+      return [
+        shell.slice(0, beginAt),
+        SHIPOUT_GEOMETRY_GUARD,
+        shell.slice(beginAt, beginAt + beginTag.length),
+        '',
+        withBib,
+        '',
+        shell.slice(endAt),
+      ].join('\n')
     }
     // 骨架不完整（只存了导言区、或文件被截断）→ 落到下面按字段拼
   }
@@ -814,6 +909,9 @@ function assembleFullLatex(
     lines.push(template.custom_preamble)
     lines.push('')
   }
+
+  lines.push(SHIPOUT_GEOMETRY_GUARD)
+  lines.push('')
 
   lines.push('\\begin{document}')
   lines.push('')
@@ -1683,7 +1781,13 @@ export async function convertMarkdownToLatex(
     }
 
     // 组装完整文档（正文已无锚点注释）
-    const fullLatex = assembleFullLatex(cleanBody, template)
+    // 标点兜底：把 AI 漏改的 Unicode 标点确定性换成 TeX ASCII（详见 sanitizeTexPunctuation）。
+    // sidecar 的 fragment 同步转 —— 否则后续 locateFragment 在正文里找不到旧片段，局部更新会失效。
+    const fullLatex = assembleFullLatex(sanitizeTexPunctuation(cleanBody), template)
+    const sidecarSafe: LatexSidecar = {
+      ...sidecar,
+      blocks: sidecar.blocks.map((b) => ({ ...b, fragment: sanitizeTexPunctuation(b.fragment) })),
+    }
 
     // ---- 阶段 7: AI-2 模板合规审查（与忠实性审查是两条独立信号） ----
     let compliance: TemplateComplianceReport | undefined
@@ -1708,7 +1812,7 @@ export async function convertMarkdownToLatex(
       review_issues: reviewIssues,
       anchor_check: anchorCheck,
       template_compliance: compliance,
-      sidecar,
+      sidecar: sidecarSafe,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
