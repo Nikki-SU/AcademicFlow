@@ -864,6 +864,8 @@ Markdown 结构化配置，示例：
 
 **图片排版（可调）**：LaTeX 代码板旁提供**「图片排版」面板**，把正文里的 `figure` / `figure*` 环境逐图列出，允许逐图调整：**单栏 ↔ 跨栏**（`figure` ↔ `figure*`，宽度基准随之在 `\columnwidth` ↔ `\textwidth` 间切换）、**宽度百分比**（10–100%）、**位置参数**（如 `htbp` / `t` / `!htbp`，留空则不写）、**图注**（改文字或清空删除）。该面板为**确定性字符串改写**（`parseTexFigures` / `updateTexFigure`），只动排版参数，**不调用 AI、正文一个字不碰**。
 
+**两条编译通道 & 缺包自动降级（v0.2.6 新增）**：PDF 有两条并列通道——① **预览（前端）**：浏览器内 XeLaTeX WASM，随站点分发**精简 TeX 快照**（`public/xelatex/texmf`，数百宏包/类），即时、不联网传源码；② **正式编译（后端）**：用户私库 GitHub Actions 跑官方**完整 TeX Live**，宏包最全、版本最新，代价是提交源码并等排队。精简快照对期刊模板（如 Wiley `USG.cls` 需 `dashrule` 等外部宏包）必然有边界，且**纯浏览器无法直连 CTAN**：CTAN 镜像不返回 CORS 头，且大量宏包的 `.sty` 是安装时由 `.dtx/.ins` 生成的（CTAN 上只有 `.dtx`，直取 `.sty` 必 404）。因此**缺包时前端自动降级**：从前端编译日志识别 `File \`X.sty' not found`（只认 `.sty/.cls/.clo/.def/.cfg/.fd/.bst`，不误判图片/字体），若已选项目则自动改走「正式编译（后端）」并在日志区说明原因；未选项目则提示二选一（选项目后走后端 / 用「宏包」导入该文件）。**禁止**在浏览器端假装能自动从 CTAN 装包。
+
 **编译链路参考（v0.2.3 补充，来自上一代 PaperAssistant 实装经验）**：
 - 桌面端如需本地 LaTeX 引擎降级，可参考 PaperAssistant 后端 `typesetting.py` 的引擎链：`auto` 模式按 **xelatex → pdflatex → lualatex → tectonic** 顺序探测本机可用引擎；检测到 `latexmk` 时用多遍编译（自动处理引用回填、bibtex/biber 调度）；`tectonic` 内部自处理多遍，不走 latexmk。**xelatex 化学论文中英混排首选**。本项目走浏览器端 Tectonic WASM 是首选路径，但如未来加桌面 sidecar，直接沿用该策略。
 - 编译失败时必须解析 `.log` 拿**结构化错误（含行号）**并回显给用户，不能只丢 stderr 尾部让用户猜。这条来自 PaperAssistant 已跑通的 `_parse_latex_log` 实现。

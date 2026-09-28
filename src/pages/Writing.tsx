@@ -160,8 +160,9 @@ const RUNTIME_MISSING_FILE_HINT =
   '  常用：booktabs / natbib / amssymb / tabularx / multirow / caption / subcaption / microtype\n' +
   '  文档类：IEEEtran / elsarticle / acmart / revtex4-2（另有 article 等 LaTeX 自带类）\n' +
   '  中文：xeCJK + Noto Serif SC（正文里出现汉字会自动接管）\n' +
-  '上面这条 not found 说明该宏包没内置。如果它是现成的 .sty/.cls，\n' +
-  '用右上角「宏包」把文件导进来就能用（导入后每次编译自动带上）。\n' +
+  '上面这条 not found 说明该宏包没内置（前端只是精简快照）。解决办法：\n' +
+  '  1) 若已选项目，会**自动改用「正式编译（后端）」**，用官方完整 TeX Live 编；\n' +
+  '  2) 也可以点右上角「宏包」，把这个 .sty/.cls 导进来，前端直接编（导入后每次自动带上）。\n' +
   '\n'
 
 function withRuntimeHint(log: string): string {
@@ -203,6 +204,48 @@ function isRuntimeLoadFailure(message: string): boolean {
     /Failed to fetch|NetworkError|Load failed|net::ERR_/i.test(message) ||
     /Runtime (asset|manifest) .*could not be loaded/i.test(message) ||
     /The XeLaTeX worker could not initialize/i.test(message)
+  )
+}
+
+/**
+ * 从 XeTeX 日志里挑出「运行时里没有的文件」。
+ *
+ * 「预览（前端）」用的是随站点分发的**精简** TeX 快照（几百个宏包），
+ * 期刊模板的类文件常常 \usepackage 到快照里没有的包（如 Wiley USG.cls 的 dashrule）——
+ * 这时 XeTeX 会停下来问 `File \`dashrule.sty' not found.`。这不是源码错，是运行时的边界。
+ * 识别出来就能自动改走「正式编译（后端）」（官方完整 TeX Live，什么包都有）。
+ *
+ * 只认宏包/类文件这类（.sty/.cls/.clo/.def/.cfg/.fd/.bst）；图片、字体缺了是另一回事
+ * （图片由 collectProjectImages 挂载），别误判成「缺宏包」。
+ */
+function detectMissingTexFiles(log: string): string[] {
+  const out = new Set<string>()
+  const re = /(?:File `([^']+)' not found|I can't find file `([^']+)')/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(log)) !== null) {
+    const name = (m[1] ?? m[2] ?? '').trim()
+    if (/\.(sty|cls|clo|def|cfg|fd|bst|ltx)$/i.test(name)) out.add(name)
+  }
+  return [...out]
+}
+
+/**
+ * 缺包时的说明。自动转后端编译成功后，这段会留在日志区，
+ * 让用户明白「为什么我点的是前端，最后跑的是后端」。
+ */
+function buildMissingPackageHint(missing: string[], autoFallback: boolean): string {
+  const list = missing.map((m) => `  · ${m}`).join('\n')
+  return (
+    '【提示】这次是**前端运行时里没有这个宏包**，不是源码写错了。\n' +
+    '「预览（前端）」跑的是随站点分发的精简 TeX 快照，只内置了常用宏包，\n' +
+    '下面这些不在其中：\n' +
+    `${list}\n` +
+    (autoFallback
+      ? '已自动改用「正式编译（后端）」—— 在你私库里跑官方完整 TeX Live，宏包最全、版本最新。\n'
+      : '当前没选项目，没法自动转后端编译。请二选一：\n' +
+        '  1) 先选一个项目，再点「正式编译（后端）」；\n' +
+        '  2) 用右上角「宏包」把这几个 .sty 导进来，前端就能直接编。\n') +
+    '\n'
   )
 }
 
@@ -2850,6 +2893,26 @@ export default function WritingPage() {
     } catch (err) {
       const log = getCompileErrorLog(err)
       const raw = log || (err instanceof Error ? err.message : String(err))
+      const missing = detectMissingTexFiles(raw)
+
+      // 前端运行时缺宏包是设计内的边界（精简快照），不是源码错 ——
+      // 自动改走「正式编译（后端）」，在用户私库里用完整 TeX Live 编。
+      if (missing.length > 0) {
+        const names = missing.join('、')
+        if (activeProjectId) {
+          setCompileError(buildMissingPackageHint(missing, true) + raw)
+          setCompileStatus('')
+          setIsCompiling(false)
+          toast.info(`前端运行时缺 ${names}，自动改用「正式编译（后端）」…`, { duration: 6000 })
+          await compileInCloud()
+          return
+        }
+        setCompileError(buildMissingPackageHint(missing, false) + raw)
+        setCompileStatus('')
+        toast.error(`前端运行时缺 ${names}，见下方说明`, { duration: 8000 })
+        return
+      }
+
       setCompileError(
         log
           ? withRuntimeHint(log)
