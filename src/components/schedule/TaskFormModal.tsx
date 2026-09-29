@@ -1,10 +1,10 @@
 /**
  * 新建任务 / 子任务表单
  * -------------------------------------------------
- * 两种入口共用：右侧顶部的「+ 新建任务」（选大类，根任务）与每行的
- * 「+ 子任务」（继承父节点 type，不显示大类选择）。只收集输入，落库交给页面。
+ * 两种入口共用：右侧顶部的「+ 新建任务」（选大类，可指定归属父任务；不选即顶级任务）
+ * 与每行的「+ 子任务」（继承父节点，不显示大类与归属选择）。只收集输入，落库交给页面。
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Modal } from './Modal'
 import type { ProjectType } from '../../services/projectData'
@@ -13,6 +13,14 @@ export interface TaskFormValue {
   title: string
   type: ProjectType
   dueAt: number
+  parentId: string | null
+}
+
+/** 可选的归属父任务（label 已按层级缩进） */
+export interface ParentOption {
+  id: string
+  label: string
+  type: ProjectType
 }
 
 /** datetime-local 的值（YYYY-MM-DDTHH:MM）→ Unix ms */
@@ -25,18 +33,30 @@ export function TaskFormModal({
   title,
   showType,
   initialType,
+  initialParentId,
+  parentOptions,
   onClose,
   onSubmit,
 }: {
   title: string
   showType: boolean
   initialType: ProjectType
+  initialParentId: string | null
+  parentOptions: ParentOption[]
   onClose: () => void
   onSubmit: (value: TaskFormValue) => void
 }) {
   const [name, setName] = useState('')
   const [type, setType] = useState<ProjectType>(initialType)
   const [due, setDue] = useState('')
+  const [parentId, setParentId] = useState(initialParentId ?? '')
+
+  const parent = useMemo(
+    () => (parentId ? parentOptions.find((o) => o.id === parentId) : undefined),
+    [parentId, parentOptions],
+  )
+  // 选了归属父任务就继承它的大类，避免父子类型打架
+  const effectiveType = parent ? parent.type : type
 
   const handleSubmit = () => {
     const trimmed = name.trim()
@@ -49,7 +69,7 @@ export function TaskFormModal({
       toast.warning('请选择截止时间')
       return
     }
-    onSubmit({ title: trimmed, type, dueAt })
+    onSubmit({ title: trimmed, type: effectiveType, dueAt, parentId: parentId || null })
   }
 
   return (
@@ -75,6 +95,21 @@ export function TaskFormModal({
     >
       <div className="space-y-4">
         {showType && (
+          <div>
+            <label className="block text-sm font-medium text-ink-700 mb-1.5">归属任务</label>
+            <select
+              value={parentId}
+              onChange={(e) => setParentId(e.target.value)}
+              className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+            >
+              <option value="">无（作为顶级任务）</option>
+              {parentOptions.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {showType && !parent && (
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">大类</label>
             <div className="flex gap-2">

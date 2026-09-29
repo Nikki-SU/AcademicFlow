@@ -37,7 +37,7 @@ import { CourseTable } from '../components/schedule/CourseTable'
 import type { SlotFormValue } from '../components/schedule/CourseFormModal'
 import { DdlList } from '../components/schedule/DdlList'
 import { TaskTree } from '../components/schedule/TaskTree'
-import { TaskFormModal, type TaskFormValue } from '../components/schedule/TaskFormModal'
+import { TaskFormModal, type TaskFormValue, type ParentOption } from '../components/schedule/TaskFormModal'
 import { TaskDetailModal } from '../components/schedule/TaskDetailModal'
 import { useTaskStore } from '../stores/task'
 
@@ -101,6 +101,40 @@ export default function SchedulePage() {
     () => projects.filter((p) => p.dueAt > 0).sort((a, b) => a.dueAt - b.dueAt),
     [projects],
   )
+
+  // 「新建任务」时可指定归属父任务（DFS 展平 + 缩进，与任务列表同序）；不选即顶级任务
+  const parentOptions = useMemo<ParentOption[]>(() => {
+    const byTitle = (a: Project, b: Project) => (a.title || '').localeCompare(b.title || '')
+    const childrenByParent = new Map<string, Project[]>()
+    const roots: Project[] = []
+    for (const p of projects) {
+      if (!p.parentId || !byId.has(p.parentId)) {
+        roots.push(p)
+      } else {
+        const arr = childrenByParent.get(p.parentId)
+        if (arr) arr.push(p)
+        else childrenByParent.set(p.parentId, [p])
+      }
+    }
+    for (const [k, arr] of childrenByParent) childrenByParent.set(k, [...arr].sort(byTitle))
+    roots.sort(byTitle)
+    const out: ParentOption[] = []
+    const seen = new Set<string>()
+    const walk = (p: Project, depth: number) => {
+      if (seen.has(p.projectId)) return
+      seen.add(p.projectId)
+      out.push({
+        id: p.projectId,
+        type: p.type,
+        label: `${'　'.repeat(depth)}${depth ? '└ ' : ''}${p.title || '(未命名任务)'}`,
+      })
+      for (const c of childrenByParent.get(p.projectId) ?? []) walk(c, depth + 1)
+    }
+    for (const r of roots) walk(r, 0)
+    // 兜底：父节点缺失 / 成环的节点也要能选到
+    for (const p of projects) if (!seen.has(p.projectId)) walk(p, 0)
+    return out
+  }, [projects, byId])
 
   const detailProject = detailId ? byId.get(detailId) ?? null : null
 
@@ -362,9 +396,11 @@ export default function SchedulePage() {
           title={taskForm.title}
           showType={taskForm.showType}
           initialType={taskForm.type}
+          initialParentId={taskForm.parentId}
+          parentOptions={parentOptions}
           onClose={() => setTaskForm(null)}
           onSubmit={(value) => {
-            void handleCreateTask(value, taskForm.parentId)
+            void handleCreateTask(value, value.parentId)
             setTaskForm(null)
           }}
         />

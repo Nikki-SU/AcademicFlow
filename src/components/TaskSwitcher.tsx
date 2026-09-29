@@ -113,7 +113,7 @@ export default function TaskSwitcher({
         type="button"
         onClick={toggle}
         title={current ? `当前任务：${current.title || '(未命名任务)'}` : '选择当前任务'}
-        className="flex max-w-[19rem] items-center gap-2 rounded-md px-1 py-1 transition hover:bg-paper-100"
+        className="flex w-[10rem] sm:w-[15rem] lg:w-[19rem] items-center gap-2 rounded-md px-1 py-1 transition hover:bg-paper-100"
       >
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-seal-600">
           <span className="text-xs font-bold text-paper-50">AF</span>

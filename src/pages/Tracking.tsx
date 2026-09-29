@@ -805,11 +805,8 @@ export default function TrackingPage() {
   return (
     <div className="page-container py-8">
       {/* 顶栏 */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-ink-800">文献追踪</h1>
-          <p className="text-sm text-ink-500 mt-1">关键词追踪、期刊订阅、学术搜索</p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-xl font-bold text-ink-800">文献追踪</h1>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
