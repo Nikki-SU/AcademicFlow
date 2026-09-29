@@ -72,6 +72,9 @@ const SLOT_KEY_FIELDS: Record<AIProviderMode, { 1?: keyof SettingsData; 2?: keyo
   xfyun: { 1: 'xfyunApiKey', 2: 'xfyunApiKey2' },
   'volcengine-coding': { 1: 'volcengineCodingApiKey', 2: 'volcengineCodingApiKey2' },
   'volcengine-agent': { 1: 'volcengineAgentApiKey', 2: 'volcengineAgentApiKey2' },
+  openrouter: { 1: 'openrouterApiKey', 2: 'openrouterApiKey2' },
+  // 硅基流动与「会议转写」共用同一把 key：两个槽位都指向 asrApiKey
+  siliconflow: { 1: 'asrApiKey', 2: 'asrApiKey' },
   custom: {},
 }
 
@@ -180,6 +183,8 @@ function Settings() {
     volcengineCodingApiKey2,
     volcengineAgentApiKey,
     volcengineAgentApiKey2,
+    openrouterApiKey,
+    openrouterApiKey2,
     customAi1BaseUrl,
     customAi1ApiKey,
     customAi1Model,
@@ -240,9 +245,11 @@ function Settings() {
         volcengineCodingApiKey2: '火山方舟 Coding Plan API Key（AI-2 位）',
         volcengineAgentApiKey: '火山方舟 Agent Plan API Key',
         volcengineAgentApiKey2: '火山方舟 Agent Plan API Key（AI-2 位）',
+        openrouterApiKey: 'OpenRouter API Key',
+        openrouterApiKey2: 'OpenRouter API Key（AI-2 位）',
         mineruToken: 'MinerU Token',
         simpletexToken: 'SimpleTex 令牌',
-        asrApiKey: '会议转写 API Key',
+        asrApiKey: '硅基流动 API Key',
       }
       const labels = detail.fields.map((f) => fieldLabelMap[f] ?? f).join('、')
       toast.warning(
@@ -297,6 +304,8 @@ function Settings() {
         volcengineCodingApiKey2,
         volcengineAgentApiKey,
         volcengineAgentApiKey2,
+        openrouterApiKey,
+        openrouterApiKey2,
         customAi1BaseUrl,
         customAi1ApiKey,
         customAi1Model,
@@ -341,6 +350,8 @@ function Settings() {
     volcengineCodingApiKey2,
     volcengineAgentApiKey,
     volcengineAgentApiKey2,
+    openrouterApiKey,
+    openrouterApiKey2,
     customAi1BaseUrl, customAi1ApiKey, customAi1Model,
     customAi2BaseUrl, customAi2ApiKey, customAi2Model,
     mineruToken,
@@ -739,7 +750,7 @@ function Settings() {
                 fieldId="asr"
                 value={asrApiKey}
                 onChange={(v) => updateSettings({ asrApiKey: v })}
-                hint="转写与翻译共用此 Key；音频只在内存里走一趟，转写完即丢弃，不进私库。"
+                hint="转写与翻译共用此 Key；聊天管道若选「硅基流动」也直接复用这一把，无需再填。"
               />
             </SubBlock>
 

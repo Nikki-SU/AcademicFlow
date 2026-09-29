@@ -2759,7 +2759,8 @@ export default function ReadingPage() {
   return (
     /*
      * 三栏用 Grid：
-     *  - 左右两栏**等宽，各占整页 25%（1:2:1）**，中栏自然居中，与写作页左栏同口径
+     *  - 左右两栏**等宽**，走全站统一模板 ratio-121（1fr : 2fr : 1fr，即 1:2:1），中栏自然居中
+     *  - 比例来自 tailwind.config.js 的 gridTemplateColumns.ratio-121，全站统一，便于全局调
      *  - 中栏 1fr 吃掉剩下的一半：正文卡片在里面按 --reader-column 限宽并居中
      *    （--reader-column = 正文宽 + 卡片内边距 + 中栏内边距，保证正文铺满卡片内容区）
      *  - 高度 h-full：由 Layout 的 main（h-screen 外壳下的确定高度）撑，不自己算 calc(100vh-3rem)
@@ -2771,7 +2772,7 @@ export default function ReadingPage() {
      * （正文卡片本来就有自己的字号，不受影响）。
      */
     <div
-      className="h-full overflow-hidden bg-paper-100 grid grid-cols-[minmax(15rem,25%)_minmax(0,1fr)_minmax(15rem,25%)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
+      className="h-full overflow-hidden bg-paper-100 grid grid-cols-ratio-121 grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
       style={{ fontSize: `${fontSize / 16}rem` }}
     >
       {/* 窄屏专用：两个抽屉开关 */}

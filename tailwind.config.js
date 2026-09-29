@@ -21,6 +21,46 @@ export default {
          */
         mono: ['var(--font-mono)'],
       },
+      /*
+       * 界面字号：全部引用 index.css :root 的 --ui-text-*（流体 clamp）。
+       * 只新增 ui-* 键，不动 xs/sm/base 等默认档 —— 正文与编辑器用的是默认档，
+       * 这里不会波及它们，markdown 写作 / LaTeX 编译的字号保持精确。
+       */
+      fontSize: {
+        'ui-2xs': ['var(--ui-text-2xs)', { lineHeight: '1.35' }],
+        'ui-xs': ['var(--ui-text-xs)', { lineHeight: '1.4' }],
+        'ui-sm': ['var(--ui-text-sm)', { lineHeight: '1.5' }],
+      },
+      /*
+       * 界面尺寸：引用 index.css :root 的 --ui-*。
+       * 生成 w-/h-/p-/m-/gap- 等工具类，值都是 clamp()，随视口等比伸缩。
+       */
+      spacing: {
+        'ui-gap-sm': 'var(--ui-gap-sm)',
+        'ui-gap': 'var(--ui-gap)',
+        'ui-gap-lg': 'var(--ui-gap-lg)',
+        'ui-indent': 'var(--ui-indent)',
+        'ui-axis': 'var(--ui-axis)',
+        'ui-icon': 'var(--ui-icon)',
+        'ui-icon-sm': 'var(--ui-icon-sm)',
+        'ui-dot': 'var(--ui-dot)',
+        'ui-lane': 'var(--ui-lane)',
+      },
+      /*
+       * 全站多栏比例模板（唯一来源）
+       * -------------------------------------------------
+       * 一个页面**只用这几种固定比例**，不再各页各写一段 minmax(...)__minmax(...)。
+       * 想全局调比例，改这里一处即可；页面侧只写 `lg:grid-cols-ratio-121` 这种语义类。
+       *   1:1:1 / 1:2:1 / 1:1.5:1.5 / 1:1:2
+       * 三栏一律 minmax(0, …)：允许收缩到 0，窄屏不会把网格撑破（列内自己滚动）。
+       * 窄屏塌成单列由页面侧 `grid-cols-1`（默认）负责。
+       */
+      gridTemplateColumns: {
+        'ratio-111': 'repeat(3, minmax(0, 1fr))',
+        'ratio-121': 'minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr)',
+        'ratio-115-115': 'minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1.5fr)',
+        'ratio-112': 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr)',
+      },
       colors: {
         paper: {
           50: '#FDFBF7',

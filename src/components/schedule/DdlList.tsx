@@ -48,46 +48,46 @@ export function DdlList({
 }) {
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
-      <div className="flex items-center justify-between border-b border-ink-100 px-3 py-2">
-        <h2 className="text-sm font-semibold text-ink-800">
+      <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
+        <h2 className="text-ui-sm font-semibold text-ink-800">
           DDL 清单
-          <span className="ml-1 text-xs font-normal text-ink-400">按时间排序</span>
+          <span className="ml-1 text-ui-xs font-normal text-ink-400">按时间排序</span>
         </h2>
         <button
           onClick={onNewRoot}
-          className="rounded bg-seal-600 px-2 py-1 text-xs font-medium text-paper-50 transition hover:bg-seal-700"
+          className="rounded bg-seal-600 px-ui-gap-sm py-ui-gap-sm text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
         >
           + 新建任务
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto p-ui-gap">
         {projects.length === 0 ? (
-          <p className="py-6 text-center text-sm text-ink-400">暂无带截止时间的任务</p>
+          <p className="py-6 text-center text-ui-sm text-ink-400">暂无带截止时间的任务</p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-ui-gap-sm">
             {projects.map((p) => {
               const depth = depthOf(p, byId)
               const color = colorForRoot(getRootId(p, byId))
               const isCurrent = p.projectId === currentId
               return (
-                // 缩进放在外层容器上：paddingLeft = 祖先数 × 12px（内层按钮自己还有一份基础内边距）
-                <div key={p.projectId} style={{ paddingLeft: depth * 12 }}>
+                // 缩进放在外层容器上：paddingLeft = 祖先数 × 一档缩进（内层按钮自己还有一份基础内边距）
+                <div key={p.projectId} style={{ paddingLeft: `calc(${depth} * var(--ui-indent))` }}>
                   <div
-                    className={`flex items-center gap-3 rounded-lg border bg-paper-100 px-3 py-2.5 transition ${
+                    className={`flex items-center gap-ui-gap rounded-lg border bg-paper-100 px-ui-gap py-ui-gap-sm transition ${
                       isCurrent ? 'border-seal-300 ring-1 ring-seal-200' : 'border-ink-200 hover:border-ink-300'
                     }`}
                   >
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${color.bg}`} />
+                    <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
                     <button onClick={() => onOpen(p)} className="min-w-0 flex-1 text-left">
-                      <div className="truncate text-sm font-medium">
+                      <div className="truncate text-ui-sm font-medium">
                         <span className={color.text}>{p.title || '(未命名任务)'}</span>
                       </div>
-                      <div className="mt-0.5 text-xs text-ink-500">截止 {formatDue(p.dueAt)}</div>
+                      <div className="mt-0.5 text-ui-xs text-ink-500">截止 {formatDue(p.dueAt)}</div>
                     </button>
                     <button
                       onClick={() => onAddChild(p)}
-                      className="shrink-0 rounded border border-ink-200 px-2 py-1 text-xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
+                      className="shrink-0 rounded border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
                     >
                       + 子任务
                     </button>

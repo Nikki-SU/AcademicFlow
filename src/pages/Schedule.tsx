@@ -296,25 +296,27 @@ export default function SchedulePage() {
       type: parent.type,
     })
 
-  const columnHeight = 'lg:h-[calc(100vh-7.5rem)]'
+  // 三栏等高：外壳（Layout）已给 main 确定高度，直接按视口算可用高度（svh 兼容移动端）
+  const columnHeight = 'lg:h-[calc(100svh-7.5rem)]'
+  const columnBox = `min-h-ui-lane ${columnHeight}`
 
   return (
-    <div className="page-container py-6">
-      <header className="mb-4">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-5 w-5 text-seal-600" />
+    <div className="page-container py-ui-gap-lg">
+      <header className="mb-ui-gap">
+        <div className="flex items-center gap-ui-gap-sm">
+          <CalendarDays className="h-ui-icon w-ui-icon text-seal-600" />
           <h1 className="text-lg font-semibold text-ink-800">日程</h1>
         </div>
-        <p className="mt-1 text-sm text-ink-500">
+        <p className="mt-1 text-ui-sm text-ink-500">
           课程表 · 任务列表 · DDL 汇总于此。课程即课程任务，三处同族同色。
         </p>
       </header>
 
       {isLoading ? (
-        <p className="text-sm text-ink-400">加载中…</p>
+        <p className="text-ui-sm text-ink-400">加载中…</p>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1fr)]">
-          <div className={`min-h-[360px] ${columnHeight}`}>
+        <div className="grid gap-ui-gap-lg lg:grid-cols-ratio-111">
+          <div className={columnBox}>
             <CourseTable
               courses={courses}
               extraDays={extraDays}
@@ -328,7 +330,7 @@ export default function SchedulePage() {
               onDeleteExtraDay={handleDeleteExtraDay}
             />
           </div>
-          <div className={`min-h-[360px] ${columnHeight}`}>
+          <div className={columnBox}>
             <TaskTree
               projects={projects}
               currentId={currentId}
@@ -340,7 +342,7 @@ export default function SchedulePage() {
               onAddChild={openChildForm}
             />
           </div>
-          <div className={`min-h-[360px] ${columnHeight}`}>
+          <div className={columnBox}>
             <DdlList
               projects={ddlItems}
               byId={byId}

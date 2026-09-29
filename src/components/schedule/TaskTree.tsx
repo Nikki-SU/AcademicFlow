@@ -70,29 +70,29 @@ export function TaskTree({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
-      <div className="flex items-center justify-between border-b border-ink-100 px-3 py-2">
+      <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
         <button
           onClick={() => setCollapsed((v) => !v)}
-          className="flex items-center gap-2 text-sm font-semibold text-ink-800"
+          className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800"
         >
-          <ListTree className="h-4 w-4 text-seal-600" />
+          <ListTree className="h-ui-icon w-ui-icon text-seal-600" />
           任务
-          <span className="text-xs font-normal text-ink-400">（{projects.length}）</span>
+          <span className="text-ui-xs font-normal text-ink-400">（{projects.length}）</span>
         </button>
         <button
           onClick={onNewRoot}
-          className="rounded bg-seal-600 px-2 py-1 text-xs font-medium text-paper-50 transition hover:bg-seal-700"
+          className="rounded bg-seal-600 px-ui-gap-sm py-ui-gap-sm text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
         >
           + 新建任务
         </button>
       </div>
 
       {!collapsed && (
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="min-h-0 flex-1 overflow-y-auto p-ui-gap-sm">
           {isLoading ? (
-            <p className="py-6 text-center text-xs text-ink-400">加载中…</p>
+            <p className="py-6 text-center text-ui-xs text-ink-400">加载中…</p>
           ) : rows.length === 0 ? (
-            <p className="py-6 text-center text-xs text-ink-400">还没有任务</p>
+            <p className="py-6 text-center text-ui-xs text-ink-400">还没有任务</p>
           ) : (
             rows.map(({ project, depth }) => {
               const color = colorForRoot(getRootId(project, byId))
@@ -100,26 +100,26 @@ export function TaskTree({
               return (
                 <div
                   key={project.projectId}
-                  style={{ paddingLeft: depth * 12 }}
-                  className={`group flex items-center gap-1 rounded-md pr-1 transition ${
+                  style={{ paddingLeft: `calc(${depth} * var(--ui-indent))` }}
+                  className={`group flex items-center gap-ui-gap-sm rounded-md pr-1 transition ${
                     isCurrent ? 'bg-seal-50 ring-1 ring-seal-300' : 'hover:bg-paper-100'
                   }`}
                 >
                   <button
                     type="button"
                     onClick={() => onSelect(project.projectId)}
-                    className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-ui-gap-sm py-ui-gap-sm text-left"
                   >
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${color.bg}`} />
+                    <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
                     <span
-                      className={`min-w-0 flex-1 truncate text-sm ${color.text} ${
+                      className={`min-w-0 flex-1 truncate text-ui-sm ${color.text} ${
                         isCurrent ? 'font-medium' : ''
                       }`}
                     >
                       {project.title || '(未命名任务)'}
                     </span>
                     {project.dueAt > 0 && (
-                      <span className="shrink-0 text-[10px] text-ink-400">DDL</span>
+                      <span className="shrink-0 text-ui-2xs text-ink-400">DDL</span>
                     )}
                   </button>
                   <button
@@ -128,7 +128,7 @@ export function TaskTree({
                     title="加子任务"
                     className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="h-ui-icon-sm w-ui-icon-sm" />
                   </button>
                 </div>
               )

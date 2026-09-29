@@ -38,6 +38,10 @@ const CHAT_MODEL_ALLOW_PREFIXES = [
   'THUDM/GLM',
   // 聚合平台风格（小写 vendor/ 前缀）
   'deepseek/', 'minimax/', 'qwen/', 'bytedance/', 'moonshotai/',
+  // OpenRouter 聚合商 vendor 前缀（小写）
+  'openrouter/', 'meta-llama/', 'google/', 'openai/', 'anthropic/',
+  'mistralai/', 'x-ai/', 'nvidia/', 'microsoft/', 'cohere/',
+  'amazon/', 'nousresearch/', 'z-ai/',
   'qwen-', 'doubao-', 'glm-', 'deepseek-v3', 'deepseek-r1',
   // 官方直连风格（无前缀）
   'deepseek-flash', 'deepseek-chat', 'deepseek-v4', 'deepseek-v3', 'deepseek-r1',

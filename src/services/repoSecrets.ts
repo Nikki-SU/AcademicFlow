@@ -244,6 +244,10 @@ export interface SyncAllSecretsInput {
   volcengineAgentApiKey: string
   /** 火山方舟 Agent Plan 专属 key（AI-2 位） */
   volcengineAgentApiKey2: string
+  /** OpenRouter key（AI-1 位）—— 聚合商，按公司独立槽位 */
+  openrouterApiKey: string
+  /** OpenRouter key（AI-2 位） */
+  openrouterApiKey2: string
   mineruToken: string
   /** SimpleTex 公式识图令牌（UAT）——同步到 secrets 做持久化，
    *  浏览器被清空后 runner 仍能靠 SIMPLETEX_TOKEN 环境变量兜底 */
@@ -265,6 +269,9 @@ function presetKey(mode: AIProviderMode, slot: 1 | 2, s: SyncAllSecretsInput): s
   if (mode === 'xfyun') return (slot === 1 ? s.xfyunApiKey : s.xfyunApiKey2).trim()
   if (mode === 'volcengine-coding') return (slot === 1 ? s.volcengineCodingApiKey : s.volcengineCodingApiKey2).trim()
   if (mode === 'volcengine-agent') return (slot === 1 ? s.volcengineAgentApiKey : s.volcengineAgentApiKey2).trim()
+  if (mode === 'openrouter') return (slot === 1 ? s.openrouterApiKey : s.openrouterApiKey2).trim()
+  // 硅基流动不分槽位：聊天与会议转写共用同一把 key（调用方把 asrApiKey 传进 siliconflowApiKey）
+  if (mode === 'siliconflow') return s.siliconflowApiKey.trim()
   return ''
 }
 

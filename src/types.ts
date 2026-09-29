@@ -98,6 +98,10 @@ export interface WorkspaceState {
  *   volcengine-agent   Agent Plan  → /api/plan/v3（专属 Key）
  * 两者 key 互不通用，所以各自独立存一对。官方明确「请勿使用 /api/v3，
  * 接入会产生额外费用」——按量计费的 /api/v3 故意不在这里预置。
+ *
+ * 聚合商（一把 key 调多家模型）：
+ *   openrouter  → 海外聚合，含大量免费模型（openrouter/free 自动路由）
+ *   siliconflow → 国内聚合，与「会议转写」共用同一把 key（见 SettingsData.asrApiKey）
  */
 export type AIProviderMode =
   | 'deepseek'
@@ -105,6 +109,8 @@ export type AIProviderMode =
   | 'xfyun'
   | 'volcengine-coding'
   | 'volcengine-agent'
+  | 'openrouter'
+  | 'siliconflow'
   | 'custom'
 
 /**
@@ -272,6 +278,34 @@ export const AI_PROVIDERS: Record<AIProviderMode, AIProviderConfig> = {
       { id: 'glm-5.3', desc: 'GLM 最新' },
     ],
   },
+  openrouter: {
+    label: 'OpenRouter',
+    // 聚合商：OpenAI 兼容端点，一把 key 调 400+ 模型（含大量免费款）。
+    baseUrl: 'https://openrouter.ai/api/v1',
+    // openrouter/free 是官方的「免费模型路由」：每次请求自动挑一个当前可用的免费模型，
+    // 响应里的 model 字段会回显真正被选中的模型。免费清单经常变动，交给路由省心。
+    defaultModel1: 'openrouter/free',
+    defaultModel2: 'openrouter/free',
+    apiKeyUrl: 'https://openrouter.ai/settings/keys',
+    note: '聚合商 · 一把 key 调多家模型；openrouter/free 自动路由到免费模型',
+    recommendedModels: [
+      { id: 'openrouter/free', desc: '免费 · 自动路由到免费模型' },
+    ],
+  },
+  siliconflow: {
+    label: '硅基流动',
+    // 聚合商：国内直连、OpenAI 兼容端点。与「会议转写」共用同一把 key（SettingsData.asrApiKey）。
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    defaultModel1: 'Qwen/Qwen2.5-7B-Instruct',
+    defaultModel2: 'Qwen/Qwen2.5-7B-Instruct',
+    apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak',
+    note: '聚合商 · 国内直连；Qwen2.5-7B 等免费，与会议转写共用同一把 key',
+    recommendedModels: [
+      { id: 'Qwen/Qwen2.5-7B-Instruct', desc: '免费 · 7B，日常够用' },
+      { id: 'THUDM/glm-4-9b-chat', desc: '免费 · 9B' },
+      { id: 'deepseek-ai/DeepSeek-V4-Flash', desc: '更强 · 按量计费' },
+    ],
+  },
   custom: {
     label: '自定义端点',
     baseUrl: '',
@@ -324,6 +358,11 @@ export interface SettingsData {
   volcengineAgentApiKey: string
   /** 火山方舟 Agent Plan 专属 API Key（AI-2 位） */
   volcengineAgentApiKey2: string
+  /** OpenRouter API Key（AI-1 位）—— 聚合商，与其它公司独立存，切 provider 不丢。
+   *  注：硅基流动（siliconflow）不留独立字段，直接共用下面的 asrApiKey（同一把 key）。 */
+  openrouterApiKey: string
+  /** OpenRouter API Key（AI-2 位） */
+  openrouterApiKey2: string
   /** 自定义端点：AI-1 */
   customAi1BaseUrl: string
   customAi1ApiKey: string

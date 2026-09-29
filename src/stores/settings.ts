@@ -70,6 +70,9 @@ function getProviderApiKey(mode: keyof typeof AI_PROVIDERS, slot: 1 | 2, s: Sett
     case 'xfyun': return (slot === 1 ? s.xfyunApiKey : s.xfyunApiKey2).trim()
     case 'volcengine-coding': return (slot === 1 ? s.volcengineCodingApiKey : s.volcengineCodingApiKey2).trim()
     case 'volcengine-agent': return (slot === 1 ? s.volcengineAgentApiKey : s.volcengineAgentApiKey2).trim()
+    case 'openrouter': return (slot === 1 ? s.openrouterApiKey : s.openrouterApiKey2).trim()
+    // 硅基流动不分槽位：聊天（AI-1/AI-2）与会议转写共用同一把 key（asrApiKey）
+    case 'siliconflow': return s.asrApiKey.trim()
     default: return ''
   }
 }
@@ -92,6 +95,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   volcengineCodingApiKey2: '',
   volcengineAgentApiKey: '',
   volcengineAgentApiKey2: '',
+  openrouterApiKey: '',
+  openrouterApiKey2: '',
   customAi1BaseUrl: '',
   customAi1ApiKey: '',
   customAi1Model: '',
@@ -148,6 +153,8 @@ export const SENSITIVE_FIELDS: (keyof SettingsData)[] = [
   'volcengineCodingApiKey2',
   'volcengineAgentApiKey',
   'volcengineAgentApiKey2',
+  'openrouterApiKey',
+  'openrouterApiKey2',
   'mineruToken',
   'simpletexToken',
   'asrApiKey',
@@ -203,6 +210,8 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
   volcengineCodingApiKey2: SETTING_KEYS.VOLCENGINE_CODING_API_KEY_2,
   volcengineAgentApiKey: SETTING_KEYS.VOLCENGINE_AGENT_API_KEY,
   volcengineAgentApiKey2: SETTING_KEYS.VOLCENGINE_AGENT_API_KEY_2,
+  openrouterApiKey: SETTING_KEYS.OPENROUTER_API_KEY,
+  openrouterApiKey2: SETTING_KEYS.OPENROUTER_API_KEY_2,
   mineruToken: SETTING_KEYS.MINERU_TOKEN,
   simpletexToken: SETTING_KEYS.SIMPLETEX_TOKEN,
   asrApiKey: SETTING_KEYS.ASR_API_KEY,
@@ -281,6 +290,8 @@ function detectPatContamination(
     'volcengineCodingApiKey2',
     'volcengineAgentApiKey',
     'volcengineAgentApiKey2',
+    'openrouterApiKey',
+    'openrouterApiKey2',
     'mineruToken',
     'simpletexToken',
     'asrApiKey',
@@ -812,6 +823,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         volcengineCodingApiKey2: get().volcengineCodingApiKey2,
         volcengineAgentApiKey: get().volcengineAgentApiKey,
         volcengineAgentApiKey2: get().volcengineAgentApiKey2,
+        openrouterApiKey: get().openrouterApiKey,
+        openrouterApiKey2: get().openrouterApiKey2,
         asrApiKey: get().asrApiKey,
       }
       const merged: SettingsData = { ...DEFAULT_SETTINGS, ...keep }

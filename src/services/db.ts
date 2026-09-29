@@ -56,6 +56,9 @@ export const SETTING_KEYS = {
   // 火山方舟 Agent Plan（订阅制，专属 Key）
   VOLCENGINE_AGENT_API_KEY: 'volcengine_agent_api_key',
   VOLCENGINE_AGENT_API_KEY_2: 'volcengine_agent_api_key_2',
+  // OpenRouter（聚合商）—— key 同样按槽位独立存；硅基流动复用 ASR_API_KEY
+  OPENROUTER_API_KEY: 'openrouter_api_key',
+  OPENROUTER_API_KEY_2: 'openrouter_api_key_2',
   AI_1_MODEL: 'ai_1_model',
   AI_2_MODEL: 'ai_2_model',
   CUSTOM_AI_1_BASE_URL: 'custom_ai_1_base_url',

@@ -328,6 +328,8 @@ export default function ConnectivityPanel() {
         volcengineCodingApiKey2: store.volcengineCodingApiKey2,
         volcengineAgentApiKey: store.volcengineAgentApiKey,
         volcengineAgentApiKey2: store.volcengineAgentApiKey2,
+        openrouterApiKey: store.openrouterApiKey,
+        openrouterApiKey2: store.openrouterApiKey2,
         customAi1BaseUrl: store.customAi1BaseUrl,
         customAi1ApiKey: store.customAi1ApiKey,
         customAi1Model: store.customAi1Model,
