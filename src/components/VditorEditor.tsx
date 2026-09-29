@@ -19,7 +19,6 @@ import { toast } from 'sonner'
 import {
   blobUrlToRepoPath,
   isRepoImagePath,
-  migrateBase64Images,
   parseImageSize,
   repoImageBlobUrl,
   toRepoPath,
@@ -549,8 +548,6 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
   docPathRef.current = docPath
   const imageSubDirRef = useRef(imageSubDir)
   imageSubDirRef.current = imageSubDir
-  /** 已经自动迁移过 base64 图的文档，避免边写边反复触发 */
-  const migratedDocRef = useRef<string | null>(null)
   /** 插入代码块用的默认语言（设置页可改） */
   const defaultCodeLang = useSettingsStore((s) => s.defaultCodeLang ?? 'python')
   const defaultCodeLangRef = useRef(defaultCodeLang)
@@ -1077,25 +1074,6 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       if (timer) clearTimeout(timer)
     }
   }, [])
-
-  /**
-   * 老数据兜底：正文里还留着 base64 内嵌图的，静默搬到仓库换成语义路径。
-   * 每篇文档只自动跑一次；上传失败的图原样保留，不会因为迁移丢图。
-   */
-  useEffect(() => {
-    if (!docPath) return
-    if (!value.includes('data:image/')) return
-    if (migratedDocRef.current === docPath) return
-    const timer = setTimeout(() => {
-      void (async () => {
-        if (migratedDocRef.current === docPath) return
-        migratedDocRef.current = docPath
-        const { md, migrated } = await migrateBase64Images(value, docPath, imageSubDirRef.current)
-        if (migrated > 0 && md !== value) onChangeRef.current?.(md)
-      })()
-    }, 1200)
-    return () => clearTimeout(timer)
-  }, [docPath, value])
 
   /**
    * 悬停「块级原子单元」时浮出操作把手。

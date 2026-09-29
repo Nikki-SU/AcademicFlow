@@ -10,9 +10,9 @@
  *
  * 索引范围 = 知识库里的**正文**：
  *   - 文献：literatures/{slug}/{slug}.md（块文档，中英两块都在里面）
- *           没有块文档时退回 MinerU 原文 full.md / fulltext.md
- *   - 图书：textbooks/{id}/content.md（兼容 full.md / index.md）
- *   - 其他文档：documents/{id}/content.md（兼容 full.md / index.md）
+ *           没有块文档时退回 MinerU 原文 full.md
+ *   - 图书：textbooks/{id}/content.md
+ *   - 其他文档：documents/{id}/content.md
  */
 
 import { readMdFile } from './userData'
@@ -138,7 +138,6 @@ async function collectTargets(): Promise<Target[]> {
         paths: [
           `literatures/${slug}/${slug}.md`,
           `literatures/${slug}/full.md`,
-          `literatures/${slug}/fulltext.md`,
         ],
       })
     }
@@ -155,7 +154,7 @@ async function collectTargets(): Promise<Target[]> {
         kind: 'book',
         id: b.id,
         title: b.title,
-        paths: [`textbooks/${b.id}/content.md`, `textbooks/${b.id}/full.md`, `textbooks/${b.id}/index.md`],
+        paths: [`textbooks/${b.id}/content.md`],
       })
     }
   } catch (err) {
@@ -171,7 +170,7 @@ async function collectTargets(): Promise<Target[]> {
         kind: 'document',
         id: d.id,
         title: d.title || d.id,
-        paths: [`documents/${d.id}/content.md`, `documents/${d.id}/full.md`, `documents/${d.id}/index.md`],
+        paths: [`documents/${d.id}/content.md`],
       })
     }
   } catch (err) {

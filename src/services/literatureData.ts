@@ -326,17 +326,6 @@ export async function loadFulltext(doi: string): Promise<string> {
   return result?.content || ''
 }
 
-export async function loadTranslation(doi: string): Promise<string> {
-  const slug = doiToSlug(doi)
-  const result = await readMdFile(`literatures/${slug}/translation.md`)
-  return result?.content || ''
-}
-
-export async function saveTranslation(doi: string, content: string): Promise<void> {
-  const slug = doiToSlug(doi)
-  await writeMdFile(`literatures/${slug}/translation.md`, content, 'Save AI translation')
-}
-
 export async function loadAlignedMd(doi: string): Promise<string> {
   const slug = doiToSlug(doi)
   // 标准路径：{slug}.md（知识库唯一 md）。
@@ -460,13 +449,13 @@ export async function saveAlignedMd(doi: string, content: string): Promise<void>
   const slug = doiToSlug(doi)
   // 标准路径：literatures/{slug}/{slug}.md —— 进入知识库的唯一 md
   await writeMdFile(`literatures/${slug}/${slug}.md`, content, 'Save aligned (canonical) markdown')
-  // 清理旧文件（fulltext.md / index.md / translation.md / aligned.md）
+  // 清理旧版中间产物（translation.md / aligned.md）
   await cleanupLegacyMd(doi)
 }
 
 /**
- * 清理旧版遗留的 md 文件。aligned.md 写入后，这些中间产物不再需要。
- * 保留：{slug}.md（主文件）、full.md / fulltext.md / index.md（MinerU 原始产物，永不删）、
+ * 清理旧版遗留的中间产物 md。{slug}.md 写入后，这些文件不再需要。
+ * 保留：{slug}.md（主文件）、full.md（MinerU 原始产物）、
  *       images/ 文件夹、vocabulary.csv、annotations.csv
  *
  * 先列一次目录再删：这两个文件绝大多数文献早就没有了，
@@ -474,9 +463,8 @@ export async function saveAlignedMd(doi: string, content: string): Promise<void>
  */
 export async function cleanupLegacyMd(doi: string): Promise<void> {
   const slug = doiToSlug(doi)
-  // ⚠️ 不要在这里加 full.md / fulltext.md / index.md：
-  // 它们是 MinerU 的原始产物（阅读页图片与英文原文的来源），删除会导致重跑 MinerU。
-  // 也不要加 images/（阅读页图片一直需要正常显示）。
+  // ⚠️ 不要在这里加 full.md：它是 MinerU 的原始产物（阅读页图片与英文原文的来源），
+  // 删除会导致重跑 MinerU。也不要加 images/（阅读页图片一直需要正常显示）。
   const names = ['translation.md', 'aligned.md']
   const ws = useWorkspaceStore.getState()
   const token = useAuthStore.getState().token

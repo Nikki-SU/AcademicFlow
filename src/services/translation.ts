@@ -1,12 +1,12 @@
 /**
- * 段落对齐翻译渲染
- * 现在有两条渲染路径：
- *   新路径：renderAlignedMdHtml() —— 输入结构化块文档（⟨⟨⟨元信息⟩⟩⟩内容⟨⟨⟨/⟩⟩⟩），确定性编号对齐
- *   旧路径：renderAlignedHtml()  —— 输入原始 full.md + translation.md，启发式比例匹配
+ * 段落对齐翻译
+ *   渲染：renderAlignedMdHtml() —— 输入结构化块文档（⟨⟨⟨元信息⟩⟩⟩内容⟨⟨⟨/⟩⟩⟩），确定性编号对齐
+ *   迁移：alignedParagraphsToBlockDoc() —— 把旧管线遗留的 full.md + translation.md 对齐结果
+ *         组装成块文档（见 services/migrations.ts），之后阅读页只认块文档，不再有旧渲染分支。
  */
 import type { RenderMarkdownOptions } from './markdown-renderer'
 import { renderMarkdownToHtml, extractMath, restoreMathInMarkdown, isBlockMathOnly } from './markdown-renderer'
-import { readAnyDocument, isTranslatable, blockId, type ReadBlockItem } from './blocks.mjs'
+import { readAnyDocument, isTranslatable, blockId, serializeBlocks, renumber, type Item, type FloatNode, type ReadBlockItem } from './blocks.mjs'
 
 export type TranslationMode = 'original' | 'bilingual' | 'chinese' | 'english'
 export type ParagraphType = 'text' | 'image' | 'formula' | 'code' | 'heading' | 'table' | 'other'
@@ -74,55 +74,48 @@ export function alignParagraphs(
   })
 }
 
-/** 按指定模式把对齐后的段落渲染为 HTML */
-export function renderAlignedHtml(
-  aligned: AlignedParagraph[],
-  mode: TranslationMode,
-  options: RenderMarkdownOptions = {},
-): string {
-  const chunks: string[] = []
-  const render = (raw: string) => renderMarkdownToHtml(raw, options)
+/**
+ * 把「原文/译文段落对齐结果」组装成标准块文档（⟨⟨⟨元信息⟩⟩⟩内容⟨⟨⟨/⟩⟩⟩）。
+ *
+ * 用途：旧管线的文献把译文单独存在 translation.md，靠启发式对齐渲染；现在阅读页只认块文档，
+ * 迁移（services/migrations.ts）用本函数把 full.md + translation.md 就地升级成 {slug}.md。
+ *
+ * 段落 → 块：
+ *   - heading → 流块「标题」（level = # 个数）；其余文本/code/other → 流块「正文」
+ *   - image / formula / table → 浮动块「图 / 公式 / 表」
+ *   - 有译文的流块紧跟一个「译文@n」块
+ * 编号一律交给 renumber 重算，这里只保证顺序与内容正确。
+ */
+export function alignedParagraphsToBlockDoc(aligned: AlignedParagraph[]): string {
+  const items: Item[] = []
+  let flowN = 0
 
-  // 判断是否译文整体是英文（AI 返回了原文而非译文）
-  const allTransAreEnglish = mode !== 'original' && mode !== 'english' && aligned.length > 0 &&
-    aligned.every((p) => {
-      if (!p.translation_raw) return true // null 不算"有译文"
-      // 粗略判断：译文中文比例 < 5% → 当作没翻译
-      const chineseChars = (p.translation_raw.match(/[\u4e00-\u9fff]/g) ?? []).length
-      const total = p.translation_raw.replace(/\s/g, '').length
-      return total > 0 && chineseChars / total < 0.05
-    }) && aligned.some((p) => p.translation_raw)
-
-  if (allTransAreEnglish) {
-    // 给用户明确提示，不要悄悄 fallback
-    chunks.push(
-      '<div class="bg-amber-50 border border-amber-300 text-amber-800 p-4 rounded-lg mb-4 text-sm">' +
-      '⚠️ 该文献的 AI 翻译尚未生成完成（译文队列排队中）。当前显示的是原文，等后台翻译完成后刷新即可看到中文译文。</div>',
-    )
+  const pushTranslation = (ref: number, cn: string | null) => {
+    if (cn && cn.trim()) {
+      items.push({ t: 'block', node: { kind: 'translation', ref: String(ref) }, content: cn })
+    }
   }
 
   for (const p of aligned) {
-    if (mode === 'original' || mode === 'english') {
-      chunks.push(render(p.original_raw))
-    } else if (mode === 'chinese') {
-      if (p.translation_raw && !allTransAreEnglish) {
-        chunks.push(render(p.translation_raw))
-      } else {
-        // 没有译文 → 渲染原文 + 灰色提示
-        chunks.push(
-          `<div class="original-fallback text-ink-400 italic">${render(p.original_raw)}</div>`,
-        )
-      }
-    } else if (mode === 'bilingual') {
-      chunks.push(render(p.original_raw))
-      if ((p.type === 'text' || p.type === 'heading') && p.translation_raw && !allTransAreEnglish) {
-        chunks.push(
-          `<div class="translation-paragraph bg-seal-50/30 border-l-2 border-seal-300 pl-3">${render(p.translation_raw)}</div>`,
-        )
-      }
+    const raw = p.original_raw
+    if (p.type === 'image' || p.type === 'formula' || p.type === 'table') {
+      const type: FloatNode['type'] = p.type === 'image' ? '图' : p.type === 'formula' ? '公式' : '表'
+      // anchor 锚定到它前面最近的流序号；s 交给 renumber 重排
+      items.push({ t: 'block', node: { kind: 'float', type, anchor: flowN, s: 1 }, content: raw })
+      continue
     }
+
+    flowN++
+    if (p.type === 'heading') {
+      const level = /^#{1,6}/.exec(raw.trim())?.[0].length ?? 1
+      items.push({ t: 'block', node: { kind: 'flow', type: '标题', level, n: flowN }, content: raw })
+    } else {
+      items.push({ t: 'block', node: { kind: 'flow', type: '正文', level: 0, n: flowN }, content: raw })
+    }
+    pushTranslation(flowN, p.translation_raw)
   }
-  return chunks.join('\n')
+
+  return serializeBlocks(renumber(items))
 }
 
 /**

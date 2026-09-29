@@ -40,7 +40,8 @@ export interface DocumentSummary {
 const DOCS_DIR = 'documents'
 const DOCS_PATH = 'documents/documents.csv'
 const DOC_HEADERS = ['document_id', 'title', 'author', 'source', 'added_at']
-const DOC_CONTENT_CANDIDATES = ['content.md', 'full.md', 'index.md']
+/** 正文的标准文件名；历史命名 full.md / index.md 由迁移规整，不在这里兼容 */
+const DOC_CONTENT_FILE = 'content.md'
 
 export async function loadDocuments(force = false): Promise<DocEntry[]> {
   return readCsvFile(
@@ -98,7 +99,7 @@ async function fetchDocumentPaths(): Promise<Set<string> | null> {
 export async function listDocuments(): Promise<DocumentSummary[]> {
   const [entries, paths] = await Promise.all([loadDocuments(), fetchDocumentPaths()])
   const hasContent = (id: string) =>
-    paths ? DOC_CONTENT_CANDIDATES.some((n) => paths.has(`${DOCS_DIR}/${id}/${n}`)) : false
+    paths ? paths.has(`${DOCS_DIR}/${id}/${DOC_CONTENT_FILE}`) : false
 
   const byId = new Map<string, DocumentSummary>()
   for (const e of entries) {
@@ -128,11 +129,8 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
 
 /** 读取正文；没有正文时返回空串（阅读页据此显示「暂无内容」） */
 export async function loadDocumentContent(documentId: string, force = false): Promise<string> {
-  for (const name of DOC_CONTENT_CANDIDATES) {
-    const result = await readMdFile(`${DOCS_DIR}/${documentId}/${name}`, force)
-    if (result?.content?.trim()) return result.content
-  }
-  return ''
+  const result = await readMdFile(`${DOCS_DIR}/${documentId}/${DOC_CONTENT_FILE}`, force)
+  return result?.content?.trim() ? result.content : ''
 }
 
 /** 标题 → 目录名。保留中文，只清掉路径非法字符 */

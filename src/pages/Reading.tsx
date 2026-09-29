@@ -31,7 +31,7 @@ import {
   Square,
   Headphones,
 } from 'lucide-react'
-import { loadLiteratures, loadFulltext, loadTranslation, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
+import { loadLiteratures, loadFulltext, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
 import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Category } from '../services/categoryData'
@@ -44,7 +44,7 @@ import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml, copySelectionWithFormulaSource } from '../services/markdown-renderer'
-import { splitMarkdownIntoParagraphs, alignParagraphs, renderAlignedHtml, renderAlignedMdHtml, type TranslationMode } from '../services/translation'
+import { renderAlignedMdHtml, type TranslationMode } from '../services/translation'
 import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem, type BlockNode } from '../services/blocks.mjs'
 import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits } from '../services/text-highlight'
 import {
@@ -669,8 +669,7 @@ export default function ReadingPage() {
   const [noteSaveState, setNoteSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
   const [annotationSaveState, setAnnotationSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
   const [translation_mode, set_translation_mode] = useState<TranslationMode>('original')
-  const [translation_content, set_translation_content] = useState('')
-const [aligned_content, set_aligned_content] = useState('')
+  const [aligned_content, set_aligned_content] = useState('')
   /** 编辑模式开关：开启后才允许改文献正文 */
   const [editMode, setEditMode] = useState(false)
   /** 编辑态：原始条目（含译文块与块外文本），保存时按它还原结构 */
@@ -1129,7 +1128,6 @@ const [aligned_content, set_aligned_content] = useState('')
     if (!selectedPaperId) {
       setSelectedAnnotationId(null)
       setEditingAnnotationId(null)
-      set_translation_content('')
       set_aligned_content('')
       return
     }
@@ -1163,14 +1161,6 @@ const [aligned_content, set_aligned_content] = useState('')
       } catch (err) {
         console.error('[Reading] 加载 aligned.md 失败:', err)
         if (!cancelled) set_aligned_content('')
-      }
-
-      try {
-        const trans = await loadTranslation(doi)
-        if (!cancelled) set_translation_content(trans || '')
-      } catch (err) {
-        console.error('[Reading] 加载翻译失败:', err)
-        if (!cancelled) set_translation_content('')
       }
     }
 
@@ -1629,42 +1619,21 @@ const [aligned_content, set_aligned_content] = useState('')
   )
 
   /**
-   * 译文到底有没有 —— 以结构化块文档里"带译文的可翻译块数 > 0"为准。
-   * 旧的 translation.md 只作兜底（老文献走的还是旧路径）。
+   * 译文到底有没有 —— 以块文档里"带译文的可翻译块数 > 0"为准。
    * 这条决定了工具栏那个"原文/中英对照/全中文"按钮显不显示「（未生成）」。
    */
   const hasTranslationContent = useMemo(() => {
-    if (aligned_content.trim()) {
-      const { items } = readAnyDocument(aligned_content)
-      return items.some((it) => it.t === 'block' && !!it.cn && !!it.cn.trim())
-    }
-    return !!translation_content.trim()
-  }, [aligned_content, translation_content])
+    if (!aligned_content.trim()) return false
+    const { items } = readAnyDocument(aligned_content)
+    return items.some((it) => it.t === 'block' && !!it.cn && !!it.cn.trim())
+  }, [aligned_content])
 
   const rendered_html = useMemo(() => {
     const opts = { imageBaseUrl: getImageBaseUrl(selectedPaperId ?? '') }
-
-    // 新路径：有 aligned.md → 确定性 idx 对齐渲染
-    if (aligned_content.trim()) {
-      const result = renderAlignedMdHtml(aligned_content, translation_mode, opts, annotatedAnchorSet)
-      if (result.html.trim()) return result.html
-    }
-
-    // 旧路径 fallback：fulltext.md + translation.md + 启发式对齐
-    if (!selectedPaper?.markdownContent) return ''
-
-    if (
-      translation_mode === 'original' ||
-      translation_mode === 'english' ||
-      !translation_content.trim()
-    ) {
-      return renderMarkdownToHtml(selectedPaper.markdownContent, opts)
-    }
-    const orig_paras = splitMarkdownIntoParagraphs(selectedPaper.markdownContent)
-    const trans_paras = splitMarkdownIntoParagraphs(translation_content)
-    const aligned = alignParagraphs(orig_paras, trans_paras)
-    return renderAlignedHtml(aligned, translation_mode, opts)
-  }, [selectedPaper, selectedPaperId, aligned_content, translation_content, translation_mode, annotatedAnchorSet])
+    // 正文一律走块文档（loadAlignedMd 在 {slug}.md 缺失时兜底到 full.md，同样是合法输入）
+    if (!aligned_content.trim()) return ''
+    return renderAlignedMdHtml(aligned_content, translation_mode, opts, annotatedAnchorSet).html
+  }, [selectedPaperId, aligned_content, translation_mode, annotatedAnchorSet])
 
   /**
    * 文献正文注入锚点 + 大纲。

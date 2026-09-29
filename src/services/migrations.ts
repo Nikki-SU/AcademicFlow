@@ -10,7 +10,7 @@
  */
 import { loadCourses, saveCourses, type Course } from './scheduleData'
 import { loadProjects, saveProjects, type Project, type ProjectType } from './projectData'
-import { readCsvFile, writeCsvFile, getRepoContext } from './userData'
+import { readCsvFile, writeCsvFile, writeMdFile, getRepoContext } from './userData'
 import {
   readRepoTextFile,
   deleteRepoFiles,
@@ -18,6 +18,9 @@ import {
   uploadRepoBinaryFile,
   githubFetch,
 } from './github'
+import { migrateBase64Images } from './editorImages'
+import { readAnyDocument } from './blocks.mjs'
+import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockDoc } from './translation'
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
 
 export interface Migration {
@@ -25,6 +28,12 @@ export interface Migration {
   id: string
   /** 展示给用户的说明（迁移入口上的文字） */
   label: string
+  /**
+   * 探测是否昂贵（需要逐个读仓库文件）。设 true 的迁移跑过一次就记台账、之后直接跳过探测；
+   * 解析层 / 文件名级的迁移探测很便宜（读表头、拉一次文件树），不设此项 —— 每次都探，更能兜住
+   * 后来才又冒出来的旧数据。
+   */
+  ledger?: boolean
   /** 探测：当前私库数据是否仍是旧格式、需要迁移 */
   detect: () => Promise<boolean>
   /** 执行迁移：把旧格式数据就地升级为新格式 */
@@ -322,42 +331,267 @@ const literatureMdNames: Migration = {
   },
 }
 
-const TEXTBOOKS_DIR = 'textbooks'
-
 /**
- * v1 → v2：规整图书正文文件名
- * 历史命名 full.md / index.md 一律收敛到 SPEC 约定的 content.md；
- * 目标已存在时旧名视为冗余副本删除。之后 loadBookContent 只读 content.md。
+ * v1 → v2：旧译文献（full.md + translation.md，没有块文档）→ 块文档 {slug}.md
+ *
+ * 旧管线把译文单独存 translation.md，靠阅读页的启发式对齐渲染；现在阅读页只认块文档，
+ * 而 loadAlignedMd 在 {slug}.md 缺失时会兜底到 full.md —— 结果这类文献的译文被英文原文顶掉、
+ * 直接看不到。这里用「段落顺序对齐」把 full.md + translation.md 就地组装成 {slug}.md。
+ *
+ * {slug}.md 已有有效块文档时（多半是 literatureMdNames 刚由 aligned.md 迁来的双语稿），
+ * translation.md 只是冗余旧文件，直接删掉 —— 旧格式一律不保留。
  */
-const textbookMdNames: Migration = {
-  id: 'textbook-md-names-v1',
-  label: '规整图书正文文件名（full / index → content.md）',
+const literatureTranslationV1: Migration = {
+  id: 'literature-translation-v1',
+  label: '把旧译文献的 full.md + translation.md 合并为块文档',
+  ledger: true,
   detect: async () => {
     const blobs = await listRepoBlobs()
     if (!blobs) return false
-    for (const [, files] of topLevelFiles(blobs, TEXTBOOKS_DIR)) {
-      if (files.has('full.md') || files.has('index.md')) return true
+    for (const [slug, files] of topLevelFiles(blobs, LITERATURES_DIR)) {
+      if (!files.has('translation.md')) continue
+      const hasCanonical = (files.get(`${slug}.md`) ?? 0) >= MIN_VALID_ALIGNED_BYTES
+      if (hasCanonical || files.has('full.md')) return true
     }
     return false
   },
   run: async () => {
     const blobs = await listRepoBlobs()
     if (!blobs) return
-    const moves: Array<{ from: string; to: string }> = []
-    const redundant: string[] = []
-    for (const [book, files] of topLevelFiles(blobs, TEXTBOOKS_DIR)) {
-      const dir = `${TEXTBOOKS_DIR}/${book}`
-      const aliases = ['full.md', 'index.md'].filter((n) => files.has(n))
-      if (aliases.length === 0) continue
-      if (!files.has('content.md')) {
-        moves.push({ from: `${dir}/${aliases[0]}`, to: `${dir}/content.md` })
-        redundant.push(...aliases.slice(1).map((n) => `${dir}/${n}`))
-      } else {
-        redundant.push(...aliases.map((n) => `${dir}/${n}`))
+    for (const [slug, files] of topLevelFiles(blobs, LITERATURES_DIR)) {
+      if (!files.has('translation.md')) continue
+      const dir = `${LITERATURES_DIR}/${slug}`
+      const hasCanonical = (files.get(`${slug}.md`) ?? 0) >= MIN_VALID_ALIGNED_BYTES
+
+      // 没有有效块文档 → 用 full.md + translation.md 现组一份
+      if (!hasCanonical) {
+        if (!files.has('full.md')) continue // 无原文可对齐，留着下次再说（绝不丢内容）
+        const full = await readDocText(`${dir}/full.md`)
+        const trans = await readDocText(`${dir}/translation.md`)
+        if (!full || !trans) continue
+        const aligned = alignParagraphs(
+          splitMarkdownIntoParagraphs(full),
+          splitMarkdownIntoParagraphs(trans),
+        )
+        const doc = alignedParagraphsToBlockDoc(aligned)
+        await writeMdFile(`${dir}/${slug}.md`, doc, 'Merge legacy translation into canonical block doc')
+      }
+
+      // 已有（或刚生成）块文档 → translation.md 属旧格式冗余人，删掉
+      await removeRepoFiles([`${dir}/translation.md`])
+    }
+  },
+}
+
+const TEXTBOOKS_DIR = 'textbooks'
+const DOCUMENTS_DIR = 'documents'
+
+/**
+ * 「正文只有一个标准名」的目录（图书 / 其他文档）通用的文件名规整迁移：
+ * 历史命名 full.md / index.md 一律收敛到 content.md；目标已存在时旧名视为冗余副本删除。
+ * 规整后 loadBookContent / loadDocumentContent 只读 content.md，不再有候选名兜底。
+ */
+function makeContentRenameMigration(opts: {
+  id: string
+  dir: string
+  label: string
+  aliases: string[]
+}): Migration {
+  return {
+    id: opts.id,
+    label: opts.label,
+    detect: async () => {
+      const blobs = await listRepoBlobs()
+      if (!blobs) return false
+      for (const [, files] of topLevelFiles(blobs, opts.dir)) {
+        if (opts.aliases.some((n) => files.has(n))) return true
+      }
+      return false
+    },
+    run: async () => {
+      const blobs = await listRepoBlobs()
+      if (!blobs) return
+      const moves: Array<{ from: string; to: string }> = []
+      const redundant: string[] = []
+      for (const [sub, files] of topLevelFiles(blobs, opts.dir)) {
+        const dir = `${opts.dir}/${sub}`
+        const aliases = opts.aliases.filter((n) => files.has(n))
+        if (aliases.length === 0) continue
+        if (!files.has('content.md')) {
+          moves.push({ from: `${dir}/${aliases[0]}`, to: `${dir}/content.md` })
+          redundant.push(...aliases.slice(1).map((n) => `${dir}/${n}`))
+        } else {
+          redundant.push(...aliases.map((n) => `${dir}/${n}`))
+        }
+      }
+      await moveRepoFiles(moves)
+      await removeRepoFiles(redundant)
+    },
+  }
+}
+
+const textbookMdNames = makeContentRenameMigration({
+  id: 'textbook-md-names-v1',
+  dir: TEXTBOOKS_DIR,
+  label: '规整图书正文文件名（full / index → content.md）',
+  aliases: ['full.md', 'index.md'],
+})
+
+const documentMdNames = makeContentRenameMigration({
+  id: 'document-md-names-v1',
+  dir: DOCUMENTS_DIR,
+  label: '规整文档正文文件名（full / index → content.md）',
+  aliases: ['full.md', 'index.md'],
+})
+
+/** 逐文件读正文（文本 md 走 Contents API，足够） */
+async function readDocText(path: string): Promise<string | null> {
+  const ctx = getRepoContext()
+  if (!ctx) return null
+  const r = await readRepoTextFile(ctx.owner, ctx.repo, path, ctx.token)
+  return r?.content ?? null
+}
+
+/**
+ * 会经 VditorEditor 编辑、因此可能残留 base64 内嵌图的 md：
+ *   - projects 目录下的各类 md（manuscript / memory / brief）
+ *   - 各阅读对象（文献 / 图书）的 notes.md
+ * 其余 md（文献 full.md、图书 content.md 等）由阅读页渲染，图片本就独立成文件，不在此列。
+ */
+function isEditableDocPath(p: string): boolean {
+  if (!p.endsWith('.md')) return false
+  return p.startsWith('projects/') || /\/notes\.md$/.test(p)
+}
+
+async function editableDocPaths(): Promise<string[]> {
+  const blobs = await listRepoBlobs()
+  if (!blobs) return []
+  return [...blobs.keys()].filter(isEditableDocPath)
+}
+
+/**
+ * v1 → v2：正文内嵌 base64 图 → 仓库文件 + 语义路径。
+ * md 里只该存仓库内路径（链接短、Git 友好、LaTeX 按路径挂载）；老数据是把图 base64 内嵌在正文里。
+ * 逐张上传、成功一张换一张，任何一张失败就原样留着 —— 迁移绝不因一次网络抖动把图弄丢。
+ */
+const docImagesV1: Migration = {
+  id: 'doc-images-v1',
+  label: '把正文里内嵌的 base64 图片搬到仓库并改成语义路径',
+  ledger: true,
+  detect: async () => {
+    for (const path of await editableDocPaths()) {
+      const md = await readDocText(path)
+      if (md && md.includes('data:image/')) return true
+    }
+    return false
+  },
+  run: async () => {
+    for (const path of await editableDocPaths()) {
+      const md = await readDocText(path)
+      if (!md || !md.includes('data:image/')) continue
+      const { md: next, migrated } = await migrateBase64Images(md, path)
+      if (migrated > 0 && next !== md) {
+        await writeMdFile(path, next, 'Migrate embedded images to repo paths')
       }
     }
-    await moveRepoFiles(moves)
-    await removeRepoFiles(redundant)
+  },
+}
+
+const ANNOTATION_HEADERS = [
+  'id', 'type', 'color', 'text', 'note', 'created_at', 'updated_at', 'anchor',
+]
+
+/** 文献批注文件路径：literatures/{slug}/annotations/annotations.csv */
+function literatureAnnotationPaths(blobs: Map<string, number>): string[] {
+  return [...blobs.keys()].filter((p) =>
+    /^literatures\/[^/]+\/annotations\/annotations\.csv$/.test(p),
+  )
+}
+
+/**
+ * 在正文里找出该批注文字所属的块，返回块锚点（en-12 / cn-12）。
+ * 命中**唯一**一块才返回，命中多处或一处都没有则返回空串（保持现状，交给按文本匹配兜底）。
+ */
+function anchorForText(md: string, text: string): string {
+  const needle = text.trim()
+  if (!needle) return ''
+  const { items } = readAnyDocument(md)
+  const hits: string[] = []
+  for (const it of items) {
+    if (it.t !== 'block' || !it.id) continue
+    if (it.content.includes(needle)) hits.push(`en-${it.id}`)
+    else if (it.cn && it.cn.includes(needle)) hits.push(`cn-${it.id}`)
+  }
+  return hits.length === 1 ? hits[0] : ''
+}
+
+/**
+ * v1 → v2：给「无锚点」的旧文献批注补上块锚点（en-12 / cn-12）。
+ * 锚点是「某一语言的某一段」，原文与译文是两个独立块、段号相同。补锚点后，同一处批注在各显示模式
+ * 之间切换都还落在同一段上，不再依赖「全篇文本匹配」这种会串文章的兜底。
+ *
+ * 说明：锚点会随排版变化失效，所以批注的 anchor 仍是**可选**字段、运行时的文本匹配兜底保留；
+ * 本迁移只做「能确定就补上」，命中不唯一的一律留空。图书批注（b-N）依赖渲染结果、无法离线确定，不在此列。
+ */
+const annotationAnchorsV1: Migration = {
+  id: 'annotation-anchors-v1',
+  label: '给旧文献批注补上块锚点（en / cn 段号）',
+  ledger: true,
+  detect: async () => {
+    const blobs = await listRepoBlobs()
+    if (!blobs) return false
+    for (const path of literatureAnnotationPaths(blobs)) {
+      const rows = await readCsvFile<string[]>(path, (r) => r, true)
+      if (rows.length <= 1) continue
+      const header = rows[0].map((h) => h.trim())
+      const iAnchor = header.indexOf('anchor')
+      if (rows.slice(1).some((r) => !(iAnchor >= 0 && (r[iAnchor] ?? '').trim()))) return true
+    }
+    return false
+  },
+  run: async () => {
+    const blobs = await listRepoBlobs()
+    if (!blobs) return
+    for (const path of literatureAnnotationPaths(blobs)) {
+      const raw = await readCsvFile<string[]>(path, (r) => r, true)
+      if (raw.length <= 1) continue
+      const header = raw[0].map((h) => h.trim())
+      const col = (n: string) => header.indexOf(n)
+      const iAnchor = col('anchor')
+      const iId = col('id')
+      const iType = col('type')
+      const iColor = col('color')
+      const iText = col('text')
+      const iNote = col('note')
+      const iCreated = col('created_at')
+      const iUpdated = col('updated_at')
+      // 列名认不全就不动这个文件（宁可留着，也不要把 id / 正文写丢）
+      if (iId < 0 || iText < 0) continue
+      if (!raw.slice(1).some((r) => !(iAnchor >= 0 && (r[iAnchor] ?? '').trim()))) continue
+
+      const slug = path.split('/')[1]
+      // 正文：标准 {slug}.md，回退 MinerU 原始 full.md（与 loadAlignedMd 同口径）
+      const md =
+        (await readDocText(`literatures/${slug}/${slug}.md`)) ??
+        (await readDocText(`literatures/${slug}/full.md`)) ??
+        ''
+
+      const out = raw.slice(1).map((r) => {
+        const anchor = iAnchor >= 0 ? (r[iAnchor] ?? '').trim() : ''
+        const filled = anchor || (md ? anchorForText(md, r[iText] ?? '') : '')
+        return [
+          r[iId] ?? '',
+          r[iType] ?? 'highlight',
+          r[iColor] ?? 'yellow',
+          r[iText] ?? '',
+          r[iNote] ?? '',
+          r[iCreated] ?? '0',
+          r[iUpdated] ?? r[iCreated] ?? '0',
+          filled,
+        ]
+      })
+      await writeCsvFile(path, out, ANNOTATION_HEADERS, (r) => r)
+    }
   },
 }
 
@@ -368,13 +602,56 @@ export const MIGRATIONS: Migration[] = [
   coursesTaskLink,
   backgroundTasksV2,
   literatureMdNames,
+  literatureTranslationV1,
   textbookMdNames,
+  documentMdNames,
+  docImagesV1,
+  annotationAnchorsV1,
 ]
 
-/** 探测当前仍待执行的迁移 */
+const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
+const APPLIED_HEADERS = ['id', 'applied_at']
+
+/**
+ * 已执行迁移台账。
+ * 文件名级迁移探测很便宜（拉一次文件树），但**内容级**迁移必须逐个读文件——每次启动都重跑探测
+ * 无法接受。台账把「这条已经跑过」持久化下来：跑完记一行，之后直接跳过探测。
+ */
+async function loadAppliedMigrationIds(): Promise<Set<string>> {
+  try {
+    const rows = await readCsvFile<string[]>(APPLIED_MIGRATIONS_PATH, (r) => r.slice(1), true)
+    return new Set(rows.map((r) => (r[0] || '').trim()).filter(Boolean))
+  } catch (err) {
+    console.warn('[migration] 读取迁移台账失败，按「未记录」处理:', err)
+    return new Set()
+  }
+}
+
+/** 记下一批已成功执行的迁移（失败不抛，不影响本次迁移结果） */
+export async function markMigrationsApplied(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  try {
+    const rows = await readCsvFile<string[]>(APPLIED_MIGRATIONS_PATH, (r) => r.slice(1), true)
+    const known = new Set(rows.map((r) => (r[0] || '').trim()))
+    let changed = false
+    for (const id of ids) {
+      if (known.has(id)) continue
+      rows.push([id, String(Date.now())])
+      known.add(id)
+      changed = true
+    }
+    if (changed) await writeCsvFile(APPLIED_MIGRATIONS_PATH, rows, APPLIED_HEADERS, (r) => r)
+  } catch (err) {
+    console.warn('[migration] 写入迁移台账失败:', err)
+  }
+}
+
+/** 探测当前仍待执行的迁移（跳过台账里已记录的） */
 export async function pendingMigrations(): Promise<Migration[]> {
+  const applied = await loadAppliedMigrationIds()
   const pending: Migration[] = []
   for (const m of MIGRATIONS) {
+    if (m.ledger && applied.has(m.id)) continue
     try {
       if (await m.detect()) pending.push(m)
     } catch (err) {

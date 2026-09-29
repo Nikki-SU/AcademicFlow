@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { pendingMigrations, type Migration } from '../services/migrations'
+import { pendingMigrations, markMigrationsApplied, type Migration } from '../services/migrations'
 
 function Splash({ text }: { text: string }) {
   return (
@@ -41,7 +41,11 @@ export function MigrationScreen({ onReady }: { onReady: () => void }) {
   const run = useCallback(async () => {
     setRunning(true)
     try {
-      for (const m of pending ?? []) await m.run()
+      // 每条跑完立刻记账：中途失败时，已完成的不会重跑
+      for (const m of pending ?? []) {
+        await m.run()
+        await markMigrationsApplied([m.id])
+      }
       const rest = await pendingMigrations()
       toast.success('数据已更新为新格式')
       if (rest.length === 0) onReady()
