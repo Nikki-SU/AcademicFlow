@@ -32,6 +32,8 @@ import {
   dispatchMineruConnectivityTest,
   getLatestRun,
   getRun,
+  getWorkflowState,
+  WORKFLOW_FILE_BY_EVENT,
   type RunStatus,
   type WorkflowEvent,
 } from '../../services/workflowClient'
@@ -116,6 +118,30 @@ async function runWorkflowE2ETest(
   const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
   console.log(`${tag} dispatch 前最新 run: ${beforeRun ? `id=${beforeRun.id} created=${beforeRun.created_at}` : '无'}, beforeCreatedAt=${beforeCreatedAt}`)
 
+  // ⚠️ 0. 预检 workflow 文件真的在私库里
+  //    repository_dispatch 是广播：没有任何 workflow 监听时 GitHub 依旧返回 204 但不建 run，
+  //    "Runner 没出现"就变成纯粹的谜题。提前查一次，Workflow 缺失/禁用当场报死因。
+  setSteps((prev) => patchSteps(prev, { find_run: { status: 'running', detail: '预检 workflow 文件' } }))
+  const wf = await getWorkflowState(eventType, owner, repo, ghToken)
+  if (wf && !wf.exists) {
+    const f = WORKFLOW_FILE_BY_EVENT[eventType]
+    console.error(`${tag} ❌ 私库缺 .github/workflows/${f}`)
+    setSteps((prev) => patchSteps(prev, { find_run: { status: 'error', detail: `私库缺 .github/workflows/${f}` } }))
+    return {
+      ok: false, run: null,
+      reason: `私库 ${owner}/${repo} 里没有 .github/workflows/${f} —— dispatch 发出去不会有任何 run。请在设置页「后端能力」里执行「安装/重装后端」后再测。`,
+    }
+  }
+  if (wf && wf.state && wf.state !== 'active') {
+    console.error(`${tag} ❌ workflow 状态=${wf.state}`)
+    setSteps((prev) => patchSteps(prev, { find_run: { status: 'error', detail: `workflow 状态: ${wf.state}` } }))
+    return {
+      ok: false, run: null,
+      reason: `workflow ${WORKFLOW_FILE_BY_EVENT[eventType]} 当前状态为「${wf.state}」，GitHub 不会为它创建 run。请在仓库 Settings → Actions → General 里重新启用，或重装后端覆盖一份新的。`,
+    }
+  }
+  setSteps((prev) => patchSteps(prev, { find_run: { status: 'pending' } }))
+
   // 1. dispatch
   setSteps((prev) => patchSteps(prev, { dispatch: { status: 'running' } }))
   try {
@@ -153,11 +179,11 @@ async function runWorkflowE2ETest(
   if (!myRunId) {
     console.error(`${tag} ❌ 30s 内没找到新 run`)
     setSteps((prev) => patchSteps(prev, {
-      find_run: { status: 'error', detail: '30s 内没创建 run · 可能 repo 不对或 Actions 排队' },
+      find_run: { status: 'error', detail: '30s 内没创建 run · 可能 Actions 排队' },
     }))
     return {
       ok: false, run: null,
-      reason: `GitHub Actions 30s 内没创建新 run。可能原因: dispatch 打到了错误的 repo (当前目标 ${owner}/${repo}), 或 workflow yml 不在 .github/workflows/ 里, 或 Actions 排队超过 30s。`,
+      reason: `workflow ${WORKFLOW_FILE_BY_EVENT[eventType]} 已存在且启用，但 dispatch 后 30s 内没查到新 run。多半是 GitHub Actions 排队慢/接口延迟 —— 去仓库 Actions 页看有没有刚起的 run，或稍后重试一次。`,
     }
   }
 

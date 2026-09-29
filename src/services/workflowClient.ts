@@ -42,6 +42,58 @@ export type WorkflowEvent =
   | 'ai_connectivity_test'
   | 'latex_compile'
 
+/** event_type → 私库 .github/workflows/ 下的文件名（两者同名，仅后缀不同） */
+export const WORKFLOW_FILE_BY_EVENT: Record<WorkflowEvent, string> = {
+  paper_convert: 'paper_convert.yml',
+  book_convert: 'book_convert.yml',
+  session_images: 'session_images.yml',
+  ai_call: 'ai_call.yml',
+  mineru_connectivity_test: 'mineru_connectivity_test.yml',
+  ai_connectivity_test: 'ai_connectivity_test.yml',
+  latex_compile: 'latex_compile.yml',
+}
+
+export interface WorkflowState {
+  /** 文件是否存在于私库 */
+  exists: boolean
+  /** GitHub 侧状态：active | disabled_manually | disabled_inactivity | deleted ... */
+  state?: string
+}
+
+/**
+ * 预检某个 workflow 在私库里是否存在、是否启用。
+ *
+ * 为什么必须查：
+ *   repository_dispatch 是「广播」—— 没有任何 workflow 监听时 GitHub 依旧返回 204，
+ *   只是**不会创建任何 run**。前端随后在 30s 内找不到新 run，就只能含糊地报
+ *   「Runner 没出现」，把「workflow 压根没装」和「Actions 排队慢」混为一谈。
+ *   先查一次，就能在 dispatch 前给出确定结论，而不是让用户对着超时猜。
+ *
+ * 返回 null 表示「查不到」（网络异常 / 下拉失败）—— 此时不要阻断流程，交给后面的轮询。
+ */
+export async function getWorkflowState(
+  eventType: WorkflowEvent,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<WorkflowState | null> {
+  const file = WORKFLOW_FILE_BY_EVENT[eventType]
+  let res: Response
+  try {
+    res = await githubFetch(`/repos/${owner}/${repo}/actions/workflows/${file}`, token)
+  } catch (e) {
+    console.warn(`[getWorkflowState] ${eventType} 网络异常:`, e)
+    return null
+  }
+  if (res.status === 404) return { exists: false }
+  if (!res.ok) {
+    console.warn(`[getWorkflowState] ${eventType} HTTP ${res.status}`)
+    return null
+  }
+  const data = (await res.json().catch(() => null)) as { state?: string } | null
+  return { exists: true, state: data?.state }
+}
+
 // ===================== dispatch =====================
 
 export async function dispatchPaperConvert(
