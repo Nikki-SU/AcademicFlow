@@ -73,8 +73,8 @@ export async function saveTextbooks(textbooks: Textbook[]): Promise<void> {
 
 const TEXTBOOKS_DIR = 'textbooks'
 
-/** 整本正文的候选文件名：优先 content.md（SPEC 约定），兼容历史命名 */
-const BOOK_CONTENT_CANDIDATES = ['content.md', 'full.md', 'index.md']
+/** 整本正文的标准文件名（SPEC 约定）；历史命名 full.md / index.md 由迁移规整，不在这里兼容 */
+const BOOK_CONTENT_FILE = 'content.md'
 
 export interface BookSummary {
   /** 书名（= `textbooks/` 下的目录名，同时也是 textbook_id） */
@@ -122,17 +122,14 @@ export async function listBooks(): Promise<BookSummary[]> {
     .map((id) => ({
       id,
       title: id,
-      hasContent: BOOK_CONTENT_CANDIDATES.some((n) => paths.has(`${TEXTBOOKS_DIR}/${id}/${n}`)),
+      hasContent: paths.has(`${TEXTBOOKS_DIR}/${id}/${BOOK_CONTENT_FILE}`),
     }))
 }
 
 /** 读取一本书的整本正文；没有正文时返回空串（阅读页据此显示「待转换」） */
 export async function loadBookContent(bookId: string, force = false): Promise<string> {
-  for (const name of BOOK_CONTENT_CANDIDATES) {
-    const result = await readMdFile(`${TEXTBOOKS_DIR}/${bookId}/${name}`, force)
-    if (result?.content?.trim()) return result.content
-  }
-  return ''
+  const result = await readMdFile(`${TEXTBOOKS_DIR}/${bookId}/${BOOK_CONTENT_FILE}`, force)
+  return result?.content?.trim() ? result.content : ''
 }
 
 /**
@@ -148,5 +145,5 @@ export async function loadBookContent(bookId: string, force = false): Promise<st
 export async function bookHasContent(bookId: string): Promise<boolean | null> {
   const paths = await fetchTextbookPaths()
   if (!paths) return null
-  return BOOK_CONTENT_CANDIDATES.some((n) => paths.has(`${TEXTBOOKS_DIR}/${bookId}/${n}`))
+  return paths.has(`${TEXTBOOKS_DIR}/${bookId}/${BOOK_CONTENT_FILE}`)
 }

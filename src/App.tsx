@@ -5,10 +5,11 @@
  * 导航顺序（见 Layout.tsx 的 tabs）：日程 / 追踪 / 阅读 / 会议·课程 / 学习 / 写作 / 管理
  * （其中「日程」「会议·课程」是架构调整新增的空壳页，见 架构.md §2）
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { toast } from 'sonner'
 import Layout from './components/Layout'
+import { MigrationScreen } from './components/MigrationScreen'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import Settings from './pages/Settings'
@@ -149,9 +150,14 @@ function ProtectedOnboardingRoute() {
 function ProtectedMainRoute() {
   const { token, isInitialized } = useAuthStore()
   const { isChecked, repo } = useWorkspaceStore()
+  // 数据格式迁移闸门：探测 / 升级期间把应用整个挡在后面（不渲染任何旧格式数据）
+  const [migrationReady, setMigrationReady] = useState(false)
   if (!isInitialized) return null
   if (!token) return <Navigate to="/auth" replace />
   if (isChecked && !repo) return <Navigate to="/onboarding" replace />
+  if (isChecked && repo && !migrationReady) {
+    return <MigrationScreen onReady={() => setMigrationReady(true)} />
+  }
   return <AppLayout />
 }
 

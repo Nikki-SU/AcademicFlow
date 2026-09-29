@@ -15,7 +15,7 @@
  * 全走 business 数据层（md + csv），写失败一律 toast 提示。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CalendarDays } from 'lucide-react'
+import { CalendarDays } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   loadCourses,
@@ -40,7 +40,6 @@ import { TaskTree } from '../components/schedule/TaskTree'
 import { TaskFormModal, type TaskFormValue } from '../components/schedule/TaskFormModal'
 import { TaskDetailModal } from '../components/schedule/TaskDetailModal'
 import { useTaskStore } from '../stores/task'
-import { pendingMigrations, type Migration } from '../services/migrations'
 
 /** 新建任务表单的上下文：根任务（选大类）或某个父节点的子任务（继承大类） */
 interface TaskFormContext {
@@ -62,9 +61,6 @@ export default function SchedulePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [taskForm, setTaskForm] = useState<TaskFormContext | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
-  // 待执行的「数据格式滚动迁移」（跑完即消失，见 services/migrations.ts）
-  const [pending, setPending] = useState<Migration[]>([])
-  const [isMigrating, setIsMigrating] = useState(false)
 
   const currentId = useTaskStore((s) => s.currentProjectId)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
@@ -82,8 +78,6 @@ export default function SchedulePage() {
     ;(async () => {
       try {
         await loadAll()
-        const p = await pendingMigrations()
-        if (!cancelled) setPending(p)
       } catch (err) {
         console.error('[Schedule] 读取日程数据失败:', err)
         if (!cancelled) toast.error('读取日程数据失败，请刷新重试')
@@ -95,22 +89,6 @@ export default function SchedulePage() {
       cancelled = true
     }
   }, [loadAll])
-
-  // 数据格式只前进：一次性把旧数据升级到新格式，跑完入口自行消失（不做兼容）
-  const handleMigrate = async () => {
-    setIsMigrating(true)
-    try {
-      for (const m of pending) await m.run()
-      await loadAll()
-      setPending(await pendingMigrations())
-      toast.success('数据已更新为新格式')
-    } catch (err) {
-      console.error('[Schedule] 数据更新失败:', err)
-      toast.error('数据更新失败，请重试')
-    } finally {
-      setIsMigrating(false)
-    }
-  }
 
   const byId = useMemo(() => {
     const m = new Map<string, Project>()
@@ -331,24 +309,6 @@ export default function SchedulePage() {
           课程表 · 任务列表 · DDL 汇总于此。课程即课程任务，三处同族同色。
         </p>
       </header>
-
-      {/* 数据格式滚动迁移入口：只在存在旧格式数据时出现，更新完即消失（不做兼容） */}
-      {pending.length > 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
-          <div className="min-w-0 flex-1 text-sm text-amber-800">
-            <span className="font-medium">检测到旧版数据格式</span>
-            <span className="text-amber-700">：{pending.map((m) => m.label).join('；')}</span>
-          </div>
-          <button
-            onClick={handleMigrate}
-            disabled={isMigrating}
-            className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-paper-50 transition hover:bg-amber-700 disabled:opacity-60"
-          >
-            {isMigrating ? '更新中…' : '更新数据'}
-          </button>
-        </div>
-      )}
 
       {isLoading ? (
         <p className="text-sm text-ink-400">加载中…</p>

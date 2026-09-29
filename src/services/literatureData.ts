@@ -134,14 +134,13 @@ const MIN_VALID_ALIGNED_BYTES = 50
  *   - 有 {slug}.md（且非空壳）→ done（全流程完成）
  *   - 有 full.md 或只有空壳 {slug}.md → converting（MinerU 成功，post-mineru 未完成/失败）
  *   - 什么都没有 → none
- * 注：full.md 是 MinerU 原始产物名；fulltext.md 是 2026-09 之前的旧名，一并兼容读取。
+ * 注：full.md 是 MinerU 原始产物名。
  */
 function inferMdStatusFromFiles(doi: string, fileSet: Map<string, number>): MdStatus {
   const slug = doiToSlug(doi)
   const alignedSize = fileSet.get(`literatures/${slug}/${slug}.md`)
   if (alignedSize !== undefined && alignedSize >= MIN_VALID_ALIGNED_BYTES) return 'done'
   if (fileSet.has(`literatures/${slug}/full.md`)) return 'converting'
-  if (fileSet.has(`literatures/${slug}/fulltext.md`)) return 'converting'
   // 空壳 {slug}.md 也按未完成处理，提示用户重跑转换
   if (alignedSize !== undefined) return 'converting'
   return 'none'
@@ -321,18 +320,9 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
 
 export async function loadFulltext(doi: string): Promise<string> {
   const slug = doiToSlug(doi)
-  // 标准路径 full.md（MinerU 原始产物名，不改名）；
-  // 兼容 fulltext.md（2026-09 之前的旧名）与 index.md（更旧）。
-  let result = await readMdFile(`literatures/${slug}/full.md`)
-  if (!result) result = await readMdFile(`literatures/${slug}/fulltext.md`)
-  if (!result) {
-    result = await readMdFile(`literatures/${slug}/index.md`)
-    if (result) {
-      console.warn(
-        `[loadFulltext] ${doi} 只有旧路径 index.md，新版应使用 full.md。下次转换会自动写入 full.md。`,
-      )
-    }
-  }
+  // 标准路径 full.md（MinerU 原始产物名，不改名）。
+  // 旧名 fulltext.md / index.md 已由迁移（services/migrations.ts）规整，这里不做兼容。
+  const result = await readMdFile(`literatures/${slug}/full.md`)
   return result?.content || ''
 }
 
@@ -349,22 +339,15 @@ export async function saveTranslation(doi: string, content: string): Promise<voi
 
 export async function loadAlignedMd(doi: string): Promise<string> {
   const slug = doiToSlug(doi)
+  // 标准路径：{slug}.md（知识库唯一 md）。
   // 注意：空白内容（如历史 bug 留下的 1 字节空壳 {slug}.md）必须当作不存在，
-  // 否则阅读页会显示空白而不是回退到 fulltext.md 的英文原文。
-  // 新版：{slug}.md（标准路径，知识库唯一 md）
-  let result = await readMdFile(`literatures/${slug}/${slug}.md`)
+  // 否则阅读页会显示空白而不是回退到 full.md 的英文原文。
+  // 旧名 aligned.md / fulltext.md / index.md 已由迁移规整，这里不做兼容。
+  const result = await readMdFile(`literatures/${slug}/${slug}.md`)
   if (result?.content?.trim()) return result.content
-  // 兼容：旧版 aligned.md
-  result = await readMdFile(`literatures/${slug}/aligned.md`)
-  if (result?.content?.trim()) return result.content
-  // 兼容：MinerU 原始产物（纯原文，无译文）
-  result = await readMdFile(`literatures/${slug}/full.md`)
-  if (result?.content?.trim()) return result.content
-  result = await readMdFile(`literatures/${slug}/fulltext.md`)
-  if (result?.content?.trim()) return result.content
-  // 兼容：最旧的 index.md
-  result = await readMdFile(`literatures/${slug}/index.md`)
-  return result?.content || ''
+  // 未做过对译时回退到 MinerU 原始产物（纯原文，无译文）
+  const raw = await readMdFile(`literatures/${slug}/full.md`)
+  return raw?.content || ''
 }
 
 /**

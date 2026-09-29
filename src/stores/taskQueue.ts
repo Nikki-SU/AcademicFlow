@@ -116,18 +116,13 @@ export type TaskExecutor = (task: BackgroundTask, signal: AbortSignal) => Promis
 
 const CSV_PATH = 'settings/background_tasks.csv'
 
-// 新头（v2）：stage + node_index 替代旧的 current_step + step_index + total_steps
-const CSV_HEADERS_V2 = [
+// 表头（v2）：stage + node_index 替代旧的 current_step + step_index + total_steps。
+// 旧头（v1）由迁移（services/migrations.ts）一次性升级，这里只认 v2。
+export const CSV_HEADERS_V2 = [
   'id', 'type', 'doi', 'book_id', 'title',
   'stage', 'node_index', 'progress',
   'status', 'message', 'created_at', 'updated_at', 'error', 'metadata',
 ]
-// 旧头（v1，向后兼容读取）——保留用于迁移，但不再写入
-// const CSV_HEADERS_V1 = [
-//   'id', 'type', 'doi', 'book_id', 'title',
-//   'current_step', 'step_index', 'total_steps', 'progress',
-//   'status', 'message', 'created_at', 'updated_at', 'error', 'metadata',
-// ]
 
 // ============================================================
 
@@ -152,53 +147,28 @@ function serializeTask(task: BackgroundTask): string[] {
 
 function parseTask(rows: string[][]): BackgroundTask[] {
   if (rows.length <= 1) return []
-  const header = rows[0]
-  const isV2 = header.includes('stage')
   const tasks: BackgroundTask[] = []
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]
-    if (!row || row.length < (isV2 ? 14 : 15)) continue
+    if (!row || row.length < 14) continue
     try {
-      if (isV2) {
-        const stage = row[5] as PipelineStage
-        tasks.push({
-          id: row[0],
-          type: row[1] as TaskType,
-          doi: row[2] || undefined,
-          book_id: row[3] || undefined,
-          title: row[4],
-          stage,
-          node_index: (Number(row[6]) || (STAGE_META[stage]?.node ?? 0)) as 0 | 1 | 2 | 3,
-          progress: Number(row[7]) || 0,
-          status: row[8] as TaskStatus,
-          message: row[9],
-          created_at: Number(row[10]) || 0,
-          updated_at: Number(row[11]) || 0,
-          error: row[12] || undefined,
-          metadata: row[13] ? JSON.parse(row[13]) : undefined,
-        })
-      } else {
-        // v1 → 迁移：用旧 step_index 粗略推断 node_index，stage 用 step 名
-        const oldStep = row[5] as PipelineStage
-        const oldStepIdx = Number(row[6]) || 0
-        const node = (oldStepIdx <= 0 ? 0 : oldStepIdx === 1 ? 1 : oldStepIdx === 2 ? 2 : 3) as 0 | 1 | 2 | 3
-        tasks.push({
-          id: row[0],
-          type: row[1] as TaskType,
-          doi: row[2] || undefined,
-          book_id: row[3] || undefined,
-          title: row[4],
-          stage: oldStep in STAGE_META ? oldStep : 'queued',
-          node_index: node,
-          progress: Number(row[8]) || 0,
-          status: row[9] as TaskStatus,
-          message: row[10],
-          created_at: Number(row[11]) || 0,
-          updated_at: Number(row[12]) || 0,
-          error: row[13] || undefined,
-          metadata: row[14] ? JSON.parse(row[14]) : undefined,
-        })
-      }
+      const stage = row[5] as PipelineStage
+      tasks.push({
+        id: row[0],
+        type: row[1] as TaskType,
+        doi: row[2] || undefined,
+        book_id: row[3] || undefined,
+        title: row[4],
+        stage,
+        node_index: (Number(row[6]) || (STAGE_META[stage]?.node ?? 0)) as 0 | 1 | 2 | 3,
+        progress: Number(row[7]) || 0,
+        status: row[8] as TaskStatus,
+        message: row[9],
+        created_at: Number(row[10]) || 0,
+        updated_at: Number(row[11]) || 0,
+        error: row[12] || undefined,
+        metadata: row[13] ? JSON.parse(row[13]) : undefined,
+      })
     } catch (e) {
       console.warn('[taskQueue] 解析 CSV 行失败:', row, e)
     }

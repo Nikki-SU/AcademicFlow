@@ -88,8 +88,8 @@ export async function loadCourses(force = false): Promise<Course[]> {
       return rows.slice(1).map((r) => ({
         courseId: r[0] || '',
         title: r[1] || '',
-        // 老数据 / 手改文件里 weekday 非法时兜底为 1，避免整列消失
-        weekday: parseInt(r[2] || '1', 10) || 1,
+        // weekday 由迁移（services/migrations.ts）保证落在 1..7，这里不做旧格式兜底
+        weekday: parseInt(r[2], 10),
         startTime: r[3] || '',
         endTime: r[4] || '',
         location: r[5] || '',

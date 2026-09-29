@@ -73,8 +73,8 @@ export async function loadProjects(force = false): Promise<Project[]> {
         status: (r[4] as Project['status']) || 'draft',
         createdAt: parseInt(r[5] || '0', 10),
         updatedAt: parseInt(r[6] || '0', 10),
-        // 老 CSV 无这些列 → 全部读作研究类根任务、无起止（不破坏老数据）
-        type: (r[7] as ProjectType) || 'research',
+        // 四列均由迁移（services/migrations.ts）保证存在，这里不做旧格式兜底
+        type: r[7] as ProjectType,
         parentId: r[8] || null,
         startAt: parseInt(r[9] || '0', 10),
         dueAt: parseInt(r[10] || '0', 10),
