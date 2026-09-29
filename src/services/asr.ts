@@ -93,6 +93,22 @@ export async function translateText(
   const model = cfg.model.trim()
   if (!model) throw new Error('未配置翻译模型')
 
+  // Hunyuan-MT-7B 这类专用翻译模型没有默认 system prompt，官方模板就是「只发一条
+  // user 消息」（把指令和正文写在一起）；给它发 system 消息会偏离训练分布。
+  // 其余通用对话模型沿用 system + user 的结构，指令更稳。
+  const isDedicatedMt = /hunyuan-mt/i.test(model)
+  const messages = isDedicatedMt
+    ? [{ role: 'user', content: `把下面的文本翻译成中文，不要额外解释：\n\n${text}` }]
+    : [
+        {
+          role: 'system',
+          content:
+            '你是翻译引擎。只翻译，不改写、不添加、不省略；保持原意与语气，' +
+            '数字、专有名词、术语原样保留。直接输出译文，不要任何解释、标注或前后缀。',
+        },
+        { role: 'user', content: text },
+      ]
+
   const res = await fetch(joinUrl(cfg.baseUrl, '/chat/completions'), {
     method: 'POST',
     headers: {
@@ -102,15 +118,7 @@ export async function translateText(
     body: JSON.stringify({
       model,
       temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是翻译引擎。只翻译，不改写、不添加、不省略；保持原意与语气，' +
-            '数字、专有名词、术语原样保留。直接输出译文，不要任何解释、标注或前后缀。',
-        },
-        { role: 'user', content: text },
-      ],
+      messages,
     }),
     signal,
   })

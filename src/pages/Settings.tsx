@@ -780,7 +780,7 @@ function Settings() {
                   type="text"
                   value={asrModel}
                   onChange={(e) => updateSettings({ asrModel: e.target.value })}
-                  placeholder="Qwen/Qwen3-ASR-1.7B"
+                  placeholder="TeleAI/TeleSpeechASR"
                   spellCheck={false}
                   className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />
@@ -813,7 +813,7 @@ function Settings() {
                   className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />
                 <p className="text-xs text-ink-400">
-                  留空表示不翻译；填模型 id 才启用（如 <code className="font-mono">Qwen/Qwen2.5-7B-Instruct</code>）。
+                  留空表示不翻译；填模型 id 才启用（如 <code className="font-mono">tencent/Hunyuan-MT-7B</code>，免费）。
                 </p>
               </div>
             </SubBlock>

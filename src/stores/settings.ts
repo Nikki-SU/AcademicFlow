@@ -130,11 +130,12 @@ const DEFAULT_SETTINGS: SettingsData = {
   // 想要推理时可在设置里逐槽位手选 low/high/max；'' 仍表示「不干预」（什么都不发）。
   thinkingAi1: 'off',
   thinkingAi2: 'off',
-  // 会议/课程转写（ASR）：浏览器直连硅基流动。Qwen3-ASR 免费，实测远快于 SenseVoiceSmall。
+  // 会议/课程转写（ASR）：浏览器直连硅基流动。默认全用免费模型：
+  // 转写 TeleSpeechASR（电信系列，免费）、翻译 Hunyuan-MT-7B（免费）。
   asrBaseUrl: 'https://api.siliconflow.cn/v1',
   asrApiKey: '',
-  asrModel: 'Qwen/Qwen3-ASR-1.7B',
-  asrTranslateModel: 'Qwen/Qwen2.5-7B-Instruct',
+  asrModel: 'TeleAI/TeleSpeechASR',
+  asrTranslateModel: 'tencent/Hunyuan-MT-7B',
   asrTranslateToZh: true,
 }
 

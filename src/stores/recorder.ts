@@ -134,7 +134,7 @@ function readAsrConfig(): AsrRuntimeConfig {
   return {
     baseUrl: (s.asrBaseUrl || '').trim() || 'https://api.siliconflow.cn/v1',
     apiKey: (s.asrApiKey || '').trim(),
-    model: (s.asrModel || '').trim() || 'Qwen/Qwen3-ASR-1.7B',
+    model: (s.asrModel || '').trim() || 'TeleAI/TeleSpeechASR',
     translateModel: (s.asrTranslateModel || '').trim(),
     translateToZh: !!s.asrTranslateToZh,
   }
