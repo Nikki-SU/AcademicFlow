@@ -108,6 +108,103 @@ const waiters: Array<() => void> = []
 /** 正在进行的补转写：并发调用共享同一次（避免重复补同一批、也让 stop 能等到它） */
 let drainPromise: Promise<void> | null = null
 
+// ── 防休眠保活 ────────────────────────────────────────────────────────────
+// 浏览器会冻结（暂停 JS）/ 丢弃（卸载整页）「没用」的后台标签，而 MediaRecorder
+// 是原生对象、不随 JS 暂停 —— 一旦整页被丢弃，录音当场断。三层挡住它：
+//   ① 静音音源：让标签稳定处于「正在放声音」状态（Chrome 官方保护清单之一）
+//   ② Web Lock：持锁的页面 Chrome 不丢弃
+//   ③ 生命周期监听 + wasDiscarded：万一仍被挂起/回收，显式告警，绝不静默丢
+declare global {
+  interface Document {
+    /** 本页是否曾被浏览器「丢弃」后重载（Chrome 非标准属性） */
+    readonly wasDiscarded?: boolean
+  }
+}
+
+/** sessionStorage 标记：本标签当前是否在录音（供「被丢弃后重载」时判断录音是否中断） */
+const RECORDING_FLAG = 'af.recording.active'
+
+let keepAliveCtx: AudioContext | null = null
+let lockAbort: AbortController | null = null
+let guardsAttached = false
+let frozenAt = 0
+
+/** 起一条听不见的高频极低音量音源：用户无感，浏览器却认为「页面在放声音」 */
+function startKeepAliveAudio(): void {
+  if (typeof window === 'undefined' || keepAliveCtx) return
+  try {
+    const ctx = new AudioContext()
+    const osc = ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.value = 19000
+    const gain = ctx.createGain()
+    gain.gain.value = 0.0001
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    void ctx.resume().catch(() => {})
+    keepAliveCtx = ctx
+  } catch {
+    // 保活失败不阻断录音（只是更容易被挂起）
+  }
+}
+
+function stopKeepAliveAudio(): void {
+  const ctx = keepAliveCtx
+  keepAliveCtx = null
+  if (ctx) void ctx.close().catch(() => {})
+}
+
+/** 占一把 Web Lock：持锁期间 Chrome 不会丢弃本页；用 AbortSignal 释放 */
+function acquireKeepAliveLock(): void {
+  if (typeof navigator === 'undefined' || !navigator.locks || lockAbort) return
+  const ctrl = new AbortController()
+  lockAbort = ctrl
+  navigator.locks
+    .request('af-recorder-keepalive', { signal: ctrl.signal }, () => new Promise<void>(() => {}))
+    .catch(() => {})
+}
+
+function releaseKeepAliveLock(): void {
+  lockAbort?.abort()
+  lockAbort = null
+}
+
+/** 录音中被挂起/回收时的统一告警（写进面板 error + 弹 toast，不静默） */
+function notifyInterrupted(reason: string): void {
+  if (useRecorderStore.getState().status !== 'recording') return
+  useRecorderStore.setState({ error: reason })
+  toast.error(reason, { duration: 15000 })
+}
+
+/** 冻结前触发：记下时刻，解冻时算真实挂起时长 */
+function onFreeze(): void {
+  frozenAt = Date.now()
+}
+function onResume(): void {
+  if (!frozenAt) return
+  const gap = Date.now() - frozenAt
+  frozenAt = 0
+  if (gap > 5000) {
+    notifyInterrupted(
+      `页面被系统挂起约 ${Math.round(gap / 1000)} 秒，录音可能中途停顿（已保存片段仍可重试转写）`,
+    )
+  }
+}
+function attachLifecycleGuards(): void {
+  if (guardsAttached || typeof document === 'undefined') return
+  guardsAttached = true
+  document.addEventListener('freeze', onFreeze)
+  document.addEventListener('resume', onResume)
+}
+function detachLifecycleGuards(): void {
+  if (!guardsAttached || typeof document === 'undefined') return
+  guardsAttached = false
+  document.removeEventListener('freeze', onFreeze)
+  document.removeEventListener('resume', onResume)
+  frozenAt = 0
+}
+
 /** 是不是中文（转写接口可能返回 zh / zh-CN / Chinese / cmn / yue 等） */
 function isZhLanguage(lang: string): boolean {
   const l = lang.trim().toLowerCase()
@@ -438,6 +535,16 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       return
     }
 
+    // 防休眠保活（同步创建，占住用户手势）：静音音源 + Web Lock + 生命周期监听
+    startKeepAliveAudio()
+    acquireKeepAliveLock()
+    attachLifecycleGuards()
+    try {
+      sessionStorage.setItem(RECORDING_FLAG, '1')
+    } catch {
+      // sessionStorage 不可用（隐私模式等）：丢弃检测退化为不可用，不影响录音
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStream = stream
@@ -473,7 +580,15 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
         error: null,
       })
     } catch (err) {
-      // 权限被拒 / 设备不可用：写 error 并提示，不静默
+      // 权限被拒 / 设备不可用：先撤掉保活，再写 error 并提示，不静默
+      stopKeepAliveAudio()
+      releaseKeepAliveLock()
+      detachLifecycleGuards()
+      try {
+        sessionStorage.removeItem(RECORDING_FLAG)
+      } catch {
+        // ignore
+      }
       const msg = err instanceof Error ? err.message : String(err)
       set({ error: msg, status: 'idle' })
       toast.error(`无法开始录音：${msg}`)
@@ -503,6 +618,16 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
     mediaRecorder = null
     mediaStream = null
     initSegmentBytes = null
+
+    // 解除防休眠保活
+    stopKeepAliveAudio()
+    releaseKeepAliveLock()
+    detachLifecycleGuards()
+    try {
+      sessionStorage.removeItem(RECORDING_FLAG)
+    } catch {
+      // ignore
+    }
 
     const { targetTaskId, sessionId, segments } = get()
     if (targetTaskId && sessionId && segments.length > 0) {
@@ -546,6 +671,23 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   },
 
   resume: async () => {
+    // 上次若是被浏览器「丢弃」后重载的，且当时正在录音 → 录音已被中断，显式告知
+    if (typeof document !== 'undefined' && document.wasDiscarded) {
+      try {
+        if (sessionStorage.getItem(RECORDING_FLAG)) {
+          sessionStorage.removeItem(RECORDING_FLAG)
+          useRecorderStore.setState({
+            error: '页面曾被浏览器回收（内存不足），录音已中断；已保存的片段仍可重试转写',
+          })
+          toast.error(
+            '录音曾被浏览器回收中断，建议把本站加入浏览器「始终保持活动」名单（设置 → 性能）',
+            { duration: 15000 },
+          )
+        }
+      } catch {
+        // sessionStorage 不可用：无法判断，忽略
+      }
+    }
     await syncPending()
     if ((await countPending()) > 0) void drainPending()
   },
