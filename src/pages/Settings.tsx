@@ -6,13 +6,16 @@
 import {
   ArrowLeft,
   Brain,
+  Check,
   ChevronDown,
+  Copy,
   Database,
   FileText,
   Loader2,
   Mic,
   RefreshCw,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sparkles,
   ToggleLeft,
   ToggleRight,
@@ -273,6 +276,20 @@ function Settings() {
   const [secretSyncing, setSecretSyncing] = useState(false)
   /** 最近一次 syncAllSecrets 返回的每条 secret 的明细状态 */
   const [secretItems, setSecretItems] = useState<SecretItemStatus[]>([])
+  /** 「防休眠」区：本站地址是否刚被复制（1.5s 后复位） */
+  const [copiedSite, setCopiedSite] = useState(false)
+
+  /** 一键复制本站地址：粘进浏览器「始终保持活动」例外名单 */
+  const handleCopySite = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.origin)
+      setCopiedSite(true)
+      toast.success('已复制本站地址')
+      setTimeout(() => setCopiedSite(false), 1500)
+    } catch {
+      toast.error('复制失败，请手动复制地址栏')
+    }
+  }
 
   const runSync = async () => {
     if (!owner || !auth.token || !isInitialized) return
@@ -815,6 +832,44 @@ function Settings() {
                 <p className="text-xs text-ink-400">
                   留空表示不翻译；填模型 id 才启用（如 <code className="font-mono">tencent/Hunyuan-MT-7B</code>，免费）。
                 </p>
+              </div>
+            </SubBlock>
+
+            <SubBlock
+              title="长时间录音不中断"
+              hint="浏览器会冻结 / 回收后台空闲页面，录音页一旦被回收就会中断"
+            >
+              <div className="flex items-start gap-2.5 rounded-lg border border-ink-200 bg-paper-100/60 px-3 py-2.5">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-seal-500" />
+                <div className="space-y-2 text-xs leading-relaxed text-ink-600">
+                  <p>
+                    <span className="font-medium text-ink-700">已内建保活：</span>
+                    录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。
+                  </p>
+                  <p className="font-medium text-ink-700">若仍被打断，可自行加固：</p>
+                  <ul className="list-disc space-y-1 pl-4">
+                    <li>
+                      把本站加入浏览器「内存节省程序」例外名单（Chrome：设置 → 性能 → 始终保持这些网站处于活动状态），粘上下面复制的地址。
+                    </li>
+                    <li>
+                      或在地址栏访问 <code className="font-mono text-ink-700">chrome://discards</code>
+                      ，把本标签的「自动丢弃」关掉。
+                    </li>
+                    <li>或点采集球的「悬浮窗」，让录音在置顶小窗里跑（但要留着这个标签页别关）。</li>
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopySite()}
+                    className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
+                  >
+                    {copiedSite ? (
+                      <Check className="h-3.5 w-3.5 text-green-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {copiedSite ? '已复制' : '复制本站地址'}
+                  </button>
+                </div>
               </div>
             </SubBlock>
           </SettingsGroup>

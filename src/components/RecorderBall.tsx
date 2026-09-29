@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Mic, Square, ChevronDown, Loader2, Camera, RotateCw, PictureInPicture2, Minimize2 } from 'lucide-react'
+import { Mic, Square, ChevronDown, Loader2, Camera, RotateCw, PictureInPicture2, Minimize2, ShieldCheck, Copy, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRecorderStore } from '../stores/recorder'
 import { useTaskStore } from '../stores/task'
@@ -102,6 +102,8 @@ export default function RecorderBall() {
   const [retrying, setRetrying] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [pipWindow, setPipWindow] = useState<Window | null>(null)
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [copiedSite, setCopiedSite] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -248,6 +250,18 @@ export default function RecorderBall() {
     }
   }
 
+  /** 一键复制本站地址：方便粘进浏览器「始终保持活动」/ 内存节省程序例外名单 */
+  const handleCopySite = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.origin)
+      setCopiedSite(true)
+      toast.success('已复制本站地址')
+      setTimeout(() => setCopiedSite(false), 1500)
+    } catch {
+      toast.error('复制失败，请手动复制地址栏')
+    }
+  }
+
   const elapsed = startedAt ? now - startedAt : 0
   const latest = segments.length > 0 ? segments[segments.length - 1].text : ''
 
@@ -357,6 +371,53 @@ export default function RecorderBall() {
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
               {uploading ? '上传中…' : '拍照'}
             </button>
+          </div>
+
+          {/* 防休眠说明 + 用户侧开关：浏览器后台会冻结 / 回收空闲页面，这里给出自助加固办法 */}
+          <div className="border-t border-ink-100">
+            <button
+              type="button"
+              onClick={() => setGuideOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-seal-500" />
+              防休眠说明
+              <span className="text-ink-400">· 长时间录音更稳</span>
+              <ChevronDown
+                className={`ml-auto h-3.5 w-3.5 transition-transform ${guideOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {guideOpen && (
+              <div className="space-y-2.5 border-t border-ink-100 bg-paper-100/60 px-3 py-2.5 text-[11px] leading-relaxed text-ink-600">
+                <p>
+                  <span className="font-medium text-ink-700">已内建保活：</span>
+                  录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。
+                </p>
+                <p className="font-medium text-ink-700">若仍被打断，可自行加固：</p>
+                <ul className="list-disc space-y-1 pl-4">
+                  <li>
+                    打开浏览器「内存节省程序」的例外名单，把本站加进去（Chrome：设置 → 性能 → 始终保持这些网站处于活动状态），粘上下面复制的地址。
+                  </li>
+                  <li>
+                    或在地址栏访问 <span className="font-mono text-ink-700">chrome://discards</span>
+                    ，把本标签的「自动丢弃」关掉。
+                  </li>
+                  <li>或点上方「悬浮窗」，让录音在置顶小窗里跑（但要留着这个标签页别关）。</li>
+                </ul>
+                <button
+                  type="button"
+                  onClick={() => void handleCopySite()}
+                  className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-paper-50 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
+                >
+                  {copiedSite ? (
+                    <Check className="h-3.5 w-3.5 text-green-600" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  {copiedSite ? '已复制' : '复制本站地址'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
