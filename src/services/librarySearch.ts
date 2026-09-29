@@ -99,7 +99,7 @@ export function toSearchText(md: string): string {
     .replace(RAW_HTML_TAG_RE, ' ')
 }
 
-/** 并发上限，避免一次打几百个请求把 GitHub 触发二级限流 */
+/** 并发上限：GitHub 二级限流并发上限 100（REST+GraphQL 共享），10 只有 10%，安全 */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length)
   let cursor = 0
@@ -196,7 +196,7 @@ export async function buildSearchIndex(
     let done = 0
     onProgress?.(0, targets.length)
 
-    const docs = await mapLimit(targets, 6, async (t) => {
+    const docs = await mapLimit(targets, 10, async (t) => {
       const raw = await readFirstAvailable(t.paths)
       done++
       onProgress?.(done, targets.length)

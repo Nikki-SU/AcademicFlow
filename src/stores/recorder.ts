@@ -91,8 +91,10 @@ const SEGMENT_MS = 10000
 const CHUNK_TIMEOUT_MS = 25000
 /** 补转写（重试暂存片）的超时（ms）：宽裕些，宁可慢也要把它转出来 */
 const DRAIN_TIMEOUT_MS = 90000
-/** 同时进行的转写请求上限（直连 ASR，请求独立；顺序由 seq 保证，不靠串行） */
-const MAX_CONCURRENCY = 3
+/** 同时进行的转写请求上限（直连 ASR，请求独立；顺序由 seq 保证，不靠串行）。
+ *  实测（2026-09-29）：Qwen3-ASR 并发 20 无 429/503，吞吐到 ~1000/min 才触顶
+ *  L0 的 1000 RPM；取 6 远低于该线。 */
+const MAX_CONCURRENCY = 6
 
 /** 「抽头 + 拼接」串行链：保证第一片先抽到容器头，后续片才有头可拼 */
 let prepChain: Promise<void> = Promise.resolve()
@@ -132,7 +134,7 @@ function readAsrConfig(): AsrRuntimeConfig {
   return {
     baseUrl: (s.asrBaseUrl || '').trim() || 'https://api.siliconflow.cn/v1',
     apiKey: (s.asrApiKey || '').trim(),
-    model: (s.asrModel || '').trim() || 'FunAudioLLM/SenseVoiceSmall',
+    model: (s.asrModel || '').trim() || 'Qwen/Qwen3-ASR-1.7B',
     translateModel: (s.asrTranslateModel || '').trim(),
     translateToZh: !!s.asrTranslateToZh,
   }

@@ -125,10 +125,10 @@ const DEFAULT_SETTINGS: SettingsData = {
   // 想要推理时可在设置里逐槽位手选 low/high/max；'' 仍表示「不干预」（什么都不发）。
   thinkingAi1: 'off',
   thinkingAi2: 'off',
-  // 会议/课程转写（ASR）：浏览器直连硅基流动。SenseVoiceSmall 免费。
+  // 会议/课程转写（ASR）：浏览器直连硅基流动。Qwen3-ASR 免费，实测远快于 SenseVoiceSmall。
   asrBaseUrl: 'https://api.siliconflow.cn/v1',
   asrApiKey: '',
-  asrModel: 'FunAudioLLM/SenseVoiceSmall',
+  asrModel: 'Qwen/Qwen3-ASR-1.7B',
   asrTranslateModel: 'Qwen/Qwen2.5-7B-Instruct',
   asrTranslateToZh: true,
 }

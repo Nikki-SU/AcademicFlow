@@ -769,7 +769,7 @@ function Settings() {
                   type="text"
                   value={asrModel}
                   onChange={(e) => updateSettings({ asrModel: e.target.value })}
-                  placeholder="FunAudioLLM/SenseVoiceSmall"
+                  placeholder="Qwen/Qwen3-ASR-1.7B"
                   spellCheck={false}
                   className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />

@@ -449,11 +449,12 @@ export async function loadTitleCn(doi: string): Promise<string> {
 
 /**
  * 批量取中文标题，doi → 标题（取不到的为空串）。
- * 并发上限 6：库大的时候别一口气打出几百个请求。
+ * 并发上限 10：GitHub 二级限流并发上限 100（REST+GraphQL 共享），10 只有 10%；
+ * 建索引是一次性有界突发，不长期维持 900 points/min 速率线，撞了也有指数退避兜底。
  */
 export async function loadTitleCns(
   dois: string[],
-  concurrency = 6,
+  concurrency = 10,
 ): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   const queue = dois.filter(Boolean)
