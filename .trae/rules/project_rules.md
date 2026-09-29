@@ -5,6 +5,7 @@
 - 部署是**推送即自动**：`push main` 会触发 `.github/workflows/deploy.yml`（GitHub Actions → GitHub Pages），无需手动命令。
 - 上线地址：https://nikki-su.github.io/AcademicFlow/
 - 无凭证时：说明缺凭证并停下，不要假装已部署。
+- 若 `git push` 报 `could not read Username for 'https://github.com'`：先执行 `gh auth setup-git` 接上凭证助手，再重推。
 
 ## 每次推送前的固定验证
 1. `npm run lint`（= `tsc -b`）
