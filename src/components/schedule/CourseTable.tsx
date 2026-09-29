@@ -23,11 +23,10 @@ function isCourseSlot(course: Course, byId: Map<string, Project>): boolean {
   return !!p && p.type === 'course' && !p.parentId
 }
 
-/** 取块的颜色：优先按所属任务的根色（同族同色），旧数据无 taskId 时按标题散列 */
+/** 取块的颜色：按所属任务的根色（同族同色） */
 function slotRootId(course: Course, byId: Map<string, Project>): string {
-  const p = course.taskId ? byId.get(course.taskId) : undefined
-  if (p) return getRootId(p, byId)
-  return course.taskId || course.title || course.courseId
+  const p = byId.get(course.taskId)
+  return p ? getRootId(p, byId) : course.taskId
 }
 
 /** 分钟 → 时间轴上的百分比 */
@@ -227,7 +226,7 @@ export function CourseTable({
                     const isCurrent = !!c.taskId && c.taskId === currentId
                     const left = pct(s, rangeStart, rangeEnd)
                     const width = pct(e, rangeStart, rangeEnd) - left
-                    const label = c.title || byId.get(c.taskId)?.title || '(未命名)'
+                    const label = byId.get(c.taskId)?.title || c.title || '(未命名)'
                     return (
                       <button
                         key={c.courseId}
@@ -288,8 +287,7 @@ export function CourseTable({
           projects={projects}
           lockTask={isCourseSlot(editCourse, byId)}
           initial={{
-            title:
-              editCourse.title || byId.get(editCourse.taskId)?.title || '',
+            title: byId.get(editCourse.taskId)?.title || editCourse.title,
             startTime: snapTime(editCourse.startTime),
             endTime: snapTime(editCourse.endTime),
             location: editCourse.location,

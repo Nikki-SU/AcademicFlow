@@ -14,8 +14,8 @@
  * 数据：schedule/courses.csv、schedule/extra_days.csv、projects/projects.csv，
  * 全走 business 数据层（md + csv），写失败一律 toast 提示。
  */
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CalendarDays } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   loadCourses,
@@ -40,6 +40,7 @@ import { TaskTree } from '../components/schedule/TaskTree'
 import { TaskFormModal, type TaskFormValue } from '../components/schedule/TaskFormModal'
 import { TaskDetailModal } from '../components/schedule/TaskDetailModal'
 import { useTaskStore } from '../stores/task'
+import { pendingMigrations, type Migration } from '../services/migrations'
 
 /** 新建任务表单的上下文：根任务（选大类）或某个父节点的子任务（继承大类） */
 interface TaskFormContext {
@@ -54,55 +55,6 @@ function genId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
-/**
- * 老课程表迁移（一次性、幂等）
- * -------------------------------------------------
- * 旧数据 course 行没有 task_id（那时课程还不是任务）。这里给每个「还没有归属任务」的时段
- * 按标题复用/新建一个 type='course' 的根任务，补上 task_id —— 于是老课程也自动变成课程任务，
- * 三处同色、到点自动进任务。没有任何旧行时直接返回，不产生写操作。
- */
-async function migrateLegacyCourses(
-  courses: Course[],
-  projects: Project[],
-): Promise<{ courses: Course[]; projects: Project[] }> {
-  if (!courses.some((c) => !c.taskId)) return { courses, projects }
-
-  let nextProjects = projects
-  const byTitle = new Map<string, Project>()
-  for (const p of nextProjects) {
-    if (p.type === 'course' && !p.parentId) byTitle.set(p.title || '', p)
-  }
-
-  const nextCourses = courses.map((c) => {
-    if (c.taskId) return c
-    const name = c.title || '未命名课程'
-    let task = byTitle.get(name)
-    if (!task) {
-      const now = Date.now()
-      task = {
-        projectId: genId('course'),
-        title: name,
-        targetJournal: '',
-        textbookRefs: '',
-        status: 'draft',
-        createdAt: now,
-        updatedAt: now,
-        type: 'course',
-        parentId: null,
-        startAt: 0,
-        dueAt: 0,
-      }
-      nextProjects = [...nextProjects, task]
-      byTitle.set(name, task)
-    }
-    return { ...c, taskId: task.projectId }
-  })
-
-  await saveProjects(nextProjects)
-  await saveCourses(nextCourses)
-  return { courses: nextCourses, projects: nextProjects }
-}
-
 export default function SchedulePage() {
   const [courses, setCourses] = useState<Course[]>([])
   const [extraDays, setExtraDays] = useState<ExtraDay[]>([])
@@ -110,33 +62,55 @@ export default function SchedulePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [taskForm, setTaskForm] = useState<TaskFormContext | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
+  // 待执行的「数据格式滚动迁移」（跑完即消失，见 services/migrations.ts）
+  const [pending, setPending] = useState<Migration[]>([])
+  const [isMigrating, setIsMigrating] = useState(false)
 
   const currentId = useTaskStore((s) => s.currentProjectId)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
 
+  const loadAll = useCallback(async () => {
+    const [cs, eds, ps] = await Promise.all([loadCourses(), loadExtraDays(), loadProjects()])
+    setCourses(cs)
+    setExtraDays(eds)
+    setProjects(ps)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
-    Promise.all([loadCourses(), loadExtraDays(), loadProjects()])
-      .then(async ([cs, eds, ps]) => {
-        // 老课程表一次性迁移成「课程任务」（幂等，无旧行则不写）
-        const migrated = await migrateLegacyCourses(cs, ps)
-        if (cancelled) return
-        setCourses(migrated.courses)
-        setExtraDays(eds)
-        setProjects(migrated.projects)
-      })
-      .catch((err) => {
+    ;(async () => {
+      try {
+        await loadAll()
+        const p = await pendingMigrations()
+        if (!cancelled) setPending(p)
+      } catch (err) {
         console.error('[Schedule] 读取日程数据失败:', err)
         if (!cancelled) toast.error('读取日程数据失败，请刷新重试')
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setIsLoading(false)
-      })
+      }
+    })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadAll])
+
+  // 数据格式只前进：一次性把旧数据升级到新格式，跑完入口自行消失（不做兼容）
+  const handleMigrate = async () => {
+    setIsMigrating(true)
+    try {
+      for (const m of pending) await m.run()
+      await loadAll()
+      setPending(await pendingMigrations())
+      toast.success('数据已更新为新格式')
+    } catch (err) {
+      console.error('[Schedule] 数据更新失败:', err)
+      toast.error('数据更新失败，请重试')
+    } finally {
+      setIsMigrating(false)
+    }
+  }
 
   const byId = useMemo(() => {
     const m = new Map<string, Project>()
@@ -357,6 +331,24 @@ export default function SchedulePage() {
           课程表 · 任务列表 · DDL 汇总于此。课程即课程任务，三处同族同色。
         </p>
       </header>
+
+      {/* 数据格式滚动迁移入口：只在存在旧格式数据时出现，更新完即消失（不做兼容） */}
+      {pending.length > 0 && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1 text-sm text-amber-800">
+            <span className="font-medium">检测到旧版数据格式</span>
+            <span className="text-amber-700">：{pending.map((m) => m.label).join('；')}</span>
+          </div>
+          <button
+            onClick={handleMigrate}
+            disabled={isMigrating}
+            className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-paper-50 transition hover:bg-amber-700 disabled:opacity-60"
+          >
+            {isMigrating ? '更新中…' : '更新数据'}
+          </button>
+        </div>
+      )}
 
       {isLoading ? (
         <p className="text-sm text-ink-400">加载中…</p>

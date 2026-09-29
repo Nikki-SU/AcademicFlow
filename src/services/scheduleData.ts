@@ -21,7 +21,7 @@ import { readCsvFile, writeCsvFile } from './userData'
  */
 export interface Course {
   courseId: string
-  /** 时段标题（旧数据兜底用；新数据以所属任务标题为准） */
+  /** 时段标题（展示以所属任务标题为准，此处保留一份冗余副本） */
   title: string
   /** 1..7（1=周一 … 7=周日） */
   weekday: number
@@ -31,7 +31,7 @@ export interface Course {
   endTime: string
   location: string
   createdAt: number
-  /** 所属任务 id；旧数据为空串（渲染时回退到 title 自成一色） */
+  /** 所属任务 id（课程任务 or 定时任务）；一律由迁移保证非空 */
   taskId: string
 }
 
