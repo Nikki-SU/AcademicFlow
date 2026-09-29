@@ -25,6 +25,7 @@ import {
 import { useAuthStore } from '../stores/auth'
 import { subscribeGlobalAuthError, clearGlobalAuthError } from '../services/authError'
 import { useOrientation } from '../hooks/useOrientation'
+import { useAutoTaskBySchedule } from '../hooks/useAutoTaskBySchedule'
 import { useTaskStore } from '../stores/task'
 import { loadProjects, type Project } from '../services/projectData'
 import RecorderBall from './RecorderBall'
@@ -150,6 +151,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, method, expiresAt, logout, token } = useAuthStore()
   const [authError, setAuthError] = useState<string | null>(null)
   const currentProjectId = useTaskStore((s) => s.currentProjectId)
+  // 到点自动进课程 / 定时任务，时段结束回上一次的任务（见 hooks/useAutoTaskBySchedule）
+  useAutoTaskBySchedule()
   // 任务清单：既喂 AF 下拉切换，也决定页签「会议 / 课程」的命名（同一份数据，只拉一次）
   const [projects, setProjects] = useState<Project[]>([])
 
@@ -229,7 +232,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="page-container">
           <div className="flex items-center justify-between h-12">
             {/* Logo（AF 图标）：兼作任务快速切换入口 */}
-            <TaskSwitcher projects={projects} orientation={orientation} onReload={reloadProjects} />
+            <TaskSwitcher projects={projects} onReload={reloadProjects} />
 
             {/* Tab 导航 */}
             <nav className="flex items-center gap-1 flex-1">

@@ -1,9 +1,15 @@
 /**
  * 日程页（跨项目的总页面）
  * -------------------------------------------------
- * 定位：DDL 与课程表在这里汇总，不隶属于任何单个项目（见 架构.md §2）。
- * - 左栏：课程表（定时任务式条目，不因过期而归档）。
- * - 右栏：DDL 清单（只展示有截止时间的任务，按 dueAt 升序，不按层级堆叠）。
+ * 定位：课程表、任务列表、DDL 在这里汇总，不隶属于任何单个项目（见 架构.md §2）。
+ * - 左栏：课程表（竖排时间轴，一天一行；课程 / 定时任务都进这里，不因过期归档）。
+ * - 中栏：任务列表（保留**层级与系列**，点节点切「当前任务」）。
+ * - 右栏：DDL 清单（只展示有截止时间的任务，按 dueAt 升序，**扁平不分层级**）。
+ * 三处同根同色（colorForRoot），课程表 / 任务列表 / DDL 全局一致。
+ *
+ * 「课程 = 课程任务」：加课时按名称复用/新建 type='course' 的根任务，多个时段共享同一任务，
+ * 于是同一门课在课表 / 任务 / DDL 里始终同色；定时任务（如每周组会）则是「已有任务 + 时段」，
+ * 可挂到「研究」大类下，也能单独改归属。
  *
  * 数据：schedule/courses.csv、schedule/extra_days.csv、projects/projects.csv，
  * 全走 business 数据层（md + csv），写失败一律 toast 提示。
@@ -28,10 +34,12 @@ import {
   type ProjectType,
 } from '../services/projectData'
 import { CourseTable } from '../components/schedule/CourseTable'
-import type { CourseFormValue } from '../components/schedule/CourseFormModal'
+import type { SlotFormValue } from '../components/schedule/CourseFormModal'
 import { DdlList } from '../components/schedule/DdlList'
+import { TaskTree } from '../components/schedule/TaskTree'
 import { TaskFormModal, type TaskFormValue } from '../components/schedule/TaskFormModal'
 import { TaskDetailModal } from '../components/schedule/TaskDetailModal'
+import { useTaskStore } from '../stores/task'
 
 /** 新建任务表单的上下文：根任务（选大类）或某个父节点的子任务（继承大类） */
 interface TaskFormContext {
@@ -39,6 +47,60 @@ interface TaskFormContext {
   showType: boolean
   parentId: string | null
   type: ProjectType
+}
+
+/** 生成本地唯一 id（同伴随时间戳，避免同毫秒碰撞） */
+function genId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
+
+/**
+ * 老课程表迁移（一次性、幂等）
+ * -------------------------------------------------
+ * 旧数据 course 行没有 task_id（那时课程还不是任务）。这里给每个「还没有归属任务」的时段
+ * 按标题复用/新建一个 type='course' 的根任务，补上 task_id —— 于是老课程也自动变成课程任务，
+ * 三处同色、到点自动进任务。没有任何旧行时直接返回，不产生写操作。
+ */
+async function migrateLegacyCourses(
+  courses: Course[],
+  projects: Project[],
+): Promise<{ courses: Course[]; projects: Project[] }> {
+  if (!courses.some((c) => !c.taskId)) return { courses, projects }
+
+  let nextProjects = projects
+  const byTitle = new Map<string, Project>()
+  for (const p of nextProjects) {
+    if (p.type === 'course' && !p.parentId) byTitle.set(p.title || '', p)
+  }
+
+  const nextCourses = courses.map((c) => {
+    if (c.taskId) return c
+    const name = c.title || '未命名课程'
+    let task = byTitle.get(name)
+    if (!task) {
+      const now = Date.now()
+      task = {
+        projectId: genId('course'),
+        title: name,
+        targetJournal: '',
+        textbookRefs: '',
+        status: 'draft',
+        createdAt: now,
+        updatedAt: now,
+        type: 'course',
+        parentId: null,
+        startAt: 0,
+        dueAt: 0,
+      }
+      nextProjects = [...nextProjects, task]
+      byTitle.set(name, task)
+    }
+    return { ...c, taskId: task.projectId }
+  })
+
+  await saveProjects(nextProjects)
+  await saveCourses(nextCourses)
+  return { courses: nextCourses, projects: nextProjects }
 }
 
 export default function SchedulePage() {
@@ -49,15 +111,20 @@ export default function SchedulePage() {
   const [taskForm, setTaskForm] = useState<TaskFormContext | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
 
+  const currentId = useTaskStore((s) => s.currentProjectId)
+  const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
+
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
     Promise.all([loadCourses(), loadExtraDays(), loadProjects()])
-      .then(([cs, eds, ps]) => {
+      .then(async ([cs, eds, ps]) => {
+        // 老课程表一次性迁移成「课程任务」（幂等，无旧行则不写）
+        const migrated = await migrateLegacyCourses(cs, ps)
         if (cancelled) return
-        setCourses(cs)
+        setCourses(migrated.courses)
         setExtraDays(eds)
-        setProjects(ps)
+        setProjects(migrated.projects)
       })
       .catch((err) => {
         console.error('[Schedule] 读取日程数据失败:', err)
@@ -85,25 +152,106 @@ export default function SchedulePage() {
 
   const detailProject = detailId ? byId.get(detailId) ?? null : null
 
-  // ---------- 课程表 ----------
-  const handleAddCourse = async (weekday: number, value: CourseFormValue) => {
-    const course: Course = {
-      courseId: `course_${Date.now()}`,
-      title: value.title,
-      weekday,
-      startTime: value.startTime,
-      endTime: value.endTime,
-      location: value.location,
-      createdAt: Date.now(),
+  // ---------- 课程 / 定时任务：时段 ----------
+  /** 加课时：同名课程复用同一个课程任务（高数周二 / 周四共享），否则新建 */
+  const resolveCourseTask = async (name: string): Promise<Project> => {
+    const existing = projects.find(
+      (p) => p.type === 'course' && !p.parentId && (p.title || '') === name,
+    )
+    if (existing) return existing
+    const now = Date.now()
+    const task: Project = {
+      projectId: genId('course'),
+      title: name,
+      targetJournal: '',
+      textbookRefs: '',
+      status: 'draft',
+      createdAt: now,
+      updatedAt: now,
+      type: 'course',
+      parentId: null,
+      startAt: 0,
+      dueAt: 0,
     }
-    const next = [...courses, course]
+    const next = [...projects, task]
+    await saveProjects(next)
+    setProjects(next)
+    return task
+  }
+
+  const handleCreateSlot = async (
+    weekday: number,
+    variant: 'course' | 'timed',
+    value: SlotFormValue,
+  ) => {
     try {
+      let taskId = value.taskId
+      let title = value.title
+      if (variant === 'course') {
+        const task = await resolveCourseTask(value.title.trim())
+        taskId = task.projectId
+        title = task.title
+      } else {
+        const task = byId.get(value.taskId)
+        if (!task) {
+          toast.error('请选择要加入课表的任务')
+          return
+        }
+        title = task.title || value.title
+      }
+      const course: Course = {
+        courseId: genId('slot'),
+        title,
+        weekday,
+        startTime: value.startTime,
+        endTime: value.endTime,
+        location: value.location,
+        createdAt: Date.now(),
+        taskId,
+      }
+      const next = [...courses, course]
       await saveCourses(next)
       setCourses(next)
-      toast.success('已添加课程')
+      toast.success(variant === 'course' ? '已添加课程' : '已加入课表')
     } catch (err) {
-      console.error('[Schedule] 添加课程失败:', err)
-      toast.error('添加课程失败，请重试')
+      console.error('[Schedule] 添加时段失败:', err)
+      toast.error('添加失败，请重试')
+    }
+  }
+
+  const handleUpdateSlot = async (courseId: string, value: SlotFormValue) => {
+    const slot = courses.find((c) => c.courseId === courseId)
+    if (!slot) return
+    try {
+      // 课程时段：允许改课程名 —— 同步重命名所属课程任务（所有时段跟着变）
+      const slotTask = slot.taskId ? byId.get(slot.taskId) : undefined
+      const isCourseSlot = !!slotTask && slotTask.type === 'course' && !slotTask.parentId
+      if (isCourseSlot && slotTask && value.title.trim() && value.title.trim() !== slotTask.title) {
+        const newName = value.title.trim()
+        const nextProjects = projects.map((p) =>
+          p.projectId === slotTask.projectId ? { ...p, title: newName, updatedAt: Date.now() } : p,
+        )
+        await saveProjects(nextProjects)
+        setProjects(nextProjects)
+      }
+      const next = courses.map((c) =>
+        c.courseId === courseId
+          ? {
+              ...c,
+              title: value.title,
+              startTime: value.startTime,
+              endTime: value.endTime,
+              location: value.location,
+              taskId: value.taskId || c.taskId,
+            }
+          : c,
+      )
+      await saveCourses(next)
+      setCourses(next)
+      toast.success('已保存时段')
+    } catch (err) {
+      console.error('[Schedule] 保存时段失败:', err)
+      toast.error('保存失败，请重试')
     }
   }
 
@@ -113,8 +261,8 @@ export default function SchedulePage() {
       await saveCourses(next)
       setCourses(next)
     } catch (err) {
-      console.error('[Schedule] 删除课程失败:', err)
-      toast.error('删除课程失败，请重试')
+      console.error('[Schedule] 删除时段失败:', err)
+      toast.error('删除失败，请重试')
     }
   }
 
@@ -151,7 +299,7 @@ export default function SchedulePage() {
     }
   }
 
-  // ---------- DDL 清单 ----------
+  // ---------- 任务 / DDL ----------
   const handleCreateTask = async (value: TaskFormValue, parentId: string | null) => {
     const now = Date.now()
     const project: Project = {
@@ -188,46 +336,70 @@ export default function SchedulePage() {
     setProjects(next)
   }
 
+  const openChildForm = (parent: Project) =>
+    setTaskForm({
+      title: `新建子任务 · ${parent.title || '(未命名任务)'}`,
+      showType: false,
+      parentId: parent.projectId,
+      type: parent.type,
+    })
+
+  const columnHeight = 'lg:h-[calc(100vh-7.5rem)]'
+
   return (
     <div className="page-container py-6">
-      <header className="mb-6">
+      <header className="mb-4">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-5 w-5 text-seal-600" />
           <h1 className="text-lg font-semibold text-ink-800">日程</h1>
         </div>
         <p className="mt-1 text-sm text-ink-500">
-          跨项目的总页面：课程表与 DDL 汇总于此，与具体项目解耦。
+          课程表 · 任务列表 · DDL 汇总于此。课程即课程任务，三处同族同色。
         </p>
       </header>
 
       {isLoading ? (
         <p className="text-sm text-ink-400">加载中…</p>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
-          <CourseTable
-            courses={courses}
-            extraDays={extraDays}
-            onAddCourse={handleAddCourse}
-            onDeleteCourse={handleDeleteCourse}
-            onAddExtraDay={handleAddExtraDay}
-            onDeleteExtraDay={handleDeleteExtraDay}
-          />
-          <DdlList
-            projects={ddlItems}
-            byId={byId}
-            onNewRoot={() =>
-              setTaskForm({ title: '新建任务', showType: true, parentId: null, type: 'research' })
-            }
-            onAddChild={(parent) =>
-              setTaskForm({
-                title: `新建子任务 · ${parent.title || '(未命名任务)'}`,
-                showType: false,
-                parentId: parent.projectId,
-                type: parent.type,
-              })
-            }
-            onOpen={(p) => setDetailId(p.projectId)}
-          />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1fr)]">
+          <div className={`min-h-[360px] ${columnHeight}`}>
+            <CourseTable
+              courses={courses}
+              extraDays={extraDays}
+              projects={projects}
+              byId={byId}
+              currentId={currentId}
+              onCreateSlot={handleCreateSlot}
+              onUpdateSlot={handleUpdateSlot}
+              onDeleteCourse={handleDeleteCourse}
+              onAddExtraDay={handleAddExtraDay}
+              onDeleteExtraDay={handleDeleteExtraDay}
+            />
+          </div>
+          <div className={`min-h-[360px] ${columnHeight}`}>
+            <TaskTree
+              projects={projects}
+              currentId={currentId}
+              isLoading={isLoading}
+              onSelect={(id) => void setCurrentProject(id)}
+              onNewRoot={() =>
+                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: 'research' })
+              }
+              onAddChild={openChildForm}
+            />
+          </div>
+          <div className={`min-h-[360px] ${columnHeight}`}>
+            <DdlList
+              projects={ddlItems}
+              byId={byId}
+              currentId={currentId}
+              onNewRoot={() =>
+                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: 'research' })
+              }
+              onAddChild={openChildForm}
+              onOpen={(p) => setDetailId(p.projectId)}
+            />
+          </div>
         </div>
       )}
 

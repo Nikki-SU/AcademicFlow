@@ -28,11 +28,9 @@ function byDueThenTitle(a: Project, b: Project): number {
 
 export default function TaskSwitcher({
   projects,
-  orientation,
   onReload,
 }: {
   projects: Project[]
-  orientation: 'landscape' | 'portrait'
   onReload: () => void
 }) {
   const currentId = useTaskStore((s) => s.currentProjectId)
@@ -79,6 +77,7 @@ export default function TaskSwitcher({
   roots.sort(byDueThenTitle)
 
   const current = currentId ? byId.get(currentId) : undefined
+  const currentColor = current ? colorForRoot(getRootId(current, byId)) : null
 
   const handlePick = (id: string) => {
     setOpen(false)
@@ -113,16 +112,17 @@ export default function TaskSwitcher({
       <button
         type="button"
         onClick={toggle}
-        title="快速切换任务"
-        className="flex items-center gap-2 rounded-md px-1 py-1 transition hover:bg-paper-100"
+        title={current ? `当前任务：${current.title || '(未命名任务)'}` : '选择当前任务'}
+        className="flex max-w-[19rem] items-center gap-2 rounded-md px-1 py-1 transition hover:bg-paper-100"
       >
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-seal-600">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-seal-600">
           <span className="text-xs font-bold text-paper-50">AF</span>
         </div>
-        {orientation === 'landscape' && (
-          <span className="text-sm font-semibold text-ink-800">AcademicFlow</span>
-        )}
-        <ChevronDown className={`h-3.5 w-3.5 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className={`h-2 w-2 shrink-0 rounded-full ${currentColor?.bg ?? 'bg-ink-200'}`} />
+        <span className="min-w-0 truncate text-sm font-semibold text-ink-800">
+          {current ? current.title || '(未命名任务)' : '未选任务'}
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (

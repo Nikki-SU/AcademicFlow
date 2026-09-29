@@ -11,9 +11,17 @@
 
 import { readCsvFile, writeCsvFile } from './userData'
 
-/** 课程表条目 */
+/**
+ * 时段（课程表条目）
+ * -------------------------------------------------
+ * 一行 = 一个「每周固定时段」。时段本身不是任务，它**归属**一个任务：
+ * - 课程：归属 type='course' 的任务（一门课一个任务，多个时段挂同一 taskId）
+ * - 定时任务（如每周组会）：归属任意任务（可挂在「研究」大类下），时段即它的重复规则
+ * 渲染时按 taskId 找到任务、按任务所在族的根色着色，课程表 / 任务列表 / DDL 全局同色。
+ */
 export interface Course {
   courseId: string
+  /** 时段标题（旧数据兜底用；新数据以所属任务标题为准） */
   title: string
   /** 1..7（1=周一 … 7=周日） */
   weekday: number
@@ -23,7 +31,26 @@ export interface Course {
   endTime: string
   location: string
   createdAt: number
+  /** 所属任务 id；旧数据为空串（渲染时回退到 title 自成一色） */
+  taskId: string
 }
+
+/** HH:MM → 当日分钟数（非法返回 0） */
+export function timeToMinutes(hhmm: string): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || '')
+  if (!m) return 0
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+}
+
+/** 当日分钟数 → HH:MM（按 5 分钟取整，落回 0..1439） */
+export function minutesToTime(min: number): string {
+  const snapped = Math.max(0, Math.min(1439, Math.round(min / 5) * 5))
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(Math.floor(snapped / 60))}:${p(snapped % 60)}`
+}
+
+/** 1..7 → 中文星期；越界返回空串 */
+export const WEEKDAY_LABELS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'] as const
 
 /** 调休日：把某个周末日期标为工作日 */
 export interface ExtraDay {
@@ -34,8 +61,9 @@ export interface ExtraDay {
 
 const COURSES_PATH = 'schedule/courses.csv'
 // ⚠️ 必须与 src/constants/skeleton.ts 的 CSV_HEADERS.courses 完全一致（顺序也一致）
+//    task_id 为本轮新增（时段归属的任务），追加末尾（守「新列一律追加末尾」）。
 const COURSE_HEADERS = [
-  'course_id', 'title', 'weekday', 'start_time', 'end_time', 'location', 'created_at',
+  'course_id', 'title', 'weekday', 'start_time', 'end_time', 'location', 'created_at', 'task_id',
 ]
 
 const EXTRA_DAYS_PATH = 'schedule/extra_days.csv'
@@ -66,6 +94,7 @@ export async function loadCourses(force = false): Promise<Course[]> {
         endTime: r[4] || '',
         location: r[5] || '',
         createdAt: parseInt(r[6] || '0', 10),
+        taskId: r[7] || '',
       }))
     },
     force,
@@ -85,6 +114,7 @@ export async function saveCourses(courses: Course[]): Promise<void> {
       c.endTime,
       c.location,
       String(c.createdAt),
+      c.taskId || '',
     ],
   )
 }
