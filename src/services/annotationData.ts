@@ -79,10 +79,11 @@ export async function loadAnnotations(ref: DocRef): Promise<Annotation[]> {
         // 不满足的一律按脏数据丢弃（历史损坏产物）。
         if (!id.startsWith('anno-')) continue
         if (!text.trim() && !note.trim()) continue
-        // 只有"没有锚点的老数据"才按长度过滤：老数据靠全文文本匹配，一个字的
+        // 只有"没有锚点的数据"才按长度过滤：没锚点就靠全文文本匹配，一个字的
         // 碎片会命中任意文章。带锚点（en-12 / cn-12）的批注只在那一块里找，
         // 再短也不会串，所以不能因为短就丢掉（用户要求随处批注）。
-        if (!(iAnchor >= 0 && (r[iAnchor] ?? '').trim()) && text.trim().length > 0 && text.trim().length < 2) continue
+        // anchor 列必存在（历史文件由 migrations.ts 的 annotation-anchors-v2 补齐）。
+        if (!(r[iAnchor] ?? '').trim() && text.trim().length > 0 && text.trim().length < 2) continue
         if (!(createdAt > 0)) continue
         out.push({
           id,
@@ -92,7 +93,7 @@ export async function loadAnnotations(ref: DocRef): Promise<Annotation[]> {
           note,
           createdAt,
           updatedAt: updatedAt > 0 ? updatedAt : createdAt,
-          anchor: iAnchor >= 0 ? (r[iAnchor] ?? '').trim() : '',
+          anchor: (r[iAnchor] ?? '').trim(),
         })
       }
       return out

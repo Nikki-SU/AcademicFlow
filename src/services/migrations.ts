@@ -501,10 +501,10 @@ const ANNOTATION_HEADERS = [
   'id', 'type', 'color', 'text', 'note', 'created_at', 'updated_at', 'anchor',
 ]
 
-/** 文献批注文件路径：literatures/{slug}/annotations/annotations.csv */
-function literatureAnnotationPaths(blobs: Map<string, number>): string[] {
+/** 所有批注文件路径：{literatures|textbooks|documents}/{id}/annotations/annotations.csv */
+function annotationPaths(blobs: Map<string, number>): string[] {
   return [...blobs.keys()].filter((p) =>
-    /^literatures\/[^/]+\/annotations\/annotations\.csv$/.test(p),
+    /^(literatures|textbooks|documents)\/[^/]+\/annotations\/annotations\.csv$/.test(p),
   )
 }
 
@@ -526,67 +526,75 @@ function anchorForText(md: string, text: string): string {
 }
 
 /**
- * v1 → v2：给「无锚点」的旧文献批注补上块锚点（en-12 / cn-12）。
- * 锚点是「某一语言的某一段」，原文与译文是两个独立块、段号相同。补锚点后，同一处批注在各显示模式
- * 之间切换都还落在同一段上，不再依赖「全篇文本匹配」这种会串文章的兜底。
+ * v1 → v2：升级旧批注表。
+ *   1) 补齐 **anchor 列**（早期表没有这一列）——所有阅读对象（文献 / 图书 / 其他文档）统一；
+ *   2) 文献批注额外**离线补块锚点**（en-12 / cn-12）：命中唯一块才补，否则留空。
  *
- * 说明：锚点会随排版变化失效，所以批注的 anchor 仍是**可选**字段、运行时的文本匹配兜底保留；
- * 本迁移只做「能确定就补上」，命中不唯一的一律留空。图书批注（b-N）依赖渲染结果、无法离线确定，不在此列。
+ * 锚点是「某一语言的某一段」，原文与译文是两个独立块、段号相同；补锚点后同一处批注在各显示模式
+ * 之间切换都还落在同一段上，不再依赖「全篇文本匹配」这种会串文章的兜底。图书/文档批注的块锚点
+ * 依赖渲染结果、无法离线确定，本迁移只保证列结构一致，值留空（运行时按文本匹配兜底）。
  */
-const annotationAnchorsV1: Migration = {
-  id: 'annotation-anchors-v1',
-  label: '给旧文献批注补上块锚点（en / cn 段号）',
+const annotationAnchorsV2: Migration = {
+  id: 'annotation-anchors-v2',
+  label: '升级旧批注表（补齐 anchor 列；文献批注补块锚点）',
   ledger: true,
   detect: async () => {
     const blobs = await listRepoBlobs()
     if (!blobs) return false
-    for (const path of literatureAnnotationPaths(blobs)) {
+    for (const path of annotationPaths(blobs)) {
       const rows = await readCsvFile<string[]>(path, (r) => r, true)
       if (rows.length <= 1) continue
       const header = rows[0].map((h) => h.trim())
       const iAnchor = header.indexOf('anchor')
-      if (rows.slice(1).some((r) => !(iAnchor >= 0 && (r[iAnchor] ?? '').trim()))) return true
+      if (iAnchor < 0) return true // 缺列 → 任何对象都要补
+      // 文献批注还要把「有列但空值」的补上
+      if (path.startsWith('literatures/') && rows.slice(1).some((r) => !(r[iAnchor] ?? '').trim())) {
+        return true
+      }
     }
     return false
   },
   run: async () => {
     const blobs = await listRepoBlobs()
     if (!blobs) return
-    for (const path of literatureAnnotationPaths(blobs)) {
+    for (const path of annotationPaths(blobs)) {
       const raw = await readCsvFile<string[]>(path, (r) => r, true)
       if (raw.length <= 1) continue
       const header = raw[0].map((h) => h.trim())
       const col = (n: string) => header.indexOf(n)
       const iAnchor = col('anchor')
       const iId = col('id')
-      const iType = col('type')
-      const iColor = col('color')
       const iText = col('text')
-      const iNote = col('note')
-      const iCreated = col('created_at')
-      const iUpdated = col('updated_at')
       // 列名认不全就不动这个文件（宁可留着，也不要把 id / 正文写丢）
       if (iId < 0 || iText < 0) continue
-      if (!raw.slice(1).some((r) => !(iAnchor >= 0 && (r[iAnchor] ?? '').trim()))) continue
 
-      const slug = path.split('/')[1]
-      // 正文：标准 {slug}.md，回退 MinerU 原始 full.md（与 loadAlignedMd 同口径）
-      const md =
-        (await readDocText(`literatures/${slug}/${slug}.md`)) ??
-        (await readDocText(`literatures/${slug}/full.md`)) ??
-        ''
+      const isLiterature = path.startsWith('literatures/')
+      const rows = raw.slice(1)
+      if (iAnchor >= 0 && !(isLiterature && rows.some((r) => !(r[iAnchor] ?? '').trim()))) {
+        continue // 已有 anchor 列，且无需补值的非文献批注 → 不必重写
+      }
 
-      const out = raw.slice(1).map((r) => {
+      // 文献：拿正文离线确定块锚点；图书/文档：仅补齐列结构
+      let md = ''
+      if (isLiterature) {
+        const slug = path.split('/')[1]
+        md =
+          (await readDocText(`literatures/${slug}/${slug}.md`)) ??
+          (await readDocText(`literatures/${slug}/full.md`)) ??
+          ''
+      }
+
+      const out = rows.map((r) => {
         const anchor = iAnchor >= 0 ? (r[iAnchor] ?? '').trim() : ''
         const filled = anchor || (md ? anchorForText(md, r[iText] ?? '') : '')
         return [
           r[iId] ?? '',
-          r[iType] ?? 'highlight',
-          r[iColor] ?? 'yellow',
+          r[col('type')] ?? 'highlight',
+          r[col('color')] ?? 'yellow',
           r[iText] ?? '',
-          r[iNote] ?? '',
-          r[iCreated] ?? '0',
-          r[iUpdated] ?? r[iCreated] ?? '0',
+          r[col('note')] ?? '',
+          r[col('created_at')] ?? '0',
+          r[col('updated_at')] ?? r[col('created_at')] ?? '0',
           filled,
         ]
       })
@@ -606,7 +614,7 @@ export const MIGRATIONS: Migration[] = [
   textbookMdNames,
   documentMdNames,
   docImagesV1,
-  annotationAnchorsV1,
+  annotationAnchorsV2,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
