@@ -54,8 +54,12 @@ export interface Migration {
    * **仅在版本号未知时兜底使用** —— 版本号已知时直接按 `since` 区间直迁，不调用它（ADJ-60）。
    */
   detect: () => Promise<boolean>
-  /** 执行迁移：把旧格式数据就地升级为新格式 */
-  run: () => Promise<void>
+  /**
+   * 执行迁移：把旧格式数据就地升级为新格式。
+   * 重量级迁移（要逐个读 / 挪仓库文件）应接收 `onProgress` 并汇报本条迁移内部的子进度
+   * （0..1）；轻量迁移忽略它即可（函数少传参是合法的）。迁移屏据此拼出总进度条（ADJ-61）。
+   */
+  run: (onProgress?: (fraction: number) => void) => Promise<void>
 }
 
 function genId(prefix: string): string {
@@ -295,11 +299,15 @@ const MIN_VALID_ALIGNED_BYTES = 50
  * 把一批文件挪到新路径（走二进制 API，兼容 >1MB 的 md，避免 Contents API 读成空串丢数据）：
  * 逐个 下载原文 → 写新路径；最后统一删掉旧路径。
  */
-async function moveRepoFiles(moves: Array<{ from: string; to: string }>): Promise<void> {
+async function moveRepoFiles(
+  moves: Array<{ from: string; to: string }>,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
   const ctx = getRepoContext()
   if (!ctx || moves.length === 0) return
   const movedFrom: string[] = []
-  for (const m of moves) {
+  for (let i = 0; i < moves.length; i++) {
+    const m = moves[i]
     try {
       const res = await downloadRepoBinaryFile(ctx.owner, ctx.repo, m.from, ctx.token)
       if (!res) continue
@@ -309,6 +317,8 @@ async function moveRepoFiles(moves: Array<{ from: string; to: string }>): Promis
       // 单个失败不影响其余：宁可这条留着下次再迁，也不丢内容
       console.warn(`[migration] 迁移文件失败 ${m.from}:`, err)
     }
+    // 文件搬运是这类迁移的大头，按「已搬运/总数」汇报子进度（留出尾部删除的余量）
+    onProgress?.((i + 1) / moves.length * 0.9)
   }
   if (movedFrom.length > 0) {
     await deleteRepoFiles(movedFrom, 'chore: drop migrated legacy files', ctx.owner, ctx.repo, ctx.token)
@@ -343,7 +353,7 @@ const literatureMdNames: Migration = {
     }
     return false
   },
-  run: async () => {
+  run: async (onProgress) => {
     const blobs = await listRepoBlobs()
     if (!blobs) return
     const moves: Array<{ from: string; to: string }> = []
@@ -373,7 +383,7 @@ const literatureMdNames: Migration = {
         }
       }
     }
-    await moveRepoFiles(moves)
+    await moveRepoFiles(moves, onProgress)
     await removeRepoFiles(redundant)
   },
 }
@@ -403,10 +413,13 @@ const literatureTranslationV1: Migration = {
     }
     return false
   },
-  run: async () => {
+  run: async (onProgress) => {
     const blobs = await listRepoBlobs()
     if (!blobs) return
-    for (const [slug, files] of topLevelFiles(blobs, LITERATURES_DIR)) {
+    const entries = [...topLevelFiles(blobs, LITERATURES_DIR)]
+    for (let i = 0; i < entries.length; i++) {
+      onProgress?.(i / Math.max(entries.length, 1))
+      const [slug, files] = entries[i]
       if (!files.has('translation.md')) continue
       const dir = `${LITERATURES_DIR}/${slug}`
       const hasCanonical = (files.get(`${slug}.md`) ?? 0) >= MIN_VALID_ALIGNED_BYTES
@@ -458,7 +471,7 @@ function makeContentRenameMigration(opts: {
       }
       return false
     },
-    run: async () => {
+    run: async (onProgress) => {
       const blobs = await listRepoBlobs()
       if (!blobs) return
       const moves: Array<{ from: string; to: string }> = []
@@ -474,7 +487,7 @@ function makeContentRenameMigration(opts: {
           redundant.push(...aliases.map((n) => `${dir}/${n}`))
         }
       }
-      await moveRepoFiles(moves)
+      await moveRepoFiles(moves, onProgress)
       await removeRepoFiles(redundant)
     },
   }
@@ -538,8 +551,11 @@ const docImagesV1: Migration = {
     }
     return false
   },
-  run: async () => {
-    for (const path of await editableDocPaths()) {
+  run: async (onProgress) => {
+    const paths = await editableDocPaths()
+    for (let i = 0; i < paths.length; i++) {
+      onProgress?.(i / Math.max(paths.length, 1))
+      const path = paths[i]
       const md = await readDocText(path)
       if (!md || !md.includes('data:image/')) continue
       const { md: next, migrated } = await migrateBase64Images(md, path)
@@ -608,10 +624,13 @@ const annotationAnchorsV2: Migration = {
     }
     return false
   },
-  run: async () => {
+  run: async (onProgress) => {
     const blobs = await listRepoBlobs()
     if (!blobs) return
-    for (const path of annotationPaths(blobs)) {
+    const paths = annotationPaths(blobs)
+    for (let pi = 0; pi < paths.length; pi++) {
+      onProgress?.(pi / Math.max(paths.length, 1))
+      const path = paths[pi]
       const raw = await readCsvFile<string[]>(path, (r) => r, true)
       if (raw.length <= 1) continue
       const header = raw[0].map((h) => h.trim())
