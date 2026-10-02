@@ -9,7 +9,10 @@
  * 版本号闸门（ADJ-57）：私库里存一份 `{DATA_VERSION}` 副本。启动时先比对 ——
  *   **一致 → 直接放行**（一轮探测都不跑，秒开；旧实现每次启动都要拉文件树 + 读表头）；
  *   **不一致 → 才逐条探测 / 迁移**，迁完（或确认无待迁移）把新版本号写回私库。
- * 维护规则：**每新增一条迁移，必须把 `DATA_VERSION` +1** —— 否则老设备比对「一致」会跳过新迁移。
+ * 增量闸门（ADJ-59）：版本不一致时也**只探「这一代新加」的迁移**（`since > 设备已记录世代`），
+ *   存量世代当年已升级过，不再全表重扫 —— 只检查真正变了的那部分数据格式。
+ * 维护规则：**每新增一条迁移，必须把 `DATA_VERSION` +1，并给该迁移填 `since = 新版本号`**
+ *   —— 否则老设备比对「一致」会跳过新迁移。
  *
  * 用法：页面挂载时 `pendingMigrations()` 探测；有则显示「更新数据」入口，点一下跑完即消失。
  */
@@ -31,6 +34,13 @@ import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQu
 export interface Migration {
   /** 稳定 id，便于日后排查「哪些迁移跑过」 */
   id: string
+  /**
+   * 引入世代：这条迁移是哪个 `DATA_VERSION` 加进来的。
+   * 增量闸门（ADJ-59）：本设备记录在 `stored` 世代，则 `since ≤ stored` 的迁移**当年已跑过**，
+   * 版本升级时直接跳过探测 —— 只探「这一代新加的那几条」，不再全表重扫存量数据。
+   * 新增迁移时写当前 `DATA_VERSION`（与 +1 规则同步）。
+   */
+  since: number
   /** 展示给用户的说明（迁移入口上的文字） */
   label: string
   /**
@@ -56,6 +66,7 @@ function genId(prefix: string): string {
  */
 const coursesTaskLink: Migration = {
   id: 'courses-task-link-v1',
+  since: 2,
   label: '把旧课程表时段升级为「课程任务」',
   detect: async () => (await loadCourses()).some((c) => !c.taskId),
   run: async () => {
@@ -104,6 +115,7 @@ const coursesTaskLink: Migration = {
  */
 const coursesWeekdayFix: Migration = {
   id: 'courses-weekday-v1',
+  since: 2,
   label: '修正课程表里非法的 weekday（旧值统一归到周一）',
   detect: async () => (await loadCourses()).some((c) => !(c.weekday >= 1 && c.weekday <= 7)),
   run: async () => {
@@ -137,6 +149,7 @@ async function readCsvHeader(path: string): Promise<string[] | null> {
  */
 const projectsSchemaLink: Migration = {
   id: 'projects-schema-v1',
+  since: 2,
   label: '升级项目表（补 type / parent_id / start_at / due_at 四列）',
   detect: async () => {
     const header = await readCsvHeader(PROJECTS_PATH)
@@ -180,6 +193,7 @@ const BACKGROUND_TASKS_PATH = 'settings/background_tasks.csv'
  */
 const backgroundTasksV2: Migration = {
   id: 'background-tasks-v2',
+  since: 2,
   label: '升级后台任务表（current_step / step_index → stage / node_index）',
   detect: async () => {
     const header = await readCsvHeader(BACKGROUND_TASKS_PATH)
@@ -212,6 +226,7 @@ const backgroundTasksV2: Migration = {
 const EXTRA_DAYS_PATH = 'schedule/extra_days.csv'
 const extraDaysFollowWeekday: Migration = {
   id: 'extra-days-follow-weekday-v1',
+  since: 3,
   label: '升级调休表（新增 follow_weekday：指定补班按周几的课表）',
   detect: async () => {
     const header = await readCsvHeader(EXTRA_DAYS_PATH)
@@ -313,6 +328,7 @@ const LITERATURES_DIR = 'literatures'
  */
 const literatureMdNames: Migration = {
   id: 'literature-md-names-v1',
+  since: 2,
   label: '规整文献 md 文件名（fulltext / index → full.md，aligned → {slug}.md）',
   detect: async () => {
     const blobs = await listRepoBlobs()
@@ -369,6 +385,7 @@ const literatureMdNames: Migration = {
  */
 const literatureTranslationV1: Migration = {
   id: 'literature-translation-v1',
+  since: 2,
   label: '把旧译文献的 full.md + translation.md 合并为块文档',
   ledger: true,
   detect: async () => {
@@ -419,12 +436,14 @@ const DOCUMENTS_DIR = 'documents'
  */
 function makeContentRenameMigration(opts: {
   id: string
+  since: number
   dir: string
   label: string
   aliases: string[]
 }): Migration {
   return {
     id: opts.id,
+    since: opts.since,
     label: opts.label,
     detect: async () => {
       const blobs = await listRepoBlobs()
@@ -458,6 +477,7 @@ function makeContentRenameMigration(opts: {
 
 const textbookMdNames = makeContentRenameMigration({
   id: 'textbook-md-names-v1',
+  since: 2,
   dir: TEXTBOOKS_DIR,
   label: '规整图书正文文件名（full / index → content.md）',
   aliases: ['full.md', 'index.md'],
@@ -465,6 +485,7 @@ const textbookMdNames = makeContentRenameMigration({
 
 const documentMdNames = makeContentRenameMigration({
   id: 'document-md-names-v1',
+  since: 2,
   dir: DOCUMENTS_DIR,
   label: '规整文档正文文件名（full / index → content.md）',
   aliases: ['full.md', 'index.md'],
@@ -502,6 +523,7 @@ async function editableDocPaths(): Promise<string[]> {
  */
 const docImagesV1: Migration = {
   id: 'doc-images-v1',
+  since: 2,
   label: '把正文里内嵌的 base64 图片搬到仓库并改成语义路径',
   ledger: true,
   detect: async () => {
@@ -562,6 +584,7 @@ function anchorForText(md: string, text: string): string {
  */
 const annotationAnchorsV2: Migration = {
   id: 'annotation-anchors-v2',
+  since: 2,
   label: '升级旧批注表（补齐 anchor 列；文献批注补块锚点）',
   ledger: true,
   detect: async () => {
@@ -702,14 +725,22 @@ async function loadStoredDataVersion(force = true): Promise<number | null> {
   return Number.isFinite(n) ? n : null
 }
 
-/** 探测当前仍待执行的迁移（跳过台账里已记录的） */
+/**
+ * 探测当前仍待执行的迁移。
+ * 增量闸门（ADJ-59）：本设备记录在 `stored` 世代 → 只探「`since > stored`」这一代新加的迁移；
+ * `since ≤ stored` 的迁移它当年升级时已跑过，直接跳过探测（不再全表重扫存量数据）。
+ * `stored === null`（全新设备 / 版本号引入前的老设备）视为未知 → 全部探测一轮。
+ */
 export async function pendingMigrations(): Promise<Migration[]> {
-  // 快路径：私库版本号与应用一致 → 用户已是最新格式，一轮探测都不跑，直接放行
-  if ((await loadStoredDataVersion()) === DATA_VERSION) return []
+  // 快路径：私库版本号与应用一致 → 直接放行，一轮探测都不跑
+  const stored = await loadStoredDataVersion()
+  if (stored === DATA_VERSION) return []
 
   const applied = await loadAppliedMigrationIds()
   const pending: Migration[] = []
   for (const m of MIGRATIONS) {
+    // 增量：只探这一代新加的迁移；存量世代早已跑过
+    if (stored !== null && m.since <= stored) continue
     if (m.ledger && applied.has(m.id)) continue
     try {
       if (await m.detect()) pending.push(m)
