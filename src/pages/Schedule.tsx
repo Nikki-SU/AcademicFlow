@@ -35,6 +35,7 @@ import {
   saveBrief,
   renameProject,
   deleteProject,
+  descendantIds,
   type Project,
   type ProjectDeleteMode,
   type ProjectType,
@@ -45,18 +46,16 @@ import { DdlList } from '../components/schedule/DdlList'
 import { TaskTree } from '../components/schedule/TaskTree'
 import { TaskFormModal, type TaskFormValue, type ParentOption } from '../components/schedule/TaskFormModal'
 import { buildParentOptions } from '../components/schedule/TaskPicker'
-import { TaskDetailModal } from '../components/schedule/TaskDetailModal'
 import { TaskDeleteModal } from '../components/schedule/TaskDeleteModal'
 import { useTaskStore } from '../stores/task'
 
-/** 新建任务表单的上下文：根任务（选大类）或某个父节点的子任务（继承大类） */
-interface TaskFormContext {
-  title: string
-  showType: boolean
-  parentId: string | null
-  /** null = 不预选大类 */
-  type: ProjectType | null
-}
+/**
+ * 统一任务编辑器的上下文：新建（指定大类 / 归属）或编辑已有任务。
+ * 「创建 = 编辑的空字段特例」，故只用一个状态、一个弹层。
+ */
+type EditorState =
+  | { mode: 'create'; type: ProjectType | null; parentId: string | null }
+  | { mode: 'edit'; projectId: string }
 
 /** 生成本地唯一 id（同伴随时间戳，避免同毫秒碰撞） */
 function genId(prefix: string): string {
@@ -69,8 +68,7 @@ export default function SchedulePage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [holidays, setHolidays] = useState<HolidayMap>(new Map())
   const [isLoading, setIsLoading] = useState(true)
-  const [taskForm, setTaskForm] = useState<TaskFormContext | null>(null)
-  const [detailId, setDetailId] = useState<string | null>(null)
+  const [editor, setEditor] = useState<EditorState | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
 
   const currentId = useTaskStore((s) => s.currentProjectId)
@@ -122,7 +120,14 @@ export default function SchedulePage() {
   // 「新建任务」时可指定归属父任务（与大类一起构成两层选择）；不选归属即该大类下的顶级任务
   const parentOptions = useMemo<ParentOption[]>(() => buildParentOptions(projects), [projects])
 
-  const detailProject = detailId ? byId.get(detailId) ?? null : null
+  const editorProject = editor?.mode === 'edit' ? byId.get(editor.projectId) ?? null : null
+
+  // 编辑时不能把任务挂到自己或自己的子孙下（会成环）——从归属候选里剔除
+  const editorParentOptions = useMemo<ParentOption[]>(() => {
+    if (!editorProject) return parentOptions
+    const blocked = descendantIds(projects, editorProject.projectId)
+    return parentOptions.filter((o) => !blocked.has(o.id))
+  }, [parentOptions, projects, editorProject])
 
   // 今天该怎么排课：假期不上课 / 调休按指定周几 / 周末无课（见 services/scheduleData.resolveToday）
   const todayPlan = useMemo(
@@ -325,10 +330,11 @@ export default function SchedulePage() {
   }
 
   // ---------- 任务 / DDL ----------
-  const handleCreateTask = async (value: TaskFormValue, parentId: string | null) => {
+  /** 新建任务 / 子任务：字段全走统一编辑器，创建与编辑同一套字段 */
+  const handleCreateTask = async (value: TaskFormValue) => {
     const now = Date.now()
     const project: Project = {
-      projectId: String(now),
+      projectId: genId('task'),
       title: value.title,
       targetJournal: '',
       textbookRefs: '',
@@ -336,38 +342,59 @@ export default function SchedulePage() {
       createdAt: now,
       updatedAt: now,
       type: value.type,
-      parentId,
-      startAt: 0,
+      parentId: value.parentId,
+      startAt: value.startAt,
       dueAt: value.dueAt,
     }
     const next = [...projects, project]
     try {
       await saveProjects(next)
+      if (value.brief.trim()) await saveBrief(project.projectId, value.brief)
       setProjects(next)
-      toast.success(parentId ? '已创建子任务' : '已创建任务')
+      toast.success(value.parentId ? '已创建子任务' : '已创建任务')
     } catch (err) {
       console.error('[Schedule] 创建任务失败:', err)
       toast.error('创建任务失败，请重试')
+      throw err
     }
   }
 
-  const handleSaveTask = async (projectId: string, title: string, brief: string) => {
+  /** 编辑任务：名称 / 大类 / 归属 / 开始 / 截止 / 详细描述 一次性落库 */
+  const handleUpdateTask = async (projectId: string, value: TaskFormValue) => {
     const now = Date.now()
     const next = projects.map((p) =>
-      p.projectId === projectId ? { ...p, title, updatedAt: now } : p,
+      p.projectId === projectId
+        ? {
+            ...p,
+            title: value.title,
+            type: value.type,
+            parentId: value.parentId,
+            startAt: value.startAt,
+            dueAt: value.dueAt,
+            updatedAt: now,
+          }
+        : p,
     )
-    await saveProjects(next) // 失败会 throw，由详情弹层 toast 提示
-    await saveBrief(projectId, brief)
-    setProjects(next)
+    try {
+      await saveProjects(next)
+      await saveBrief(projectId, value.brief)
+      setProjects(next)
+      toast.success('已保存任务')
+    } catch (err) {
+      console.error('[Schedule] 保存任务失败:', err)
+      toast.error('保存失败，请重试')
+      throw err
+    }
   }
 
+  const openCreateRoot = (type: ProjectType) =>
+    setEditor({ mode: 'create', type, parentId: null })
+
   const openChildForm = (parent: Project) =>
-    setTaskForm({
-      title: `新建子任务 · ${parent.title || '(未命名任务)'}`,
-      showType: false,
-      parentId: parent.projectId,
-      type: parent.type,
-    })
+    setEditor({ mode: 'create', type: parent.type, parentId: parent.projectId })
+
+  const openEdit = (project: Project) =>
+    setEditor({ mode: 'edit', projectId: project.projectId })
 
   // ---------- 任务改名 / 删除（ADJ-64）----------
   const handleRenameTask = async (project: Project, title: string) => {
@@ -389,7 +416,9 @@ export default function SchedulePage() {
       setProjects(next)
       if (currentId === target.projectId) await setCurrentProject(null)
       setDeleteTarget(null)
-      setDetailId(null)
+      setEditor((prev) =>
+        prev?.mode === 'edit' && prev.projectId === target.projectId ? null : prev,
+      )
       toast.success(mode === 'purge' ? '已删除任务及独占材料' : '已删除任务')
     } catch (err) {
       console.error('[Schedule] 删除任务失败:', err)
@@ -440,10 +469,9 @@ export default function SchedulePage() {
               currentId={currentId}
               isLoading={isLoading}
               onSelect={(id) => void setCurrentProject(id)}
-              onNewRoot={() =>
-                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: null })
-              }
+              onNewRoot={openCreateRoot}
               onAddChild={openChildForm}
+              onEdit={openEdit}
               onRename={handleRenameTask}
               onDelete={setDeleteTarget}
             />
@@ -453,37 +481,29 @@ export default function SchedulePage() {
               projects={ddlItems}
               byId={byId}
               currentId={currentId}
-              onNewRoot={() =>
-                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: null })
-              }
+              onNewRoot={openCreateRoot}
               onAddChild={openChildForm}
-              onOpen={(p) => setDetailId(p.projectId)}
+              onEdit={openEdit}
             />
           </div>
         </div>
       )}
 
-      {taskForm && (
+      {editor && (
         <TaskFormModal
-          title={taskForm.title}
-          showType={taskForm.showType}
-          initialType={taskForm.type}
-          initialParentId={taskForm.parentId}
-          parentOptions={parentOptions}
-          onClose={() => setTaskForm(null)}
+          mode={editor.mode}
+          project={editorProject}
+          initialType={editor.mode === 'create' ? editor.type : null}
+          initialParentId={editor.mode === 'create' ? editor.parentId : null}
+          parentOptions={editorParentOptions}
+          onClose={() => setEditor(null)}
           onSubmit={(value) => {
-            void handleCreateTask(value, value.parentId)
-            setTaskForm(null)
+            const done =
+              editor.mode === 'edit'
+                ? handleUpdateTask(editor.projectId, value)
+                : handleCreateTask(value)
+            void done.then(() => setEditor(null)).catch(() => {})
           }}
-        />
-      )}
-
-      {detailProject && (
-        <TaskDetailModal
-          project={detailProject}
-          onClose={() => setDetailId(null)}
-          onSave={(title, brief) => handleSaveTask(detailProject.projectId, title, brief)}
-          onDelete={() => setDeleteTarget(detailProject)}
         />
       )}
 

@@ -9,7 +9,13 @@
  */
 
 import { readCsvFile, writeCsvFile, readMdFile, writeMdFile, getRepoContext } from './userData'
-import { deleteRepoFiles, listRepoPaths } from './github'
+import {
+  deleteRepoFiles,
+  listRepoPaths,
+  listRepoFilesInDir,
+  uploadRepoBinaryFile,
+  downloadRepoBinaryFile,
+} from './github'
 import { loadLiteratures, saveLiteratures, doiToSlug } from './literatureData'
 import { loadCategories, saveCategories } from './literatureCategoryData'
 import { loadTextbooks, saveTextbooks } from './textbookData'
@@ -493,4 +499,95 @@ export async function deleteProject(
     .map((p) => (p.parentId === projectId ? { ...p, parentId: null, updatedAt: Date.now() } : p))
   await saveProjects(next)
   return next
+}
+
+/**
+ * 某个任务及其全部后代（含自身）的 id 集合。
+ * 编辑任务的「归属任务」时用它把自己和后代排除掉，避免把任务挂到自己的子孙下形成环。
+ */
+export function descendantIds(projects: Project[], rootId: string): Set<string> {
+  const childrenByParent = new Map<string, string[]>()
+  for (const p of projects) {
+    if (!p.parentId) continue
+    const arr = childrenByParent.get(p.parentId)
+    if (arr) arr.push(p.projectId)
+    else childrenByParent.set(p.parentId, [p.projectId])
+  }
+  const out = new Set<string>([rootId])
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    for (const c of childrenByParent.get(id) ?? []) {
+      if (!out.has(c)) {
+        out.add(c)
+        stack.push(c)
+      }
+    }
+  }
+  return out
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// 任务附件（projects/{id}/attachments/）
+// 任务详情里可挂文件（如期刊「格式要求」PDF）。二进制，走 GitHub 私库同目录。
+// ═════════════════════════════════════════════════════════════════════════
+
+export interface TaskAttachment {
+  name: string
+  path: string
+  size: number
+}
+
+export function attachmentDirOf(projectId: string): string {
+  return `projects/${projectId}/attachments`
+}
+
+/** 清理文件名：去掉路径分隔符与危险字符，保留可读的中文与扩展名 */
+function safeAttachmentName(name: string): string {
+  const cleaned = name
+    .replace(/[\\/]+/g, '-')
+    .replace(/[^\w\u4e00-\u9fa5.\- ()\[\]]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return cleaned.slice(0, 80) || 'attachment'
+}
+
+export async function loadTaskAttachments(projectId: string): Promise<TaskAttachment[]> {
+  const ctx = getRepoContext()
+  if (!ctx) return []
+  const files = await listRepoFilesInDir(ctx.owner, ctx.repo, attachmentDirOf(projectId), ctx.token)
+  return files
+    .map((f) => ({ name: f.name, path: f.path, size: f.size }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** 上传一个附件，返回写入仓库的路径 */
+export async function uploadTaskAttachment(projectId: string, file: File): Promise<string> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪，无法上传附件')
+  const name = safeAttachmentName(file.name)
+  const path = `${attachmentDirOf(projectId)}/${name}`
+  await uploadRepoBinaryFile(ctx.owner, ctx.repo, path, file, ctx.token, `Add attachment ${name}`)
+  return path
+}
+
+export async function deleteTaskAttachment(path: string, name: string): Promise<void> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪，无法删除附件')
+  await deleteRepoFiles([path], `Remove attachment ${name}`, ctx.owner, ctx.repo, ctx.token)
+}
+
+/** 下载附件（拉回 blob 后触发浏览器另存为） */
+export async function downloadTaskAttachment(path: string, name: string): Promise<void> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪，无法下载附件')
+  const res = await downloadRepoBinaryFile(ctx.owner, ctx.repo, path, ctx.token)
+  if (!res) throw new Error('附件不存在')
+  const url = URL.createObjectURL(res.blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
