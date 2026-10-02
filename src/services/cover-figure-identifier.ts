@@ -91,7 +91,13 @@ function formatCandidatesAsSource(candidates: CoverFigureCandidate[]): string {
     .join('\n\n')
 }
 
-/** 解析 AI-1 输出的 JSON：{ chosenImage, reason } */
+/**
+ * 解析 AI-1 输出的 JSON：{ chosenImage, reason }。
+ * prompt 已把格式约束死（严格 JSON、chosenImage 必须取自候选、禁代码块）。
+ * 解析失败时**绝不从正文里正则捞一个图片名冒充 AI 的判断** —— 那可能捞到正文叙述里
+ * 提到的别的图，属于「猜一个看起来合理的结果」（见 UX_DETAILS「兜底值必须确定正确」）。
+ * 认不出来就老实说「未能确定」，chosenImage 返回 null。
+ */
 interface ParsedJudgment {
   chosenImage: string | null
   reason: string
@@ -114,12 +120,7 @@ function parseJudgment(raw: string): ParsedJudgment {
       reason: typeof parsed.reason === 'string' ? parsed.reason : '',
     }
   } catch {
-    // 兜底：从正文里尝试找图片名
-    const nameMatch = raw.match(/(images\/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|bmp|webp))/i)
-    return {
-      chosenImage: nameMatch ? nameMatch[1] : null,
-      reason: raw.slice(0, 500),
-    }
+    return { chosenImage: null, reason: 'AI-1 输出不是约定的 JSON，本次未能确定题图' }
   }
 }
 

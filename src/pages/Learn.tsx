@@ -412,7 +412,13 @@ function speakEnglish(text: string, onDone?: () => void) {
   speakSequence([t], onDone)
 }
 
-/** 解析 AI-1 输出的学习内容 JSON（容错：去掉代码块包裹 / 提取首尾花括号） */
+/**
+ * 解析 AI-1 输出的学习内容 JSON。
+ * prompt 已把格式约束死（严格 JSON、逐字字段名、禁代码块，见 buildLearningInstruction）。
+ * 这里只做一层**格式级安全网**：容忍模型多包一层代码块 / 前后带一句话。
+ * **绝不把「解析失败」静默降级成空数组** —— 那会把失败伪装成「AI 生成完成（0 条）」，
+ * 违反「先约束再容错」原则（见 架构.md §1.10 / ADJ-70）。
+ */
 interface ParsedLearningJSON {
   words: Array<{
     word?: string
@@ -450,7 +456,8 @@ function parseLearningJSON(raw: string): ParsedLearningJSON {
       translations: Array.isArray(parsed.translations) ? parsed.translations : [],
     }
   } catch {
-    return { words: [], sentences: [], translations: [] }
+    // 约束已在 prompt 里写死，解析失败就是模型没照约定输出 —— 报错让用户重试，不静默当空。
+    throw new Error('AI-1 输出的学习内容不是合法 JSON（已要求严格 JSON、禁代码块），请重试')
   }
 }
 
@@ -1329,16 +1336,20 @@ interface WordFieldPatch {
   exampleZh?: string
 }
 
-/** 从可能带代码块/前后缀的文本里抠出第一个 JSON 对象 */
+/**
+ * 从可能带代码块/前后缀的文本里抠出第一个 JSON 对象。
+ * prompt 已要求「只输出 JSON、不要代码块」；这里只容忍多包一层代码块 / 前后一句废话，
+ * 抠不出来或不是合法 JSON 就**抛错**（调用方会报失败），不静默返回 null 当「没东西可补」。
+ */
 function parseLooseJson(text: string): any {
   const t = (text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
   const start = t.indexOf('{')
   const end = t.lastIndexOf('}')
-  if (start < 0 || end <= start) return null
+  if (start < 0 || end <= start) throw new Error('AI 返回内容里没有找到 JSON 对象，请重试')
   try {
     return JSON.parse(t.slice(start, end + 1))
   } catch {
-    return null
+    throw new Error('AI 返回内容不是合法 JSON，请重试')
   }
 }
 
