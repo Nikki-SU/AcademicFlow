@@ -95,6 +95,36 @@
   --ui-text-2xs: clamp(0.5625rem, 0.72vw, 0.6875rem);
   --ui-text-xs: clamp(0.625rem, 0.8vw, 0.75rem);
   --ui-text-sm: clamp(0.75rem, 0.95vw, 0.875rem);
+
+  /*
+   * 荧光笔色板（全站唯一色源）
+   * -------------------------------------------------
+   * 一支笔四个面：**笔身**（圆点/色条等实色）、**落纸**（正文高亮的半透明底色）、
+   * **淡底**（卡片整块的极浅底色）、**深墨**（配在浅底上的文字/描边）。
+   * 一起定义，是为了让「正文批注」「批注卡」「紧急死线」各处取到的是**同一支笔**，
+   * 不会这边一个黄、那边一个黄。颜色按米白纸底（--paper-100）调过，压低了饱和度，
+   * 像真荧光笔落在纸上，而不是纯色块。
+   */
+  --hl-yellow: #f2d160;
+  --hl-yellow-ink: rgba(242, 209, 96, 0.62);
+  --hl-yellow-soft: #fbf3d5;
+  --hl-yellow-deep: #8a6b12;
+  --hl-green: #a4d28d;
+  --hl-green-ink: rgba(164, 210, 141, 0.62);
+  --hl-green-soft: #edf6e7;
+  --hl-green-deep: #3f6b2e;
+  --hl-blue: #97c2e9;
+  --hl-blue-ink: rgba(151, 194, 233, 0.62);
+  --hl-blue-soft: #e9f1fa;
+  --hl-blue-deep: #2e5680;
+  --hl-purple: #c3addf;
+  --hl-purple-ink: rgba(195, 173, 223, 0.62);
+  --hl-purple-soft: #f1ebf8;
+  --hl-purple-deep: #59428c;
+  --hl-red: #ec9c93;
+  --hl-red-ink: rgba(236, 156, 147, 0.62);
+  --hl-red-soft: #fcebea;
+  --hl-red-deep: #9e3a32;
 }
 
 /*

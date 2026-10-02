@@ -12,12 +12,7 @@
  * 纯 DOM 操作，不依赖 React —— 单独成模块是为了能在浏览器里直接跑验证。
  */
 
-export interface HighlightStyle {
-  /** 底色 class，如 bg-yellow-200/70 */
-  bg: string
-  /** 选中态描边 class，如 ring-yellow-400 */
-  ring: string
-}
+import type { Highlighter } from './highlightColors'
 
 export interface TextSegment {
   node: Text
@@ -126,7 +121,11 @@ export function clearHighlights(root: HTMLElement): void {
     parent.normalize()
   })
   root.querySelectorAll('[data-annotation-block]').forEach((el) => {
-    el.classList.remove('outline', 'outline-2', 'outline-amber-400', 'outline-amber-500', 'outline-offset-[-2px]')
+    el.classList.remove('outline', 'outline-2', 'outline-offset-[-2px]')
+    // 整块标记的描边色取自荧光笔色板（outline-hl-*），逐支笔清掉
+    Array.from(el.classList).forEach((c) => {
+      if (c.startsWith('outline-hl-')) el.classList.remove(c)
+    })
     el.removeAttribute('data-annotation-block')
   })
 }
@@ -146,7 +145,7 @@ function wrapInside(
   annotationId: string,
   needle: string,
   selected: boolean,
-  color: HighlightStyle,
+  color: Highlighter,
 ): boolean {
   const { text, segs } = collectTextSegments(scope)
   if (!text) return false
@@ -195,7 +194,7 @@ export function highlightAnnotation(
   annotationId: string,
   annotationText: string,
   selected: boolean,
-  color: HighlightStyle,
+  color: Highlighter,
   /** 块锚点（en-12 / cn-12）。老数据为空 → 退化成以前的全篇文本匹配 */
   anchor?: string,
 ): HighlightOutcome {
@@ -214,7 +213,7 @@ export function highlightAnnotation(
     // 用 outline 而不是背景色：斑马纹（隔块底色）也用背景，两者叠在一起会互相盖住。
     // outline 不占布局、不跟背景打架，用户同时开斑马纹也能看见"这段有批注"。
     scope.setAttribute('data-annotation-block', annotationId)
-    scope.classList.add('outline', 'outline-2', 'outline-offset-[-2px]', selected ? 'outline-amber-500' : 'outline-amber-400')
+    scope.classList.add('outline', 'outline-2', 'outline-offset-[-2px]', color.outline)
     return 'block'
   }
   return 'none'

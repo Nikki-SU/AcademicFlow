@@ -7,9 +7,10 @@
  *   长名字直接折行，不需要点开才看得到。
  * - 同一时段重叠的课块自动**并排分列**，不会互相盖住。
  * - 每块按时段所属任务的**根色**着色（课程表 / 任务列表 / DDL 全局同色）。
- * - **DDL 死线**：有截止时间的任务按「周几 + 时刻」在对应列画一条**红色粗线**，
- *   默认不写任何文字（不挡课）；悬停或点击才浮出任务名 + 时间，并让 DDL 清单 /
- *   任务栏里对应条目**亮起**（联动由 Schedule.tsx 的 highlightId 统一驱动）。
+ * - **一周视图**：表头每天**先日期、后星期**（周一到周日，周末有课 / 调休才出现）。
+ * - **DDL 死线**：有截止时间的任务，只在**它到期的那一天**（本周这一天）对应列画一条
+ *   **红色粗线**（不再按「周几」每周重画）；默认不写任何文字（不挡课）；悬停或点击才
+ *   浮出任务名 + 时间，并让 DDL 清单 / 任务栏里对应条目**亮起**（联动由 Schedule.tsx 的 highlightId 统一驱动）。
  * - 点块 = 编辑（改时间 / 地点 /（定时任务）归属任务，或删除）。
  * 尺寸全部走 index.css 的 --ui-* 流体口径（时间轴列宽 --ui-axis、列高 --ui-lane、
  * 字号 --ui-text-*），不再有任何写死的像素值。
@@ -48,14 +49,6 @@ function minutesOfDay(ts: number): number {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return -1
   return d.getHours() * 60 + d.getMinutes()
-}
-
-/** Unix ms → 星期几（1=周一 … 7=周日）；非法 → 0 */
-function weekdayOfMs(ts: number): number {
-  if (!ts) return 0
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return 0
-  return d.getDay() === 0 ? 7 : d.getDay()
 }
 
 /** Unix ms → YYYY-MM-DD HH:MM */
@@ -150,6 +143,36 @@ export function CourseTable({
   >(null)
   const [showExtra, setShowExtra] = useState(false)
 
+  // ---------- 本周日期：表头「先日期、后星期」，死线也按本周这一天来画 ----------
+  // 课表是一周视图（周一到周日），所以要先把本周每一天的**日期**算出来。
+  const todayDate = useMemo(() => {
+    const n = new Date()
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate())
+  }, [])
+  const weekDates = useMemo(() => {
+    const wd = todayDate.getDay() === 0 ? 7 : todayDate.getDay()
+    const monday = new Date(todayDate)
+    monday.setDate(todayDate.getDate() - (wd - 1))
+    const map = new Map<number, Date>()
+    for (let w = 1; w <= 7; w++) {
+      const d = new Date(monday)
+      d.setDate(monday.getDate() + (w - 1))
+      map.set(w, d)
+    }
+    return map
+  }, [todayDate])
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+  // 只有**落在本周**的 DDL 才进课表：死线不再按「周几」每周重画，只在到期那天出现
+  const weekDdls = useMemo(() => {
+    const mon = weekDates.get(1)!
+    const sun = weekDates.get(7)!
+    const start = mon.getTime()
+    const end = new Date(sun.getFullYear(), sun.getMonth(), sun.getDate(), 23, 59, 59, 999).getTime()
+    return ddls.filter((p) => p.dueAt >= start && p.dueAt <= end)
+  }, [ddls, weekDates])
+
   // ---------- 时间轴范围：按数据算出，向整点取整，至少 5 小时 ----------
   // DDL 的时刻也计入范围，否则落在课表时间窗外的死线红线看不到。
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -159,7 +182,7 @@ export function CourseTable({
       const e = timeToMinutes(c.endTime)
       if (e > 0) mins.push(s, e)
     }
-    for (const p of ddls) {
+    for (const p of weekDdls) {
       const m = minutesOfDay(p.dueAt)
       if (m >= 0) mins.push(m)
     }
@@ -168,7 +191,7 @@ export function CourseTable({
     let end = Math.ceil(Math.max(...mins) / 60) * 60
     if (end - start < 300) end = start + 300
     return { rangeStart: start, rangeEnd: end }
-  }, [courses, ddls])
+  }, [courses, weekDdls])
 
   const hourTicks = useMemo(() => {
     const ticks: number[] = []
@@ -190,11 +213,14 @@ export function CourseTable({
   const coursesOf = (weekday: number) =>
     courses.filter((c) => c.weekday === weekday)
 
-  // 某一天（周几）要画的 DDL 红线：按截止时刻落到对应列（统一红色，默认不写字）
-  const ddlsOf = (weekday: number) =>
-    ddls
-      .map((p) => ({ project: p, wd: weekdayOfMs(p.dueAt), min: minutesOfDay(p.dueAt) }))
-      .filter((x) => x.wd === weekday && x.min >= rangeStart && x.min <= rangeEnd)
+  // 某一天（周几）要画的 DDL 红线：只画**到期日正好是这一列日期**的那几条
+  const ddlsOf = (weekday: number) => {
+    const col = weekDates.get(weekday)
+    if (!col) return []
+    return weekDdls
+      .map((p) => ({ project: p, min: minutesOfDay(p.dueAt), d: new Date(p.dueAt) }))
+      .filter((x) => isSameDay(x.d, col) && x.min >= rangeStart && x.min <= rangeEnd)
+  }
 
   // 今天生效的周几（假期 / 周末为 null → 不高亮任何列）；见 scheduleData.resolveToday
   const today = todayPlan.weekday
@@ -285,22 +311,30 @@ export function CourseTable({
       )}
 
       <div className="min-h-0 flex-1 overflow-auto p-ui-gap">
-        {/* 表头：星期标签（与下方时间轴网格严格对齐） */}
+        {/* 表头：日期 + 星期（与下方时间轴网格严格对齐） */}
         <div className="flex gap-ui-gap-sm">
           <div className="w-ui-axis shrink-0" />
           <div className="grid flex-1 gap-ui-gap-sm" style={{ gridTemplateColumns: dayCols }}>
-            {days.map((w) => (
-              <div
-                key={w}
-                className={`rounded-md py-1 text-center font-mono text-ui-xs ${
-                  w === today
-                    ? 'bg-seal-600 font-semibold text-paper-50 shadow-card'
-                    : 'text-ink-500'
-                }`}
-              >
-                {WEEKDAY_LABELS[w]}
-              </div>
-            ))}
+            {days.map((w) => {
+              const d = weekDates.get(w)
+              const isTodayCol = !!d && isSameDay(d, todayDate)
+              return (
+                <div
+                  key={w}
+                  className={`rounded-md py-1 text-center font-mono text-ui-xs leading-tight ${
+                    isTodayCol
+                      ? 'bg-seal-600 font-semibold text-paper-50 shadow-card'
+                      : 'text-ink-500'
+                  }`}
+                >
+                  {/* 先日期、后星期：一眼知道这一列是哪一天 */}
+                  <div className="text-ui-2xs opacity-80">
+                    {d ? `${d.getMonth() + 1}/${d.getDate()}` : ''}
+                  </div>
+                  <div>{WEEKDAY_LABELS[w]}</div>
+                </div>
+              )
+            })}
           </div>
         </div>
 
@@ -343,7 +377,7 @@ export function CourseTable({
                   {/* 当前时刻指示 */}
                   {isToday && showNow && (
                     <span
-                      className="absolute inset-x-0 z-20 border-t-2 border-red-400"
+                      className="absolute inset-x-0 z-20 border-t-2 border-hl-red"
                       style={{ top: `${pct(nowMin, rangeStart, rangeEnd)}%` }}
                     />
                   )}
@@ -406,20 +440,20 @@ export function CourseTable({
                           className="absolute inset-x-0 flex h-3 -translate-y-1/2 items-center"
                         >
                           <span
-                            className={`h-[3px] w-full rounded-full bg-red-500 transition ${
+                            className={`h-[3px] w-full rounded-full bg-hl-red-deep transition ${
                               active
-                                ? 'shadow-[0_0_0_2px_rgba(239,68,68,0.35)]'
+                                ? 'shadow-[0_0_0_2px_rgba(158,58,50,0.30)]'
                                 : 'opacity-80 hover:opacity-100'
                             }`}
                           />
                         </button>
                         {active && (
                           <div
-                            className={`absolute z-40 w-max max-w-full rounded border border-red-300 bg-paper-50 px-1.5 py-1 text-ui-2xs shadow-lg ${
+                            className={`absolute z-40 w-max max-w-full rounded border border-hl-red bg-paper-50 px-1.5 py-1 text-ui-2xs shadow-lg ${
                               top > 80 ? 'bottom-1.5' : 'top-1.5'
                             }`}
                           >
-                            <div className="truncate font-medium text-red-600">{label}</div>
+                            <div className="truncate font-medium text-hl-red-deep">{label}</div>
                             <div className="whitespace-nowrap text-ink-500">
                               {formatDue(dp.dueAt)}
                             </div>
@@ -437,7 +471,7 @@ export function CourseTable({
         <div className="mt-ui-gap flex items-center gap-ui-gap-sm pl-[calc(var(--ui-axis)+var(--ui-gap-sm))] text-ui-2xs text-ink-400">
           <TrendingUp className="h-ui-icon-sm w-ui-icon-sm" />
           纵向为时间轴（5 分钟刻度），点色块可改时间 / 归属或删除；
-          <span className="mx-0.5 inline-block h-[3px] w-4 rounded-full bg-red-500 align-middle" />
+          <span className="mx-0.5 inline-block h-[3px] w-4 rounded-full bg-hl-red-deep align-middle" />
           = DDL 死线（默认不写字，悬停 / 点击看详情并联动高亮）
         </div>
       </div>

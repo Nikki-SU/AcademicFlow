@@ -16,6 +16,7 @@ import { Fragment } from 'react'
 import { CalendarClock, Plus } from 'lucide-react'
 import type { Project, ProjectType } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
+import { isDueSoon } from '../../services/highlightColors'
 
 /** Unix ms → YYYY-MM-DD HH:MM */
 function formatDue(ts: number): string {
@@ -85,14 +86,20 @@ export function DdlList({
                   const color = colorForRoot(getRootId(p, byId))
                   const isCurrent = p.projectId === currentId
                   const isHighlight = p.projectId === highlightId
+                  // 一周以内（含已过期）→ 整块淡红高亮：用荧光笔色板里的红笔淡底
+                  const urgent = isDueSoon(p.dueAt)
                   const card = (
                     <div
-                      className={`flex items-center gap-ui-gap rounded-lg border bg-paper-100 px-ui-gap py-ui-gap-sm transition ${
+                      className={`flex items-center gap-ui-gap rounded-lg border px-ui-gap py-ui-gap-sm transition ${
+                        urgent ? 'bg-hl-red-soft' : 'bg-paper-100'
+                      } ${
                         isHighlight
-                          ? 'border-red-400 ring-2 ring-red-200'
+                          ? 'border-hl-red ring-2 ring-hl-red'
                           : isCurrent
                             ? 'border-seal-300 ring-1 ring-seal-200'
-                            : 'border-ink-200 hover:border-ink-300'
+                            : urgent
+                              ? 'border-hl-red hover:border-hl-red-deep'
+                              : 'border-ink-200 hover:border-ink-300'
                       }`}
                     >
                       <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />

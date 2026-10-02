@@ -37,6 +37,7 @@ import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip
 import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Category } from '../services/categoryData'
 import { loadCategories as loadPaperCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
+import { HIGHLIGHTERS, highlighterOf, type HighlighterColor } from '../services/highlightColors'
 import { loadNotes, saveNotes, loadProgress, saveProgress, notesPath, type DocRef, type ReadingProgress } from '../services/readingDocData'
 import { getLastRead, setLastRead } from '../services/uiState'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -58,7 +59,6 @@ import VditorEditor, { type VditorEditorHandle } from '../components/VditorEdito
 import ReadingAskPanel from '../components/ReadingAskPanel'
 import { toast } from 'sonner'
 
-type HighlightColor = 'yellow' | 'green' | 'blue' | 'purple' | 'red'
 /** 右栏页签：问 AI / 笔记 / 批注（文献与图书同一套） */
 type SideTab = 'ask' | 'notes' | 'annotations'
 type FilterType = 'all' | 'has-md' | 'no-md'
@@ -394,7 +394,7 @@ const EditBlockCard = memo(function EditBlockCard({
 interface Annotation {
   id: string
   text: string
-  color: HighlightColor
+  color: HighlighterColor
   note: string
   createdAt: number
   /**
@@ -494,13 +494,7 @@ function buildOutlineAndAnchors(html: string): { html: string; outline: OutlineI
   return { html: withIds, outline }
 }
 
-const HIGHLIGHT_COLORS: { value: HighlightColor; label: string; bg: string; border: string; text: string; dot: string; ring: string }[] = [
-  { value: 'yellow', label: '黄色', bg: 'bg-yellow-200/70', border: 'border-l-yellow-400 bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400', ring: 'ring-yellow-400' },
-  { value: 'green', label: '绿色', bg: 'bg-green-200/70', border: 'border-l-green-400 bg-green-50', text: 'text-green-700', dot: 'bg-green-400', ring: 'ring-green-400' },
-  { value: 'blue', label: '蓝色', bg: 'bg-blue-200/70', border: 'border-l-blue-400 bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400', ring: 'ring-blue-400' },
-  { value: 'purple', label: '紫色', bg: 'bg-purple-200/70', border: 'border-l-purple-400 bg-purple-50', text: 'text-purple-700', dot: 'bg-purple-400', ring: 'ring-purple-400' },
-  { value: 'red', label: '红色', bg: 'bg-red-200/70', border: 'border-l-red-400 bg-red-50', text: 'text-red-700', dot: 'bg-red-400', ring: 'ring-red-400' },
-]
+const HIGHLIGHT_COLORS = HIGHLIGHTERS
 
 
 
@@ -607,8 +601,8 @@ async function hydrateImages(container: HTMLElement, token: string, authMode: 'h
   }
 }
 
-function getColorInfo(color: HighlightColor) {
-  return HIGHLIGHT_COLORS.find((c) => c.value === color) || HIGHLIGHT_COLORS[0]
+function getColorInfo(color: HighlighterColor) {
+  return highlighterOf(color)
 }
 
 /** 简易弹窗：阅读页只用它承载「导入文档」（和管理页那个是同一套视觉） */
@@ -1191,7 +1185,7 @@ export default function ReadingPage() {
         setAnnotations(annData.map((a) => ({
           id: a.id,
           text: a.text,
-          color: a.color as HighlightColor,
+          color: a.color as HighlighterColor,
           note: a.note,
           createdAt: a.createdAt,
           anchor: a.anchor,
@@ -1308,7 +1302,7 @@ export default function ReadingPage() {
     setShowToolbar(true)
   }, [])
 
-  const handleHighlight = (color: HighlightColor) => {
+  const handleHighlight = (color: HighlighterColor) => {
     if (!docRef || !selectedText) return
 
     const anchor = pendingAnchorRef.current
@@ -1385,7 +1379,7 @@ export default function ReadingPage() {
   }
 
   /** 改已有批注的高亮颜色 —— 不满意直接换，不用删了重批 */
-  const updateAnnotationColor = (id: string, color: HighlightColor) => {
+  const updateAnnotationColor = (id: string, color: HighlighterColor) => {
     const newAnnotations = annotations.map((a) =>
       a.id === id ? { ...a, color } : a
     )
@@ -3866,7 +3860,7 @@ export default function ReadingPage() {
                           <div
                             key={anno.id}
                             id={`annotation-item-${anno.id}`}
-                            className={`p-2.5 rounded-lg border-l-4 transition-all ${colorInfo.border} ${
+                            className={`p-2.5 rounded-lg border-l-4 transition-all ${colorInfo.bar} ${colorInfo.soft} ${
                               isSelected ? 'ring-2 ring-seal-300 shadow-md' : 'hover:shadow-md'
                             }`}
                           >

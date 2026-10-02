@@ -14,11 +14,12 @@
 
 import { readCsvFile, writeCsvFile } from './userData'
 import { docBasePath, type DocRef } from './readingDocData'
+import type { HighlighterColor } from './highlightColors'
 
 export interface Annotation {
   id: string
   type: 'highlight' | 'note'
-  color: 'yellow' | 'green' | 'blue' | 'pink' | 'purple'
+  color: HighlighterColor
   text: string
   note: string
   createdAt: number

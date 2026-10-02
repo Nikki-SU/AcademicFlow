@@ -93,6 +93,33 @@ export default {
           800: '#6C2A20',
           900: '#55241C',
         },
+        /*
+         * 荧光笔色板（全站唯一色源，取值见 index.css :root 的 --hl-*）。
+         * 每支笔四档：实色 / -ink 落纸半透明 / -soft 卡片淡底 / -deep 深墨。
+         * 所有标注类界面（正文高亮、批注卡、紧急死线）都从这里取色，不再各写。
+         */
+        hl: {
+          yellow: 'var(--hl-yellow)',
+          'yellow-ink': 'var(--hl-yellow-ink)',
+          'yellow-soft': 'var(--hl-yellow-soft)',
+          'yellow-deep': 'var(--hl-yellow-deep)',
+          green: 'var(--hl-green)',
+          'green-ink': 'var(--hl-green-ink)',
+          'green-soft': 'var(--hl-green-soft)',
+          'green-deep': 'var(--hl-green-deep)',
+          blue: 'var(--hl-blue)',
+          'blue-ink': 'var(--hl-blue-ink)',
+          'blue-soft': 'var(--hl-blue-soft)',
+          'blue-deep': 'var(--hl-blue-deep)',
+          purple: 'var(--hl-purple)',
+          'purple-ink': 'var(--hl-purple-ink)',
+          'purple-soft': 'var(--hl-purple-soft)',
+          'purple-deep': 'var(--hl-purple-deep)',
+          red: 'var(--hl-red)',
+          'red-ink': 'var(--hl-red-ink)',
+          'red-soft': 'var(--hl-red-soft)',
+          'red-deep': 'var(--hl-red-deep)',
+        },
       },
       boxShadow: {
         card: '0 1px 2px rgba(25, 22, 19, 0.05), 0 12px 32px -16px rgba(25, 22, 19, 0.18)',
