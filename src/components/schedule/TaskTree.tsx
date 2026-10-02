@@ -351,7 +351,9 @@ export function TaskTree({
       {!collapsed && (
         <div className="grid min-h-0 flex-1 grid-cols-2 gap-ui-gap-sm p-ui-gap-sm">
           {isLoading ? (
-            <p className="col-span-2 py-6 text-center text-ui-xs text-ink-400">加载中…</p>
+            <div className="col-span-2 flex items-center justify-center py-6">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-ink-200 border-t-seal-500" />
+            </div>
           ) : (
             // 空列表也保留两列（列头「+」始终可达，否则新建无入口）
             <>

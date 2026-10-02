@@ -13,7 +13,7 @@
  * - 点任务 → 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情）。
  */
 import { Fragment } from 'react'
-import { Plus } from 'lucide-react'
+import { CalendarClock, Plus } from 'lucide-react'
 import type { Project, ProjectType } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
 
@@ -45,9 +45,9 @@ export function DdlList({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
       <div className="flex items-center gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
-        <h2 className="text-ui-sm font-semibold text-ink-800">
-          DDL 清单
-          <span className="ml-1 text-ui-xs font-normal text-ink-400">急 → 不急</span>
+        <h2 className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800">
+          <CalendarClock className="h-ui-icon w-ui-icon text-seal-600" />
+          DDL
         </h2>
       </div>
 

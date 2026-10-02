@@ -48,6 +48,7 @@ import { TaskFormModal, type TaskFormValue, type ParentOption } from '../compone
 import { buildParentOptions } from '../components/schedule/TaskPicker'
 import { TaskDeleteModal } from '../components/schedule/TaskDeleteModal'
 import { useTaskStore } from '../stores/task'
+import { useWorkspaceStore } from '../stores/workspace'
 
 /**
  * 统一任务编辑器的上下文：新建（指定大类 / 归属）或编辑已有任务。
@@ -77,6 +78,9 @@ export default function SchedulePage() {
 
   const currentId = useTaskStore((s) => s.currentProjectId)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
+  // 私库就绪后才读数据：刷新后落在此页时，workspace 检测是异步的，
+  // 早读会拿到空表（getRepoContext 为空）且不再重试 —— 用户就以为任务丢了。
+  const repo = useWorkspaceStore((s) => s.repo)
 
   const loadAll = useCallback(async () => {
     const [cs, eds, ps, hs] = await Promise.all([
@@ -92,6 +96,7 @@ export default function SchedulePage() {
   }, [])
 
   useEffect(() => {
+    if (!repo) return
     let cancelled = false
     setIsLoading(true)
     ;(async () => {
@@ -107,7 +112,7 @@ export default function SchedulePage() {
     return () => {
       cancelled = true
     }
-  }, [loadAll])
+  }, [repo, loadAll])
 
   const byId = useMemo(() => {
     const m = new Map<string, Project>()
@@ -445,13 +450,12 @@ export default function SchedulePage() {
           <CalendarDays className="h-ui-icon w-ui-icon text-seal-600" />
           <h1 className="text-lg font-semibold text-ink-800">日程</h1>
         </div>
-        <p className="mt-1 text-ui-sm text-ink-500">
-          课程表 · 任务列表 · DDL 汇总于此。课程即课程任务，三处同族同色。
-        </p>
       </header>
 
       {isLoading ? (
-        <p className="text-ui-sm text-ink-400">加载中…</p>
+        <div className="flex min-h-ui-lane items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-ink-200 border-t-seal-500" />
+        </div>
       ) : (
         <div className="grid gap-ui-gap-lg lg:grid-cols-ratio-111">
           <div className={columnBox}>
