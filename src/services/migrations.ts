@@ -8,9 +8,11 @@
  *
  * 版本号闸门（ADJ-57）：私库里存一份 `{DATA_VERSION}` 副本。启动时先比对 ——
  *   **一致 → 直接放行**（一轮探测都不跑，秒开；旧实现每次启动都要拉文件树 + 读表头）；
- *   **不一致 → 才逐条探测 / 迁移**，迁完（或确认无待迁移）把新版本号写回私库。
- * 增量闸门（ADJ-59）：版本不一致时也**只探「这一代新加」的迁移**（`since > 设备已记录世代`），
- *   存量世代当年已升级过，不再全表重扫 —— 只检查真正变了的那部分数据格式。
+ *   **不一致 → 按版本区间直迁**，迁完把新版本号写回私库。
+ * 直迁（ADJ-60）：只要「已记录世代」与「应用版本」**都存在**，升级路径就是确定的 ——
+ *   直接执行 `since ∈ (已记录世代, DATA_VERSION]` 的迁移即可（增量闸门 ADJ-59 由此自然得出），
+ *   **一轮探测都不跑**。探测（`detect()`）只在版本号**未知**（`stored === null`：全新设备 /
+ *   版本号机制之前的老设备）时兜底，用来「猜」数据是不是旧格式。
  * 维护规则：**每新增一条迁移，必须把 `DATA_VERSION` +1，并给该迁移填 `since = 新版本号`**
  *   —— 否则老设备比对「一致」会跳过新迁移。
  *
@@ -36,20 +38,21 @@ export interface Migration {
   id: string
   /**
    * 引入世代：这条迁移是哪个 `DATA_VERSION` 加进来的。
-   * 增量闸门（ADJ-59）：本设备记录在 `stored` 世代，则 `since ≤ stored` 的迁移**当年已跑过**，
-   * 版本升级时直接跳过探测 —— 只探「这一代新加的那几条」，不再全表重扫存量数据。
-   * 新增迁移时写当前 `DATA_VERSION`（与 +1 规则同步）。
+   * 直迁（ADJ-60）：本设备记录在 `stored` 世代，则需要执行的就是 `since ∈ (stored, DATA_VERSION]`
+   * 这一段 —— 版本号已知即可直接定出要跑哪些，无需探测。新增迁移时写当前 `DATA_VERSION`（与 +1 规则同步）。
    */
   since: number
   /** 展示给用户的说明（迁移入口上的文字） */
   label: string
   /**
-   * 探测是否昂贵（需要逐个读仓库文件）。设 true 的迁移跑过一次就记台账、之后直接跳过探测；
-   * 解析层 / 文件名级的迁移探测很便宜（读表头、拉一次文件树），不设此项 —— 每次都探，更能兜住
-   * 后来才又冒出来的旧数据。
+   * **仅在版本号未知时**（`stored === null` 的兜底探测）有意义：设 true 的迁移跑过一次就记台账、
+   * 之后直接跳过探测（内容级探测要逐个读仓库文件，不设此项会重复读）。
    */
   ledger?: boolean
-  /** 探测：当前私库数据是否仍是旧格式、需要迁移 */
+  /**
+   * 探测：当前私库数据是否仍是旧格式、需要迁移。
+   * **仅在版本号未知时兜底使用** —— 版本号已知时直接按 `since` 区间直迁，不调用它（ADJ-60）。
+   */
   detect: () => Promise<boolean>
   /** 执行迁移：把旧格式数据就地升级为新格式 */
   run: () => Promise<void>
@@ -234,6 +237,8 @@ const extraDaysFollowWeekday: Migration = {
   },
   run: async () => {
     const rows = await readCsvFile<string[]>(EXTRA_DAYS_PATH, (r) => r.slice(1), true)
+    // 直迁（ADJ-60）下 run 会无条件执行：没有调休数据（文件不存在 / 空表）就什么都不做，不凭空建表
+    if (rows.length === 0) return
     const out = rows.map((r) => [r[0] || '', r[1] || '', '0'])
     await writeCsvFile(EXTRA_DAYS_PATH, out, ['date', 'note', 'follow_weekday'], (r) => r)
   },
@@ -726,10 +731,13 @@ async function loadStoredDataVersion(force = true): Promise<number | null> {
 }
 
 /**
- * 探测当前仍待执行的迁移。
- * 增量闸门（ADJ-59）：本设备记录在 `stored` 世代 → 只探「`since > stored`」这一代新加的迁移；
- * `since ≤ stored` 的迁移它当年升级时已跑过，直接跳过探测（不再全表重扫存量数据）。
- * `stored === null`（全新设备 / 版本号引入前的老设备）视为未知 → 全部探测一轮。
+ * 取出当前仍待执行的迁移。
+ *
+ * 版本号已知（`stored !== null`）→ **直迁，不做任何探测**（ADJ-60）：
+ *   版本走势是确定的，从 `stored` 到 `DATA_VERSION` 需要跑的就是 `since ∈ (stored, DATA_VERSION]`
+ *   这一段，按序执行即可 —— 没必要逐条读文件去「猜」数据是不是旧格式。已记入台账的跳过，
+ *   兜住「上一轮迁移跑完但版本号没来得及写回」的中断场景（避免非幂等迁移被重跑）。
+ * 版本号未知（`stored === null`：全新设备 / 版本号机制之前的老设备）→ 只能逐条 `detect()` 兜底。
  */
 export async function pendingMigrations(): Promise<Migration[]> {
   // 快路径：私库版本号与应用一致 → 直接放行，一轮探测都不跑
@@ -737,10 +745,16 @@ export async function pendingMigrations(): Promise<Migration[]> {
   if (stored === DATA_VERSION) return []
 
   const applied = await loadAppliedMigrationIds()
+
+  if (stored !== null) {
+    return MIGRATIONS.filter(
+      (m) => m.since > stored && m.since <= DATA_VERSION && !applied.has(m.id),
+    )
+  }
+
+  // 版本号未知 → 逐条探测兜底（仅全新设备 / 老设备首次升级会走到这里）
   const pending: Migration[] = []
   for (const m of MIGRATIONS) {
-    // 增量：只探这一代新加的迁移；存量世代早已跑过
-    if (stored !== null && m.since <= stored) continue
     if (m.ledger && applied.has(m.id)) continue
     try {
       if (await m.detect()) pending.push(m)
