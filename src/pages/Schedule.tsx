@@ -482,7 +482,6 @@ export default function SchedulePage() {
               byId={byId}
               currentId={currentId}
               onNewRoot={openCreateRoot}
-              onAddChild={openChildForm}
               onEdit={openEdit}
             />
           </div>

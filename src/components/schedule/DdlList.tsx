@@ -6,7 +6,9 @@
  * - 布局：**两列分列** —— 左「研究」、右「课程」；**每一行只放一个任务**，
  *   按大类落在左半或右半。于是**纵向顺序 = 紧急度**，横向位置 = 大类。
  * - 同一棵子树用「根任务颜色」着色，同根同色，方便在一堆 DDL 里归堆。
- * - 每行可「+ 子任务」；新建走**列头「+」**（点哪个大类，就在哪个大类下建顶级任务）。
+ * - 每行**只展示**：第一行任务名、第二行时间（年月日 + 几点，不写「截止」二字）。
+ * - **加子任务只在任务栏**（TaskTree），DDL 这边不放子任务入口。
+ * - 新建走**列头「+」**（点哪个大类，就在哪个大类下建顶级任务）。
  * - 点任务 → 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情）。
  */
 import { Fragment } from 'react'
@@ -26,7 +28,6 @@ export function DdlList({
   byId,
   currentId,
   onNewRoot,
-  onAddChild,
   onEdit,
 }: {
   projects: Project[]
@@ -34,7 +35,6 @@ export function DdlList({
   currentId: string | null
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
-  onAddChild: (parent: Project) => void
   /** 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情） */
   onEdit: (project: Project) => void
 }) {
@@ -93,13 +93,8 @@ export function DdlList({
                         <div className="truncate text-ui-sm font-medium">
                           <span className={color.text}>{p.title || '(未命名任务)'}</span>
                         </div>
-                        <div className="mt-0.5 text-ui-xs text-ink-500">截止 {formatDue(p.dueAt)}</div>
-                      </button>
-                      <button
-                        onClick={() => onAddChild(p)}
-                        className="shrink-0 rounded border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
-                      >
-                        + 子任务
+                        {/* 第二行只给时间（年月日 + 几点），不写「截止」二字 */}
+                        <div className="mt-0.5 text-ui-xs text-ink-500">{formatDue(p.dueAt)}</div>
                       </button>
                     </div>
                   )
