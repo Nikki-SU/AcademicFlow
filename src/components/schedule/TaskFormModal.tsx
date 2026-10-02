@@ -5,6 +5,8 @@
  * 所以只留**一个**表单，`mode` 决定标题与空/满，避免出现两套编辑入口。
  *
  * 可编辑任务的全部信息：任务名称、大类、归属任务、开始时间、截止时间、详细描述。
+ * - 时间用共用的 `DateTimeField`（日期 + TimeWheel 滚轮），与「加课选时段」同一套控件，
+ *   不再用原生 datetime-local —— 一个「选时间」只允许存在一种 UI。
  * - 「详细描述」= 任务的 brief.md，可粘贴大段文本；也是「AI 总结交付物」唯一允许引用的材料。
  * - 附件（格式要求等文件）在**行内展开的详情面板**里管理，一个字段只留一个家。
  * 两种入口：「+ 新建」（列头的大类加号）/「加子任务」 → create；行内「编辑」 → edit。
@@ -13,6 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Sparkles, Square, Loader2, AlertTriangle, Info } from 'lucide-react'
 import { Modal } from './Modal'
+import { DateTimeField } from './TimeWheel'
 import { TaskPicker, type ParentOption } from './TaskPicker'
 import { loadBrief, type Project, type ProjectType } from '../../services/projectData'
 import { runDualEngine } from '../../services/ai/dual-engine'
@@ -235,23 +238,13 @@ export function TaskFormModal({
             <label className="mb-1.5 block text-sm font-medium text-ink-700">
               开始时间 <span className="font-normal text-ink-400">（可留空）</span>
             </label>
-            <input
-              type="datetime-local"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
-            />
+            <DateTimeField value={start} onChange={setStart} />
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-ink-700">
               截止时间 / DDL <span className="font-normal text-ink-400">（可留空 = 无截止）</span>
             </label>
-            <input
-              type="datetime-local"
-              value={due}
-              onChange={(e) => setDue(e.target.value)}
-              className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
-            />
+            <DateTimeField value={due} onChange={setDue} />
           </div>
         </div>
 

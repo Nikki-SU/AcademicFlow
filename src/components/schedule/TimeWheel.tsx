@@ -1,5 +1,5 @@
 /**
- * 时间滚轮（时 / 分两列）——「加课 / 加定时任务 / 编辑时段」共用
+ * 时间滚轮（时 / 分两列）——「加课 / 加定时任务 / 编辑时段 / 任务时间」共用
  * -------------------------------------------------
  * 两列都是**闭环**的（用户明确要求「条的头尾必须衔接」，不许出现断口造成误解）：
  * - 小时 0…23 首尾相接：23 再往下滚直接回到 00，00 往上滚回到 23；
@@ -166,6 +166,39 @@ function Wheel({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * 日期 + 时分滚轮：值以 `YYYY-MM-DDTHH:MM`（datetime-local 同格式）进出，空串 = 未设。
+ * -------------------------------------------------
+ * 与「时段」共用同一个 TimeWheel —— 凡是「要选到具体几点」的地方都用这一套，
+ * 不允许再出现原生 time / datetime-local 的第二种时间控件（否则又是各写一份）。
+ * 日期用原生 date 选择器（只选到天，没有原生时间 spinner），时间交给滚轮。
+ */
+export function DateTimeField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const datePart = value ? value.slice(0, 10) : ''
+  const timePart = value.length >= 16 ? value.slice(11, 16) : '08:00'
+
+  // 没选日期就是「未设」；选了日期才拼出完整值
+  const emit = (date: string, time: string) => onChange(date ? `${date}T${time}` : '')
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="date"
+        value={datePart}
+        onChange={(e) => emit(e.target.value, timePart)}
+        className="min-w-0 flex-1 rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+      />
+      <TimeWheel value={timePart} onChange={(t) => emit(datePart, t)} />
     </div>
   )
 }
