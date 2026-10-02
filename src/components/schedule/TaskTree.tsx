@@ -5,7 +5,7 @@
  * —— 用 parentId 串成树，点节点即切「当前任务」。
  * 同根同色（colorForRoot），与课程表 / DDL 全局一致。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ListTree, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Project } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
@@ -45,6 +45,24 @@ export function TaskTree({
   const [collapsed, setCollapsed] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [menu, setMenu] = useState<{ project: Project; x: number; y: number } | null>(null)
+
+  // 右键菜单：点别处 / 滚动 / Esc 一律关闭
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('scroll', close, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('scroll', close, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
 
   const byId = new Map<string, Project>()
   for (const p of projects) byId.set(p.projectId, p)
@@ -120,6 +138,10 @@ export function TaskTree({
                 <div
                   key={project.projectId}
                   style={{ paddingLeft: `calc(${depth} * var(--ui-indent))` }}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setMenu({ project, x: e.clientX, y: e.clientY })
+                  }}
                   className={`group flex items-center gap-ui-gap-sm rounded-md pr-1 transition ${
                     isCurrent ? 'bg-seal-50 ring-1 ring-seal-300' : 'hover:bg-paper-100'
                   }`}
@@ -188,6 +210,48 @@ export function TaskTree({
               )
             })
           )}
+        </div>
+      )}
+
+      {menu && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ left: menu.x, top: menu.y }}
+          className="fixed z-50 min-w-36 overflow-hidden rounded-lg border border-ink-200 bg-paper-50 py-1 shadow-xl"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              startEdit(menu.project)
+              setMenu(null)
+            }}
+            className="flex w-full items-center gap-ui-gap-sm px-3 py-1.5 text-left text-ui-sm text-ink-700 transition hover:bg-paper-100"
+          >
+            <Pencil className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
+            改名
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onAddChild(menu.project)
+              setMenu(null)
+            }}
+            className="flex w-full items-center gap-ui-gap-sm px-3 py-1.5 text-left text-ui-sm text-ink-700 transition hover:bg-paper-100"
+          >
+            <Plus className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
+            加子任务
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onDelete(menu.project)
+              setMenu(null)
+            }}
+            className="flex w-full items-center gap-ui-gap-sm px-3 py-1.5 text-left text-ui-sm text-seal-700 transition hover:bg-seal-50"
+          >
+            <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
+            删除任务
+          </button>
         </div>
       )}
     </section>
