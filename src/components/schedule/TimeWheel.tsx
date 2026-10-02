@@ -10,9 +10,8 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-/** 一格高度（px） */
-const ITEM_H = 32
-/** 可见格数（中间那格为选中） */
+/** 可见格数（中间那格为选中）。一格高度 = 容器最高 / 此值（容器高走流体变量 --ui-axis，
+ *  随视口等比伸缩，代码里不写死 px；几何计算只用测出来的实际像素）。 */
 const VISIBLE = 5
 
 function mod(n: number, m: number): number {
@@ -59,6 +58,18 @@ function Wheel({
   const dragRef = useRef<{ startY: number; startPos: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  /** 一格实际高度（px）：量容器实际高度得到，随视口等比伸缩，不在代码里写死 */
+  const [itemH, setItemH] = useState(32)
+
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const measure = () => setItemH(el.clientHeight / VISIBLE)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // 外部值变化（含初始同步）时对齐到最近的一圈代表位
   useEffect(() => {
@@ -84,12 +95,12 @@ function Wheel({
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      commit(posRef.current + e.deltaY / ITEM_H)
+      commit(posRef.current + e.deltaY / itemH)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n])
+  }, [n, itemH])
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -99,8 +110,8 @@ function Wheel({
     const d = dragRef.current
     if (!d) return
     const dy = e.clientY - d.startY
-    if (Math.abs(dy) > 4) d.moved = true
-    applyPos(d.startPos - dy / ITEM_H)
+    if (Math.abs(dy) > itemH / 8) d.moved = true
+    applyPos(d.startPos - dy / itemH)
   }
   const onPointerUp = () => {
     const d = dragRef.current
@@ -126,13 +137,12 @@ function Wheel({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      className="relative min-w-10 flex-1 cursor-grab touch-none select-none overflow-hidden active:cursor-grabbing"
-      style={{ height: ITEM_H * VISIBLE }}
+      className="relative min-w-ui-axis flex-1 cursor-grab touch-none select-none overflow-hidden active:cursor-grabbing h-[calc(var(--ui-axis)*5)]"
     >
       {/* 选中高亮带 */}
       <div
-        className="pointer-events-none absolute inset-x-1 z-0 rounded-lg bg-seal-50 ring-1 ring-seal-200"
-        style={{ top: '50%', height: ITEM_H, transform: 'translateY(-50%)' }}
+        className="pointer-events-none absolute inset-x-ui-gap-sm z-0 rounded-lg bg-seal-50 ring-1 ring-seal-200"
+        style={{ top: '50%', height: itemH, transform: 'translateY(-50%)' }}
       />
       {cells.map((i) => {
         const d = i - pos
@@ -157,8 +167,8 @@ function Wheel({
             }`}
             style={{
               top: '50%',
-              height: ITEM_H,
-              transform: `translateY(calc(${d * ITEM_H}px - 50%))`,
+              height: itemH,
+              transform: `translateY(calc(${d * itemH}px - 50%))`,
               opacity: Math.max(0.25, 1 - Math.abs(d) * 0.28),
             }}
           >
@@ -191,12 +201,12 @@ export function DateTimeField({
   const emit = (date: string, time: string) => onChange(date ? `${date}T${time}` : '')
 
   return (
-    <div className="grid grid-cols-3 items-center gap-2">
+    <div className="grid grid-cols-3 items-center gap-ui-gap-sm">
       <input
         type="date"
         value={datePart}
         onChange={(e) => emit(e.target.value, timePart)}
-        className="col-span-2 min-w-0 rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+        className="col-span-2 min-w-0 rounded-lg border border-ink-300 px-ui-gap py-ui-gap-sm text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
       />
       {/* 宽度按 2:1 分配：日期占 2/3、时间占 1/3（不让日期独吞整行、时间被挤窄）。
           滚轮是 flex 子项、内部格子又绝对定位（无固有宽度），必须由外层给定宽度。 */}
@@ -227,7 +237,7 @@ export function TimeWheel({
   }, [])
 
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-ink-300 bg-paper-50 px-1 py-1">
+    <div className="flex items-center gap-ui-gap-sm rounded-lg border border-ink-300 bg-paper-50 px-ui-gap-sm py-ui-gap-sm">
       <Wheel
         options={HOURS}
         index={hourIndex}
