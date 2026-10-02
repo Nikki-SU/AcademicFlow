@@ -12,7 +12,7 @@
  * - 行内按钮顺序：**加子任务（高频）在左**，编辑 / 删除（低频）在右。
  * - **联动高亮**：课表红线悬停 / 点击时，对应任务行亮起（`highlightId`）。
  * - **过期任务**：有截止时间且已过点的行**灰掉**（仍可点开 / 编辑）；日程页页头「显示过期」
- *   开关关掉时从列表隐藏（若过期任务是未过期子孙的祖先，则保留以维持层级，仍灰显）。
+ *   开关关掉时从列表隐藏。
  *
  * 排序（用户要求，ADJ-71）：**同层内**按「急不急」排 ——
  * ① 此刻**正在上**的课 / 定时任务置顶；② 有排期的（课程 / 定时任务）按**下一次时间由近到远**；
@@ -173,21 +173,8 @@ export function TaskTree({
   }
   // 同一次渲染内复用时间判定（now 取一次，避免比较器里反复取当前时刻）
   const now = Date.now()
-  // 「显示过期」关掉时隐藏过期任务；但若某个过期任务是**未过期子孙的祖先**，
-  // 必须保留它（否则子任务会与父级脱钩、被 buildRows 当成根节点）——这类保留的祖先仍然灰显。
-  const visibleProjects = (() => {
-    if (showExpired) return projects
-    const keep = new Set<string>()
-    for (const p of projects) if (!isOverdue(p, now)) keep.add(p.projectId)
-    for (const id of [...keep]) {
-      let cur = byId.get(id)
-      while (cur?.parentId) {
-        keep.add(cur.parentId)
-        cur = byId.get(cur.parentId)
-      }
-    }
-    return projects.filter((p) => keep.has(p.projectId))
-  })()
+  // 「显示过期」关掉时，直接从列表里过滤掉过期任务
+  const visibleProjects = showExpired ? projects : projects.filter((p) => !isOverdue(p, now))
   const timingCache = new Map<string, Timing>()
   const timingOf = (projectId: string): Timing => {
     let t = timingCache.get(projectId)
