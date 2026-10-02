@@ -110,7 +110,7 @@ const CSV_HEADERS = {
   // ⚠️ 必须与 src/services/scheduleData.ts 的 COURSE_HEADERS / EXTRA_DAY_HEADERS 完全一致（顺序也一致）
   //    task_id 为本轮新增（时段归属的任务：课程任务 or 定时任务），一律追加末尾，守「新列一律追加末尾」。
   courses: 'course_id,title,weekday,start_time,end_time,location,created_at,task_id',
-  extra_days: 'date,note',
+  extra_days: 'date,note,follow_weekday',
   // ⚠️ 必须与 src/services/trackingData.ts 的 TRACKING_INBOX_HEADERS 逐字一致（顺序也一致）：
   //    这是「追踪候选」表——后端每日追踪把命中的文献写这里，前端据此裁决（入库 / 忽略）。
   tracking_inbox: 'doi,title,journal,year,authors,keywords,abstract_en,source,tracking_group,found_at,status',

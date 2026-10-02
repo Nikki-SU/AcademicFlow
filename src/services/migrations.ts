@@ -203,6 +203,27 @@ const backgroundTasksV2: Migration = {
   },
 }
 
+/**
+ * v2 → v3：调休表补 follow_weekday
+ * 旧 extra_days.csv 只有 date + note（那时「调休」只让周末多出一列，不指定上哪天的课）。
+ * 补班日真正要按某一周几的课表上课，故新增 follow_weekday 列；老行一律补 0（未指定 → 不排课），
+ * 由用户在界面里按需指定。之后 loadExtraDays 便可直接假定三列。
+ */
+const EXTRA_DAYS_PATH = 'schedule/extra_days.csv'
+const extraDaysFollowWeekday: Migration = {
+  id: 'extra-days-follow-weekday-v1',
+  label: '升级调休表（新增 follow_weekday：指定补班按周几的课表）',
+  detect: async () => {
+    const header = await readCsvHeader(EXTRA_DAYS_PATH)
+    return !!header && !header.includes('follow_weekday')
+  },
+  run: async () => {
+    const rows = await readCsvFile<string[]>(EXTRA_DAYS_PATH, (r) => r.slice(1), true)
+    const out = rows.map((r) => [r[0] || '', r[1] || '', '0'])
+    await writeCsvFile(EXTRA_DAYS_PATH, out, ['date', 'note', 'follow_weekday'], (r) => r)
+  },
+}
+
 // ============================================================
 // 文档级迁移工具（遍历仓库文件 → 探测 → 就地改名 / 重写）
 // ============================================================
@@ -614,6 +635,7 @@ export const MIGRATIONS: Migration[] = [
   coursesWeekdayFix,
   coursesTaskLink,
   backgroundTasksV2,
+  extraDaysFollowWeekday,
   literatureMdNames,
   literatureTranslationV1,
   textbookMdNames,
@@ -663,7 +685,7 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
  * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 2
+export const DATA_VERSION = 3
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']

@@ -13,9 +13,9 @@
  * 数据落库全交给页面（Schedule.tsx），本组件只呈现与收集输入。
  */
 import { useMemo, useState } from 'react'
-import { CalendarPlus, Clock, TrendingUp, X } from 'lucide-react'
-import type { Course, ExtraDay } from '../../services/scheduleData'
-import { timeToMinutes, WEEKDAY_LABELS, weekdayOfDate } from '../../services/scheduleData'
+import { CalendarPlus, CalendarX, Clock, Repeat, TrendingUp, X } from 'lucide-react'
+import type { Course, ExtraDay, TodayPlan } from '../../services/scheduleData'
+import { timeToMinutes, WEEKDAY_LABELS } from '../../services/scheduleData'
 import type { Project } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
 import { CourseFormModal, snapTime, type SlotFormValue } from './CourseFormModal'
@@ -37,12 +37,6 @@ function slotRootId(course: Course, byId: Map<string, Project>): string {
 function pct(min: number, start: number, end: number): number {
   if (end <= start) return 0
   return ((min - start) / (end - start)) * 100
-}
-
-/** 今日星期（1..7），按本地时区 */
-function todayWeekday(): number {
-  const js = new Date().getDay()
-  return js === 0 ? 7 : js
 }
 
 /** 一列里摆好位置的课块 */
@@ -92,6 +86,7 @@ export function CourseTable({
   projects,
   byId,
   currentId,
+  todayPlan,
   onCreateSlot,
   onUpdateSlot,
   onDeleteCourse,
@@ -103,10 +98,11 @@ export function CourseTable({
   projects: Project[]
   byId: Map<string, Project>
   currentId: string | null
+  todayPlan: TodayPlan
   onCreateSlot: (weekday: number, variant: 'course' | 'timed', value: SlotFormValue) => void
   onUpdateSlot: (courseId: string, value: SlotFormValue) => void
   onDeleteCourse: (courseId: string) => void
-  onAddExtraDay: (date: string, note: string) => void
+  onAddExtraDay: (date: string, note: string, followWeekday: number) => void
   onDeleteExtraDay: (date: string) => void
 }) {
   const [form, setForm] = useState<
@@ -141,7 +137,8 @@ export function CourseTable({
   const days = useMemo(() => {
     const active = new Set<number>()
     for (const c of courses) if (c.weekday >= 1 && c.weekday <= 7) active.add(c.weekday)
-    for (const d of extraDays) active.add(weekdayOfDate(d.date))
+    // 调休按它「指定的周几」占列（补周六可能上的是周三的课）
+    for (const d of extraDays) if (d.followWeekday >= 1 && d.followWeekday <= 7) active.add(d.followWeekday)
     const list = [1, 2, 3, 4, 5]
     for (const w of [6, 7]) if (active.has(w)) list.push(w)
     return list
@@ -150,7 +147,8 @@ export function CourseTable({
   const coursesOf = (weekday: number) =>
     courses.filter((c) => c.weekday === weekday)
 
-  const today = todayWeekday()
+  // 今天生效的周几（假期 / 周末为 null → 不高亮任何列）；见 scheduleData.resolveToday
+  const today = todayPlan.weekday
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes()
   const showNow = nowMin >= rangeStart && nowMin <= rangeEnd
 
@@ -191,6 +189,26 @@ export function CourseTable({
         </div>
       </div>
 
+      {/* 今日状态条：放假 / 调休补班 / 补班待指定 */}
+      {todayPlan.holiday && (
+        <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-seal-50 px-ui-gap py-ui-gap-sm text-ui-xs text-seal-700">
+          <CalendarX className="h-ui-icon-sm w-ui-icon-sm" />
+          今天「{todayPlan.holiday}」放假 · 不上课，课程表不排课
+        </div>
+      )}
+      {!todayPlan.holiday && todayPlan.makeup && !todayPlan.unsetMakeup && todayPlan.weekday && (
+        <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-amber-50 px-ui-gap py-ui-gap-sm text-ui-xs text-amber-700">
+          <Repeat className="h-ui-icon-sm w-ui-icon-sm" />
+          今天调休补班 · 按「{WEEKDAY_LABELS[todayPlan.weekday]}」的课表上课
+        </div>
+      )}
+      {!todayPlan.holiday && todayPlan.unsetMakeup && (
+        <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-amber-50 px-ui-gap py-ui-gap-sm text-ui-xs text-amber-700">
+          <Repeat className="h-ui-icon-sm w-ui-icon-sm" />
+          今天是官方调休补班日，但还没指定按周几上课 · 点右上「调休」设置
+        </div>
+      )}
+
       {extraDays.length > 0 && (
         <div className="flex flex-wrap gap-ui-gap-sm border-b border-ink-100 px-ui-gap py-ui-gap-sm">
           {extraDays.map((d) => (
@@ -199,6 +217,9 @@ export function CourseTable({
               className="inline-flex items-center gap-ui-gap-sm rounded-full bg-seal-100 px-ui-gap-sm py-0.5 text-ui-xs text-seal-700"
             >
               {d.date}
+              {d.followWeekday >= 1 && d.followWeekday <= 7
+                ? ` · 按${WEEKDAY_LABELS[d.followWeekday]}`
+                : ''}
               {d.note ? ` · ${d.note}` : ''}
               <button
                 onClick={() => onDeleteExtraDay(d.date)}
@@ -220,8 +241,10 @@ export function CourseTable({
             {days.map((w) => (
               <div
                 key={w}
-                className={`text-center font-mono text-ui-xs ${
-                  w === today ? 'font-semibold text-seal-700' : 'text-ink-500'
+                className={`rounded-md py-1 text-center font-mono text-ui-xs ${
+                  w === today
+                    ? 'bg-seal-600 font-semibold text-paper-50 shadow-card'
+                    : 'text-ink-500'
                 }`}
               >
                 {WEEKDAY_LABELS[w]}
@@ -252,7 +275,9 @@ export function CourseTable({
                 <div
                   key={w}
                   className={`relative overflow-hidden rounded border ${
-                    isToday ? 'border-seal-200 bg-seal-50/40' : 'border-ink-100 bg-paper-100'
+                    isToday
+                      ? 'border-seal-300 bg-seal-50 ring-1 ring-inset ring-seal-200'
+                      : 'border-ink-100 bg-paper-100'
                   }`}
                   style={{ height: 'var(--ui-lane)' }}
                 >
@@ -366,8 +391,8 @@ export function CourseTable({
       {showExtra && (
         <ExtraDayModal
           onClose={() => setShowExtra(false)}
-          onSubmit={(date, note) => {
-            onAddExtraDay(date, note)
+          onSubmit={(date, note, followWeekday) => {
+            onAddExtraDay(date, note, followWeekday)
             setShowExtra(false)
           }}
         />

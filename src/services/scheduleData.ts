@@ -52,11 +52,13 @@ export function minutesToTime(min: number): string {
 /** 1..7 → 中文星期；越界返回空串 */
 export const WEEKDAY_LABELS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'] as const
 
-/** 调休日：把某个周末日期标为工作日 */
+/** 调休日：把某个周末日期标为工作日，并指定它按**周几的课表**上课 */
 export interface ExtraDay {
   /** YYYY-MM-DD */
   date: string
   note: string
+  /** 按周几的课表：0=未指定（当天不排课）；1..7=周一…周日 */
+  followWeekday: number
 }
 
 const COURSES_PATH = 'schedule/courses.csv'
@@ -68,7 +70,8 @@ const COURSE_HEADERS = [
 
 const EXTRA_DAYS_PATH = 'schedule/extra_days.csv'
 // ⚠️ 必须与 src/constants/skeleton.ts 的 CSV_HEADERS.extra_days 完全一致（顺序也一致）
-const EXTRA_DAY_HEADERS = ['date', 'note']
+//    follow_weekday 为本轮新增（补班按周几的课表），追加末尾（守「新列一律追加末尾」）。
+const EXTRA_DAY_HEADERS = ['date', 'note', 'follow_weekday']
 
 /** 由 YYYY-MM-DD 求 weekday（1..7，1=周一 … 7=周日）；非法日期返回 0 */
 export function weekdayOfDate(dateStr: string): number {
@@ -127,6 +130,8 @@ export async function loadExtraDays(force = false): Promise<ExtraDay[]> {
       return rows.slice(1).map((r) => ({
         date: r[0] || '',
         note: r[1] || '',
+        // follow_weekday 由迁移（services/migrations.ts）保证存在，这里不做旧格式兜底
+        followWeekday: parseInt(r[2], 10),
       }))
     },
     force,
@@ -138,6 +143,51 @@ export async function saveExtraDays(days: ExtraDay[]): Promise<void> {
     EXTRA_DAYS_PATH,
     days,
     EXTRA_DAY_HEADERS,
-    (d) => [d.date, d.note],
+    (d) => [d.date, d.note, String(d.followWeekday || 0)],
   )
+}
+
+/** 今天该怎么排课（由「日期 + 调休 + 节假日」共同决定） */
+export interface TodayPlan {
+  /** 生效的周几课表（1..7）；null = 今天不上课 */
+  weekday: number | null
+  /** 若今天法定放假，放假名（否则 null） */
+  holiday: string | null
+  /** 今天是否调休补班日 */
+  makeup: boolean
+  /** 官方标为补班、但用户还没在「调休」里指定按周几 → 需要提示去设置 */
+  unsetMakeup: boolean
+}
+
+/**
+ * 解析某一天的排课：**假期 → 不上课**；**调休补班 → 按用户指定的周几**；周末默认无课。
+ * holidays 传空表即等价于「没有节假日数据」，退化为旧的「纯周几」行为。
+ */
+export function resolveToday(
+  dateStr: string,
+  extraDays: ExtraDay[],
+  holidays: Map<string, { name: string; date: string; isOffDay: boolean }>,
+): TodayPlan {
+  const h = holidays.get(dateStr)
+  // 法定放假：当天一律不上课（自动切课、今天高亮都要跳过）
+  if (h && h.isOffDay) return { weekday: null, holiday: h.name, makeup: false, unsetMakeup: false }
+
+  // 调休补班：以用户手动登记的调休日为准
+  const ed = extraDays.find((d) => d.date === dateStr)
+  if (ed) {
+    if (ed.followWeekday >= 1 && ed.followWeekday <= 7) {
+      return { weekday: ed.followWeekday, holiday: null, makeup: true, unsetMakeup: false }
+    }
+    return { weekday: null, holiday: null, makeup: true, unsetMakeup: true }
+  }
+
+  const wd = weekdayOfDate(dateStr)
+  if (wd === 0) return { weekday: null, holiday: null, makeup: false, unsetMakeup: false }
+  if (wd >= 6) {
+    // 周末：官方若标为补班日 → 提示用户去「调休」指定按周几；否则默认无课
+    const officialMakeup = !!h && !h.isOffDay
+    return { weekday: null, holiday: null, makeup: officialMakeup, unsetMakeup: officialMakeup }
+  }
+  // 普通工作日：按当天真实周几
+  return { weekday: wd, holiday: null, makeup: false, unsetMakeup: false }
 }

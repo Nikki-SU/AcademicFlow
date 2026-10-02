@@ -22,10 +22,12 @@ import {
   saveCourses,
   loadExtraDays,
   saveExtraDays,
+  resolveToday,
   weekdayOfDate,
   type Course,
   type ExtraDay,
 } from '../services/scheduleData'
+import { loadYearHolidays, todayDateStr, type HolidayMap } from '../services/holidays'
 import {
   loadProjects,
   saveProjects,
@@ -58,6 +60,7 @@ export default function SchedulePage() {
   const [courses, setCourses] = useState<Course[]>([])
   const [extraDays, setExtraDays] = useState<ExtraDay[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [holidays, setHolidays] = useState<HolidayMap>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [taskForm, setTaskForm] = useState<TaskFormContext | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -66,10 +69,16 @@ export default function SchedulePage() {
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
 
   const loadAll = useCallback(async () => {
-    const [cs, eds, ps] = await Promise.all([loadCourses(), loadExtraDays(), loadProjects()])
+    const [cs, eds, ps, hs] = await Promise.all([
+      loadCourses(),
+      loadExtraDays(),
+      loadProjects(),
+      loadYearHolidays(new Date().getFullYear()),
+    ])
     setCourses(cs)
     setExtraDays(eds)
     setProjects(ps)
+    setHolidays(hs)
   }, [])
 
   useEffect(() => {
@@ -137,6 +146,12 @@ export default function SchedulePage() {
   }, [projects, byId])
 
   const detailProject = detailId ? byId.get(detailId) ?? null : null
+
+  // 今天该怎么排课：假期不上课 / 调休按指定周几 / 周末无课（见 services/scheduleData.resolveToday）
+  const todayPlan = useMemo(
+    () => resolveToday(todayDateStr(), extraDays, holidays),
+    [extraDays, holidays],
+  )
 
   // ---------- 课程 / 定时任务：时段 ----------
   /** 加课时：同名课程复用同一个课程任务（高数周二 / 周四共享），否则新建 */
@@ -252,8 +267,8 @@ export default function SchedulePage() {
     }
   }
 
-  const handleAddExtraDay = async (date: string, note: string) => {
-    // 调休的语义是「把某个周末日期标为工作日」，非周末日期不接受
+  const handleAddExtraDay = async (date: string, note: string, followWeekday: number) => {
+    // 调休的语义是「把某个周末日期标为工作日，并按指定周几的课表上课」，非周末日期不接受
     const weekday = weekdayOfDate(date)
     if (weekday !== 6 && weekday !== 7) {
       toast.warning('请选择周末日期（周六或周日）')
@@ -263,7 +278,9 @@ export default function SchedulePage() {
       toast.warning('该调休日已存在')
       return
     }
-    const next = [...extraDays, { date, note }].sort((a, b) => a.date.localeCompare(b.date))
+    const next = [...extraDays, { date, note, followWeekday }].sort((a, b) =>
+      a.date.localeCompare(b.date),
+    )
     try {
       await saveExtraDays(next)
       setExtraDays(next)
@@ -357,6 +374,7 @@ export default function SchedulePage() {
               projects={projects}
               byId={byId}
               currentId={currentId}
+              todayPlan={todayPlan}
               onCreateSlot={handleCreateSlot}
               onUpdateSlot={handleUpdateSlot}
               onDeleteCourse={handleDeleteCourse}
