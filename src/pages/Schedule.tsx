@@ -43,6 +43,7 @@ import type { SlotFormValue } from '../components/schedule/CourseFormModal'
 import { DdlList } from '../components/schedule/DdlList'
 import { TaskTree } from '../components/schedule/TaskTree'
 import { TaskFormModal, type TaskFormValue, type ParentOption } from '../components/schedule/TaskFormModal'
+import { buildParentOptions } from '../components/schedule/TaskPicker'
 import { TaskDetailModal } from '../components/schedule/TaskDetailModal'
 import { TaskDeleteModal } from '../components/schedule/TaskDeleteModal'
 import { useTaskStore } from '../stores/task'
@@ -52,7 +53,8 @@ interface TaskFormContext {
   title: string
   showType: boolean
   parentId: string | null
-  type: ProjectType
+  /** null = 不预选大类 */
+  type: ProjectType | null
 }
 
 /** 生成本地唯一 id（同伴随时间戳，避免同毫秒碰撞） */
@@ -116,39 +118,8 @@ export default function SchedulePage() {
     [projects],
   )
 
-  // 「新建任务」时可指定归属父任务（DFS 展平 + 缩进，与任务列表同序）；不选即顶级任务
-  const parentOptions = useMemo<ParentOption[]>(() => {
-    const byTitle = (a: Project, b: Project) => (a.title || '').localeCompare(b.title || '')
-    const childrenByParent = new Map<string, Project[]>()
-    const roots: Project[] = []
-    for (const p of projects) {
-      if (!p.parentId || !byId.has(p.parentId)) {
-        roots.push(p)
-      } else {
-        const arr = childrenByParent.get(p.parentId)
-        if (arr) arr.push(p)
-        else childrenByParent.set(p.parentId, [p])
-      }
-    }
-    for (const [k, arr] of childrenByParent) childrenByParent.set(k, [...arr].sort(byTitle))
-    roots.sort(byTitle)
-    const out: ParentOption[] = []
-    const seen = new Set<string>()
-    const walk = (p: Project, depth: number) => {
-      if (seen.has(p.projectId)) return
-      seen.add(p.projectId)
-      out.push({
-        id: p.projectId,
-        type: p.type,
-        label: `${'　'.repeat(depth)}${depth ? '└ ' : ''}${p.title || '(未命名任务)'}`,
-      })
-      for (const c of childrenByParent.get(p.projectId) ?? []) walk(c, depth + 1)
-    }
-    for (const r of roots) walk(r, 0)
-    // 兜底：父节点缺失 / 成环的节点也要能选到
-    for (const p of projects) if (!seen.has(p.projectId)) walk(p, 0)
-    return out
-  }, [projects, byId])
+  // 「新建任务」时可指定归属父任务（与大类一起构成两层选择）；不选归属即该大类下的顶级任务
+  const parentOptions = useMemo<ParentOption[]>(() => buildParentOptions(projects), [projects])
 
   const detailProject = detailId ? byId.get(detailId) ?? null : null
 
@@ -198,12 +169,35 @@ export default function SchedulePage() {
         taskId = task.projectId
         title = task.title
       } else {
-        const task = byId.get(value.taskId)
-        if (!task) {
-          toast.error('请选择要加入课表的任务')
-          return
+        if (value.taskId) {
+          const task = byId.get(value.taskId)
+          if (!task) {
+            toast.error('请选择要加入课表的任务')
+            return
+          }
+          title = task.title || value.title
+        } else {
+          // 归属留空 → 用「任务名称」在所选大类下新建一个顶级任务，时段挂在它下面
+          const now = Date.now()
+          const task: Project = {
+            projectId: genId('task'),
+            title: value.title.trim(),
+            targetJournal: '',
+            textbookRefs: '',
+            status: 'draft',
+            createdAt: now,
+            updatedAt: now,
+            type: value.type,
+            parentId: null,
+            startAt: 0,
+            dueAt: 0,
+          }
+          const next = [...projects, task]
+          await saveProjects(next)
+          setProjects(next)
+          taskId = task.projectId
+          title = task.title
         }
-        title = task.title || value.title
       }
       const course: Course = {
         courseId: genId('slot'),
@@ -423,7 +417,7 @@ export default function SchedulePage() {
               isLoading={isLoading}
               onSelect={(id) => void setCurrentProject(id)}
               onNewRoot={() =>
-                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: 'research' })
+                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: null })
               }
               onAddChild={openChildForm}
               onRename={handleRenameTask}
@@ -436,7 +430,7 @@ export default function SchedulePage() {
               byId={byId}
               currentId={currentId}
               onNewRoot={() =>
-                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: 'research' })
+                setTaskForm({ title: '新建任务', showType: true, parentId: null, type: null })
               }
               onAddChild={openChildForm}
               onOpen={(p) => setDetailId(p.projectId)}

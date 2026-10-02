@@ -3,28 +3,32 @@
  * -------------------------------------------------
  * 三种入口共用同一套字段，靠 `variant` 区分：
  * - `course`    加课：填课程名 → 页面按名称复用/新建「课程任务」（多时段共享同一任务、同色）
- * - `timed`     加定时任务：挑一个**已有任务**（如把每周组会挂到「研究」下），时段即它的重复规则
- * - `edit`      编辑已有时段：改时间 / 地点 /（定时任务）归属任务，或删除
+ * - `timed`     加定时任务：先选**大类**（研究 / 课程），再选该大类下的**归属任务**（可留空）；
+ *               留空则用「任务名称」在所选大类下新建一个顶级任务，时段即它的重复规则
+ * - `edit`      编辑已有时段：改时间 / 地点 /（定时任务）归属任务，或删除（归属必选，不允许留空）
  *
  * 时间一律用「时 / 分」两列**闭环滚轮**（TimeWheel）—— 分钟只有 5 的倍数一格，
  * 且 55 与 00 首尾相接，不会出现断口造成「到底到没到点」的视觉误解。
  * 只收集输入，落库交给页面（Schedule.tsx）。
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Modal } from './Modal'
 import { TimeWheel } from './TimeWheel'
-import type { Project } from '../../services/projectData'
+import { TaskPicker, buildParentOptions } from './TaskPicker'
+import type { Project, ProjectType } from '../../services/projectData'
 import { WEEKDAY_LABELS } from '../../services/scheduleData'
 
 export interface SlotFormValue {
-  /** 时段名称（课程 = 课程名；定时任务 = 所选任务名） */
+  /** 时段名称（课程 = 课程名；定时任务 = 所选任务名 / 新建任务名） */
   title: string
   startTime: string
   endTime: string
   location: string
   /** '' = 交给页面按「课程」处理（复用/新建课程任务）；否则为已有任务 id */
   taskId: string
+  /** 定时任务新建顶级任务时用的大类；课程时段恒为 'course' */
+  type: ProjectType
 }
 
 /** 把分钟数按 5 分钟取整后转 HH:MM，作为时间输入的默认值 */
@@ -69,6 +73,12 @@ export function CourseFormModal({
   // 归属任务可选 = 非课程（加定时任务、或编辑一个挂在普通任务下的时段）
   const canPickTask = variant === 'timed' || (isEdit && !lockTask)
 
+  // 归属用两层选择：大类 + 该大类下的任务（TaskPicker）。编辑时初始大类取自现挂任务
+  const parentOptions = useMemo(() => buildParentOptions(projects), [projects])
+  const [type, setType] = useState<ProjectType | ''>(
+    () => projects.find((p) => p.projectId === (initial?.taskId ?? ''))?.type ?? '',
+  )
+
   const modalTitle =
     isEdit ? '编辑时段' : variant === 'timed' ? '加定时任务' : '加课'
 
@@ -79,9 +89,20 @@ export function CourseFormModal({
         toast.warning('请填写课程名称')
         return
       }
-    } else if (!taskId) {
-      toast.warning('请选择归属任务')
-      return
+    } else {
+      if (!type) {
+        toast.warning('请选择大类')
+        return
+      }
+      // 编辑：必须把时段挂到某个已有任务上；新增：留空 = 用「任务名称」新建该大类下的顶级任务
+      if (isEdit && !taskId) {
+        toast.warning('请选择归属任务')
+        return
+      }
+      if (!isEdit && !taskId && !title.trim()) {
+        toast.warning('请填写任务名称')
+        return
+      }
     }
     if (!startTime || !endTime) {
       toast.warning('请填写开始与结束时间')
@@ -92,9 +113,18 @@ export function CourseFormModal({
       return
     }
     const name = canPickTask
-      ? projects.find((p) => p.projectId === taskId)?.title || title.trim()
+      ? taskId
+        ? projects.find((p) => p.projectId === taskId)?.title || title.trim()
+        : title.trim()
       : title.trim()
-    onSubmit({ title: name, startTime, endTime, location: location.trim(), taskId })
+    onSubmit({
+      title: name,
+      startTime,
+      endTime,
+      location: location.trim(),
+      taskId,
+      type: canPickTask ? (type as ProjectType) : 'course',
+    })
   }
 
   return (
@@ -150,24 +180,31 @@ export function CourseFormModal({
         )}
 
         {canPickTask ? (
-          <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">归属任务</label>
-            <select
-              value={taskId}
-              onChange={(e) => setTaskId(e.target.value)}
-              className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-            >
-              <option value="">请选择任务…</option>
-              {projects.map((p) => (
-                <option key={p.projectId} value={p.projectId}>
-                  {p.type === 'course' ? '课程' : '研究'} · {p.title || '(未命名任务)'}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-ink-400">
-              定时任务（如每周组会）可挂到「研究」等大任务下，颜色随该任务所在族。
-            </p>
-          </div>
+          <>
+            <TaskPicker
+              parentOptions={parentOptions}
+              type={type}
+              onTypeChange={setType}
+              parentId={taskId}
+              onParentChange={setTaskId}
+              allowTopLevel={!isEdit}
+            />
+            {!isEdit && !taskId && (
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1.5">任务名称</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="如：每周组会"
+                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                />
+                <p className="mt-1 text-xs text-ink-400">
+                  归属任务留空时，将用此名在所选大类下新建一个顶级任务；定时任务（如每周组会）即挂在它下面。
+                </p>
+              </div>
+            )}
+          </>
         ) : (
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">课程名称</label>
