@@ -154,6 +154,9 @@ interface JournalTemplateItem {
   issn: string
   lastUpdated: string
   isDefault: boolean
+  /** 投稿须知原文（用户粘贴的源材料） */
+  guidelinesContent: string
+  /** 格式规范摘要（用户确认/编辑过，落 meta.md 的 notes） */
   formatSummary: string
 }
 
@@ -164,7 +167,9 @@ function toTemplateItem(t: BackendJournalTemplate): JournalTemplateItem {
     t.abstract_format_note && `摘要: ${t.abstract_format_note}`,
     t.reference_format_note && `参考文献: ${t.reference_format_note}`,
   ].filter(Boolean)
+  // 摘要优先取用户存过的 notes；没有才用投稿须知/格式说明拼一份只读兜底（仅显示用）
   const summary =
+    (t.notes || '').trim() ||
     t.guidelines_content?.slice(0, 200) ||
     parts.join('；') ||
     t.custom_preamble?.slice(0, 150) ||
@@ -176,6 +181,7 @@ function toTemplateItem(t: BackendJournalTemplate): JournalTemplateItem {
     issn: t.issn || '',
     lastUpdated: t.updated_at ? new Date(t.updated_at).toISOString().split('T')[0] : '-',
     isDefault: !!t.is_default,
+    guidelinesContent: t.guidelines_content || '',
     formatSummary: summary,
   }
 }
@@ -606,7 +612,7 @@ export default function ManagementPage() {
   const [templates, setTemplates] = useState<JournalTemplateItem[]>([])
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<JournalTemplateItem | null>(null)
-  const [newTemplate, setNewTemplate] = useState({ name: '', issn: '', publisher: '', guidelines: '' })
+  const [newTemplate, setNewTemplate] = useState({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
   const [isExtracting, setIsExtracting] = useState(false)
 
   // 知识库状态
@@ -1899,9 +1905,10 @@ export default function ManagementPage() {
         issn: newTemplate.issn.trim() || undefined,
         publisher: newTemplate.publisher.trim() || undefined,
         guidelines_content: newTemplate.guidelines.trim() || undefined,
+        notes: newTemplate.formatSummary.trim() || undefined,
       })
       setTemplates((prev) => [...prev, toTemplateItem(backend)])
-      setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '' })
+      setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
       setShowTemplateModal(false)
       toast.success(`期刊模板「${backend.name}」已创建并保存到 GitHub`)
     } catch (err) {
@@ -1944,6 +1951,8 @@ export default function ManagementPage() {
               '6. **其他**：页码、行距、字号、边距等',
               '',
               '要求：用简洁的 bullet points 列出关键约束，不要重复原文。总长度控制在 300-500 字。',
+              '只依据投稿须知原文，不得引入原文没有的外部知识或猜测；原文没写的内容宁可不提，也不要补。',
+              '这份摘要会作为「草稿」交给用户人工确认修改，请如实标注不确定的地方。',
             ].join('\n'),
           },
           {
@@ -1953,12 +1962,13 @@ export default function ManagementPage() {
         ],
       })
 
+      // 结果落到一个「可编辑」的摘要框里，让人确认 / 修改后再保存 —— 不是丢进 toast 就没了
       setNewTemplate((prev) => ({
         ...prev,
-        guidelines: guidelinesText, // 保留用户粘贴的全文（AI 提取的摘要会显示在 toast 和 console）
+        guidelines: guidelinesText, // 保留用户粘贴的全文，作为模板的投稿须知源材料
+        formatSummary: resp.content, // 摘要有独立入口，可编辑
       }))
-      toast.success('AI 已提取格式规范摘要，可直接编辑调整')
-      console.log('[handleExtractFormat] AI 提取结果:', resp.content)
+      toast.success('AI 已提取格式规范摘要，见下方「格式规范摘要」框，可直接改')
     } catch (err) {
       toast.error(`AI 提取失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleExtractFormat]', err)
@@ -1969,11 +1979,18 @@ export default function ManagementPage() {
 
   const handleSaveTemplate = async () => {
     if (!editingTemplate) return
+    if (!newTemplate.name.trim()) {
+      toast.error('请填写期刊名')
+      return
+    }
     try {
+      // 存的是表单里的值（newTemplate），不是打开时的旧值 —— 否则用户在弹窗里改的全丢了
       await updateTemplate(editingTemplate.id, {
-        name: editingTemplate.name,
-        issn: editingTemplate.issn || undefined,
-        publisher: editingTemplate.publisher || undefined,
+        name: newTemplate.name.trim(),
+        issn: newTemplate.issn.trim() || undefined,
+        publisher: newTemplate.publisher.trim() || undefined,
+        guidelines_content: newTemplate.guidelines.trim() || undefined,
+        notes: newTemplate.formatSummary.trim() || undefined,
       })
       const backend = await getAllTemplates()
       setTemplates(backend.map(toTemplateItem))
@@ -3042,7 +3059,7 @@ export default function ManagementPage() {
             <button
               onClick={() => {
                 setEditingTemplate(null)
-                setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '' })
+                setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
                 setShowTemplateModal(true)
               }}
               className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition shadow-md shadow-seal-200"
@@ -3075,7 +3092,7 @@ export default function ManagementPage() {
                   <button
                     onClick={() => {
                       setEditingTemplate({ ...tpl })
-                      setNewTemplate({ name: tpl.name, issn: tpl.issn, publisher: tpl.publisher, guidelines: tpl.formatSummary })
+                      setNewTemplate({ name: tpl.name, issn: tpl.issn, publisher: tpl.publisher, guidelines: tpl.guidelinesContent, formatSummary: tpl.formatSummary })
                       setShowTemplateModal(true)
                     }}
                     className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
@@ -3117,7 +3134,7 @@ export default function ManagementPage() {
               <button
                 onClick={() => {
                   setEditingTemplate(null)
-                  setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '' })
+                  setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
                   setShowTemplateModal(true)
                 }}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
@@ -4246,13 +4263,30 @@ export default function ManagementPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">投稿须知 / 格式规范</label>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">投稿须知原文（AI 提取的依据）</label>
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-ink-600 bg-paper-100 border border-ink-200 hover:bg-ink-100 rounded-lg cursor-pointer transition">
                     <FileText className="w-4 h-4" />
-                    粘贴投稿须知
-                    <input type="file" accept=".pdf,.txt" className="hidden" />
+                    上传投稿须知文件（.txt/.md）
+                    <input
+                      type="file"
+                      accept=".txt,.md,text/plain,text/markdown"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        try {
+                          const text = await file.text()
+                          setNewTemplate((prev) => ({ ...prev, guidelines: text }))
+                          toast.success(`已读入 ${file.name}，可点「AI提取」生成格式规范摘要`)
+                        } catch {
+                          toast.error('读取文件失败，请直接把内容粘贴到下方文本框')
+                        } finally {
+                          e.target.value = ''
+                        }
+                      }}
+                    />
                   </label>
                   <button
                     onClick={handleExtractFormat}
@@ -4266,12 +4300,24 @@ export default function ManagementPage() {
                 <textarea
                   value={newTemplate.guidelines}
                   onChange={(e) => setNewTemplate({ ...newTemplate, guidelines: e.target.value })}
-                  placeholder="粘贴投稿须知内容，或点击AI提取自动生成格式规范摘要..."
+                  placeholder="直接粘贴投稿须知原文（或上传文件）—— 这是 AI 提取格式规范的唯一依据，请保持与原文一致..."
                   rows={5}
                   className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
                 />
-                <p className="text-xs text-ink-400">提示：模板主要用于提示和规范提取格式，帮助统一写作风格</p>
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+                格式规范摘要（可编辑，点「AI提取」生成草稿后请人工确认）
+              </label>
+              <textarea
+                value={newTemplate.formatSummary}
+                onChange={(e) => setNewTemplate({ ...newTemplate, formatSummary: e.target.value })}
+                placeholder="点上方「AI提取」生成草稿；这里的内容可在保存前直接修改。它只依据上面的投稿须知原文，不引入外部知识。"
+                rows={5}
+                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
+              />
+              <p className="text-xs text-ink-400 mt-1">保存后写入模板的 meta.md（notes），用于排版时提示写作 AI 统一格式。</p>
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">

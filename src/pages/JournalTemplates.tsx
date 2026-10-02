@@ -630,7 +630,7 @@ function JournalTemplatesPage() {
                 </ul>
               </div>
               <p className="mt-3 text-xs text-seal-600">
-                ✓ 已自动填入下方表格，请检查并手动修正不准确的部分
+                ✓ 已按投稿须知原文填入下方表格；请对照期刊官方模板核对「转写」是否有出入，有出入直接在下方改。
               </p>
             </div>
           )}

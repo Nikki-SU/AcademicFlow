@@ -934,6 +934,15 @@ export default function WritingPage() {
   const [newTemplateGuidelines, setNewTemplateGuidelines] = useState('')
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false)
   const [templateCreateStatus, setTemplateCreateStatus] = useState('')
+  // 模板整包解包后的 AI-2 复核结果（内联展示，不再只丢一句"请过目 meta.md"找不着入口）
+  const [packageReview, setPackageReview] = useState<{
+    name: string
+    status?: 'ok' | 'truncated' | 'unavailable'
+    passed?: boolean | null
+    summary: string
+    issues: Array<{ area: string; problem: string; suggestion: string }>
+    warnings: string[]
+  } | null>(null)
   const [showNewProjectInput, setShowNewProjectInput] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [citations, setCitations] = useState<CitationRef[]>([])
@@ -2647,22 +2656,36 @@ export default function WritingPage() {
         `已解包「${info.name}」：主模板 ${info.main_tex}，整包 ${info.file_count ?? info.asset_count} 个文件全部保留`,
         { duration: 8000 },
       )
+      // 复核结论落到「模板复核」面板里逐条列出，让人真能看、能做（而不是丢一句"请过目 meta.md"却没入口）。
+      setPackageReview(
+        review || warnCount > 0
+          ? {
+              name: info.name,
+              status: review?.status,
+              passed: review?.passed,
+              summary: review?.summary || '',
+              issues: review?.issues || [],
+              warnings: info.warnings || [],
+            }
+          : null,
+      )
       // 三态：审出问题 ≠ 没审成。把「截断导致没审成」说成「复核未通过」是纯误报，
       // 会把用户吓得以为模板有问题 —— 所以这里分开说。
-      if (review && review.status && review.status !== 'ok') {
+      if (review?.status && review.status !== 'ok') {
         toast.info(
-          `AI-2 复核「${info.name}」这次没跑完（${review.status === 'truncated' ? '输出被截断' : '无输出'}），` +
-            '不代表模板有问题，请人工过目一下模板的 meta.md。',
-          { duration: 12000 },
+          `AI-2 复核「${info.name}」这次没跑完（${review.status === 'truncated' ? '输出被截断' : '无输出'}）。` +
+            '这不代表模板有问题，详情已列在左侧「模板复核」面板里。',
+          { duration: 10000 },
         )
       } else if (review && review.passed === false) {
         toast.warning(
-          `AI-2 复核「${info.name}」发现 ${review.issues.length} 条问题：${review.summary || '见模板 meta.md'}`,
-          { duration: 12000 },
+          `AI-2 复核「${info.name}」发现了问题，详情已列在左侧「模板复核」面板里。`,
+          { duration: 10000 },
         )
-      }
-      if (warnCount > 0) {
-        toast.warning(`该模板有 ${warnCount} 条注意事项，已写入模板的 meta.md`, { duration: 9000 })
+      } else if (warnCount > 0) {
+        toast.warning(`「${info.name}」有 ${warnCount} 条注意事项，已列在左侧「模板复核」面板里。`, {
+          duration: 9000,
+        })
       }
     } catch (err) {
       toast.error(`解包失败：${err instanceof Error ? err.message : String(err)}`)
@@ -3853,6 +3876,15 @@ export default function WritingPage() {
                               已通过事实核查 · 引用均来自原文
                             </div>
                           )}
+                          {msg.reviewStatus === 'fail' && (
+                            <div className="flex items-start gap-2 px-2 py-1.5 bg-amber-50 rounded-lg text-[0.6875rem] text-amber-700">
+                              <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
+                              <span>
+                                AI-2 事实核查<b>未通过</b> —— 这段内容仅供参考，用之前请人工核对（下方正文里有核查说明）。
+                                可直接复制，或改一下要求让我重新生成。
+                              </span>
+                            </div>
+                          )}
                           <div
                             className="whitespace-pre-wrap leading-relaxed text-sm"
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
@@ -3906,13 +3938,13 @@ export default function WritingPage() {
                               </div>
                             </div>
                           )}
-                          {msg.reviewStatus === 'pass' && (
+                          {(msg.reviewStatus === 'pass' || msg.reviewStatus === 'fail') && (
                             <button
                               onClick={() => handleCopyContent(msg.content)}
                               className="w-full mt-2 py-1.5 bg-seal-50 text-seal-600 rounded-lg text-xs font-medium hover:bg-seal-100 transition flex items-center justify-center gap-1"
                             >
                               <Copy className="w-3 h-3" />
-                              复制内容
+                              {msg.reviewStatus === 'fail' ? '复制内容（未经核查通过）' : '复制内容'}
                             </button>
                           )}
                         </div>
@@ -4473,6 +4505,55 @@ export default function WritingPage() {
                     </div>
                   )}
                 </div>
+
+                {/* 模板整包解包后的 AI-2 复核 / 注意事项：逐条列出，就地可读可处理 */}
+                {packageReview && (
+                  <div className="p-2.5 rounded-lg border border-amber-200 bg-amber-50 text-[0.6875rem] leading-relaxed">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-medium text-amber-800 flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        模板复核 · {packageReview.name}
+                      </div>
+                      <button
+                        onClick={() => setPackageReview(null)}
+                        className="text-amber-600 hover:bg-amber-100 rounded p-0.5 transition"
+                        title="关闭"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="mt-1 text-amber-700">
+                      {packageReview.status && packageReview.status !== 'ok'
+                        ? `AI-2 这次没跑完（${packageReview.status === 'truncated' ? '输出被截断' : '无输出'}）—— 不代表模板有问题，可忽略或重跑解包。`
+                        : packageReview.passed === false
+                          ? 'AI-2 复核提出以下问题（供参考，最终以期刊官方模板为准）：'
+                          : '解包完成，附带以下注意事项：'}
+                    </div>
+                    {packageReview.summary && (
+                      <div className="mt-1 text-amber-700">{packageReview.summary}</div>
+                    )}
+                    {packageReview.issues.length > 0 && (
+                      <ul className="mt-1.5 space-y-1 list-disc list-inside text-amber-700">
+                        {packageReview.issues.map((it, i) => (
+                          <li key={i}>
+                            <b>{it.area}</b>：{it.problem}
+                            {it.suggestion ? `（建议：${it.suggestion}）` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {packageReview.warnings.length > 0 && (
+                      <ul className="mt-1.5 space-y-1 list-disc list-inside text-amber-700">
+                        {packageReview.warnings.map((w, i) => (
+                          <li key={i}>{w}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="mt-1.5 text-amber-600">
+                      要改模板：选中它 →「载入到代码板」手改（或让 AI 改代码）→「保存回模板」。
+                    </p>
+                  </div>
+                )}
 
                 {/* 编译器的能力边界：写清楚内置了什么，省得用户猜 */}
                 <p className="text-[0.625rem] text-ink-400 leading-relaxed bg-paper-100 rounded-lg p-2">

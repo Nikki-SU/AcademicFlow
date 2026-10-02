@@ -22,11 +22,11 @@ export interface ExtractedGuidelines {
   short_name?: string
   /** 出版社 */
   publisher?: string
-  /** 推荐的 LaTeX document class */
+  /** 期刊官方模板/投稿须知规定的 LaTeX document class（照原文转写） */
   document_class: string
   /** 文档选项（逗号分隔） */
   document_options?: string
-  /** 推荐的宏包列表 */
+  /** 投稿须知/官方模板里出现的宏包列表 */
   packages: string[]
   /** BibTeX 引用样式 */
   bibtex_style: string
@@ -51,7 +51,7 @@ export interface ExtractedGuidelines {
   reference_format_note?: string
   /** 图表格式说明 */
   figure_table_note?: string
-  /** 自定义前置代码建议 */
+  /** 投稿须知要求的自定义前置代码（照原文） */
   custom_preamble?: string
   /** 字数限制说明 */
   word_limit_note?: string
@@ -88,15 +88,18 @@ export async function extractGuidelinesWithAI(params: {
   // AI-1 角色 prompt：替换默认的"学术总结助手"为"期刊规范提取助手"
   // [NOT_IN_SOURCE] tag 指令由 dual-engine 自动追加，确保投稿须知未提及的字段被诚实标注
   const ai1RolePrompt = [
-    '你是一名专业的学术期刊格式分析助手。用户会提供一段【源材料】（投稿须知原文）和一条【任务指令】，',
+    '你是一名专业的学术期刊格式分析助手。用户会提供一段【源材料】（期刊官方模板 / 投稿须知原文）和一条【任务指令】，',
     '你需要按指令提取期刊排版的关键参数，并以 JSON 格式输出。',
     '',
     '【核心约束（必须严格遵守）】',
-    '1. 只使用【源材料】中的信息，禁止引入源材料未提及的外部知识、常识、推测或对其他期刊的记忆。',
-    '2. 若源材料信息不足以确定某字段，宁可留空或用最保守的默认值（如 document_class 默认 article），也不要猜测/补全/编造。',
-    '3. 忠于原文字面含义，不泛化、不外推、不改写数字/字号/边距/期刊名。',
-    '4. 输出严格 JSON 格式，不要任何额外文字、不要 markdown 代码块包裹。',
-    '5. 中文输出说明性内容（key_points, confidence_note 等）。',
+    '1. 【源材料】通常就是期刊官方模板 / 投稿须知原文，它是唯一权威依据。你的任务是**忠实转写**它规定的参数：官方怎么说就怎么填，逐字照抄，',
+    '   不得用自己的意见替换、修订、或"推荐"别的值 —— 是官方模板说了算，不是你的判断说了算。',
+    '2. 只使用【源材料】中的信息，禁止引入源材料未提及的外部知识、常识、推测或对其他期刊的记忆。',
+    '3. 若源材料确实没有写明某字段，才用最保守的通用默认值（如 document_class 用 article），并且必须在 confidence_note 里注明"该值系推断、非原文规定"，',
+    '   绝不能把它说成是期刊的规定。',
+    '4. 忠于原文字面含义，不泛化、不外推、不改写数字/字号/边距/期刊名。',
+    '5. 输出严格 JSON 格式，不要任何额外文字、不要 markdown 代码块包裹。',
+    '6. 中文输出说明性内容（key_points, confidence_note 等）。',
   ].join('\n')
 
   // AI-1 任务指令：定义输出 JSON schema + 提取规则
@@ -107,10 +110,10 @@ export async function extractGuidelinesWithAI(params: {
     '  "name": "期刊全称",',
     '  "short_name": "期刊简称/缩写（如有）",',
     '  "publisher": "出版社名称",',
-    '  "document_class": "推荐的 LaTeX 文档类，如 article / elsarticle / IEEEtran / acmart 等。如果没有明确说明，用 article",',
+    '  "document_class": "期刊官方模板/投稿须知里规定的 LaTeX 文档类，如 article / elsarticle / IEEEtran / acmart 等。逐字照抄原文，不要自行推荐或替换；原文确实没提才用 article，并在 confidence_note 注明是推断",',
     '  "document_options": "文档类选项，如 twocolumn,12pt 等",',
-    '  "packages": ["需要的宏包列表，如 amsmath, graphicx, booktabs 等"],',
-    '  "bibtex_style": "BibTeX 引用样式，如 unsrt / apalike / ieeetr / plain / IEEEtran 等。如果不确定，用 unsrt",',
+    '  "packages": ["官方模板/投稿须知里出现的宏包列表，如 amsmath, graphicx, booktabs 等；照原文，不要凭常识补"],',
+    '  "bibtex_style": "期刊规定的 BibTeX 引用样式，如 unsrt / apalike / ieeetr / plain / IEEEtran 等。照原文；原文确实没提才用 unsrt，并在 confidence_note 注明是推断",',
     '  "citation_command": "正文引用命令，只能是 cite / citep / citet / citealp 之一。方括号数字制（如 [1]）用 cite；圆括号作者-年（如 (Smith, 2020)）用 citep；叙述式作者-年（如 Smith (2020)）用 citet；作者-年不带括号用 citealp。判断不了就用 cite",',
     '  "two_column": true/false,',
     '  "font_size": 正文字号（数字，单位 pt）,',
@@ -119,20 +122,20 @@ export async function extractGuidelinesWithAI(params: {
     '  "abstract_format_note": "摘要格式说明",',
     '  "reference_format_note": "参考文献格式说明",',
     '  "figure_table_note": "图表格式说明",',
-    '  "custom_preamble": "建议的自定义 LaTeX 前置代码（如果有特殊要求）",',
+    '  "custom_preamble": "投稿须知要求的自定义 LaTeX 前置代码（照原文，没有就留空）",',
     '  "word_limit_note": "字数限制说明（如果有）",',
-    '  "confidence_note": "你对提取结果的置信度说明，哪些信息是确定的，哪些是推断的",',
+    '  "confidence_note": "你对提取结果的置信度说明，明确区分：哪些字段是原文照抄的、哪些是你推断的默认值",',
     '  "key_points": ["提取的关键格式点列表，用简洁中文列出，供用户快速核对"]',
     '}',
     '',
     '【提取规则】',
-    '1. 只基于投稿须知中的明确信息，不确定的字段留空或用最保守的默认值。',
-    '2. document_class：如果期刊提供了 LaTeX 模板，用对应的文档类；否则用 article。',
-    '3. two_column：如果明确说双栏/two-column/twocolumn 就是 true，否则默认 false。',
-    '4. font_size：如果提到用 10pt/11pt/12pt，提取数字；没有明确说明默认 12。',
-    '5. bibtex_style：根据期刊常用样式推断，不确定时用 unsrt。',
-    '6. packages：只列必要的宏包，如 amsmath, graphicx, amssymb, booktabs, hyperref。',
-    '7. key_points：列出 5-10 个最重要的格式要点，让用户能快速核对。',
+    '1. 只基于期刊官方模板 / 投稿须知中的明确信息；官方怎么写就怎么填，不确定的字段留空（不要凭空补）。',
+    '2. document_class：期刊官方模板 / 投稿须知怎么规定就怎么填（照原文）；原文没有才用 article，并在 confidence_note 注明系推断。',
+    '3. two_column：原文明确说双栏/two-column/twocolumn 就是 true；原文没提才默认 false 并注明推断。',
+    '4. font_size：原文提到 10pt/11pt/12pt 就提取数字；原文没提才默认 12 并注明推断。',
+    '5. bibtex_style：照原文规定的样式；原文没提才用 unsrt 并注明推断，不要凭"常见"替换。',
+    '6. packages：只列官方模板 / 投稿须知里出现的宏包，不要凭常识补。',
+    '7. key_points：列出 5-10 个最重要的格式要点，让用户能快速对照官方模板核对。',
     '8. citation_command：判断依据是投稿须知里正文引用的写法（不是参考文献表的样式）。',
   ].join('\n')
 
@@ -152,7 +155,7 @@ export async function extractGuidelinesWithAI(params: {
   // 把双引擎审阅结果附加到 confidence_note（让用户看到 AI-2 的核查结论）
   const reviewSummary = dualResult.finalPassed
     ? 'AI-2 忠实性核查通过：所有字段均可锚定到投稿须知原文。'
-    : `AI-2 忠实性核查未通过（${dualResult.attempts.length} 轮）：${dualResult.ai2Feedback.summary || '部分字段可能未严格来自原文，请人工核对'}。`
+    : `AI-2 忠实性核查未通过（${dualResult.attempts.length} 轮）：${dualResult.ai2Feedback.summary || '部分字段可能未严格对应原文，请对照投稿须知核对转写'}。`
   extracted.confidence_note = `${reviewSummary}\n\n${extracted.confidence_note}`
 
   return extracted
@@ -195,7 +198,7 @@ function parseExtractionResult(rawOutput: string): ExtractedGuidelines {
       figure_table_note: parsed.figure_table_note ? String(parsed.figure_table_note) : undefined,
       custom_preamble: parsed.custom_preamble ? String(parsed.custom_preamble) : undefined,
       word_limit_note: parsed.word_limit_note ? String(parsed.word_limit_note) : undefined,
-      confidence_note: String(parsed.confidence_note || 'AI 提取结果，请人工核对'),
+      confidence_note: String(parsed.confidence_note || 'AI 提取结果，请对照期刊官方模板 / 投稿须知核对转写是否有出入'),
       key_points: Array.isArray(parsed.key_points) ? parsed.key_points.map(String) : [],
     }
   } catch (err) {

@@ -347,6 +347,8 @@ export async function createTemplate(data: {
   journal_url?: string
   guidelines_url?: string
   guidelines_content?: string
+  /** 用户确认/编辑过的格式规范摘要（落在 meta.md 的 notes） */
+  notes?: string
 }): Promise<JournalTemplate> {
   const now = Date.now()
   // 期刊名可能是中文：ASCII 化后会变成空串，直接拼会得到 "-6nzc" 这种
@@ -368,6 +370,7 @@ export async function createTemplate(data: {
     guidelines_content: data.guidelines_content,
     guidelines_content_hash: data.guidelines_content ? hashContent(data.guidelines_content) : undefined,
     guidelines_last_updated_at: data.guidelines_content ? now : undefined,
+    notes: data.notes,
     document_class: 'article',
     document_options: '',
     packages: [],
