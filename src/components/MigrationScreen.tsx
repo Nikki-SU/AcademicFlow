@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { pendingMigrations, markMigrationsApplied, type Migration } from '../services/migrations'
+import { pendingMigrations, markMigrationsApplied, markDataVersionCurrent, type Migration } from '../services/migrations'
 
 function Splash({ text }: { text: string }) {
   return (
@@ -28,11 +28,18 @@ export function MigrationScreen({ onReady }: { onReady: () => void }) {
 
   useEffect(() => {
     let cancelled = false
-    pendingMigrations().then((p) => {
+    void (async () => {
+      const p = await pendingMigrations()
       if (cancelled) return
-      if (p.length === 0) onReady()
-      else setPending(p)
-    })
+      if (p.length === 0) {
+        // 确认已是最新格式 → 记下版本号，下次启动即可走秒开快路径
+        await markDataVersionCurrent()
+        if (cancelled) return
+        onReady()
+      } else {
+        setPending(p)
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -47,6 +54,7 @@ export function MigrationScreen({ onReady }: { onReady: () => void }) {
         await markMigrationsApplied([m.id])
       }
       const rest = await pendingMigrations()
+      if (rest.length === 0) await markDataVersionCurrent()
       toast.success('数据已更新为新格式')
       if (rest.length === 0) onReady()
       else setPending(rest)

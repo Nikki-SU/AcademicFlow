@@ -1,10 +1,15 @@
 /**
  * 数据格式滚动迁移
  * -------------------------------------------------
- * 策略（Rosa 定，见 架构.md §1.10 数据类 / ADJ-54）：**数据格式只前进，不向后兼容**。
+ * 策略（Rosa 定，见 架构.md §1.10 数据类 / ADJ-54 / ADJ-57）：**数据格式只前进，不向后兼容**。
  * 旧数据一律用一次性迁移升级到新格式；迁移完成后入口（按钮 / 提示文字）自行消失，
  * 旧数据不允许变成永久技术债。**禁止**为旧格式写渲染兜底 / 兼容分支 ——
- * 需要适配时，写一个迁移，而不是写 if (old)。 
+ * 需要适配时，写一个迁移，而不是写 if (old)。
+ *
+ * 版本号闸门（ADJ-57）：私库里存一份 `{DATA_VERSION}` 副本。启动时先比对 ——
+ *   **一致 → 直接放行**（一轮探测都不跑，秒开；旧实现每次启动都要拉文件树 + 读表头）；
+ *   **不一致 → 才逐条探测 / 迁移**，迁完（或确认无待迁移）把新版本号写回私库。
+ * 维护规则：**每新增一条迁移，必须把 `DATA_VERSION` +1** —— 否则老设备比对「一致」会跳过新迁移。
  *
  * 用法：页面挂载时 `pendingMigrations()` 探测；有则显示「更新数据」入口，点一下跑完即消失。
  */
@@ -654,8 +659,32 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
   }
 }
 
+/**
+ * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
+ * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
+ */
+export const DATA_VERSION = 2
+
+const DATA_VERSION_PATH = 'settings/data-version.csv'
+const DATA_VERSION_HEADERS = ['version', 'updated_at']
+
+/**
+ * 读私库里记录的「数据格式版本」。读不到 / 非法 → null（当作未知，走探测）。
+ * force=true 走网络拿最新，避免别的设备刚迁完、本机还拿旧缓存。
+ */
+async function loadStoredDataVersion(force = true): Promise<number | null> {
+  const rows = await readCsvFile<string[]>(DATA_VERSION_PATH, (r) => r.slice(1), force)
+  const v = (rows[0]?.[0] ?? '').trim()
+  if (!v) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
 /** 探测当前仍待执行的迁移（跳过台账里已记录的） */
 export async function pendingMigrations(): Promise<Migration[]> {
+  // 快路径：私库版本号与应用一致 → 用户已是最新格式，一轮探测都不跑，直接放行
+  if ((await loadStoredDataVersion()) === DATA_VERSION) return []
+
   const applied = await loadAppliedMigrationIds()
   const pending: Migration[] = []
   for (const m of MIGRATIONS) {
@@ -667,4 +696,22 @@ export async function pendingMigrations(): Promise<Migration[]> {
     }
   }
   return pending
+}
+
+/**
+ * 数据已确认是最新格式 → 把当前版本号写进私库，下次启动即可走秒开快路径。
+ * 已一致则不重复写（避免每次启动都产生一个空提交）。
+ */
+export async function markDataVersionCurrent(): Promise<void> {
+  try {
+    if ((await loadStoredDataVersion(false)) === DATA_VERSION) return
+    await writeCsvFile(
+      DATA_VERSION_PATH,
+      [[String(DATA_VERSION), String(Date.now())]],
+      DATA_VERSION_HEADERS,
+      (r) => r,
+    )
+  } catch (err) {
+    console.warn('[migration] 写入数据版本失败:', err)
+  }
 }
