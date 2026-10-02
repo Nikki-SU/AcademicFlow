@@ -12,7 +12,7 @@
  * - 新建走**列头「+」**（点哪个大类，就在哪个大类下建顶级任务）。
  * - 点任务 → 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情）。
  * - **过期任务**：有截止时间且已过点的，整块**变灰**、沉到列表底部，仍可点开查看 / 编辑；
- *   可在组头**折叠**，也可用面板头的「显示过期」开关**整组隐藏 / 显示**（用户要求）。
+ *   可在组头**折叠**，也可用日程页页头的「显示过期」开关**整组隐藏 / 显示**（用户要求）。
  */
 import { Fragment, useState } from 'react'
 import { CalendarClock, ChevronDown, ChevronRight, Plus } from 'lucide-react'
@@ -33,6 +33,7 @@ export function DdlList({
   byId,
   currentId,
   highlightId,
+  showExpired,
   onNewRoot,
   onEdit,
 }: {
@@ -41,6 +42,8 @@ export function DdlList({
   currentId: string | null
   /** 当前亮起的 DDL 任务 id（课表红线悬停 / 点击联动） */
   highlightId: string | null
+  /** 整页「显示过期」开关：关掉则过期段整组隐藏（由日程页统一控制） */
+  showExpired: boolean
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
   /** 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情） */
@@ -48,8 +51,6 @@ export function DdlList({
 }) {
   // 过期组默认展开（先看到它们、且是灰的）；想清爽就折叠起来（用户要求）
   const [expiredOpen, setExpiredOpen] = useState(true)
-  // 整组「显示 / 隐藏过期」开关（面板头）：默认显示，关掉则过期任务全不出现
-  const [showExpired, setShowExpired] = useState(true)
   const now = Date.now()
   const active = projects.filter((p) => !isOverdue(p, now))
   const expired = projects.filter((p) => isOverdue(p, now))
@@ -116,35 +117,11 @@ export function DdlList({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
-      <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
+      <div className="flex items-center gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
         <h2 className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800">
           <CalendarClock className="h-ui-icon w-ui-icon text-seal-600" />
           DDL
         </h2>
-        {/* 过期任务整组显示 / 隐藏：有过期任务时才出现，关掉后过期卡片全不渲染 */}
-        {expired.length > 0 && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showExpired}
-            onClick={() => setShowExpired((v) => !v)}
-            title={showExpired ? '隐藏已过期任务' : '显示已过期任务'}
-            className="inline-flex items-center gap-ui-gap-sm text-ui-xs text-ink-400 transition hover:text-ink-600"
-          >
-            显示过期
-            <span
-              className={`relative h-4 w-7 shrink-0 rounded-full transition ${
-                showExpired ? 'bg-seal-500' : 'bg-ink-200'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow-sm transition-all ${
-                  showExpired ? 'left-3.5' : 'left-0.5'
-                }`}
-              />
-            </span>
-          </button>
-        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-ui-gap">

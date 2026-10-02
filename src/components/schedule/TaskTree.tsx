@@ -11,6 +11,8 @@
  * - 新建走**列头「+」**（点哪个大类的加号，就在哪个大类下建顶级任务），不再有全局「新建任务」。
  * - 行内按钮顺序：**加子任务（高频）在左**，编辑 / 删除（低频）在右。
  * - **联动高亮**：课表红线悬停 / 点击时，对应任务行亮起（`highlightId`）。
+ * - **过期任务**：有截止时间且已过点的行**灰掉**（仍可点开 / 编辑）；日程页页头「显示过期」
+ *   开关关掉时从列表隐藏（若过期任务是未过期子孙的祖先，则保留以维持层级，仍灰显）。
  *
  * 排序（用户要求，ADJ-71）：**同层内**按「急不急」排 ——
  * ① 此刻**正在上**的课 / 定时任务置顶；② 有排期的（课程 / 定时任务）按**下一次时间由近到远**；
@@ -20,6 +22,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { ListTree, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Project, ProjectType } from '../../services/projectData'
+import { isOverdue } from '../../services/projectData'
 import type { Course } from '../../services/scheduleData'
 import { timeToMinutes, weekdayOfDate } from '../../services/scheduleData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
@@ -108,6 +111,7 @@ export function TaskTree({
   currentId,
   isLoading,
   highlightId,
+  showExpired,
   onSelect,
   onNewRoot,
   onAddChild,
@@ -121,6 +125,8 @@ export function TaskTree({
   isLoading: boolean
   /** 当前亮起的 DDL 任务 id（课表红线悬停 / 点击联动） */
   highlightId: string | null
+  /** 整页「显示过期」开关：关掉则过期任务从列表隐藏（由日程页统一控制） */
+  showExpired: boolean
   onSelect: (id: string) => void
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
@@ -167,6 +173,21 @@ export function TaskTree({
   }
   // 同一次渲染内复用时间判定（now 取一次，避免比较器里反复取当前时刻）
   const now = Date.now()
+  // 「显示过期」关掉时隐藏过期任务；但若某个过期任务是**未过期子孙的祖先**，
+  // 必须保留它（否则子任务会与父级脱钩、被 buildRows 当成根节点）——这类保留的祖先仍然灰显。
+  const visibleProjects = (() => {
+    if (showExpired) return projects
+    const keep = new Set<string>()
+    for (const p of projects) if (!isOverdue(p, now)) keep.add(p.projectId)
+    for (const id of [...keep]) {
+      let cur = byId.get(id)
+      while (cur?.parentId) {
+        keep.add(cur.parentId)
+        cur = byId.get(cur.parentId)
+      }
+    }
+    return projects.filter((p) => keep.has(p.projectId))
+  })()
   const timingCache = new Map<string, Timing>()
   const timingOf = (projectId: string): Timing => {
     let t = timingCache.get(projectId)
@@ -189,11 +210,11 @@ export function TaskTree({
 
   // 左右分列：左研究、右课程（各自成树）
   const researchRows = buildRows(
-    projects.filter((p) => p.type !== 'course'),
+    visibleProjects.filter((p) => p.type !== 'course'),
     compare,
   )
   const courseRows = buildRows(
-    projects.filter((p) => p.type === 'course'),
+    visibleProjects.filter((p) => p.type === 'course'),
     compare,
   )
 
@@ -236,6 +257,8 @@ export function TaskTree({
             const isHighlight = project.projectId === highlightId
             const isEditing = project.projectId === editingId
             const isExpanded = project.projectId === expandedId
+            // 过期任务：整行灰掉（仍可点开查看 / 编辑，只是不再抢注意力）
+            const gray = isOverdue(project, now)
             const parentTitle = project.parentId
               ? byId.get(project.parentId)?.title || '(未命名任务)'
               : null
@@ -248,6 +271,8 @@ export function TaskTree({
                     setMenu({ project, x: e.clientX, y: e.clientY })
                   }}
                   className={`group flex items-center gap-ui-gap-sm rounded-md pr-1 transition ${
+                    gray ? 'opacity-60 grayscale' : ''
+                  } ${
                     isHighlight
                       ? 'bg-red-50 ring-1 ring-red-300'
                       : isCurrent
@@ -283,9 +308,9 @@ export function TaskTree({
                     >
                       <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
                       <span
-                        className={`min-w-0 flex-1 truncate text-ui-sm ${color.text} ${
-                          isCurrent ? 'font-medium' : ''
-                        }`}
+                        className={`min-w-0 flex-1 truncate text-ui-sm ${
+                          gray ? 'text-ink-500' : color.text
+                        } ${isCurrent ? 'font-medium' : ''}`}
                       >
                         {project.title || '(未命名任务)'}
                       </span>

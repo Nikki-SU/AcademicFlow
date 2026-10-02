@@ -36,6 +36,7 @@ import {
   renameProject,
   deleteProject,
   descendantIds,
+  isOverdue,
   type Project,
   type ProjectDeleteMode,
   type ProjectType,
@@ -75,6 +76,8 @@ export default function SchedulePage() {
   const [hoverDdlId, setHoverDdlId] = useState<string | null>(null)
   const [pinnedDdlId, setPinnedDdlId] = useState<string | null>(null)
   const highlightDdlId = pinnedDdlId ?? hoverDdlId
+  // 「显示过期」是**整页**开关：同时管 DDL 栏与任务栏里的过期任务（隐藏 / 显示）
+  const [showExpired, setShowExpired] = useState(true)
 
   const currentId = useTaskStore((s) => s.currentProjectId)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
@@ -125,6 +128,9 @@ export default function SchedulePage() {
     () => projects.filter((p) => p.dueAt > 0).sort((a, b) => a.dueAt - b.dueAt),
     [projects],
   )
+
+  // 页面里是否存在过期任务（决定页头「显示过期」开关要不要出现）
+  const hasExpired = useMemo(() => projects.some((p) => isOverdue(p)), [projects])
 
   // 「新建任务」时可指定归属父任务（与大类一起构成两层选择）；不选归属即该大类下的顶级任务
   const parentOptions = useMemo<ParentOption[]>(() => buildParentOptions(projects), [projects])
@@ -446,9 +452,35 @@ export default function SchedulePage() {
   return (
     <div className="page-container py-ui-gap-lg">
       <header className="mb-ui-gap">
-        <div className="flex items-center gap-ui-gap-sm">
-          <CalendarDays className="h-ui-icon w-ui-icon text-seal-600" />
-          <h1 className="text-lg font-semibold text-ink-800">日程</h1>
+        <div className="flex items-center justify-between gap-ui-gap-sm">
+          <div className="flex items-center gap-ui-gap-sm">
+            <CalendarDays className="h-ui-icon w-ui-icon text-seal-600" />
+            <h1 className="text-lg font-semibold text-ink-800">日程</h1>
+          </div>
+          {/* 整页开关：一次隐藏 / 显示 DDL 栏与任务栏里的全部过期任务 */}
+          {hasExpired && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showExpired}
+              onClick={() => setShowExpired((v) => !v)}
+              title={showExpired ? '隐藏已过期任务' : '显示已过期任务'}
+              className="inline-flex items-center gap-ui-gap-sm text-ui-sm text-ink-500 transition hover:text-ink-700"
+            >
+              显示过期
+              <span
+                className={`relative h-4 w-7 shrink-0 rounded-full transition ${
+                  showExpired ? 'bg-seal-500' : 'bg-ink-200'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow-sm transition-all ${
+                    showExpired ? 'left-3.5' : 'left-0.5'
+                  }`}
+                />
+              </span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -484,6 +516,7 @@ export default function SchedulePage() {
               currentId={currentId}
               isLoading={isLoading}
               highlightId={highlightDdlId}
+              showExpired={showExpired}
               onSelect={(id) => void setCurrentProject(id)}
               onNewRoot={openCreateRoot}
               onAddChild={openChildForm}
@@ -498,6 +531,7 @@ export default function SchedulePage() {
               byId={byId}
               currentId={currentId}
               highlightId={highlightDdlId}
+              showExpired={showExpired}
               onNewRoot={openCreateRoot}
               onEdit={openEdit}
             />
