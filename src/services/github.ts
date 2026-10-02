@@ -910,6 +910,23 @@ export async function listRepoFilesInDir(
     .map((entry) => ({ name: entry.name, path: entry.path, size: entry.size }))
 }
 
+/**
+ * 递归列出仓库里**所有 blob 路径**（git trees API，一次拿全）。
+ * 用于「整目录删除」：GitHub 删除文件要逐个给路径，先把全仓路径取回来再按前缀筛。
+ * 失败返回空数组（调用方按空处理，不会误删）。
+ */
+export async function listRepoPaths(owner: string, repo: string, token: string): Promise<string[]> {
+  try {
+    const res = await githubFetch(`/repos/${owner}/${repo}/git/trees/main?recursive=1`, token)
+    if (!res.ok) return []
+    const data = (await res.json()) as { tree?: Array<{ path: string; type: string }> }
+    return (data.tree ?? []).filter((e) => e.type === 'blob').map((e) => e.path)
+  } catch (err) {
+    console.warn('[github] 拉取仓库文件树失败:', err)
+    return []
+  }
+}
+
 /** 上传二进制文件（PDF / 图片等），返回 sha。内部用串行写队列避免 409 */
 export async function uploadRepoBinaryFile(
   owner: string,

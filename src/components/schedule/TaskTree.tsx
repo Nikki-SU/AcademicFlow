@@ -6,7 +6,7 @@
  * 同根同色（colorForRoot），与课程表 / DDL 全局一致。
  */
 import { useState } from 'react'
-import { ListTree, Plus } from 'lucide-react'
+import { ListTree, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Project } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
 
@@ -30,6 +30,8 @@ export function TaskTree({
   onSelect,
   onNewRoot,
   onAddChild,
+  onRename,
+  onDelete,
 }: {
   projects: Project[]
   currentId: string | null
@@ -37,8 +39,12 @@ export function TaskTree({
   onSelect: (id: string) => void
   onNewRoot: () => void
   onAddChild: (parent: Project) => void
+  onRename: (project: Project, title: string) => Promise<void>
+  onDelete: (project: Project) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
 
   const byId = new Map<string, Project>()
   for (const p of projects) byId.set(p.projectId, p)
@@ -67,6 +73,18 @@ export function TaskTree({
     for (const c of childrenByParent.get(p.projectId) ?? []) walk(c, depth + 1)
   }
   for (const r of roots) walk(r, 0)
+
+  const startEdit = (p: Project) => {
+    setEditingId(p.projectId)
+    setDraft(p.title || '')
+  }
+
+  const commitEdit = async (p: Project) => {
+    const name = draft.trim()
+    setEditingId(null)
+    if (!name || name === (p.title || '')) return
+    await onRename(p, name)
+  }
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
@@ -97,6 +115,7 @@ export function TaskTree({
             rows.map(({ project, depth }) => {
               const color = colorForRoot(getRootId(project, byId))
               const isCurrent = project.projectId === currentId
+              const isEditing = project.projectId === editingId
               return (
                 <div
                   key={project.projectId}
@@ -105,22 +124,49 @@ export function TaskTree({
                     isCurrent ? 'bg-seal-50 ring-1 ring-seal-300' : 'hover:bg-paper-100'
                   }`}
                 >
+                  {isEditing ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-ui-gap-sm py-ui-gap-sm">
+                      <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
+                      <input
+                        autoFocus
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void commitEdit(project)
+                          else if (e.key === 'Escape') setEditingId(null)
+                        }}
+                        onBlur={() => void commitEdit(project)}
+                        className="min-w-0 flex-1 rounded border border-seal-400 bg-paper-50 px-1.5 py-0.5 text-ui-sm text-ink-800 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onSelect(project.projectId)}
+                      onDoubleClick={() => startEdit(project)}
+                      title="双击改名"
+                      className="flex min-w-0 flex-1 items-center gap-ui-gap-sm py-ui-gap-sm text-left"
+                    >
+                      <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
+                      <span
+                        className={`min-w-0 flex-1 truncate text-ui-sm ${color.text} ${
+                          isCurrent ? 'font-medium' : ''
+                        }`}
+                      >
+                        {project.title || '(未命名任务)'}
+                      </span>
+                      {project.dueAt > 0 && (
+                        <span className="shrink-0 text-ui-2xs text-ink-400">DDL</span>
+                      )}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => onSelect(project.projectId)}
-                    className="flex min-w-0 flex-1 items-center gap-ui-gap-sm py-ui-gap-sm text-left"
+                    onClick={() => startEdit(project)}
+                    title="改名"
+                    className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
                   >
-                    <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
-                    <span
-                      className={`min-w-0 flex-1 truncate text-ui-sm ${color.text} ${
-                        isCurrent ? 'font-medium' : ''
-                      }`}
-                    >
-                      {project.title || '(未命名任务)'}
-                    </span>
-                    {project.dueAt > 0 && (
-                      <span className="shrink-0 text-ui-2xs text-ink-400">DDL</span>
-                    )}
+                    <Pencil className="h-ui-icon-sm w-ui-icon-sm" />
                   </button>
                   <button
                     type="button"
@@ -129,6 +175,14 @@ export function TaskTree({
                     className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
                   >
                     <Plus className="h-ui-icon-sm w-ui-icon-sm" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(project)}
+                    title="删除任务"
+                    className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
                   </button>
                 </div>
               )

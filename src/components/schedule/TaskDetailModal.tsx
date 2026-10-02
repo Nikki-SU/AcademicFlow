@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Sparkles, Square, Loader2, AlertTriangle, Info } from 'lucide-react'
+import { Sparkles, Square, Loader2, AlertTriangle, Info, Trash2 } from 'lucide-react'
 import { Modal } from './Modal'
 import { loadBrief, type Project } from '../../services/projectData'
 import { runDualEngine } from '../../services/ai/dual-engine'
@@ -32,11 +32,14 @@ export function TaskDetailModal({
   project,
   onClose,
   onSave,
+  onDelete,
 }: {
   project: Project
   onClose: () => void
   /** 保存 title（更新 projects）与 brief；持久化逻辑在页面里 */
   onSave: (title: string, brief: string) => Promise<void>
+  /** 请求删除本任务（由页面打开二次确认弹层） */
+  onDelete: () => void
 }) {
   const [title, setTitle] = useState(project.title)
   const [brief, setBrief] = useState('')
@@ -135,6 +138,13 @@ export function TaskDetailModal({
       maxWidth="max-w-2xl"
       footer={
         <>
+          <button
+            onClick={onDelete}
+            className="mr-auto inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-seal-700 transition hover:bg-seal-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            删除任务
+          </button>
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"

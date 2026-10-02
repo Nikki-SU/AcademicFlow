@@ -32,7 +32,10 @@ import {
   loadProjects,
   saveProjects,
   saveBrief,
+  renameProject,
+  deleteProject,
   type Project,
+  type ProjectDeleteMode,
   type ProjectType,
 } from '../services/projectData'
 import { CourseTable } from '../components/schedule/CourseTable'
@@ -41,6 +44,7 @@ import { DdlList } from '../components/schedule/DdlList'
 import { TaskTree } from '../components/schedule/TaskTree'
 import { TaskFormModal, type TaskFormValue, type ParentOption } from '../components/schedule/TaskFormModal'
 import { TaskDetailModal } from '../components/schedule/TaskDetailModal'
+import { TaskDeleteModal } from '../components/schedule/TaskDeleteModal'
 import { useTaskStore } from '../stores/task'
 
 /** 新建任务表单的上下文：根任务（选大类）或某个父节点的子任务（继承大类） */
@@ -64,6 +68,7 @@ export default function SchedulePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [taskForm, setTaskForm] = useState<TaskFormContext | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
 
   const currentId = useTaskStore((s) => s.currentProjectId)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
@@ -347,6 +352,35 @@ export default function SchedulePage() {
       type: parent.type,
     })
 
+  // ---------- 任务改名 / 删除（ADJ-64）----------
+  const handleRenameTask = async (project: Project, title: string) => {
+    try {
+      const next = await renameProject(project.projectId, title)
+      setProjects(next)
+      toast.success('已改名')
+    } catch (err) {
+      console.error('[Schedule] 任务改名失败:', err)
+      toast.error('改名失败，请重试')
+    }
+  }
+
+  const handleDeleteTask = async (mode: ProjectDeleteMode) => {
+    const target = deleteTarget
+    if (!target) return
+    try {
+      const next = await deleteProject(target.projectId, mode)
+      setProjects(next)
+      if (currentId === target.projectId) await setCurrentProject(null)
+      setDeleteTarget(null)
+      setDetailId(null)
+      toast.success(mode === 'purge' ? '已删除任务及独占材料' : '已删除任务')
+    } catch (err) {
+      console.error('[Schedule] 删除任务失败:', err)
+      toast.error('删除失败，请重试')
+      throw err
+    }
+  }
+
   // 三栏等高：外壳（Layout）已给 main 确定高度，直接按视口算可用高度（svh 兼容移动端）
   const columnHeight = 'lg:h-[calc(100svh-7.5rem)]'
   const columnBox = `min-h-ui-lane ${columnHeight}`
@@ -392,6 +426,8 @@ export default function SchedulePage() {
                 setTaskForm({ title: '新建任务', showType: true, parentId: null, type: 'research' })
               }
               onAddChild={openChildForm}
+              onRename={handleRenameTask}
+              onDelete={setDeleteTarget}
             />
           </div>
           <div className={columnBox}>
@@ -429,6 +465,15 @@ export default function SchedulePage() {
           project={detailProject}
           onClose={() => setDetailId(null)}
           onSave={(title, brief) => handleSaveTask(detailProject.projectId, title, brief)}
+          onDelete={() => setDeleteTarget(detailProject)}
+        />
+      )}
+
+      {deleteTarget && (
+        <TaskDeleteModal
+          project={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDeleteTask}
         />
       )}
     </div>

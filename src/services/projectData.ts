@@ -8,7 +8,11 @@
  * - projects/{project-id}/references/books.csv — 图书引用
  */
 
-import { readCsvFile, writeCsvFile, readMdFile, writeMdFile } from './userData'
+import { readCsvFile, writeCsvFile, readMdFile, writeMdFile, getRepoContext } from './userData'
+import { deleteRepoFiles, listRepoPaths } from './github'
+import { loadLiteratures, saveLiteratures, doiToSlug } from './literatureData'
+import { loadCategories, saveCategories } from './literatureCategoryData'
+import { loadTextbooks, saveTextbooks } from './textbookData'
 
 /** 任务大类：研究 / 课程（节点属性，不是独立层级） */
 export type ProjectType = 'research' | 'course'
@@ -328,4 +332,165 @@ export async function saveBookReferences(projectId: string, refs: CitationRef[])
     CITATION_HEADERS,
     (r) => [r.id, r.doi, r.title, r.authors, String(r.year), r.journal, r.type],
   )
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// 任务 CRUD：改名 / 删除（ADJ-64）
+// 「材料」= 任务引用的库文献 / 图书（可被多个任务共享）。删除任务时：
+//   detach = 只删任务，材料留在库里；purge = 额外删掉「只被该任务引用」的独占材料。
+// 两种模式下，任务的直接子任务都**提升为顶级**（parentId 置空），不连带删除。
+// ═════════════════════════════════════════════════════════════════════════
+
+export type ProjectDeleteMode = 'purge' | 'detach'
+
+export interface ExclusiveMaterial {
+  kind: 'literature' | 'textbook'
+  /** 库条目主键：文献 = doi，图书 = textbook_id */
+  key: string
+  title: string
+}
+
+export interface ProjectDeletePlan {
+  project: Project
+  /** 会被提升为顶级的直接子任务 */
+  promotedChildren: Project[]
+  /** 只被该任务引用、会随「连材料一起删」一并删除的库材料 */
+  exclusiveMaterials: ExclusiveMaterial[]
+}
+
+/** 只改任务名（其余字段一律不动），返回更新后的完整项目表 */
+export async function renameProject(projectId: string, title: string): Promise<Project[]> {
+  const projects = await loadProjects(true)
+  const next = projects.map((p) =>
+    p.projectId === projectId ? { ...p, title, updatedAt: Date.now() } : p,
+  )
+  await saveProjects(next)
+  return next
+}
+
+/** 收集「除 selfId 外其他任务」引用到的库条目主键（文献按 doi、图书按 id/title，小写归一并集） */
+async function collectOtherReferencedKeys(
+  selfId: string,
+): Promise<{ papers: Set<string>; books: Set<string> }> {
+  const papers = new Set<string>()
+  const books = new Set<string>()
+  const projects = (await loadProjects(true)).filter((p) => p.projectId !== selfId)
+  await Promise.all(
+    projects.map(async (p) => {
+      try {
+        for (const r of await loadReferences(p.projectId)) {
+          if (r.type === 'book') {
+            const key = (r.id || r.title).trim().toLowerCase()
+            if (key) books.add(key)
+          } else {
+            const key = (r.doi || r.id).trim().toLowerCase()
+            if (key) papers.add(key)
+          }
+        }
+      } catch (err) {
+        // 单个任务引用读失败不影响判断（宁可漏删，不可误删）
+        console.warn('[project] 读取其他任务引用失败:', p.projectId, err)
+      }
+    }),
+  )
+  return { papers, books }
+}
+
+/** 计算删除计划（不落库）：供确认弹窗预览「会连带删掉哪些独占材料」 */
+export async function planDeleteProject(projectId: string): Promise<ProjectDeletePlan | null> {
+  const projects = await loadProjects(true)
+  const project = projects.find((p) => p.projectId === projectId)
+  if (!project) return null
+  const promotedChildren = projects.filter((p) => p.parentId === projectId)
+  const [refs, others] = await Promise.all([
+    loadReferences(projectId).catch(() => [] as CitationRef[]),
+    collectOtherReferencedKeys(projectId),
+  ])
+  const exclusiveMaterials: ExclusiveMaterial[] = []
+  for (const r of refs) {
+    if (r.type === 'book') {
+      const key = (r.id || r.title).trim()
+      if (!key || others.books.has(key.toLowerCase())) continue
+      exclusiveMaterials.push({ kind: 'textbook', key, title: r.title || key })
+    } else {
+      const key = (r.doi || r.id).trim()
+      if (!key || others.papers.has(key.toLowerCase())) continue
+      exclusiveMaterials.push({ kind: 'literature', key, title: r.title || key })
+    }
+  }
+  return { project, promotedChildren, exclusiveMaterials }
+}
+
+/** 从全仓路径里挑出某个目录（及其子目录）下的所有文件 */
+function filesUnder(prefix: string, allPaths: string[]): string[] {
+  return allPaths.filter((p) => p === prefix || p.startsWith(`${prefix}/`))
+}
+
+/**
+ * 删除任务。
+ * @param mode 'detach' 只删任务、材料保留；'purge' 额外删掉独占材料（库目录 + 索引 + 分类归属）
+ * @returns 更新后的完整项目表
+ */
+export async function deleteProject(
+  projectId: string,
+  mode: ProjectDeleteMode,
+): Promise<Project[]> {
+  const projects = await loadProjects(true)
+  const project = projects.find((p) => p.projectId === projectId)
+  if (!project) return projects
+
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪，无法删除任务')
+
+  // 一次性取全仓路径，供整目录删除复用（路径是静态的，删除过程中不会变）
+  const allPaths = await listRepoPaths(ctx.owner, ctx.repo, ctx.token)
+
+  // purge：先算出独占材料，连同任务目录一起收集成待删文件
+  let exclusive: ExclusiveMaterial[] = []
+  if (mode === 'purge') {
+    const plan = await planDeleteProject(projectId)
+    exclusive = plan?.exclusiveMaterials ?? []
+  }
+
+  const toDelete: string[] = [...filesUnder(`projects/${projectId}`, allPaths)]
+  for (const m of exclusive) {
+    const dir = m.kind === 'literature' ? `literatures/${doiToSlug(m.key)}` : `textbooks/${m.key}`
+    toDelete.push(...filesUnder(dir, allPaths))
+  }
+  if (toDelete.length > 0) {
+    await deleteRepoFiles(
+      [...new Set(toDelete)],
+      `chore: delete task ${projectId}${mode === 'purge' ? ' (with exclusive materials)' : ''}`,
+      ctx.owner,
+      ctx.repo,
+      ctx.token,
+    )
+  }
+
+  // purge：清理独占材料的库索引与分类归属
+  if (exclusive.length > 0) {
+    const litDrop = new Set(
+      exclusive.filter((m) => m.kind === 'literature').map((m) => m.key.toLowerCase()),
+    )
+    const bookDrop = new Set(exclusive.filter((m) => m.kind === 'textbook').map((m) => m.key))
+    if (litDrop.size > 0) {
+      const lits = await loadLiteratures(true)
+      await saveLiteratures(lits.filter((l) => !litDrop.has((l.doi || '').toLowerCase())))
+      const cats = await loadCategories(true)
+      await saveCategories(
+        cats.map((c) => ({ ...c, dois: c.dois.filter((d) => !litDrop.has(d.toLowerCase())) })),
+      )
+    }
+    if (bookDrop.size > 0) {
+      const books = await loadTextbooks(true)
+      await saveTextbooks(books.filter((t) => !bookDrop.has(t.textbookId)))
+    }
+  }
+
+  // 更新项目表：删该任务；直接子任务提升为顶级
+  const next = projects
+    .filter((p) => p.projectId !== projectId)
+    .map((p) => (p.parentId === projectId ? { ...p, parentId: null, updatedAt: Date.now() } : p))
+  await saveProjects(next)
+  return next
 }
