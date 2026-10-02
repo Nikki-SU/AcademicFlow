@@ -436,6 +436,7 @@ export default function SchedulePage() {
           <div className={columnBox}>
             <TaskTree
               projects={projects}
+              courses={courses}
               currentId={currentId}
               isLoading={isLoading}
               onSelect={(id) => void setCurrentProject(id)}

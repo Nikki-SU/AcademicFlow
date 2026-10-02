@@ -5,17 +5,53 @@
  * —— 用 parentId 串成树，点节点即切「当前任务」。
  * 布局：**左右分列** —— 左边「研究」、右边「课程」，各一竖列、各自滚动；
  * 每个大类内部再按层级缩进展开（DFS）。同根同色（colorForRoot），与课程表 / DDL 全局一致。
+ *
+ * 排序（用户要求，ADJ-71）：**同层内**按「急不急」排 ——
+ * ① 此刻**正在上**的课 / 定时任务置顶；② 有排期的（课程 / 定时任务）按**下一次时间由近到远**；
+ * ③ 其余（没有时段的纯任务）按**修改顺序**（最近改的在前）。
+ * 于是「今天要上的课」自然浮到最上面，临到点的定时任务也会顶上来。
  */
 import { useEffect, useState } from 'react'
 import { ListTree, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Project } from '../../services/projectData'
+import type { Course } from '../../services/scheduleData'
+import { timeToMinutes, weekdayOfDate } from '../../services/scheduleData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
 
-function byDueThenTitle(a: Project, b: Project): number {
-  const da = a.dueAt || Number.MAX_SAFE_INTEGER
-  const db = b.dueAt || Number.MAX_SAFE_INTEGER
-  if (da !== db) return da - db
-  return (a.title || '').localeCompare(b.title || '')
+/** 某个时段相对 now 的出现情况：next = 下一次开始(ms)，ongoing = 此刻是否正在上 */
+function slotTiming(c: Course, now: number): { next: number; ongoing: boolean } {
+  const start = timeToMinutes(c.startTime)
+  const end = timeToMinutes(c.endTime)
+  if (start < 0 || c.weekday < 1 || c.weekday > 7) return { next: Infinity, ongoing: false }
+  const d = new Date(now)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const todayWd = weekdayOfDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)
+  const delta = (((c.weekday - todayWd) % 7) + 7) % 7
+  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const nowMin = d.getHours() * 60 + d.getMinutes()
+  const ongoing = delta === 0 && end > start && nowMin >= start && nowMin < end
+  let next = dayStart + delta * 86400000 + start * 60000
+  if (next <= now) next += 7 * 86400000 // 这次已经过了 → 下一次在下周
+  return { next, ongoing }
+}
+
+/** 一个任务的所有时段汇总出的排序依据 */
+interface Timing {
+  has: boolean
+  ongoing: boolean
+  next: number
+}
+function projectTiming(slots: Course[], now: number): Timing {
+  let has = false
+  let ongoing = false
+  let next = Infinity
+  for (const c of slots) {
+    has = true
+    const t = slotTiming(c, now)
+    if (t.ongoing) ongoing = true
+    if (t.next < next) next = t.next
+  }
+  return { has, ongoing, next }
 }
 
 /** 一行：任务 + 其缩进深度（DFS 展开，避免递归渲染的坑） */
@@ -27,9 +63,9 @@ interface Row {
 /**
  * 把一批任务按 parentId 展平成有序行（DFS）。
  * 传入的已是同一大类（研究 / 课程）的任务，父节点也在其中，故用局部 map 即可。
- * 用一个 visited 兜底，异常数据（环 / 重复）也不会死循环。
+ * 同层（根 / 同一父节点的兄弟）用 `compare` 排序；用一个 visited 兜底，异常数据（环 / 重复）也不会死循环。
  */
-function buildRows(list: Project[]): Row[] {
+function buildRows(list: Project[], compare: (a: Project, b: Project) => number): Row[] {
   const byId = new Map<string, Project>()
   for (const p of list) byId.set(p.projectId, p)
 
@@ -44,8 +80,8 @@ function buildRows(list: Project[]): Row[] {
       else childrenByParent.set(p.parentId, [p])
     }
   }
-  for (const [k, arr] of childrenByParent) childrenByParent.set(k, [...arr].sort(byDueThenTitle))
-  roots.sort(byDueThenTitle)
+  for (const [k, arr] of childrenByParent) childrenByParent.set(k, [...arr].sort(compare))
+  roots.sort(compare)
 
   const rows: Row[] = []
   const visited = new Set<string>()
@@ -61,6 +97,7 @@ function buildRows(list: Project[]): Row[] {
 
 export function TaskTree({
   projects,
+  courses,
   currentId,
   isLoading,
   onSelect,
@@ -70,6 +107,7 @@ export function TaskTree({
   onDelete,
 }: {
   projects: Project[]
+  courses: Course[]
   currentId: string | null
   isLoading: boolean
   onSelect: (id: string) => void
@@ -103,9 +141,45 @@ export function TaskTree({
   const byId = new Map<string, Project>()
   for (const p of projects) byId.set(p.projectId, p)
 
+  // 每个任务挂了哪些时段（课程 / 定时任务）
+  const slotsByTask = new Map<string, Course[]>()
+  for (const c of courses) {
+    if (!c.taskId) continue
+    const arr = slotsByTask.get(c.taskId)
+    if (arr) arr.push(c)
+    else slotsByTask.set(c.taskId, [c])
+  }
+  // 同一次渲染内复用时间判定（now 取一次，避免比较器里反复取当前时刻）
+  const now = Date.now()
+  const timingCache = new Map<string, Timing>()
+  const timingOf = (projectId: string): Timing => {
+    let t = timingCache.get(projectId)
+    if (!t) {
+      t = projectTiming(slotsByTask.get(projectId) ?? [], now)
+      timingCache.set(projectId, t)
+    }
+    return t
+  }
+  // 排序：正在上的 → 有排期的（按下一次由近到远） → 其余（按修改顺序，最近改的在前）
+  const compare = (a: Project, b: Project): number => {
+    const ta = timingOf(a.projectId)
+    const tb = timingOf(b.projectId)
+    const ra = ta.ongoing ? 0 : ta.has ? 1 : 2
+    const rb = tb.ongoing ? 0 : tb.has ? 1 : 2
+    if (ra !== rb) return ra - rb
+    if (ra <= 1) return ta.next - tb.next
+    return (b.updatedAt || 0) - (a.updatedAt || 0)
+  }
+
   // 左右分列：左研究、右课程（各自成树）
-  const researchRows = buildRows(projects.filter((p) => p.type !== 'course'))
-  const courseRows = buildRows(projects.filter((p) => p.type === 'course'))
+  const researchRows = buildRows(
+    projects.filter((p) => p.type !== 'course'),
+    compare,
+  )
+  const courseRows = buildRows(
+    projects.filter((p) => p.type === 'course'),
+    compare,
+  )
 
   const startEdit = (p: Project) => {
     setEditingId(p.projectId)
