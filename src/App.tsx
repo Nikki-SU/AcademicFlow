@@ -10,6 +10,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { toast } from 'sonner'
 import Layout from './components/Layout'
 import { MigrationStatus } from './components/MigrationStatus'
+import { MigrationLock } from './components/MigrationLock'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import Settings from './pages/Settings'
@@ -165,13 +166,13 @@ function AppLayout() {
   return (
     <Layout>
       <Routes>
-        <Route path="/schedule" element={<SchedulePage />} />
-        <Route path="/tracking" element={<TrackingPage />} />
-        <Route path="/reading" element={<ReadingPage />} />
-        <Route path="/session" element={<SessionPage />} />
-        <Route path="/learn" element={<LearnPage />} />
-        <Route path="/writing" element={<WritingPage />} />
-        <Route path="/management" element={<ManagementPage />} />
+        <Route path="/schedule" element={<MigrationLock domain="schedule"><SchedulePage /></MigrationLock>} />
+        <Route path="/tracking" element={<MigrationLock domain="tracking"><TrackingPage /></MigrationLock>} />
+        <Route path="/reading" element={<MigrationLock domain="reading"><ReadingPage /></MigrationLock>} />
+        <Route path="/session" element={<MigrationLock domain="session"><SessionPage /></MigrationLock>} />
+        <Route path="/learn" element={<MigrationLock domain="learn"><LearnPage /></MigrationLock>} />
+        <Route path="/writing" element={<MigrationLock domain="writing"><WritingPage /></MigrationLock>} />
+        <Route path="/management" element={<MigrationLock domain="management"><ManagementPage /></MigrationLock>} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/" element={<Navigate to="/tracking" replace />} />

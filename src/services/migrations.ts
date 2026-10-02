@@ -33,9 +33,25 @@ import { readAnyDocument } from './blocks.mjs'
 import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockDoc } from './translation'
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
 
+/**
+ * 迁移影响的功能域（对应主导航页面）。
+ * 迁移期间这些页面会**暂时锁定**（显示占位提示），避免用户读到 / 写到迁移中途的旧值，
+ * 其他页面照常可用（ADJ-63）。
+ */
+export type MigrationDomain =
+  | 'schedule'
+  | 'tracking'
+  | 'reading'
+  | 'session'
+  | 'learn'
+  | 'writing'
+  | 'management'
+
 export interface Migration {
   /** 稳定 id，便于日后排查「哪些迁移跑过」 */
   id: string
+  /** 本条迁移会改写哪些功能域的数据 —— 迁移期间这些页面锁定（ADJ-63） */
+  affects: MigrationDomain[]
   /**
    * 引入世代：这条迁移是哪个 `DATA_VERSION` 加进来的。
    * 直迁（ADJ-60）：本设备记录在 `stored` 世代，则需要执行的就是 `since ∈ (stored, DATA_VERSION]`
@@ -73,6 +89,7 @@ function genId(prefix: string): string {
  */
 const coursesTaskLink: Migration = {
   id: 'courses-task-link-v1',
+  affects: ['schedule', 'tracking'],
   since: 2,
   label: '把旧课程表时段升级为「课程任务」',
   detect: async () => (await loadCourses()).some((c) => !c.taskId),
@@ -122,6 +139,7 @@ const coursesTaskLink: Migration = {
  */
 const coursesWeekdayFix: Migration = {
   id: 'courses-weekday-v1',
+  affects: ['schedule'],
   since: 2,
   label: '修正课程表里非法的 weekday（旧值统一归到周一）',
   detect: async () => (await loadCourses()).some((c) => !(c.weekday >= 1 && c.weekday <= 7)),
@@ -156,6 +174,7 @@ async function readCsvHeader(path: string): Promise<string[] | null> {
  */
 const projectsSchemaLink: Migration = {
   id: 'projects-schema-v1',
+  affects: ['tracking'],
   since: 2,
   label: '升级项目表（补 type / parent_id / start_at / due_at 四列）',
   detect: async () => {
@@ -200,6 +219,7 @@ const BACKGROUND_TASKS_PATH = 'settings/background_tasks.csv'
  */
 const backgroundTasksV2: Migration = {
   id: 'background-tasks-v2',
+  affects: ['management'],
   since: 2,
   label: '升级后台任务表（current_step / step_index → stage / node_index）',
   detect: async () => {
@@ -233,6 +253,7 @@ const backgroundTasksV2: Migration = {
 const EXTRA_DAYS_PATH = 'schedule/extra_days.csv'
 const extraDaysFollowWeekday: Migration = {
   id: 'extra-days-follow-weekday-v1',
+  affects: ['schedule'],
   since: 3,
   label: '升级调休表（新增 follow_weekday：指定补班按周几的课表）',
   detect: async () => {
@@ -343,6 +364,7 @@ const LITERATURES_DIR = 'literatures'
  */
 const literatureMdNames: Migration = {
   id: 'literature-md-names-v1',
+  affects: ['reading'],
   since: 2,
   label: '规整文献 md 文件名（fulltext / index → full.md，aligned → {slug}.md）',
   detect: async () => {
@@ -400,6 +422,7 @@ const literatureMdNames: Migration = {
  */
 const literatureTranslationV1: Migration = {
   id: 'literature-translation-v1',
+  affects: ['reading'],
   since: 2,
   label: '把旧译文献的 full.md + translation.md 合并为块文档',
   ledger: true,
@@ -458,9 +481,11 @@ function makeContentRenameMigration(opts: {
   dir: string
   label: string
   aliases: string[]
+  affects: MigrationDomain[]
 }): Migration {
   return {
     id: opts.id,
+    affects: opts.affects,
     since: opts.since,
     label: opts.label,
     detect: async () => {
@@ -499,6 +524,7 @@ const textbookMdNames = makeContentRenameMigration({
   dir: TEXTBOOKS_DIR,
   label: '规整图书正文文件名（full / index → content.md）',
   aliases: ['full.md', 'index.md'],
+  affects: ['learn'],
 })
 
 const documentMdNames = makeContentRenameMigration({
@@ -507,6 +533,7 @@ const documentMdNames = makeContentRenameMigration({
   dir: DOCUMENTS_DIR,
   label: '规整文档正文文件名（full / index → content.md）',
   aliases: ['full.md', 'index.md'],
+  affects: ['writing'],
 })
 
 /** 逐文件读正文（文本 md 走 Contents API，足够） */
@@ -541,6 +568,7 @@ async function editableDocPaths(): Promise<string[]> {
  */
 const docImagesV1: Migration = {
   id: 'doc-images-v1',
+  affects: ['tracking', 'reading', 'learn', 'writing'],
   since: 2,
   label: '把正文里内嵌的 base64 图片搬到仓库并改成语义路径',
   ledger: true,
@@ -605,6 +633,7 @@ function anchorForText(md: string, text: string): string {
  */
 const annotationAnchorsV2: Migration = {
   id: 'annotation-anchors-v2',
+  affects: ['reading'],
   since: 2,
   label: '升级旧批注表（补齐 anchor 列；文献批注补块锚点）',
   ledger: true,

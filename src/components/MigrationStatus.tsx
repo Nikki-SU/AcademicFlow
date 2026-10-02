@@ -1,17 +1,15 @@
 /**
- * 后台数据格式迁移（非阻塞）
+ * 后台数据格式迁移（非阻塞）+ 失败重试
  * -------------------------------------------------
- * 数据格式只前进、不向后兼容（架构.md §1.10 数据类 #5 / ADJ-54 / ADJ-57 / ADJ-60 / ADJ-62）。
- * 迁移**不再挡在应用前面**：工作区就绪后，应用照常进入，迁移在后台跑 ——
- *   · 右下角一张小小的悬浮卡展示**只进不退的进度条**（不遮内容、不挡操作）；
- *   · 用 toast 弹窗告知「开始更新 / 更新完成 / 更新失败（可重试）」。
- * 这样即使探测或某个请求慢 / 卡住，用户也**能正常使用其他功能**，不会「进不了页面」。
- *
- * 取舍（ADJ-62）：迁移期间未受影响的功能立即可用；受影响的数据（被迁移改写的字段）要等迁移完成
- * 再刷新页面才会是最新值 —— 换取「永远不被卡死」。
+ * 数据格式只前进、不向后兼容（架构.md §1.10 数据类 #5 / ADJ-54 / ADJ-57 / ADJ-60 / ADJ-62 / ADJ-63）。
+ * 迁移**不挡在应用前面**：工作区就绪后应用照常进入，迁移在后台跑 ——
+ *   · 迁移期间把「受影响的功能域」写进 migration store → 对应页面被 MigrationLock 暂时锁住，
+ *     避免用户读到 / 写到半迁移的旧值；未受影响的页面照常可用；
+ *   · 右下角悬浮卡展示**只进不退的进度条**（不遮内容、不拦操作）；
+ *   · toast 弹窗告知「开始 / 完成 / 失败（可重试）」；失败时受影响功能域保持锁定，直到重试成功。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   pendingMigrations,
@@ -19,6 +17,7 @@ import {
   markDataVersionCurrent,
   type Migration,
 } from '../services/migrations'
+import { useMigrationStore } from '../stores/migration'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
 
@@ -41,7 +40,13 @@ function ProgressBar({ fraction }: { fraction: number }) {
 export function MigrationStatus() {
   const token = useAuthStore((s) => s.token)
   const { isChecked, repo } = useWorkspaceStore()
-  const [running, setRunning] = useState(false)
+  const setRunning = useMigrationStore((s) => s.setRunning)
+  const setFailed = useMigrationStore((s) => s.setFailed)
+  const setLockedDomains = useMigrationStore((s) => s.setLockedDomains)
+  const setRetry = useMigrationStore((s) => s.setRetry)
+  const running = useMigrationStore((s) => s.running)
+  const failed = useMigrationStore((s) => s.failed)
+
   const [done, setDone] = useState(0)
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState('')
@@ -95,10 +100,10 @@ export function MigrationStatus() {
     [bumpRatio],
   )
 
-  /** 探测 + 迁移。无待迁移则静默记版本号；有则 toast 告知并在后台跑。 */
+  /** 探测 + 迁移。无待迁移则静默记版本号；有则锁受影响域、toast 告知并在后台跑。 */
   const run = useCallback(async () => {
+    setFailed(false)
     setRunning(true)
-    let toastId: string | number | undefined
     try {
       const p = await pendingMigrations()
       if (p.length === 0) {
@@ -106,24 +111,35 @@ export function MigrationStatus() {
         await markDataVersionCurrent()
         return
       }
-      toastId = toast.loading(`正在后台更新数据格式（0/${p.length}）…`, {
-        description: '不影响你继续使用，可稍后刷新查看最新数据',
+      // 迁移期间锁住受影响的功能域，避免读到 / 写到半迁移的旧值
+      setLockedDomains([...new Set(p.flatMap((m) => m.affects))])
+      const toastId = toast.loading(`正在后台更新数据格式（0/${p.length}）…`, {
+        description: '受影响的功能会暂时锁定，其他功能照常可用',
       })
       const ok = await runAll(p)
       if (!ok) throw new Error('仍有未完成的迁移')
+      setLockedDomains([])
       toast.success('数据已更新为新格式', { id: toastId })
     } catch (err) {
       console.error('[migration] 后台更新失败:', err)
+      // 失败时不清锁：受影响功能继续不可用，直到重试成功，避免用户看到半迁移数据
+      setFailed(true)
       toast.error('数据更新失败', {
-        id: toastId,
-        description: '可继续使用；受影响的数据可能显示异常，建议稍后重试。',
+        id: undefined,
+        description: '相关功能已暂时锁定；点右下角卡片或此处「重试」继续。',
         duration: 20000,
         action: { label: '重试', onClick: () => void run() },
       })
     } finally {
       setRunning(false)
     }
-  }, [runAll])
+  }, [runAll, setFailed, setLockedDomains, setRunning])
+
+  // 把重试入口注入 store，供被锁页面里的「重试」按钮调用
+  useEffect(() => {
+    setRetry(run)
+    return () => setRetry(null)
+  }, [run, setRetry])
 
   useEffect(() => {
     if (startedRef.current) return
@@ -132,24 +148,45 @@ export function MigrationStatus() {
     void run()
   }, [isChecked, repo, token, run])
 
-  if (!running) return null
+  if (!running && !failed) return null
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-72 rounded-xl border border-ink-200 bg-paper-50 p-3 shadow-card">
-      <div className="mb-2 flex items-center justify-between text-xs text-ink-500">
-        <span className="flex items-center gap-1.5">
-          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-          正在更新数据格式…
-        </span>
-        {total > 0 && (
-          <span className="tabular-nums text-ink-400">
-            {done}/{total}
-          </span>
-        )}
-      </div>
-      <ProgressBar fraction={ratio} />
-      {current && <p className="mt-2 truncate text-[11px] text-ink-400">{current}</p>}
-      <p className="mt-1 text-[11px] text-ink-400">后台进行，可继续使用。</p>
+      {running ? (
+        <>
+          <div className="mb-2 flex items-center justify-between text-xs text-ink-500">
+            <span className="flex items-center gap-1.5">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              正在更新数据格式…
+            </span>
+            {total > 0 && (
+              <span className="tabular-nums text-ink-400">
+                {done}/{total}
+              </span>
+            )}
+          </div>
+          <ProgressBar fraction={ratio} />
+          {current && <p className="mt-2 truncate text-[11px] text-ink-400">{current}</p>}
+          <p className="mt-1 text-[11px] text-ink-400">后台进行，可继续使用其他功能。</p>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-1.5 text-xs text-amber-700">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            数据更新失败
+          </div>
+          <p className="mt-1.5 text-[11px] text-ink-400">
+            受影响的功能暂不可用，重试成功即恢复。
+          </p>
+          <button
+            onClick={() => void run()}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-paper-50 transition hover:bg-amber-700"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            重试
+          </button>
+        </>
+      )}
     </div>
   )
 }
