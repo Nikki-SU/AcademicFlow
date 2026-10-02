@@ -4,7 +4,9 @@
  * 用户拍板：「创建和编辑本就是同一回事 —— 都是改字段的值，只是创建时字段为空。」
  * 所以只留**一个**表单，`mode` 决定标题与空/满，避免出现两套编辑入口。
  *
- * 可编辑任务的全部信息：任务名称、大类、归属任务、开始时间、截止时间、详细描述。
+ * 可编辑任务的全部信息：任务名称、大类、归属任务、截止时间（DDL）、开始时间、详细描述。
+ * - **截止时间与开始时间各自独立折叠**：截止默认展开（它是重点），开始默认折叠（通常就是当下）。
+ *   两个 DateTimeField 并排会把「几时几分」挤没，所以一律上下分开放，不并排。
  * - 时间用共用的 `DateTimeField`（日期 + TimeWheel 滚轮），与「加课选时段」同一套控件，
  *   不再用原生 datetime-local —— 一个「选时间」只允许存在一种 UI。
  * - 「详细描述」= 任务的 brief.md，可粘贴大段文本；也是「AI 总结交付物」唯一允许引用的材料。
@@ -13,7 +15,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Sparkles, Square, Loader2, AlertTriangle, Info } from 'lucide-react'
+import { Sparkles, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronRight } from 'lucide-react'
 import { Modal } from './Modal'
 import { DateTimeField } from './TimeWheel'
 import { TaskPicker, type ParentOption } from './TaskPicker'
@@ -63,6 +65,54 @@ function toMs(local: string): number {
   return Number.isNaN(t) ? 0 : t
 }
 
+/** datetime-local（YYYY-MM-DDTHH:MM）→ 折叠时的可读摘要（YYYY-MM-DD HH:MM） */
+function readable(local: string): string {
+  if (!local) return ''
+  return `${local.slice(0, 10)} ${local.length >= 16 ? local.slice(11, 16) : ''}`.trim()
+}
+
+/**
+ * 可折叠的时间字段（开始 / 截止各自独立折叠）。
+ * 折叠时标题右侧显示当前值摘要，展开时露出完整的日期 + 时分控件。
+ * 之所以要折叠：DateTimeField 是「日期 + 时分滚轮」，两个并排会把几时几分挤没，
+ * 且开始时间多数时候没意义 —— 默认折起来，让重要的截止时间独占一行。
+ */
+function TimeSection({
+  label,
+  hint,
+  open,
+  onToggle,
+  valueText,
+  children,
+}: {
+  label: string
+  hint: string
+  open: boolean
+  onToggle: () => void
+  valueText: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-lg border border-ink-200">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-ui-gap-sm px-3 py-2 text-left"
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-ink-400" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-ink-400" />
+        )}
+        <span className="text-sm font-medium text-ink-700">{label}</span>
+        <span className="text-xs font-normal text-ink-400">{hint}</span>
+        {!open && <span className="ml-auto text-xs text-ink-500">{valueText}</span>}
+      </button>
+      {open && <div className="border-t border-ink-100 p-3">{children}</div>}
+    </div>
+  )
+}
+
 export function TaskFormModal({
   mode,
   project,
@@ -88,6 +138,10 @@ export function TaskFormModal({
   const [parentId, setParentId] = useState(project ? project.parentId ?? '' : initialParentId ?? '')
   const [start, setStart] = useState(msToLocal(project?.startAt ?? 0))
   const [due, setDue] = useState(msToLocal(project?.dueAt ?? 0))
+  // 截止默认展开（它是重点），开始默认折叠（一般是「当下」，没必要天天填）；
+  // 编辑已有值时把对应的那一段展开，免得把已填的时间藏起来。
+  const [startOpen, setStartOpen] = useState(!!project?.startAt)
+  const [dueOpen, setDueOpen] = useState(true)
   const [brief, setBrief] = useState('')
   const [loadingBrief, setLoadingBrief] = useState(!!project)
   const [aiRunning, setAiRunning] = useState(false)
@@ -233,19 +287,25 @@ export function TaskFormModal({
             className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
           />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink-700">
-              开始时间 <span className="font-normal text-ink-400">（可留空）</span>
-            </label>
-            <DateTimeField value={start} onChange={setStart} />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink-700">
-              截止时间 / DDL <span className="font-normal text-ink-400">（可留空 = 无截止）</span>
-            </label>
+        <div className="space-y-3">
+          <TimeSection
+            label="截止时间 / DDL"
+            hint="留空 = 不定期任务"
+            open={dueOpen}
+            onToggle={() => setDueOpen((v) => !v)}
+            valueText={readable(due) || '未设置'}
+          >
             <DateTimeField value={due} onChange={setDue} />
-          </div>
+          </TimeSection>
+          <TimeSection
+            label="开始时间"
+            hint="可留空，通常就是当下"
+            open={startOpen}
+            onToggle={() => setStartOpen((v) => !v)}
+            valueText={readable(start) || '未设置'}
+          >
+            <DateTimeField value={start} onChange={setStart} />
+          </TimeSection>
         </div>
 
         <div>

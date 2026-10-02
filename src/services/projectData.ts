@@ -47,6 +47,14 @@ export interface Project {
   dueAt: number
 }
 
+/**
+ * 是否「已过期」：有截止时间（dueAt>0）且已经过点。
+ * 过期任务不删除、仍可打开 / 修改，只是**变灰**、沉到列表底部并可折叠（用户要求）。
+ */
+export function isOverdue(p: Project, now = Date.now()): boolean {
+  return p.dueAt > 0 && p.dueAt < now
+}
+
 export interface CitationRef {
   id: string
   doi: string

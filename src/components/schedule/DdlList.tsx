@@ -11,10 +11,13 @@
  * - **联动高亮**：课表红线悬停 / 点击时，对应行亮起（`highlightId`）。
  * - 新建走**列头「+」**（点哪个大类，就在哪个大类下建顶级任务）。
  * - 点任务 → 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情）。
+ * - **过期任务**：有截止时间且已过点的，整块**变灰**、沉到列表底部，仍可点开查看 / 编辑；
+ *   可在组头**折叠**，也可用面板头的「显示过期」开关**整组隐藏 / 显示**（用户要求）。
  */
-import { Fragment } from 'react'
-import { CalendarClock, Plus } from 'lucide-react'
+import { Fragment, useState } from 'react'
+import { CalendarClock, ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import type { Project, ProjectType } from '../../services/projectData'
+import { isOverdue } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
 import { isDueSoon } from '../../services/highlightColors'
 
@@ -43,13 +46,105 @@ export function DdlList({
   /** 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情） */
   onEdit: (project: Project) => void
 }) {
+  // 过期组默认展开（先看到它们、且是灰的）；想清爽就折叠起来（用户要求）
+  const [expiredOpen, setExpiredOpen] = useState(true)
+  // 整组「显示 / 隐藏过期」开关（面板头）：默认显示，关掉则过期任务全不出现
+  const [showExpired, setShowExpired] = useState(true)
+  const now = Date.now()
+  const active = projects.filter((p) => !isOverdue(p, now))
+  const expired = projects.filter((p) => isOverdue(p, now))
+  // 过期段是否真的渲染：开关关掉就整组不出现（连「已过期」组头一起收掉）
+  const showExpiredSection = showExpired && expired.length > 0
+  // 一个卡片都看不到（活跃为空 + 过期被藏或本就没有）→ 给空态文案
+  const nothingToShow = active.length === 0 && !showExpiredSection
+
+  /**
+   * 一张 DDL 卡片。`gray` = 已过期：整块灰掉（仍可点开查看 / 编辑，顺序不变），
+   * 且不再做「一周以内」淡红 —— 过期了就不该再喊急。
+   */
+  const renderCard = (p: Project, gray: boolean) => {
+    const color = colorForRoot(getRootId(p, byId))
+    const isCurrent = p.projectId === currentId
+    const isHighlight = p.projectId === highlightId
+    const urgent = !gray && isDueSoon(p.dueAt, now)
+    return (
+      <div
+        className={`flex items-center gap-ui-gap rounded-lg border px-ui-gap py-ui-gap-sm transition ${
+          gray
+            ? 'border-ink-100 bg-paper-100 opacity-60 grayscale'
+            : urgent
+              ? 'border-hl-red bg-hl-red-soft'
+              : 'border-ink-200 bg-paper-100 hover:border-ink-300'
+        } ${
+          !gray && isHighlight
+            ? 'ring-2 ring-hl-red'
+            : !gray && isCurrent
+              ? 'border-seal-300 ring-1 ring-seal-200'
+              : ''
+        }`}
+      >
+        <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
+        <button onClick={() => onEdit(p)} className="min-w-0 flex-1 text-left" title="打开任务详情 / 编辑">
+          <div className="truncate text-ui-sm font-medium">
+            <span className={gray ? 'text-ink-500' : color.text}>{p.title || '(未命名任务)'}</span>
+          </div>
+          {/* 第二行只给时间（年月日 + 几点），不写「截止」二字 */}
+          <div className="mt-0.5 text-ui-xs text-ink-500">{formatDue(p.dueAt)}</div>
+        </button>
+      </div>
+    )
+  }
+
+  /** 两列栅格：左研究、右课程，每行一个任务（纵向 = 紧急度） */
+  const renderGrid = (list: Project[], gray: boolean) => (
+    <div className="relative">
+      <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-ink-100" />
+      <div className="grid grid-cols-2 gap-x-ui-gap-sm gap-y-ui-gap-sm">
+        {list.map((p) => {
+          const isCourse = p.type === 'course'
+          const card = renderCard(p, gray)
+          return (
+            <Fragment key={p.projectId}>
+              <div className="min-w-0">{isCourse ? null : card}</div>
+              <div className="min-w-0">{isCourse ? card : null}</div>
+            </Fragment>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
-      <div className="flex items-center gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
+      <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
         <h2 className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800">
           <CalendarClock className="h-ui-icon w-ui-icon text-seal-600" />
           DDL
         </h2>
+        {/* 过期任务整组显示 / 隐藏：有过期任务时才出现，关掉后过期卡片全不渲染 */}
+        {expired.length > 0 && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showExpired}
+            onClick={() => setShowExpired((v) => !v)}
+            title={showExpired ? '隐藏已过期任务' : '显示已过期任务'}
+            className="inline-flex items-center gap-ui-gap-sm text-ui-xs text-ink-400 transition hover:text-ink-600"
+          >
+            显示过期
+            <span
+              className={`relative h-4 w-7 shrink-0 rounded-full transition ${
+                showExpired ? 'bg-seal-500' : 'bg-ink-200'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow-sm transition-all ${
+                  showExpired ? 'left-3.5' : 'left-0.5'
+                }`}
+              />
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-ui-gap">
@@ -73,54 +168,32 @@ export function DdlList({
           ))}
         </div>
 
-        {projects.length === 0 ? (
-          <p className="py-6 text-center text-ui-sm text-ink-400">暂无带截止时间的任务</p>
+        {nothingToShow ? (
+          <p className="py-6 text-center text-ui-sm text-ink-400">
+            {expired.length > 0 ? `已隐藏 ${expired.length} 个过期任务` : '暂无带截止时间的任务'}
+          </p>
         ) : (
           <>
-            {/* 每行一个任务，落在左或右；纵向 = 紧急度 */}
-            <div className="relative">
-              <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-ink-100" />
-              <div className="grid grid-cols-2 gap-x-ui-gap-sm gap-y-ui-gap-sm">
-                {projects.map((p) => {
-                  const isCourse = p.type === 'course'
-                  const color = colorForRoot(getRootId(p, byId))
-                  const isCurrent = p.projectId === currentId
-                  const isHighlight = p.projectId === highlightId
-                  // 一周以内（含已过期）→ 整块淡红高亮：用荧光笔色板里的红笔淡底
-                  const urgent = isDueSoon(p.dueAt)
-                  const card = (
-                    <div
-                      className={`flex items-center gap-ui-gap rounded-lg border px-ui-gap py-ui-gap-sm transition ${
-                        urgent ? 'bg-hl-red-soft' : 'bg-paper-100'
-                      } ${
-                        isHighlight
-                          ? 'border-hl-red ring-2 ring-hl-red'
-                          : isCurrent
-                            ? 'border-seal-300 ring-1 ring-seal-200'
-                            : urgent
-                              ? 'border-hl-red hover:border-hl-red-deep'
-                              : 'border-ink-200 hover:border-ink-300'
-                      }`}
-                    >
-                      <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
-                      <button onClick={() => onEdit(p)} className="min-w-0 flex-1 text-left" title="打开任务详情 / 编辑">
-                        <div className="truncate text-ui-sm font-medium">
-                          <span className={color.text}>{p.title || '(未命名任务)'}</span>
-                        </div>
-                        {/* 第二行只给时间（年月日 + 几点），不写「截止」二字 */}
-                        <div className="mt-0.5 text-ui-xs text-ink-500">{formatDue(p.dueAt)}</div>
-                      </button>
-                    </div>
-                  )
-                  return (
-                    <Fragment key={p.projectId}>
-                      <div className="min-w-0">{isCourse ? null : card}</div>
-                      <div className="min-w-0">{isCourse ? card : null}</div>
-                    </Fragment>
-                  )
-                })}
+            {active.length > 0 && renderGrid(active, false)}
+            {showExpiredSection && (
+              <div className={active.length > 0 ? 'mt-ui-gap' : ''}>
+                <button
+                  type="button"
+                  onClick={() => setExpiredOpen((v) => !v)}
+                  title={expiredOpen ? '折叠已过期' : '展开已过期'}
+                  className="flex w-full items-center gap-ui-gap-sm border-b border-ink-100 pb-ui-gap-sm text-ui-xs font-medium text-ink-400"
+                >
+                  {expiredOpen ? (
+                    <ChevronDown className="h-ui-icon-sm w-ui-icon-sm" />
+                  ) : (
+                    <ChevronRight className="h-ui-icon-sm w-ui-icon-sm" />
+                  )}
+                  已过期
+                  <span className="text-ui-2xs font-normal text-ink-300">{expired.length}</span>
+                </button>
+                {expiredOpen && <div className="mt-ui-gap-sm">{renderGrid(expired, true)}</div>}
               </div>
-            </div>
+            )}
           </>
         )}
       </div>
