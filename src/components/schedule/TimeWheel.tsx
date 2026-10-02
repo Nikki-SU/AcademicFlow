@@ -126,7 +126,7 @@ function Wheel({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      className="relative flex-1 cursor-grab touch-none select-none overflow-hidden active:cursor-grabbing"
+      className="relative min-w-10 flex-1 cursor-grab touch-none select-none overflow-hidden active:cursor-grabbing"
       style={{ height: ITEM_H * VISIBLE }}
     >
       {/* 选中高亮带 */}
@@ -198,7 +198,11 @@ export function DateTimeField({
         onChange={(e) => emit(e.target.value, timePart)}
         className="min-w-0 flex-1 rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
       />
-      <TimeWheel value={timePart} onChange={(t) => emit(datePart, t)} />
+      {/* 滚轮必须给定宽：它是 flex 子项、内部格子又是绝对定位（无固有宽度），
+          不给宽就会被压成只剩那个「:」（曾把日期旁的时间整个挤没）。 */}
+      <div className="w-32 shrink-0">
+        <TimeWheel value={timePart} onChange={(t) => emit(datePart, t)} />
+      </div>
     </div>
   )
 }
