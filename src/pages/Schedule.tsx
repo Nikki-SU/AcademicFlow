@@ -157,7 +157,6 @@ export default function SchedulePage() {
   }
 
   const handleCreateSlot = async (
-    weekday: number,
     variant: 'course' | 'timed',
     value: SlotFormValue,
   ) => {
@@ -199,17 +198,19 @@ export default function SchedulePage() {
           title = task.title
         }
       }
-      const course: Course = {
+      // 一次可加多个时段，共用一个任务（同名课程共享同一个课程任务）
+      const now = Date.now()
+      const newCourses: Course[] = value.slots.map((s) => ({
         courseId: genId('slot'),
         title,
-        weekday,
-        startTime: value.startTime,
-        endTime: value.endTime,
-        location: value.location,
-        createdAt: Date.now(),
+        weekday: s.weekday,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        location: s.location,
+        createdAt: now,
         taskId,
-      }
-      const next = [...courses, course]
+      }))
+      const next = [...courses, ...newCourses]
       await saveCourses(next)
       setCourses(next)
       toast.success(variant === 'course' ? '已添加课程' : '已加入课表')
@@ -219,7 +220,7 @@ export default function SchedulePage() {
     }
   }
 
-  const handleUpdateSlot = async (courseId: string, value: SlotFormValue) => {
+  const handleUpdateSlot = async (courseId: string, value: SlotFormValue, all: boolean) => {
     const slot = courses.find((c) => c.courseId === courseId)
     if (!slot) return
     try {
@@ -234,20 +235,41 @@ export default function SchedulePage() {
         await saveProjects(nextProjects)
         setProjects(nextProjects)
       }
-      const next = courses.map((c) =>
-        c.courseId === courseId
-          ? {
-              ...c,
-              title: value.title,
-              startTime: value.startTime,
-              endTime: value.endTime,
-              location: value.location,
-              taskId: value.taskId || c.taskId,
-            }
-          : c,
-      )
-      await saveCourses(next)
-      setCourses(next)
+      if (all) {
+        // 编辑整门课全部时段：用新列表替换该任务名下的所有时段
+        const rest = courses.filter((c) => c.taskId !== slot.taskId)
+        const now = Date.now()
+        const rebuilt: Course[] = value.slots.map((s) => ({
+          courseId: genId('slot'),
+          title: value.title,
+          weekday: s.weekday,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          location: s.location,
+          createdAt: now,
+          taskId: slot.taskId,
+        }))
+        const next = [...rest, ...rebuilt]
+        await saveCourses(next)
+        setCourses(next)
+      } else {
+        const s0 = value.slots[0]
+        const next = courses.map((c) =>
+          c.courseId === courseId
+            ? {
+                ...c,
+                title: value.title,
+                weekday: s0.weekday,
+                startTime: s0.startTime,
+                endTime: s0.endTime,
+                location: s0.location,
+                taskId: value.taskId || c.taskId,
+              }
+            : c,
+        )
+        await saveCourses(next)
+        setCourses(next)
+      }
       toast.success('已保存时段')
     } catch (err) {
       console.error('[Schedule] 保存时段失败:', err)

@@ -99,15 +99,15 @@ export function CourseTable({
   byId: Map<string, Project>
   currentId: string | null
   todayPlan: TodayPlan
-  onCreateSlot: (weekday: number, variant: 'course' | 'timed', value: SlotFormValue) => void
-  onUpdateSlot: (courseId: string, value: SlotFormValue) => void
+  onCreateSlot: (variant: 'course' | 'timed', value: SlotFormValue) => void
+  onUpdateSlot: (courseId: string, value: SlotFormValue, all: boolean) => void
   onDeleteCourse: (courseId: string) => void
   onAddExtraDay: (date: string, note: string, followWeekday: number) => void
   onDeleteExtraDay: (date: string) => void
 }) {
   const [form, setForm] = useState<
-    | { mode: 'create'; variant: 'course' | 'timed'; weekday: number }
-    | { mode: 'edit'; courseId: string }
+    | { mode: 'create'; variant: 'course' | 'timed' }
+    | { mode: 'edit'; courseId: string; all: boolean }
     | null
   >(null)
   const [showExtra, setShowExtra] = useState(false)
@@ -154,6 +154,8 @@ export function CourseTable({
 
   const editCourse =
     form?.mode === 'edit' ? courses.find((c) => c.courseId === form.courseId) ?? null : null
+  // 同一任务（课程 / 定时任务）的全部时段 —— 「整门课一起编辑」时用
+  const editSiblings = editCourse ? courses.filter((c) => c.taskId === editCourse.taskId) : []
 
   // 天列栅格：列数随「显示几天」变化，所以用内联 style（动态 repeat）
   const dayCols = `repeat(${days.length}, minmax(0, 1fr))`
@@ -167,14 +169,14 @@ export function CourseTable({
         </h2>
         <div className="flex items-center gap-ui-gap-sm">
           <button
-            onClick={() => setForm({ mode: 'create', variant: 'course', weekday: 1 })}
+            onClick={() => setForm({ mode: 'create', variant: 'course' })}
             className="flex items-center gap-ui-gap-sm rounded bg-seal-600 px-ui-gap-sm py-ui-gap-sm text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
           >
             <CalendarPlus className="h-ui-icon-sm w-ui-icon-sm" />
             加课
           </button>
           <button
-            onClick={() => setForm({ mode: 'create', variant: 'timed', weekday: 1 })}
+            onClick={() => setForm({ mode: 'create', variant: 'timed' })}
             className="rounded border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-600"
             title="把组会等定时任务加进课表"
           >
@@ -304,7 +306,7 @@ export function CourseTable({
                     return (
                       <button
                         key={c.courseId}
-                        onClick={() => setForm({ mode: 'edit', courseId: c.courseId })}
+                        onClick={() => setForm({ mode: 'edit', courseId: c.courseId, all: false })}
                         title={`${label}  ${c.startTime}–${c.endTime}${
                           c.location ? `  @${c.location}` : ''
                         }`}
@@ -346,39 +348,44 @@ export function CourseTable({
         </div>
       </div>
 
-      {/* 新增时段 */}
+      {/* 新增时段（加课 / 加定时任务，均可一次加多个时段） */}
       {form?.mode === 'create' && (
         <CourseFormModal
           variant={form.variant}
           projects={projects}
-          weekday={form.weekday}
-          onWeekdayChange={(w) =>
-            setForm((f) => (f?.mode === 'create' ? { ...f, weekday: w } : f))
-          }
           onClose={() => setForm(null)}
           onSubmit={(value) => {
-            onCreateSlot(form.weekday, form.variant, value)
+            onCreateSlot(form.variant, value)
             setForm(null)
           }}
         />
       )}
 
-      {/* 编辑 / 删除已有时段 */}
+      {/* 编辑 / 删除已有时段（可选「整门课一起编辑」）*/}
       {form?.mode === 'edit' && editCourse && (
         <CourseFormModal
+          key={form.all ? 'all' : 'one'}
           variant="edit"
           projects={projects}
           lockTask={isCourseSlot(editCourse, byId)}
+          editScope={{
+            canToggle: editSiblings.length > 1,
+            all: form.all,
+            onToggle: (all) => setForm((f) => (f?.mode === 'edit' ? { ...f, all } : f)),
+          }}
           initial={{
             title: byId.get(editCourse.taskId)?.title || editCourse.title,
-            startTime: snapTime(editCourse.startTime),
-            endTime: snapTime(editCourse.endTime),
-            location: editCourse.location,
             taskId: editCourse.taskId,
+            slots: (form.all ? editSiblings : [editCourse]).map((c) => ({
+              weekday: c.weekday,
+              startTime: snapTime(c.startTime),
+              endTime: snapTime(c.endTime),
+              location: c.location,
+            })),
           }}
           onClose={() => setForm(null)}
           onSubmit={(value) => {
-            onUpdateSlot(editCourse.courseId, value)
+            onUpdateSlot(editCourse.courseId, value, form.all)
             setForm(null)
           }}
           onDelete={() => {
