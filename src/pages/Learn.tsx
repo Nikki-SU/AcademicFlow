@@ -636,7 +636,12 @@ interface GradeResult {
   feedback: string
 }
 
-/** 把 AI 回的 point_deductions 归一化成「踩分点 → 扣分」映射（兼容对象/数组两种写法） */
+/**
+ * 把 AI 回的 point_deductions 归一化成「踩分点 → 扣分」映射。
+ * prompt 已把格式**约束死**：数组、每项恰好 {point, deduction}（见 gradeTranslationWithAI）。
+ * 这里只做一层安全网：仍兼容「对象映射」这一种等价写法，但**键名按约定**，
+ * 不再猜 scoring_point / name / deduct 之类的别名 —— 否则等于用容错去掩盖模型没按约束输出。
+ */
 function parsePointDeductions(raw: unknown): Record<string, number> {
   const out: Record<string, number> = {}
   const put = (point: unknown, deduction: unknown) => {
@@ -648,7 +653,7 @@ function parsePointDeductions(raw: unknown): Record<string, number> {
     for (const item of raw) {
       if (item && typeof item === 'object') {
         const o = item as Record<string, unknown>
-        put(o.point ?? o.scoring_point ?? o.name, o.deduction ?? o.deduct ?? o.score)
+        put(o.point, o.deduction)
       }
     }
   } else if (raw && typeof raw === 'object') {
@@ -673,8 +678,12 @@ function parseGradeJSON(raw: string): GradeResult {
     throw new Error('AI 判分结果不是合法 JSON，请重试')
   }
   const scoreNum = Number(parsed.score)
+  // score 是判分的核心结论：缺失 / 非数字就报错让用户重试，绝不静默当 0 分（Garbage in, garbage out）
+  if (!Number.isFinite(scoreNum)) {
+    throw new Error('AI 判分结果缺少合法的 score（应为 0-100 的整数），请重试')
+  }
   return {
-    score: Number.isFinite(scoreNum) ? Math.max(0, Math.min(100, Math.round(scoreNum))) : 0,
+    score: Math.max(0, Math.min(100, Math.round(scoreNum))),
     hitPoints: toStringArray(parsed.hit_points),
     missedPoints: toStringArray(parsed.missed_points),
     pointDeductions: parsePointDeductions(parsed.point_deductions),
@@ -731,14 +740,21 @@ async function gradeTranslationWithAI(params: {
           '【学生译文】',
           params.userTranslation,
           '',
-          '请严格按上述踩分点核对，并只返回如下 JSON（不要 markdown 代码块包裹）：',
+          '请严格按上述踩分点核对，并只返回一个 JSON 对象（不要 markdown 代码块、不要任何解释文字）：',
           '{',
-          '  "score": 0-100 的整数（= 100 减去所有扣分之和，四舍五入）,',
-          '  "hit_points": ["命中的踩分点，逐字取自上面的清单"],',
-          '  "missed_points": ["漏掉或表达不到位的踩分点，同样取自清单"],',
-          '  "point_deductions": [{"point": "漏掉的踩分点原文（逐字取自清单）", "deduction": 扣的分数（整数，>0）}],',
+          '  "score": 82,',
+          '  "hit_points": ["命中的踩分点原文"],',
+          '  "missed_points": ["漏掉或表达不到位的踩分点原文"],',
+          '  "point_deductions": [{"point": "漏掉的踩分点原文", "deduction": 12}],',
           '  "feedback": "一段中文反馈，说明扣分原因与改进建议"',
           '}',
+          '',
+          '字段约束（必须逐字遵守，违反即视为无效输出）：',
+          '- 只输出上面这一个 JSON 对象，字段名与层级**逐字**一致，不增字段、不删字段，不要代码块或任何多余文字；',
+          '- score：JSON 数字，0-100 的整数（= 100 减去所有扣分之和，四舍五入）；不得写成字符串，不得带百分号 / 单位 / 解释；',
+          '- hit_points / missed_points：JSON**字符串数组**，每个元素**逐字**取自上面的踩分点清单；不得用换行 / 分号把多条拼成一个字符串；',
+          '- point_deductions：JSON**数组**（不要写成「踩分点 → 扣分」的对象映射），每项**恰好**两个键：point（字符串，逐字取自清单）、deduction（正整数，> 0）；',
+          '- feedback：一个字符串。',
           '',
           '扣分要求：每个漏掉的踩分点都要出现在 point_deductions 里；关键术语/逻辑关系的缺失扣得多，',
           '修饰成分、表述不够地道扣得少；各点扣分之和应等于 100 - score。命中的点不要出现在 point_deductions 里。',
