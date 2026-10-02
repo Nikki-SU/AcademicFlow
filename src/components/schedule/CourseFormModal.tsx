@@ -6,12 +6,14 @@
  * - `timed`     加定时任务：挑一个**已有任务**（如把每周组会挂到「研究」下），时段即它的重复规则
  * - `edit`      编辑已有时段：改时间 / 地点 /（定时任务）归属任务，或删除
  *
- * 时间一律用 `<input type="time" step="300">` —— 原生只给 5 分钟刻度，避免出现「不整点」的课。
+ * 时间一律用「时 / 分」两列**闭环滚轮**（TimeWheel）—— 分钟只有 5 的倍数一格，
+ * 且 55 与 00 首尾相接，不会出现断口造成「到底到没到点」的视觉误解。
  * 只收集输入，落库交给页面（Schedule.tsx）。
  */
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Modal } from './Modal'
+import { TimeWheel } from './TimeWheel'
 import type { Project } from '../../services/projectData'
 import { WEEKDAY_LABELS } from '../../services/scheduleData'
 
@@ -186,23 +188,11 @@ export function CourseFormModal({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">开始时间</label>
-            <input
-              type="time"
-              step={300}
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-            />
+            <TimeWheel value={startTime} onChange={setStartTime} />
           </div>
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">结束时间</label>
-            <input
-              type="time"
-              step={300}
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-            />
+            <TimeWheel value={endTime} onChange={setEndTime} />
           </div>
         </div>
         <div>
