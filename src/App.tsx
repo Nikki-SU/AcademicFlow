@@ -5,11 +5,11 @@
  * 导航顺序（见 Layout.tsx 的 tabs）：日程 / 追踪 / 阅读 / 会议·课程 / 学习 / 写作 / 管理
  * （其中「日程」「会议·课程」是架构调整新增的空壳页，见 架构.md §2）
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { toast } from 'sonner'
 import Layout from './components/Layout'
-import { MigrationScreen } from './components/MigrationScreen'
+import { MigrationStatus } from './components/MigrationStatus'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import Settings from './pages/Settings'
@@ -123,11 +123,15 @@ function App() {
   }, [isChecked, repo, token])
 
   return (
-    <Routes>
-      <Route path="/auth" element={<ProtectedAuthRoute />} />
-      <Route path="/onboarding" element={<ProtectedOnboardingRoute />} />
-      <Route path="*" element={<ProtectedMainRoute />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/auth" element={<ProtectedAuthRoute />} />
+        <Route path="/onboarding" element={<ProtectedOnboardingRoute />} />
+        <Route path="*" element={<ProtectedMainRoute />} />
+      </Routes>
+      {/* 后台数据格式迁移：不挡页面，只给悬浮进度卡 + toast 弹窗 */}
+      <MigrationStatus />
+    </>
   )
 }
 
@@ -150,14 +154,10 @@ function ProtectedOnboardingRoute() {
 function ProtectedMainRoute() {
   const { token, isInitialized } = useAuthStore()
   const { isChecked, repo } = useWorkspaceStore()
-  // 数据格式迁移闸门：探测 / 升级期间把应用整个挡在后面（不渲染任何旧格式数据）
-  const [migrationReady, setMigrationReady] = useState(false)
+  // 数据格式迁移不再挡在应用前面：迁移在后台跑（MigrationStatus），应用照常进入（ADJ-62）
   if (!isInitialized) return null
   if (!token) return <Navigate to="/auth" replace />
   if (isChecked && !repo) return <Navigate to="/onboarding" replace />
-  if (isChecked && repo && !migrationReady) {
-    return <MigrationScreen onReady={() => setMigrationReady(true)} />
-  }
   return <AppLayout />
 }
 
