@@ -70,6 +70,10 @@ export default function SchedulePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
+  // DDL 联动高亮：悬停课表红线是瞬时的，点击是钉住的；二者任一即点亮对应条目
+  const [hoverDdlId, setHoverDdlId] = useState<string | null>(null)
+  const [pinnedDdlId, setPinnedDdlId] = useState<string | null>(null)
+  const highlightDdlId = pinnedDdlId ?? hoverDdlId
 
   const currentId = useTaskStore((s) => s.currentProjectId)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
@@ -396,6 +400,9 @@ export default function SchedulePage() {
   const openEdit = (project: Project) =>
     setEditor({ mode: 'edit', projectId: project.projectId })
 
+  // 点击课表红线：钉住 / 取消钉住对应 DDL 的高亮
+  const togglePickDdl = (id: string) => setPinnedDdlId((prev) => (prev === id ? null : id))
+
   // ---------- 任务改名 / 删除（ADJ-64）----------
   const handleRenameTask = async (project: Project, title: string) => {
     try {
@@ -455,6 +462,10 @@ export default function SchedulePage() {
               byId={byId}
               currentId={currentId}
               todayPlan={todayPlan}
+              ddls={ddlItems}
+              highlightId={highlightDdlId}
+              onHighlight={setHoverDdlId}
+              onPickDdl={togglePickDdl}
               onCreateSlot={handleCreateSlot}
               onUpdateSlot={handleUpdateSlot}
               onDeleteCourse={handleDeleteCourse}
@@ -468,6 +479,7 @@ export default function SchedulePage() {
               courses={courses}
               currentId={currentId}
               isLoading={isLoading}
+              highlightId={highlightDdlId}
               onSelect={(id) => void setCurrentProject(id)}
               onNewRoot={openCreateRoot}
               onAddChild={openChildForm}
@@ -481,6 +493,7 @@ export default function SchedulePage() {
               projects={ddlItems}
               byId={byId}
               currentId={currentId}
+              highlightId={highlightDdlId}
               onNewRoot={openCreateRoot}
               onEdit={openEdit}
             />

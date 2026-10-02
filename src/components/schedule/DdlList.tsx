@@ -8,6 +8,7 @@
  * - 同一棵子树用「根任务颜色」着色，同根同色，方便在一堆 DDL 里归堆。
  * - 每行**只展示**：第一行任务名、第二行时间（年月日 + 几点，不写「截止」二字）。
  * - **加子任务只在任务栏**（TaskTree），DDL 这边不放子任务入口。
+ * - **联动高亮**：课表红线悬停 / 点击时，对应行亮起（`highlightId`）。
  * - 新建走**列头「+」**（点哪个大类，就在哪个大类下建顶级任务）。
  * - 点任务 → 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情）。
  */
@@ -27,12 +28,15 @@ export function DdlList({
   projects,
   byId,
   currentId,
+  highlightId,
   onNewRoot,
   onEdit,
 }: {
   projects: Project[]
   byId: Map<string, Project>
   currentId: string | null
+  /** 当前亮起的 DDL 任务 id（课表红线悬停 / 点击联动） */
+  highlightId: string | null
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
   /** 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情） */
@@ -80,12 +84,15 @@ export function DdlList({
                   const isCourse = p.type === 'course'
                   const color = colorForRoot(getRootId(p, byId))
                   const isCurrent = p.projectId === currentId
+                  const isHighlight = p.projectId === highlightId
                   const card = (
                     <div
                       className={`flex items-center gap-ui-gap rounded-lg border bg-paper-100 px-ui-gap py-ui-gap-sm transition ${
-                        isCurrent
-                          ? 'border-seal-300 ring-1 ring-seal-200'
-                          : 'border-ink-200 hover:border-ink-300'
+                        isHighlight
+                          ? 'border-red-400 ring-2 ring-red-200'
+                          : isCurrent
+                            ? 'border-seal-300 ring-1 ring-seal-200'
+                            : 'border-ink-200 hover:border-ink-300'
                       }`}
                     >
                       <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />

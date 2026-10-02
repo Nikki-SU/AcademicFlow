@@ -7,6 +7,9 @@
  *   长名字直接折行，不需要点开才看得到。
  * - 同一时段重叠的课块自动**并排分列**，不会互相盖住。
  * - 每块按时段所属任务的**根色**着色（课程表 / 任务列表 / DDL 全局同色）。
+ * - **DDL 死线**：有截止时间的任务按「周几 + 时刻」在对应列画一条**红色粗线**，
+ *   默认不写任何文字（不挡课）；悬停或点击才浮出任务名 + 时间，并让 DDL 清单 /
+ *   任务栏里对应条目**亮起**（联动由 Schedule.tsx 的 highlightId 统一驱动）。
  * - 点块 = 编辑（改时间 / 地点 /（定时任务）归属任务，或删除）。
  * 尺寸全部走 index.css 的 --ui-* 流体口径（时间轴列宽 --ui-axis、列高 --ui-lane、
  * 字号 --ui-text-*），不再有任何写死的像素值。
@@ -37,6 +40,29 @@ function slotRootId(course: Course, byId: Map<string, Project>): string {
 function pct(min: number, start: number, end: number): number {
   if (end <= start) return 0
   return ((min - start) / (end - start)) * 100
+}
+
+/** Unix ms → 当天分钟数（0..1439）；0 / 非法 → -1 */
+function minutesOfDay(ts: number): number {
+  if (!ts) return -1
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return -1
+  return d.getHours() * 60 + d.getMinutes()
+}
+
+/** Unix ms → 星期几（1=周一 … 7=周日）；非法 → 0 */
+function weekdayOfMs(ts: number): number {
+  if (!ts) return 0
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return 0
+  return d.getDay() === 0 ? 7 : d.getDay()
+}
+
+/** Unix ms → YYYY-MM-DD HH:MM */
+function formatDue(ts: number): string {
+  const d = new Date(ts)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 /** 一列里摆好位置的课块 */
@@ -87,6 +113,10 @@ export function CourseTable({
   byId,
   currentId,
   todayPlan,
+  ddls,
+  highlightId,
+  onHighlight,
+  onPickDdl,
   onCreateSlot,
   onUpdateSlot,
   onDeleteCourse,
@@ -99,6 +129,14 @@ export function CourseTable({
   byId: Map<string, Project>
   currentId: string | null
   todayPlan: TodayPlan
+  /** 有截止时间的任务（DDL）——在课表对应周几 / 时刻画红线 */
+  ddls: Project[]
+  /** 当前亮起的 DDL 任务 id（课表红线 / DDL 清单 / 任务栏联动） */
+  highlightId: string | null
+  /** 悬停红线：置亮 / 清除 */
+  onHighlight: (id: string | null) => void
+  /** 点击红线：钉住（再次点击取消） */
+  onPickDdl: (id: string) => void
   onCreateSlot: (variant: 'course' | 'timed', value: SlotFormValue) => void
   onUpdateSlot: (courseId: string, value: SlotFormValue, all: boolean) => void
   onDeleteCourse: (courseId: string) => void
@@ -113,6 +151,7 @@ export function CourseTable({
   const [showExtra, setShowExtra] = useState(false)
 
   // ---------- 时间轴范围：按数据算出，向整点取整，至少 5 小时 ----------
+  // DDL 的时刻也计入范围，否则落在课表时间窗外的死线红线看不到。
   const { rangeStart, rangeEnd } = useMemo(() => {
     const mins: number[] = []
     for (const c of courses) {
@@ -120,12 +159,16 @@ export function CourseTable({
       const e = timeToMinutes(c.endTime)
       if (e > 0) mins.push(s, e)
     }
+    for (const p of ddls) {
+      const m = minutesOfDay(p.dueAt)
+      if (m >= 0) mins.push(m)
+    }
     if (mins.length === 0) return { rangeStart: 8 * 60, rangeEnd: 18 * 60 }
     const start = Math.floor(Math.min(...mins) / 60) * 60
     let end = Math.ceil(Math.max(...mins) / 60) * 60
     if (end - start < 300) end = start + 300
     return { rangeStart: start, rangeEnd: end }
-  }, [courses])
+  }, [courses, ddls])
 
   const hourTicks = useMemo(() => {
     const ticks: number[] = []
@@ -146,6 +189,12 @@ export function CourseTable({
 
   const coursesOf = (weekday: number) =>
     courses.filter((c) => c.weekday === weekday)
+
+  // 某一天（周几）要画的 DDL 红线：按截止时刻落到对应列（统一红色，默认不写字）
+  const ddlsOf = (weekday: number) =>
+    ddls
+      .map((p) => ({ project: p, wd: weekdayOfMs(p.dueAt), min: minutesOfDay(p.dueAt) }))
+      .filter((x) => x.wd === weekday && x.min >= rangeStart && x.min <= rangeEnd)
 
   // 今天生效的周几（假期 / 周末为 null → 不高亮任何列）；见 scheduleData.resolveToday
   const today = todayPlan.weekday
@@ -331,11 +380,54 @@ export function CourseTable({
                       </button>
                     )
                   })}
-                  {placed.length === 0 && (
+                  {placed.length === 0 && ddlsOf(w).length === 0 && (
                     <span className="absolute inset-0 flex items-center justify-center text-ui-2xs text-ink-300">
                       无课
                     </span>
                   )}
+                  {/* DDL 死线：统一红色粗线，默认不写字（不挡课）；悬停 / 点击显示内容并联动高亮 */}
+                  {ddlsOf(w).map(({ project: dp, min }) => {
+                    const active = highlightId === dp.projectId
+                    const top = pct(min, rangeStart, rangeEnd)
+                    const label = dp.title || '(未命名任务)'
+                    return (
+                      <div
+                        key={dp.projectId}
+                        className="absolute inset-x-0 z-30"
+                        style={{ top: `${top}%` }}
+                      >
+                        <button
+                          type="button"
+                          onMouseEnter={() => onHighlight(dp.projectId)}
+                          onMouseLeave={() => onHighlight(null)}
+                          onClick={() => onPickDdl(dp.projectId)}
+                          title={`DDL · ${label} · ${formatDue(dp.dueAt)}`}
+                          aria-label={`DDL ${label} ${formatDue(dp.dueAt)}`}
+                          className="absolute inset-x-0 flex h-3 -translate-y-1/2 items-center"
+                        >
+                          <span
+                            className={`h-[3px] w-full rounded-full bg-red-500 transition ${
+                              active
+                                ? 'shadow-[0_0_0_2px_rgba(239,68,68,0.35)]'
+                                : 'opacity-80 hover:opacity-100'
+                            }`}
+                          />
+                        </button>
+                        {active && (
+                          <div
+                            className={`absolute z-40 w-max max-w-full rounded border border-red-300 bg-paper-50 px-1.5 py-1 text-ui-2xs shadow-lg ${
+                              top > 80 ? 'bottom-1.5' : 'top-1.5'
+                            }`}
+                          >
+                            <div className="truncate font-medium text-red-600">{label}</div>
+                            <div className="whitespace-nowrap text-ink-500">
+                              {formatDue(dp.dueAt)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}
@@ -344,7 +436,9 @@ export function CourseTable({
 
         <div className="mt-ui-gap flex items-center gap-ui-gap-sm pl-[calc(var(--ui-axis)+var(--ui-gap-sm))] text-ui-2xs text-ink-400">
           <TrendingUp className="h-ui-icon-sm w-ui-icon-sm" />
-          纵向为时间轴（5 分钟刻度），点色块可改时间 / 归属或删除
+          纵向为时间轴（5 分钟刻度），点色块可改时间 / 归属或删除；
+          <span className="mx-0.5 inline-block h-[3px] w-4 rounded-full bg-red-500 align-middle" />
+          = DDL 死线（默认不写字，悬停 / 点击看详情并联动高亮）
         </div>
       </div>
 

@@ -10,6 +10,7 @@
  * - **点任务文字 → 就地展开「任务详情」**（TaskExpandPanel：可粘贴描述、可加附件）。
  * - 新建走**列头「+」**（点哪个大类的加号，就在哪个大类下建顶级任务），不再有全局「新建任务」。
  * - 行内按钮顺序：**加子任务（高频）在左**，编辑 / 删除（低频）在右。
+ * - **联动高亮**：课表红线悬停 / 点击时，对应任务行亮起（`highlightId`）。
  *
  * 排序（用户要求，ADJ-71）：**同层内**按「急不急」排 ——
  * ① 此刻**正在上**的课 / 定时任务置顶；② 有排期的（课程 / 定时任务）按**下一次时间由近到远**；
@@ -106,6 +107,7 @@ export function TaskTree({
   courses,
   currentId,
   isLoading,
+  highlightId,
   onSelect,
   onNewRoot,
   onAddChild,
@@ -117,6 +119,8 @@ export function TaskTree({
   courses: Course[]
   currentId: string | null
   isLoading: boolean
+  /** 当前亮起的 DDL 任务 id（课表红线悬停 / 点击联动） */
+  highlightId: string | null
   onSelect: (id: string) => void
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
@@ -229,6 +233,7 @@ export function TaskTree({
           rows.map(({ project, depth }) => {
             const color = colorForRoot(getRootId(project, byId))
             const isCurrent = project.projectId === currentId
+            const isHighlight = project.projectId === highlightId
             const isEditing = project.projectId === editingId
             const isExpanded = project.projectId === expandedId
             const parentTitle = project.parentId
@@ -243,7 +248,11 @@ export function TaskTree({
                     setMenu({ project, x: e.clientX, y: e.clientY })
                   }}
                   className={`group flex items-center gap-ui-gap-sm rounded-md pr-1 transition ${
-                    isCurrent ? 'bg-seal-50 ring-1 ring-seal-300' : 'hover:bg-paper-100'
+                    isHighlight
+                      ? 'bg-red-50 ring-1 ring-red-300'
+                      : isCurrent
+                        ? 'bg-seal-50 ring-1 ring-seal-300'
+                        : 'hover:bg-paper-100'
                   }`}
                 >
                   {isEditing ? (
