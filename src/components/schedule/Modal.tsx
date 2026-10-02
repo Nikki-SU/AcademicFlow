@@ -4,6 +4,8 @@
  * 课程 / 调休 / 新建任务 / 任务详情 四个弹层共用同一套遮罩 + 卡片 + 头尾，
  * 抽出来免得各写一份（样式与 Tracking.tsx 的弹层保持一致）。
  * `maxWidth` 传 Tailwind 字面量类名（如 max-w-lg），JIT 才能扫到。
+ * 默认值 = 本页表单类弹窗的统一宽度（max-w-xl）；日程页内体量相当的弹窗
+ * 一律用同一宽度，别各自定尺寸（用户 2026-10-02 要求）。
  */
 import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
@@ -13,7 +15,7 @@ export function Modal({
   onClose,
   children,
   footer,
-  maxWidth = 'max-w-lg',
+  maxWidth = 'max-w-xl',
 }: {
   title: string
   onClose: () => void

@@ -191,16 +191,16 @@ export function DateTimeField({
   const emit = (date: string, time: string) => onChange(date ? `${date}T${time}` : '')
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="grid grid-cols-3 items-center gap-2">
       <input
         type="date"
         value={datePart}
         onChange={(e) => emit(e.target.value, timePart)}
-        className="min-w-0 flex-1 rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+        className="col-span-2 min-w-0 rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
       />
-      {/* 滚轮必须给定宽：它是 flex 子项、内部格子又是绝对定位（无固有宽度），
-          不给宽就会被压成只剩那个「:」（曾把日期旁的时间整个挤没）。 */}
-      <div className="w-32 shrink-0">
+      {/* 宽度按 2:1 分配：日期占 2/3、时间占 1/3（不让日期独吞整行、时间被挤窄）。
+          滚轮是 flex 子项、内部格子又绝对定位（无固有宽度），必须由外层给定宽度。 */}
+      <div className="col-span-1 min-w-0">
         <TimeWheel value={timePart} onChange={(t) => emit(datePart, t)} />
       </div>
     </div>

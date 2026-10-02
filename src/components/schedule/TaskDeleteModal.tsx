@@ -72,7 +72,7 @@ export function TaskDeleteModal({
     <Modal
       title="删除任务"
       onClose={onClose}
-      maxWidth="max-w-lg"
+      maxWidth="max-w-xl"
       footer={
         <>
           <button

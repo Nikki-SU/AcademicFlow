@@ -248,7 +248,7 @@ export function TaskFormModal({
     <Modal
       title={mode === 'create' ? '新建任务' : '编辑任务'}
       onClose={onClose}
-      maxWidth="max-w-2xl"
+      maxWidth="max-w-xl"
       footer={
         <>
           <button
