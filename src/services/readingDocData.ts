@@ -403,7 +403,7 @@ export async function extractNoteAttachmentsFor(
     if (isPipelineAttachment(file)) {
       // 调用方应在进入本函数前把管线附件分流出去。走到这里说明分流漏了，
       // 显式报错，绝不回退成本地直读给一份"看着像结果"的降级品。
-      throw new Error(`内部错误：${file.name} 属于管线附件，应交给 enqueueNoteConvert 处理`)
+      throw new Error(`内部错误：${file.name} 属于管线附件，应交给 enqueueNoteConvertBatch 处理`)
     }
     throw new Error(`不认识的附件类型：${file.name}（可直接读 .md / .txt / .zip；Word / PDF 走转换管线）`)
   }

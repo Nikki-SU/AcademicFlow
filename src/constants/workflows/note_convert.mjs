@@ -7,10 +7,15 @@
  *   PDF                → 直接走 MinerU → markdown
  *
  * 触发：repository_dispatch event_type=note_convert
- *   payload: { base_path, note_name, source_path }
+ *   payload: { base_path, items: [{ note_name, source_path }] }
  *     base_path  = 阅读对象的仓库根目录（literatures/{slug} | textbooks/{书名} | documents/{目录名}）
- *     note_name  = 目标笔记名（不含 .md；前端已按已有笔记去重）
- *     source_path= 前端上传到私库的源文件（{base_path}/attachments/{ts}_{文件名}）
+ *     items      = 待转换的笔记列表；一次 dispatch 可带多篇
+ *       note_name  = 目标笔记名（不含 .md；前端已按已有笔记去重）
+ *       source_path= 前端上传到私库的源文件（{base_path}/attachments/{ts}_{文件名}）
+ *   手动调试也可只给 base_path + note_name + source_path（按单篇处理）
+ *
+ * 为什么一次带多篇：runner 是全新 VM，装 LibreOffice 要 2~4 分钟。逐篇 dispatch
+ * 会把这段固定开销乘 N，用户等不起。合并成一次后：装一次环境、所有段一次 MinerU batch。
  *
  * 产物：
  *   {base_path}/notes/{note_name}.md      转换出的笔记正文（阅读页读它）
@@ -159,21 +164,35 @@ function findFirstMd(dir) {
 }
 
 /**
- * 把若干段 PDF 一次性交给 MinerU 转换，返回每段的 markdown + 合并后的图片。
- * chunks: [{ name, buf }]，顺序即最终拼接顺序。
+ * 把多篇笔记的所有 PDF 分段**一次性**交给 MinerU（一次 batch）转换，
+ * 返回每篇的分段 markdown + 合并后的图片。
+ *
+ * jobs: [{ chunks: [{ name, buf }] }]，jobs[i] 是第 i 篇；段顺序即拼接顺序。
+ *   段名（name）必须全局唯一，调用方用「篇序号_」前缀保证，轮询回流时才不会串篇。
  * imageRefBase: 图片在 md 里引用的仓库绝对目录（{base_path}/notes/images）。
+ * 返回：{ markdowns: string[][]（markdowns[i] = 第 i 篇的分段 md）, images: Map<name, Buffer> }
  */
-async function mineruConvertBatch(chunks, imageRefBase, onProgress) {
-  for (const c of chunks) {
+async function mineruConvertNotes(jobs, imageRefBase, onProgress) {
+  // 拍平成全局段列表，记住每段属于哪一篇
+  const flat = []
+  for (let j = 0; j < jobs.length; j++) {
+    for (const c of jobs[j].chunks) flat.push({ job: j, name: c.name, buf: c.buf })
+  }
+  if (flat.length === 0) throw new Error('没有待转换的分段')
+  for (const c of flat) {
     if (c.buf.length > MAX_BLOB_SIZE) {
       throw new Error(`分段 ${c.name} 体积 ${c.buf.length} 超过 100MB blob 硬限`)
     }
   }
 
   // 1. 一次 batch 申请所有段的上传 URL
-  onProgress({ stage: 'mineru_apply', message: `申请上传 URL（共 ${chunks.length} 段）...`, pct: 5 })
+  onProgress({
+    stage: 'mineru_apply',
+    message: `申请上传 URL（共 ${jobs.length} 篇 / ${flat.length} 段）...`,
+    pct: 5,
+  })
   const applyResp = await mineruRequest('POST', '/file-urls/batch', {
-    files: chunks.map((c) => ({ name: c.name, is_ocr: false })),
+    files: flat.map((c) => ({ name: c.name, is_ocr: false })),
     model_version: 'pipeline',
     enable_formula: true,
     enable_table: true,
@@ -181,21 +200,21 @@ async function mineruConvertBatch(chunks, imageRefBase, onProgress) {
   })
   const batchId = applyResp.data?.batch_id
   const urls = applyResp.data?.file_urls || []
-  if (!batchId || urls.length !== chunks.length) {
-    throw new Error(`MinerU 响应缺 batch_id / file_urls（要 ${chunks.length} 个，拿到 ${urls.length} 个）`)
+  if (!batchId || urls.length !== flat.length) {
+    throw new Error(`MinerU 响应缺 batch_id / file_urls（要 ${flat.length} 个，拿到 ${urls.length} 个）`)
   }
-  console.log(`  [mineru] batch_id=${batchId}, chunks=${chunks.length}`)
+  console.log(`  [mineru] batch_id=${batchId}, notes=${jobs.length}, chunks=${flat.length}`)
 
   // 2. 逐段 PUT 到预签名 URL
   //    ⚠️ 不能带 Content-Type：OSS 预签名 URL 的 StringToSign 里它是空串，
   //    带了就 SignatureDoesNotMatch(403)。所以显式传 headers: {}。
-  for (let i = 0; i < chunks.length; i++) {
+  for (let i = 0; i < flat.length; i++) {
     onProgress({
       stage: 'mineru_upload',
-      message: `上传第 ${i + 1}/${chunks.length} 段...`,
-      pct: 10 + Math.round((i / chunks.length) * 15),
+      message: `上传第 ${i + 1}/${flat.length} 段...`,
+      pct: 10 + Math.round((i / flat.length) * 15),
     })
-    const putResp = await fetch(urls[i], { method: 'PUT', headers: {}, body: chunks[i].buf })
+    const putResp = await fetch(urls[i], { method: 'PUT', headers: {}, body: flat[i].buf })
     if (!putResp.ok) {
       throw new Error(`分段 ${i + 1} OSS PUT: ${putResp.status} ${await putResp.text().catch(() => '')}`)
     }
@@ -203,16 +222,16 @@ async function mineruConvertBatch(chunks, imageRefBase, onProgress) {
 
   // 3. 轮询，等所有段 done（5s × 120 轮 = 最长 10 分钟）
   const MAX_ROUNDS = 120
-  const results = new Array(chunks.length).fill(null)
+  const results = new Array(flat.length).fill(null)
   for (let round = 0; round < MAX_ROUNDS; round++) {
     await sleep(5000)
     const pollResp = await mineruRequest('GET', `/extract-results/batch/${batchId}`)
     const list = pollResp.data?.extract_result || []
     for (const r of list) {
       // 正常情况下 extract_result 与请求的 files 同序；名字对得上就更稳
-      let idx = chunks.findIndex((c) => c.name === r.file_name)
+      let idx = flat.findIndex((c) => c.name === r.file_name)
       if (idx < 0) idx = list.indexOf(r)
-      if (idx < 0 || idx >= chunks.length) continue
+      if (idx < 0 || idx >= flat.length) continue
       if (r.state === 'done') {
         results[idx] = r
       } else if (r.state === 'failed' || r.state === 'error') {
@@ -222,27 +241,27 @@ async function mineruConvertBatch(chunks, imageRefBase, onProgress) {
     const doneCount = results.filter(Boolean).length
     onProgress({
       stage: 'mineru_poll',
-      message: `MinerU 解析中（${doneCount}/${chunks.length} 段完成）...`,
-      pct: 30 + Math.round((doneCount / chunks.length) * 40),
+      message: `MinerU 解析中（${doneCount}/${flat.length} 段完成）...`,
+      pct: 30 + Math.round((doneCount / flat.length) * 40),
     })
-    if (doneCount === chunks.length) break
+    if (doneCount === flat.length) break
   }
   const stalled = results.findIndex((r) => !r)
   if (stalled >= 0) {
-    throw new Error(`MinerU 轮询超时：第 ${stalled + 1}/${chunks.length} 段未完成`)
+    throw new Error(`MinerU 轮询超时：第 ${stalled + 1}/${flat.length} 段未完成`)
   }
 
   // 4. 逐段下载 zip → 取 md + 图片
   //    图片重命名加全局序号，避免多段同名互相覆盖；
   //    同时把 md 里的 `images/xxx` 引用改写成仓库绝对路径，渲染页才能显示。
-  const markdowns = []
+  const markdowns = jobs.map(() => [])
   const images = new Map()
   let imgSeq = 0
-  for (let i = 0; i < chunks.length; i++) {
+  for (let i = 0; i < flat.length; i++) {
     onProgress({
       stage: 'mineru_download',
-      message: `下载第 ${i + 1}/${chunks.length} 段产物...`,
-      pct: 75 + Math.round((i / chunks.length) * 20),
+      message: `下载第 ${i + 1}/${flat.length} 段产物...`,
+      pct: 75 + Math.round((i / flat.length) * 20),
     })
     const r = results[i]
     if (!r.full_zip_url) throw new Error(`第 ${i + 1} 段 state=done 但没有 full_zip_url`)
@@ -274,7 +293,7 @@ async function mineruConvertBatch(chunks, imageRefBase, onProgress) {
           }
         }
       }
-      markdowns.push(md)
+      markdowns[flat[i].job].push(md)
     } finally {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
     }
@@ -424,95 +443,120 @@ async function readSourceFile(relPath) {
 // ============================================================
 async function main() {
   const payload = JSON.parse(process.argv[2] || process.env.PIPELINE_PAYLOAD || '{}') || {}
-  const { base_path, note_name, source_path } = payload
-  if (!base_path || !note_name || !source_path) {
-    console.error('❌ 需要 base_path / note_name / source_path')
+  const base_path = payload.base_path
+  // 批量 items[]（正常）；缺省回落到单篇 note_name / source_path（手动调试）
+  const items = Array.isArray(payload.items) && payload.items.length > 0
+    ? payload.items
+    : (payload.note_name && payload.source_path
+      ? [{ note_name: payload.note_name, source_path: payload.source_path }]
+      : [])
+  if (!base_path || items.length === 0) {
+    console.error('❌ 需要 base_path + items[]，或单篇 note_name / source_path')
     process.exit(1)
+  }
+  for (const it of items) {
+    if (!it || !it.note_name || !it.source_path) {
+      console.error(`❌ items 项缺 note_name / source_path：${JSON.stringify(it)}`)
+      process.exit(1)
+    }
   }
 
   PROGRESS_PATH = `${base_path}/.progress.json`
-  PROGRESS_LABEL = `${base_path} / ${note_name}`
+  PROGRESS_LABEL = `${base_path} / ${items.length} 篇笔记`
 
   const notesRel = `${base_path}/notes`
   const imagesRel = `${notesRel}/images`
-  const noteRel = `${notesRel}/${note_name}.md`
 
   console.log(`=== Note convert pipeline start ===`)
-  console.log(`  base_path:   ${base_path}`)
-  console.log(`  note_name:   ${note_name}`)
-  console.log(`  source_path: ${source_path}`)
+  console.log(`  base_path: ${base_path}`)
+  console.log(`  items:     ${items.length} 篇`)
+  items.forEach((it, i) => console.log(`    [${i + 1}] ${it.note_name}  <-  ${it.source_path}`))
 
-  await writeProgress({ stage: 'queued', message: '任务启动...', pct: 0, node: 0 }).catch(() => {})
+  await writeProgress({ stage: 'queued', message: `${items.length} 篇笔记排队中...`, pct: 0, node: 0 }).catch(() => {})
 
+  const workDir = fs.mkdtempSync(path.join(REPO_ROOT, '.tmp_note_'))
   try {
-    // 1. 判定源类型
-    const ext = path.extname(source_path).toLowerCase()
-    if (ext !== '.pdf' && !WORD_EXT.test(ext)) {
-      throw new Error(`不支持的文件类型：${ext || source_path}（只支持 .doc / .docx / .pdf）`)
-    }
+    // 1. 逐篇：判定源类型 → 读源 → Word→PDF → 切段
+    //    段名统一加「篇序号_」前缀，多篇混进一次 MinerU batch 时才不会串篇。
+    const jobs = []
+    for (let i = 0; i < items.length; i++) {
+      const { note_name, source_path } = items[i]
+      const ext = path.extname(source_path).toLowerCase()
+      if (ext !== '.pdf' && !WORD_EXT.test(ext)) {
+        throw new Error(`第 ${i + 1} 篇「${note_name}」不支持的文件类型：${ext || source_path}（只支持 .doc / .docx / .pdf）`)
+      }
 
-    // 2. 读源文件
-    const srcBuf = await readSourceFile(source_path)
-    console.log(`  ✓ 源文件 ${srcBuf.length} bytes（${ext}）`)
+      await writeProgress({
+        stage: 'queued',
+        message: `准备第 ${i + 1}/${items.length} 篇（${note_name}）...`,
+        pct: Math.round((i / items.length) * 5),
+        node: 0,
+      }).catch(() => {})
 
-    const workDir = fs.mkdtempSync(path.join(REPO_ROOT, '.tmp_note_'))
-    try {
-      const srcLocal = path.join(workDir, `source${ext}`)
+      const srcBuf = await readSourceFile(source_path)
+      console.log(`  ✓ [${i + 1}] 源文件 ${srcBuf.length} bytes（${ext}）`)
+      const srcLocal = path.join(workDir, `source_${i + 1}${ext}`)
       fs.writeFileSync(srcLocal, srcBuf)
 
-      // 3. Word → PDF（若源就是 PDF 则直通）
+      // 2. Word → PDF（若源就是 PDF 则直通）
       let pdfLocalPath
       if (ext === '.pdf') {
         pdfLocalPath = srcLocal
       } else {
-        await writeProgress({ stage: 'queued', message: 'Word 转 PDF 中（LibreOffice）...', pct: 2, node: 0 }).catch(() => {})
+        await writeProgress({
+          stage: 'queued',
+          message: `第 ${i + 1}/${items.length} 篇 Word 转 PDF（LibreOffice）...`,
+          pct: Math.round((i / items.length) * 5),
+          node: 0,
+        }).catch(() => {})
         pdfLocalPath = wordToPdf(srcLocal, workDir)
-        console.log(`  ✓ Word → PDF ${fs.statSync(pdfLocalPath).size} bytes`)
+        console.log(`  ✓ [${i + 1}] Word → PDF ${fs.statSync(pdfLocalPath).size} bytes`)
       }
 
-      // 4. 按页切分（不超过阈值就是单段）
-      const baseName = `${note_name.replace(/[/\\]/g, '_')}.pdf`
+      // 3. 按页切分（不超过阈值就是单段）
+      const baseName = `n${i + 1}_${note_name.replace(/[/\\]/g, '_')}.pdf`
       const chunks = splitPdf(pdfLocalPath, baseName, CHUNK_PAGES)
-      console.log(`  ✓ 待转换 ${chunks.length} 段`)
-
-      // 5. MinerU（唯一的重活）
-      const { markdowns, images } = await mineruConvertBatch(chunks, imagesRel, (p) => {
-        writeProgress({ ...p, node: 0 }).catch(() => {})
-      })
-
-      // 6. 按原顺序拼成一篇笔记
-      const merged = markdowns
-        .map((md) => md.trim())
-        .filter(Boolean)
-        .join('\n\n')
-      if (!merged) throw new Error('MinerU 返回的 markdown 为空')
-      console.log(`  ✓ 合并完成，${note_name}.md ${merged.length} chars`)
-
-      // 7. 落盘 note md + notes/images/
-      fs.mkdirSync(path.join(REPO_ROOT, notesRel), { recursive: true })
-      fs.writeFileSync(path.join(REPO_ROOT, noteRel), merged, 'utf-8')
-      if (images.size > 0) {
-        const imgDirLocal = path.join(REPO_ROOT, imagesRel)
-        fs.mkdirSync(imgDirLocal, { recursive: true })
-        for (const [name, buf] of images) fs.writeFileSync(path.join(imgDirLocal, name), buf)
-        console.log(`  ✓ 复制图片 ${images.size} 张`)
-      }
-
-      // 8. 提交（note md + images + 清掉 progress.json）
-      await writeProgress({ stage: 'commit', message: '提交到 GitHub...', pct: 98, node: 0 })
-      const commitPaths = [noteRel]
-      if (images.size > 0) commitPaths.push(imagesRel)
-      await commitLocalFiles(commitPaths, `[note] convert ${note_name}`)
-
-      // 9. 终态：先写 done 让前端看到，再删掉 progress
-      await writeProgress({ stage: 'done', message: '转换完成', pct: 100, node: 0 })
-      try { fs.unlinkSync(path.join(REPO_ROOT, PROGRESS_PATH)) } catch {}
-      await deleteProgress()
-
-      console.log(`=== Note convert pipeline done ===`)
-    } finally {
-      try { fs.rmSync(workDir, { recursive: true, force: true }) } catch {}
+      console.log(`  ✓ [${i + 1}] 待转换 ${chunks.length} 段`)
+      jobs.push({ note_name, noteRel: `${notesRel}/${note_name}.md`, chunks })
     }
+
+    // 4. 所有篇的所有段，一次 MinerU batch（装一次环境、一次申请）
+    const { markdowns, images } = await mineruConvertNotes(
+      jobs.map((j) => ({ chunks: j.chunks })),
+      imagesRel,
+      (p) => { writeProgress({ ...p, node: 0 }).catch(() => {}) },
+    )
+
+    // 5. 逐篇按原顺序拼接落盘（空产物即报可读错误，绝不写空笔记）
+    const commitPaths = []
+    fs.mkdirSync(path.join(REPO_ROOT, notesRel), { recursive: true })
+    for (let i = 0; i < jobs.length; i++) {
+      const merged = markdowns[i].map((md) => md.trim()).filter(Boolean).join('\n\n')
+      if (!merged) throw new Error(`第 ${i + 1} 篇「${jobs[i].note_name}」MinerU 返回的 markdown 为空`)
+      fs.writeFileSync(path.join(REPO_ROOT, jobs[i].noteRel), merged, 'utf-8')
+      commitPaths.push(jobs[i].noteRel)
+      console.log(`  ✓ [${i + 1}] ${jobs[i].note_name}.md ${merged.length} chars`)
+    }
+
+    // 6. 图片（全局命名，一次落盘）
+    if (images.size > 0) {
+      const imgDirLocal = path.join(REPO_ROOT, imagesRel)
+      fs.mkdirSync(imgDirLocal, { recursive: true })
+      for (const [name, buf] of images) fs.writeFileSync(path.join(imgDirLocal, name), buf)
+      commitPaths.push(imagesRel)
+      console.log(`  ✓ 复制图片 ${images.size} 张`)
+    }
+
+    // 7. 一次提交所有产物（note md + images）
+    await writeProgress({ stage: 'commit', message: '提交到 GitHub...', pct: 98, node: 0 })
+    await commitLocalFiles(commitPaths, `[note] convert ${jobs.map((j) => j.note_name).join(', ')}`)
+
+    // 8. 终态：先写 done 让前端看到，再删掉 progress
+    await writeProgress({ stage: 'done', message: '转换完成', pct: 100, node: 0 })
+    try { fs.unlinkSync(path.join(REPO_ROOT, PROGRESS_PATH)) } catch {}
+    await deleteProgress()
+
+    console.log(`=== Note convert pipeline done ===`)
   } catch (err) {
     console.error(`❌ Note convert pipeline failed:`, err.message || err)
     try {

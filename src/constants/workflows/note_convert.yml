@@ -4,10 +4,12 @@ name: note_convert
 #   Word(.doc / .docx)  → PDF（LibreOffice headless）→ Markdown（MinerU）
 #   PDF                 → 直接走 MinerU
 # 触发：repository_dispatch event_type=note_convert
-#   payload: { base_path, note_name, source_path }
+#   payload: { base_path, items: [{ note_name, source_path }] }
 #     base_path  = 阅读对象的仓库根目录（literatures/{slug} | textbooks/{书名} | documents/{目录名}）
-#     note_name  = 目标笔记名（不含 .md；前端已按已有笔记去重）
-#     source_path= 前端上传到私库的源文件（{base_path}/attachments/{ts}_{文件名}）
+#     items      = 待转换的笔记列表；一次 dispatch 可带多篇，共用一次环境安装
+#       note_name  = 目标笔记名（不含 .md；前端已按已有笔记去重）
+#       source_path= 前端上传到私库的源文件（{base_path}/attachments/{ts}_{文件名}）
+#   手动调试也可只给 base_path + note_name + source_path（按单篇处理）
 on:
   repository_dispatch:
     types: [note_convert]
@@ -26,9 +28,11 @@ on:
         required: false
         default: ''
 
-# 与文献 / 图书 pipeline 共用同一个写 main 的并发组，避免同时 push 打架
+# 笔记转换独立并发组：笔记上传常是若干个小文件，若和长跑的文献 / 图书 pipeline
+# 共用 "pipeline-write-main"，会排在它们后面干等（用户等不了）。
+# 独立成组后各跑各的；push 到 main 的竞态由脚本内的 force-with-lease 重试兜底。
 concurrency:
-  group: "pipeline-write-main"
+  group: "note-convert-main"
   cancel-in-progress: false
 
 jobs:
@@ -75,6 +79,7 @@ jobs:
           PIPELINE_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
         run: |
           echo "base_path:   ${{ github.event.client_payload.base_path }}"
+          echo "items:       ${{ toJSON(github.event.client_payload.items) }}"
           echo "note_name:   ${{ github.event.client_payload.note_name }}"
           echo "source_path: ${{ github.event.client_payload.source_path }}"
           node .github/scripts/note_convert.mjs "$PIPELINE_PAYLOAD"

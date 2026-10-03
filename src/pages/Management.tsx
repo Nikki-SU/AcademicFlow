@@ -264,24 +264,46 @@ function paperToLiterature(paper: Paper): Literature {
   }
 }
 
+/** 作者名里可能残留的标记符号：通讯 `*`、共一 `†/‡`、脚注 `#`、CSV 逃逸 `"` */
+const AUTHOR_MARKERS = /[*†‡#"]/g
+
+/** 单个作者名清洗：去引号/标记、吃掉分隔用的 `and`、压缩空白 */
+function cleanAuthorName(raw: string): string {
+  return raw
+    .replace(/\band\b/gi, ' ')
+    .replace(AUTHOR_MARKERS, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
- * 把 authors 字符串拆成「一行一个」的作者列表。
- * authors 形如 "San Zhang, Si Li, Wu Wang"，可能带 `*` 通讯标记。
- * 通讯作者以 Paper.correspondingAuthor 为准（由转换流程从 PDF/md 抽出，这里不猜）。
+ * 把 authors 字符串拆成作者列表（仅显示用清洗，不改数据）。
+ * authors 形如 "San Zhang, Si Li, Wu Wang"，可能带 `*` 通讯标记；
+ * 库里数据来源多（PDF 抽取 / Crossref / 手填），可能残留 CSV 双重转义引号、
+ * markdown 粗体星号、末尾英文 `and`，这里一并清掉。
+ * 返回的 starred 表示该名字自带 `*`（后端从 PDF 抽出的通讯标记）。
  */
 function splitAuthors(authors: string): { name: string; starred: boolean }[] {
-  return (authors || '')
-    .split(',')
-    .map((raw) => ({ name: raw.replace(/\*/g, '').trim(), starred: raw.includes('*') }))
+  // CSV 里含逗号的字段会被整体加引号，二次转义后会残留成 `"""name, name"""`，
+  // 先归一化各种引号、再去掉整串外层多余的引号（成对或成串都吃掉）。
+  const unquoted = (authors || '')
+    .replace(/[“”‘’]/g, '"')
+    .trim()
+    .replace(/^["']+/, '')
+    .replace(/["']+$/, '')
+  return unquoted
+    .split(/[,，;；]/)
+    .map((raw) => ({ name: cleanAuthorName(raw), starred: /[*†‡]/.test(raw) }))
     .filter((a) => a.name)
 }
 
-/** 通讯作者名字集合（Paper.correspondingAuthor 可能是逗号分隔的多个） */
+/** 通讯作者名字集合（后端用 `; ` 连接多个，这里逗号/分号都兼容） */
 function correspondingNames(correspondingAuthor: string): Set<string> {
   return new Set(
     (correspondingAuthor || '')
-      .split(',')
-      .map((s) => s.replace(/\*/g, '').trim())
+      .replace(/[“”‘’]/g, '"')
+      .split(/[,，;；]/)
+      .map((s) => cleanAuthorName(s))
       .filter(Boolean),
   )
 }
@@ -2811,14 +2833,15 @@ export default function ManagementPage() {
               )}
               {pagedPapers.length > 0 && (
                 <div className="overflow-x-auto">
-                  {/* min-w：窗口窄时横向滚动，绝不让列被挤到「一字一行」 */}
-                  <table className="w-full min-w-[64rem] text-left border-collapse">
+                  {/* table-fixed：列宽固定、标题列吃剩余空间；标题两行内自适应，超长省略，
+                      作者单行不换行 —— 条目本身不滚动（横向溢出仅在极窄窗口兜底） */}
+                  <table className="w-full table-fixed min-w-[56rem] text-left border-collapse">
                     <thead>
                       <tr className="bg-paper-100/60 text-xs text-ink-400">
                         {batchMode && <th className="w-10 px-2 py-2 font-normal" />}
-                        <th className="w-16 px-2 py-2 font-normal" />
+                        <th className="w-[4.5rem] px-2 py-2 font-normal" />
                         <th className="px-3 py-2 font-normal">标题</th>
-                        <th className="w-32 px-3 py-2 font-normal">作者</th>
+                        <th className="w-56 px-3 py-2 font-normal">作者</th>
                         <th className="w-28 px-3 py-2 font-normal">期刊 · 年份</th>
                         <th className="w-28 px-3 py-2 font-normal">分类</th>
                         <th className="w-24 px-3 py-2 font-normal">状态</th>
@@ -2877,9 +2900,14 @@ export default function ManagementPage() {
                         </div>
                       </td>
 
-                      {/* 标题（关键词跟着标题走，同一个格子里换行） */}
+                      {/* 标题：限两行（行高随标题自适应），超长省略并给完整 title 提示 */}
                       <td className="px-3 py-3 align-top">
-                        <h3 className="text-sm font-medium text-ink-800 min-w-0">{paper.title}</h3>
+                        <h3
+                          className="text-sm font-medium text-ink-800 line-clamp-2 break-words"
+                          title={paper.title}
+                        >
+                          {paper.title}
+                        </h3>
 
                         {paper.keywords.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
@@ -2892,18 +2920,51 @@ export default function ManagementPage() {
                         )}
                       </td>
 
-                      {/* 作者：一行一个；通讯作者前加 `*`（一作 / 共一不加），通讯以 correspondingAuthor 为准 */}
+                      {/* 作者：单行不换行（不再一行一个把行撑高）；一作标「一作」、通讯标「通讯」 */}
                       <td className="px-3 py-3 align-top">
                         {authorList.length === 0 ? (
                           <div className="text-xs text-ink-500">—</div>
                         ) : (
-                          <div className="text-xs text-ink-500 space-y-0.5">
+                          <div
+                            className="flex items-center gap-1 text-xs overflow-hidden whitespace-nowrap"
+                            title={authorList
+                              .map((a, i) => {
+                                const tags = [
+                                  i === 0 ? '一作' : '',
+                                  a.starred || corresponding.has(a.name) ? '通讯' : '',
+                                ].filter(Boolean)
+                                return tags.length ? `${a.name}（${tags.join('、')}）` : a.name
+                              })
+                              .join('、')}
+                          >
                             {authorList.map((a, i) => {
-                              const starred = a.starred || corresponding.has(a.name)
+                              const isFirst = i === 0
+                              const isCorresponding = a.starred || corresponding.has(a.name)
                               return (
-                                <div key={i} className={starred ? 'text-seal-600' : ''}>
-                                  {starred ? `*${a.name}` : a.name}
-                                </div>
+                                <span key={i} className="inline-flex items-center gap-0.5 shrink-0">
+                                  <span
+                                    className={
+                                      isCorresponding
+                                        ? 'text-seal-600 font-medium'
+                                        : isFirst
+                                          ? 'text-ink-700'
+                                          : 'text-ink-500'
+                                    }
+                                  >
+                                    {a.name}
+                                  </span>
+                                  {isFirst && (
+                                    <span className="px-0.5 py-px rounded bg-ink-100 text-ink-500 text-[0.625rem] leading-none">
+                                      一作
+                                    </span>
+                                  )}
+                                  {isCorresponding && (
+                                    <span className="px-0.5 py-px rounded bg-seal-50 text-seal-600 text-[0.625rem] leading-none">
+                                      通讯
+                                    </span>
+                                  )}
+                                  {i < authorList.length - 1 && <span className="text-ink-300">、</span>}
+                                </span>
                               )
                             })}
                           </div>

@@ -45,7 +45,10 @@ import {
   sanitizeNoteName,
   type DocRef,
 } from '../services/readingDocData'
-import { enqueueNoteConvert } from '../services/notePipeline'
+import { enqueueNoteConvertBatch } from '../services/notePipeline'
+import { pollNoteConvertProgress, type PipelineProgress } from '../services/workflowClient'
+import { useAuthStore } from '../stores/auth'
+import { useWorkspaceStore } from '../stores/workspace'
 
 interface SaveState {
   status: 'saved' | 'saving' | 'idle' | 'error'
@@ -166,16 +169,50 @@ export default function ReadingNotesPanel({
     )
   }, [converts, reload])
 
-  /** 轮询管线产物：{base_path}/notes/{name}.md 出现即转换完成 */
+  /**
+   * 轮询管线进度：
+   *   1) 先读共享的 {base_path}/.progress.json —— 后端 stage=failed 时立刻如实报错，
+   *      不再傻等产物、让用户干等十几分钟；
+   *   2) 再看产物 {base_path}/notes/{name}.md 是否出现（出现即完成）。
+   * 产物兜底 + 12 分钟上限，覆盖 runner 完全没写 progress 的极端情况。
+   */
   useEffect(() => {
     if (!converts.some((c) => c.status === 'running')) return
     let cancelled = false
     const tick = async () => {
       const running = convertsRef.current.filter((c) => c.status === 'running')
+      if (running.length === 0) return
+
+      // 一次读共享进度文件：一次 dispatch 的多篇共用同一个 .progress.json
+      const auth = useAuthStore.getState()
+      const ws = useWorkspaceStore.getState()
+      const owner = auth.user?.login
+      const repo = ws.repo?.name
+      const token = auth.token
+      let prog: PipelineProgress | null = null
+      if (owner && repo && token) {
+        prog = await pollNoteConvertProgress(basePath, owner, repo, token).catch(() => null)
+      }
+
       for (const c of running) {
         if (cancelled) return
+        const elapsed = Date.now() - c.startedAt
+        // 后端已明确失败：立刻按真实 error 置失败（仅认本次转换开始之后写的失败，
+        // 免得把上一次残留的 .progress.json 误判成这一次）。
+        const isFreshFailure =
+          prog?.stage === 'failed' &&
+          (!prog.updated_at || Date.parse(prog.updated_at) >= c.startedAt - 5000)
+        if (isFreshFailure) {
+          const detail = prog?.error || prog?.message || '后端转换失败'
+          setConverts((prev) =>
+            prev.map((x) =>
+              x.name === c.name && x.status === 'running' ? { ...x, status: 'failed', error: detail } : x,
+            ),
+          )
+          continue
+        }
         // 后端 runner 失败 / 卡住时产物永远不会出现，给个上限，别让用户干等
-        if (Date.now() - c.startedAt > 20 * 60 * 1000) {
+        if (elapsed > 12 * 60 * 1000) {
           setConverts((prev) =>
             prev.map((x) =>
               x.name === c.name && x.status === 'running'
@@ -388,15 +425,23 @@ export default function ReadingNotesPanel({
       }
 
       // 2) 云端管线附件（判据是产物出现，见 converts 轮询）
+      //    一批附件只 dispatch 一次：runner 只装一次 LibreOffice、一次 MinerU batch
       if (pipelineFiles.length > 0) {
+        const items = pipelineFiles.map((file) => ({
+          file,
+          name: uniqueName(file.name.replace(/\.[^.]+$/, '')),
+        }))
+        const startedAt = Date.now()
+        const { results } = await enqueueNoteConvertBatch(
+          docRefRef.current,
+          items.map((it) => ({ file: it.file, noteName: it.name })),
+        )
         const started: NoteConvert[] = []
-        for (const file of pipelineFiles) {
-          const name = uniqueName(file.name.replace(/\.[^.]+$/, ''))
-          const res = await enqueueNoteConvert(docRefRef.current, file, name)
-          if (res.ok) {
-            started.push({ name, sourceName: file.name, status: 'running', startedAt: Date.now() })
+        items.forEach((it, i) => {
+          if (results[i]?.ok) {
+            started.push({ name: it.name, sourceName: it.file.name, status: 'running', startedAt })
           }
-        }
+        })
         if (started.length > 0) setConverts((prev) => [...prev, ...started])
       }
     } catch (err) {

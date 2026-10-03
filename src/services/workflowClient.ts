@@ -135,25 +135,35 @@ export async function dispatchSessionImages(
 }
 
 /**
- * 触发 note_convert：把笔记附件（Word / PDF）转成一篇命名笔记。
+ * 触发 note_convert：把一批笔记附件（Word / PDF）转成命名笔记。
  * 源文件已由前端上传到私库 {base_path}/attachments/，无需随 payload 传内容。
- *   base_path  = 阅读对象根目录（literatures/{slug} | textbooks/{书名} | documents/{目录名}）
- *   note_name  = 目标笔记名（不含 .md）
- *   source_path= 源文件仓库路径
+ *   basePath = 阅读对象根目录（literatures/{slug} | textbooks/{书名} | documents/{目录名}）
+ *   items    = 一批 { noteName（目标笔记名，不含 .md）, sourcePath（源文件仓库路径）}
+ *
+ * 一次 dispatch 可带多篇：runner 是全新 VM，装 LibreOffice 要 2~4 分钟，
+ * 逐篇 dispatch 会把这段固定开销乘 N。合并成一次 = 装一次环境 + 一次 MinerU batch。
  */
+export interface NoteConvertItem {
+  noteName: string
+  sourcePath: string
+}
+
 export async function dispatchNoteConvert(
   basePath: string,
-  noteName: string,
-  sourcePath: string,
+  items: NoteConvertItem[],
   owner: string,
   repo: string,
   token: string,
 ): Promise<void> {
-  await dispatchWorkflow(
-    'note_convert',
-    { base_path: basePath, note_name: noteName, source_path: sourcePath },
-    owner, repo, token,
-  )
+  const payload = {
+    base_path: basePath,
+    items: items.map((it) => ({ note_name: it.noteName, source_path: it.sourcePath })),
+  }
+  // client_payload 硬上限 64KB，超了 GitHub 直接 422、任务根本不会起。宁可前端报错让用户分批。
+  if (JSON.stringify(payload).length > DISPATCH_PAYLOAD_LIMIT) {
+    throw new Error(`本次 ${items.length} 篇笔记的 payload 过大，请减少一次上传的附件数量后重试`)
+  }
+  await dispatchWorkflow('note_convert', payload, owner, repo, token)
 }
 
 /**
