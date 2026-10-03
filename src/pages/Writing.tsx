@@ -17,7 +17,6 @@ import {
   Bot,
   Zap,
   CheckCircle2,
-  Clock,
   Save,
   Search,
   Wand2,
@@ -543,6 +542,10 @@ interface QuickActionDef {
 const CITATION_ICON =
   '<svg viewBox="0 0 32 32"><g transform="scale(0.7)"><path d="M27.769 26.667h-9.316l3.556-7.111h-4.231v-14.222h14.222v12.871l-4.231 8.462zM24.213 23.111h1.351l2.88-5.76v-8.462h-7.111v7.111h6.436l-3.556 7.111zM9.991 26.667h-9.316l3.556-7.111h-4.231v-14.222h14.222v12.871l-4.231 8.462zM6.436 23.111h1.351l2.88-5.76v-8.462h-7.111v7.111h6.436l-3.556 7.111z"/></g><path d="M22.5 20.5h3V24h3.5v3h-3.5v3.5h-3V27H19v-3h3.5z"/></svg>'
 
+/** 工具栏「导出 Markdown」图标（lucide download，描边随 currentColor 变色） */
+const EXPORT_ICON =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+
 /** 面板可显示的功能（左右两侧通用）；大纲固定在左侧导航里，不在此列 */
 type PanelMode =
   | 'editor'
@@ -1009,6 +1012,8 @@ export default function WritingPage() {
   /** 编辑区可能落在左边或右边，两个 ref 都留着；插入引用/跳转时取已挂载的那个 */
   const leftEditorRef = useRef<VditorEditorHandle>(null)
   const rightEditorRef = useRef<VditorEditorHandle>(null)
+  /** 「导出 Markdown」的最新实现：工具栏按钮只在首帧创建一次，靠 ref 取最新，避免拿到旧稿 */
+  const exportMdRef = useRef<() => void>(() => {})
   const chatEndRef = useRef<HTMLDivElement>(null)
   const aiInputRef = useRef<HTMLTextAreaElement>(null)
   /** 当前 AI 助手指令的取消句柄：点「停止」立刻不再接收后端输出（详见 ai/abort.ts） */
@@ -1174,7 +1179,14 @@ export default function WritingPage() {
       icon: CITATION_ICON,
       click: () => setShowCitationModal(true),
     },
-    '|', 'undo', 'redo', '|', 'edit-mode', 'fullscreen',
+    '|', 'undo', 'redo', '|', 'edit-mode', 'fullscreen', '|',
+    // 导出按钮直接放进工具栏（不单占一行），保存状态由颜色反映（见下方 effect）
+    {
+      name: 'export-md',
+      tip: '导出 Markdown',
+      icon: EXPORT_ICON,
+      click: () => exportMdRef.current(),
+    },
   ]
 
   useEffect(() => {
@@ -1342,6 +1354,23 @@ export default function WritingPage() {
     }, 1000)
     return () => clearTimeout(timer)
   }, [mdContent, saveStatus, activeProjectId])
+
+  /**
+   * 导出按钮就在编辑器工具栏里（不再单占一行）——
+   * 用颜色 + 悬停提示反映保存状态：保存中变灰、平时主题红；提示带上「已保存 HH:MM」。
+   * 按钮由 Vditor 创建（data-type="export-md"），这里随状态变化同步其样式 / 提示。
+   */
+  useEffect(() => {
+    document.querySelectorAll<HTMLElement>('[data-type="export-md"]').forEach((b) => {
+      b.classList.toggle('af-export-saving', saveStatus === 'saving')
+      b.title =
+        saveStatus === 'saving'
+          ? '正在保存…'
+          : lastSaved
+            ? `导出 Markdown（已保存 ${formatTime(lastSaved)}）`
+            : '导出 Markdown'
+    })
+  }, [saveStatus, lastSaved])
 
   // 代码板 / BibTeX 改动 → 防抖落盘到项目目录（manuscript.tex / references.bib）。
   // 手改代码板、AI 改代码、由正文生成 三条路都从这里统一持久化。
@@ -1564,6 +1593,9 @@ export default function WritingPage() {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
+
+  // 工具栏按钮只在首帧创建一次，这里每次渲染把最新实现塞进 ref（避免导出到旧稿）
+  exportMdRef.current = exportMarkdown
 
   const handleSendMessage = async (
     prompt?: string,
@@ -3559,44 +3591,6 @@ export default function WritingPage() {
 
           {p.mode === 'editor' && (
             <>
-              {/*
-                这里原来还有一个「书本图标 + 引用」按钮，和上面的工具栏重复了 ——
-                插入引用的入口只留工具栏中间那一个（正文里的引用标记本身也已经
-                渲染成普通编号，见 VditorEditor 的 af-cite）。
-              */}
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-paper-50 border-b border-ink-200 flex-shrink-0">
-                <div className="flex-1 min-w-0" />
-
-                <div className="flex-shrink-0 whitespace-nowrap flex items-center gap-1.5 text-xs">
-                  {saveStatus === 'saved' && (
-                    <span className="text-green-600 flex items-center gap-1 font-medium">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      已保存
-                      {lastSaved && <span className="text-ink-400 font-normal">{formatTime(lastSaved)}</span>}
-                    </span>
-                  )}
-                  {saveStatus === 'saving' && (
-                    <span className="text-ink-500 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 animate-pulse" />
-                      保存中...
-                    </span>
-                  )}
-                  {saveStatus === 'unsaved' && (
-                    <span className="text-amber-600 flex items-center gap-1">
-                      <Save className="w-3.5 h-3.5" />
-                      未保存
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={exportMarkdown}
-                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-seal-600 text-paper-50 rounded-lg text-xs font-medium hover:bg-seal-700 transition shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  导出
-                </button>
-              </div>
-
               <div className="flex-1 min-h-0 flex bg-paper-50">
                 <div className="flex-1 min-w-0 h-full">
                   <VditorEditor
@@ -3642,8 +3636,7 @@ export default function WritingPage() {
                 )}
               </div>
 
-              <div className="px-4 py-1.5 bg-paper-100/80 border-t border-ink-200 flex items-center justify-between text-xs text-ink-400 flex-shrink-0">
-                <span>所见即所得编辑器 · 支持插入引用 / 公式 / 图片（图片自动内嵌）</span>
+              <div className="px-4 py-1.5 bg-paper-100/80 border-t border-ink-200 flex items-center justify-end text-xs text-ink-400 flex-shrink-0">
                 <span className="font-mono">{wordCount} 字</span>
               </div>
             </>

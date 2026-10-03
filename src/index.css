@@ -225,6 +225,22 @@
 }
 
 /*
+ * 写作页：编辑器工具栏里的「导出 Markdown」按钮。
+ * 它平时保持主题红；保存中由 Writing.tsx 给按钮加上 .af-export-saving → 变灰。
+ * 多一层 .vditor-toolbar 是为了压过 Vditor 自带的工具栏按钮配色（同权重会输给它）。
+ */
+.af-vditor .vditor-toolbar [data-type="export-md"] {
+  color: #a63e2e;
+}
+.af-vditor .vditor-toolbar [data-type="export-md"]:hover {
+  color: #883226;
+}
+.af-vditor .vditor-toolbar [data-type="export-md"].af-export-saving {
+  color: #b0a99e;
+  opacity: 0.55;
+}
+
+/*
  * 行内代码：等宽 + 底色，跟正文区分开。
  * 必须排除 [data-type] —— IR 模式下公式的源码标记同样是 <code>，
  * 一起套上底色会让公式看起来像代码。代码块内部的 .hljs 由 VSCode 配色接管。

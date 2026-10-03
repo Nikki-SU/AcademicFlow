@@ -263,16 +263,25 @@ function paperToLiterature(paper: Paper): Literature {
 }
 
 /**
- * 从 authors 字符串里取出「一作」，并剥掉可能存在的 `*` 通讯标记。
- * authors 形如 "San Zhang, Si Li, Wu Wang"。
- * 通讯作者**不在这里猜**：它只能由转换流程从 PDF/md 里抽出来（见 Paper.correspondingAuthor）。
+ * 把 authors 字符串拆成「一行一个」的作者列表。
+ * authors 形如 "San Zhang, Si Li, Wu Wang"，可能带 `*` 通讯标记。
+ * 通讯作者以 Paper.correspondingAuthor 为准（由转换流程从 PDF/md 抽出，这里不猜）。
  */
-function splitFirstAuthor(authors: string): string {
-  const parts = (authors || '')
+function splitAuthors(authors: string): { name: string; starred: boolean }[] {
+  return (authors || '')
     .split(',')
-    .map((a) => a.replace(/\*/g, '').trim())
-    .filter(Boolean)
-  return parts[0] || ''
+    .map((raw) => ({ name: raw.replace(/\*/g, '').trim(), starred: raw.includes('*') }))
+    .filter((a) => a.name)
+}
+
+/** 通讯作者名字集合（Paper.correspondingAuthor 可能是逗号分隔的多个） */
+function correspondingNames(correspondingAuthor: string): Set<string> {
+  return new Set(
+    (correspondingAuthor || '')
+      .split(',')
+      .map((s) => s.replace(/\*/g, '').trim())
+      .filter(Boolean),
+  )
 }
 
 /** 文献分类色块调色板：按文献内分类下标取色，让相邻分类颜色不同 */
@@ -2750,8 +2759,8 @@ export default function ManagementPage() {
                     </thead>
                     <tbody className="divide-y divide-ink-100">
                 {pagedPapers.map((paper) => {
-                  const first = splitFirstAuthor(paper.authors)
-                  const corresponding = paper.correspondingAuthor.trim()
+                  const authorList = splitAuthors(paper.authors)
+                  const corresponding = correspondingNames(paper.correspondingAuthor)
                   // 只认「用户手改的 / AI 查到的」；查不到就显示**原期刊名**。
                   // ⚠️ 不要用「取首字母」去猜缩写：Angewandte Chemie International Edition
                   // 猜成 ACIE 并不是学术界通用的写法，用户会照着抄进参考文献 ——
@@ -2818,12 +2827,22 @@ export default function ManagementPage() {
                         )}
                       </td>
 
-                      {/* 作者：一作 / 通讯各一行（通讯由 PDF 转换时从 md 里抽出） */}
+                      {/* 作者：一行一个；通讯作者前加 `*`（一作 / 共一不加），通讯以 correspondingAuthor 为准 */}
                       <td className="px-3 py-3 align-top">
-                        <div className="text-xs text-ink-500 space-y-0.5">
-                          <div>一作 {first || '—'}</div>
-                          {corresponding && <div>★ {corresponding}</div>}
-                        </div>
+                        {authorList.length === 0 ? (
+                          <div className="text-xs text-ink-500">—</div>
+                        ) : (
+                          <div className="text-xs text-ink-500 space-y-0.5">
+                            {authorList.map((a, i) => {
+                              const starred = a.starred || corresponding.has(a.name)
+                              return (
+                                <div key={i} className={starred ? 'text-seal-600' : ''}>
+                                  {starred ? `*${a.name}` : a.name}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </td>
 
                       {/* 期刊缩写 · 年份 */}

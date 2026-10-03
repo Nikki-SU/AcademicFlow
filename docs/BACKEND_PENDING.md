@@ -484,7 +484,7 @@ Crossref / OpenAlex 的元数据只有作者列表，**没有**通讯作者标�
    新库里 runner 的 `updateLocalCsvField(doi,'md_status',...)` 会找不到列 —— 顺手补上）
 3. `src/pages/Management.tsx`：`Paper` 加 `correspondingAuthor`、
    `literatureToPaper` / `paperToLiterature` 双向映射、编辑弹窗手改入口；
-   列表里**不再用启发式猜通讯**（原 `splitFirstAndCorresponding` 已换成只取一作的 `splitFirstAuthor`）
+   列表里**不再用启发式猜通讯**（取作者列时按 `splitAuthors` 一行一个，通讯以 `correspondingAuthor` 为准加 `*`）
 4. 私库 `paper_convert.mjs`：`CORRESPONDING_AUTHOR_PROMPT` / `parseJsonObject` /
    `ensureLocalCsvColumn` / `runCorrespondingAuthorExtraction` + main 里 3.7 的调用
 
