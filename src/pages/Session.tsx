@@ -6,22 +6,25 @@
  *   - 当前任务 type = 课程 → 显示「课程」
  * 两者本质是同一种东西：实时记录一场「正在发生的事」（会议 / 一节课）。
  *
- * 三栏（见 架构.md §2.4 / ADJ-30）：
- *   最左 固定列 · 任务层级树（点一下切换「当前任务」）
+ * 三栏（见 架构.md §2.4 / ADJ-30；比例默认 1:3:1，可拖成 1:2:2 / 1:1:3）：
+ *   最左 任务层级树（点一下切换「当前任务」）
  *   中间 AI 录音 / 转写（绑 stores/recorder.ts，全局悬浮球同一个 store）
  *   右侧 传图片 · 材料采集（挂当前任务分支下）
  *
  * 录音 / 转写不绑架用户：真正的录音入口是挂在 Layout 顶层的**全局悬浮录音球**，
  * 切页面、切任务都不中断（ADJ-46）。本页中栏只是同一份状态的另一种呈现。
  */
-import { useEffect, useMemo, useState } from 'react'
-import { Mic } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { GripVertical, Mic } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadProjects, type Project } from '../services/projectData'
 import { useTaskStore } from '../stores/task'
 import SessionTaskTree from '../components/session/SessionTaskTree'
 import SessionTranscript from '../components/session/SessionTranscript'
 import SessionImages from '../components/session/SessionImages'
+
+/** 三档整页比例对应的「右栏 fr」：1→1:3:1、2→1:2:2、3→1:1:3（左栏恒 1fr，总量恒 5fr） */
+const RIGHT_FR_SNAPS = [1, 2, 3]
 
 export default function SessionPage() {
   const currentProjectId = useTaskStore((s) => s.currentProjectId)
@@ -68,6 +71,55 @@ export default function SessionPage() {
   const kindText = isCourse ? '课时 = 定时任务' : '非周期 · 随时开'
   const hint = isCourse ? '结课：论文 / 考试' : '转写自动判语种，非中文自动译中'
 
+  /**
+   * 三栏比例：左 : 中 : 右 = 1 : (4 − rightFr) : rightFr（总量恒 5fr）。
+   *   rightFr = 1 → 1:3:1（默认，与阅读页默认一致）
+   *   rightFr = 2 → 1:2:2
+   *   rightFr = 3 → 1:1:3
+   * 拖中缝改比例，松手吸附到这三档（与阅读页同一套交互）。
+   */
+  const [rightFr, setRightFr] = useState(1)
+  const [isDragging, setIsDragging] = useState(false)
+  const sessionGridRef = useRef<HTMLDivElement>(null)
+  const dragStartX = useRef(0)
+  const dragStartFr = useRef(1)
+
+  const handleDividerDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+    dragStartX.current = e.clientX
+    dragStartFr.current = rightFr
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    if (!isDragging) return
+    const handleMouseMove = (e: MouseEvent) => {
+      const el = sessionGridRef.current
+      if (!el) return
+      // 三栏总量恒为 5fr，1fr ≈ 容器宽 / 5；右栏每移动 1fr 就吃掉中栏 1fr
+      const fr = el.clientWidth / 5
+      const deltaFr = (e.clientX - dragStartX.current) / fr
+      const next = Math.max(1, Math.min(3, dragStartFr.current + deltaFr))
+      setRightFr(next)
+    }
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      setRightFr((cur) =>
+        RIGHT_FR_SNAPS.reduce((best, v) => (Math.abs(v - cur) < Math.abs(best - cur) ? v : best)),
+      )
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging])
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper-100">
       {/* 页头：命名随当前任务 type 走 */}
@@ -81,9 +133,15 @@ export default function SessionPage() {
         <span className="ml-auto shrink-0 text-xs text-ink-400">{hint}</span>
       </header>
 
-      {/* 三栏：侧栏固定宽、中栏自适应；窄屏横向滚动，功能不隐藏 */}
-      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
-        <div className="w-56 shrink-0 lg:w-64">
+      {/* 三栏默认 1:3:1，拖中缝可在 1:3:1 / 1:2:2 / 1:1:3 间切换；窄屏塌成三行堆叠 */}
+      <div
+        ref={sessionGridRef}
+        className="min-h-0 flex-1 grid grid-cols-[var(--session-cols)] grid-rows-[minmax(0,1fr)] gap-3 p-3 overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[repeat(3,minmax(0,1fr))]"
+        style={{
+          '--session-cols': `minmax(0, 1fr) minmax(0, ${4 - rightFr}fr) 0.375rem minmax(0, ${rightFr}fr)`,
+        } as CSSProperties}
+      >
+        <div className="min-w-0">
           <SessionTaskTree
             projects={projects}
             currentId={currentProjectId}
@@ -92,11 +150,21 @@ export default function SessionPage() {
           />
         </div>
 
-        <div className="min-w-[22rem] flex-1">
+        <div className="min-w-0">
           <SessionTranscript taskId={currentProjectId} />
         </div>
 
-        <div className="w-64 shrink-0 lg:w-72">
+        {/* 中缝拖动柄：宽屏专用；左右拉在中、右两栏之间切换比例 */}
+        <div
+          className={`hidden min-[1101px]:flex items-center justify-center cursor-col-resize bg-ink-100 hover:bg-seal-100 transition-colors z-10 ${
+            isDragging ? 'bg-seal-200' : ''
+          }`}
+          onMouseDown={handleDividerDown}
+        >
+          <GripVertical className="h-3 w-3 text-ink-400" />
+        </div>
+
+        <div className="min-w-0">
           <SessionImages taskId={currentProjectId} />
         </div>
       </div>

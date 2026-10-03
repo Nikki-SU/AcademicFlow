@@ -478,16 +478,14 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
 }
 
 /**
- * 左右两窗格的比例档位 —— 只保留这三档，拖动松手即吸附。
- * 整页口径：左侧「项目导航」占 1 份，右边两个窗格合起来占 3 份。
- * 所以窗格之间取 2:1 时，整页正好是 1:2:1（和阅读页一致，看着才协调）。
- * 旧的 7:3 / 3:7 已去掉（1.5 这种比例不好对齐，也不利于调试）。
+ * 整页三栏比例（左导航 : 中窗格 : 右窗格），拖动松手即吸附到这三档：
+ *   1 : 3 : 1  → 右窗格 rightFr = 1（默认）
+ *   1 : 2 : 2  → rightFr = 2
+ *   1 : 1 : 3  → rightFr = 3
+ * 左导航恒占整页 1/5；中 / 右在剩下的 4fr 里分：中 = 4 − rightFr，右 = rightFr。
+ * 与阅读页、会议页共用同一套口径（总量恒 5fr），换页不会忽宽忽窄。
  */
-const PANEL_RATIOS = [
-  { value: '2:1', label: '2 : 1', left: (2 / 3) * 100 },
-  { value: '1:1', label: '1 : 1', left: 50 },
-  { value: '1:2', label: '1 : 2', left: (1 / 3) * 100 },
-]
+const RIGHT_FR_SNAPS = [1, 2, 3]
 
 interface BookChapter {
   id: string
@@ -868,8 +866,8 @@ export default function WritingPage() {
   const [rightPanelMode, setRightPanelMode] = useState<PanelMode>('ai')
   const [showLeftDropdown, setShowLeftDropdown] = useState(false)
   const [showRightDropdown, setShowRightDropdown] = useState(false)
-  // 默认档位 = PANEL_RATIOS 第一档（窗格 2:1 → 整页 1:2:1）
-  const [panelRatio, setPanelRatio] = useState(PANEL_RATIOS[0].left)
+  // 默认 1:3:1（rightFr = 1，与阅读页 / 会议页默认一致）
+  const [rightFr, setRightFr] = useState(1)
   const [isDragging, setIsDragging] = useState(false)
 
   const [trustedSearch, setTrustedSearch] = useState(true)
@@ -1031,7 +1029,7 @@ export default function WritingPage() {
   const texPackageInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
-  const dragStartRatio = useRef(70)
+  const dragStartFr = useRef(1)
   const memorySaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 加载记忆期间不要回写，否则会把刚解析出来的对话立刻覆盖成空 */
   const memoryLoadingRef = useRef(false)
@@ -3062,7 +3060,7 @@ export default function WritingPage() {
     e.preventDefault()
     setIsDragging(true)
     dragStartX.current = e.clientX
-    dragStartRatio.current = panelRatio
+    dragStartFr.current = rightFr
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
   }
@@ -3072,24 +3070,22 @@ export default function WritingPage() {
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return
       const container = containerRef.current
-      // 左侧导航占整页 1/4（与 aside 的 w-1/4 + min-w-[15rem] 对齐）
-      const navWidth = navCollapsed ? 0 : Math.max(container.clientWidth * 0.25, 240)
+      // 窗格区 = 整页 − 左导航（占整页 1/5，与 aside 的 w-1/5 + min-w-[15rem] 对齐）
+      const navWidth = navCollapsed ? 0 : Math.max(container.clientWidth * 0.2, 240)
       const usableWidth = container.clientWidth - navWidth - 6
-      const deltaX = e.clientX - dragStartX.current
-      const deltaPercent = (deltaX / usableWidth) * 100
-      let newRatio = dragStartRatio.current + deltaPercent
-      newRatio = Math.max(20, Math.min(80, newRatio))
-      setPanelRatio(newRatio)
+      // 窗格区总量恒 4fr：右窗格每移动 1fr 就吃掉中窗格 1fr
+      const fr = usableWidth / 4
+      const deltaFr = (e.clientX - dragStartX.current) / fr
+      const next = Math.max(1, Math.min(3, dragStartFr.current + deltaFr))
+      setRightFr(next)
     }
     const handleMouseUp = () => {
       setIsDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-      // 松手即吸附：只允许 2:1 / 1:1 / 1:2 三档
-      setPanelRatio((cur) =>
-        PANEL_RATIOS.map((r) => r.left).reduce((best, v) =>
-          Math.abs(v - cur) < Math.abs(best - cur) ? v : best,
-        ),
+      // 松手即吸附：只允许 1:3:1 / 1:2:2 / 1:1:3 三档
+      setRightFr((cur) =>
+        RIGHT_FR_SNAPS.reduce((best, v) => (Math.abs(v - cur) < Math.abs(best - cur) ? v : best)),
       )
     }
     document.addEventListener('mousemove', handleMouseMove)
@@ -3230,7 +3226,7 @@ export default function WritingPage() {
     <div ref={containerRef} className="h-full flex bg-paper-100 relative overflow-hidden">
       <aside
         className={`bg-paper-50 border-r border-ink-200 flex flex-col flex-shrink-0 transition-all duration-300 ${
-          navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-1/4 min-w-[15rem] opacity-100'
+          navCollapsed ? 'w-0 opacity-0 overflow-hidden border-r-0' : 'w-1/5 min-w-[15rem] opacity-100'
         }`}
       >
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -3497,7 +3493,7 @@ export default function WritingPage() {
       <button
         onClick={() => setNavCollapsed(!navCollapsed)}
         className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-paper-50 border border-ink-200 rounded-r-lg p-1 shadow-md hover:bg-paper-100 transition text-ink-400 hover:text-seal-600"
-        style={{ left: navCollapsed ? '0px' : 'max(25%, 15rem)' }}
+        style={{ left: navCollapsed ? '0px' : 'max(20%, 15rem)' }}
       >
         {navCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
@@ -3526,8 +3522,8 @@ export default function WritingPage() {
                 width: isPanelMerged
                   ? '100%'
                   : p.side === 'left'
-                    ? `${panelRatio}%`
-                    : `calc(${100 - panelRatio}% - 0.375rem)`,
+                    ? `${((4 - rightFr) / 4) * 100}%`
+                    : `calc(${(rightFr / 4) * 100}% - 0.375rem)`,
               }}
             >
               <div className="bg-paper-50 border-b border-ink-200 px-3 py-2 flex items-center gap-2 flex-shrink-0">
