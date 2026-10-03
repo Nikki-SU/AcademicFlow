@@ -2838,18 +2838,18 @@ export default function ManagementPage() {
                       格子内该换行就换行 → 行高随内容自适应（每条高度可以不一样）。 */}
                   <table className="w-full table-fixed text-left border-collapse">
                     <thead>
-                      <tr className="bg-paper-100/60 text-xs text-ink-400">
-                        {batchMode && <th className="w-8 px-2 py-2 font-normal" />}
-                        <th className="w-[4.5rem] px-2 py-2 font-normal" />
-                        <th className="px-3 py-2 font-normal">标题</th>
-                        <th className="w-[19%] px-3 py-2 font-normal">作者</th>
-                        <th className="w-[12%] px-3 py-2 font-normal">期刊 · 年份</th>
-                        <th className="w-[12%] px-3 py-2 font-normal">分类</th>
-                        <th className="w-[9%] px-3 py-2 font-normal">状态</th>
-                        <th className="w-[14%] px-3 py-2 font-normal text-right">操作</th>
+                      <tr className="bg-paper-100 text-xs text-ink-500">
+                        {batchMode && <th className="w-8 border border-ink-200 px-2 py-2 font-normal" />}
+                        <th className="w-[3.75rem] border border-ink-200 px-2 py-2 font-normal" />
+                        <th className="border border-ink-200 px-3 py-2 font-normal">标题</th>
+                        <th className="w-[16%] border border-ink-200 px-3 py-2 font-normal">作者</th>
+                        <th className="w-[11%] border border-ink-200 px-3 py-2 font-normal">期刊 · 年份</th>
+                        <th className="w-[11%] border border-ink-200 px-3 py-2 font-normal">分类</th>
+                        <th className="w-[7%] border border-ink-200 px-3 py-2 font-normal">状态</th>
+                        <th className="w-[14%] border border-ink-200 px-3 py-2 font-normal text-right">操作</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-ink-100">
+                    <tbody>
                 {pagedPapers.map((paper) => {
                   const authorList = splitAuthors(paper.authors)
                   const corresponding = correspondingNames(paper.correspondingAuthor)
@@ -2867,7 +2867,7 @@ export default function ManagementPage() {
                       onClick={() => batchMode && toggleSelectPaper(paper.id)}
                     >
                       {batchMode && (
-                        <td className="px-2 py-3 align-top">
+                        <td className="border border-ink-200 px-2 py-2.5 align-top">
                           <input
                             type="checkbox"
                             checked={selectedPapers.has(paper.id)}
@@ -2881,9 +2881,9 @@ export default function ManagementPage() {
                       )}
 
                       {/* 题图 */}
-                      <td className="px-2 py-3 align-top">
+                      <td className="border border-ink-200 px-2 py-2.5 align-top">
                         <div
-                          className={`w-14 h-[4.5rem] rounded-lg overflow-hidden bg-ink-100 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                          className={`w-10 h-14 rounded-lg overflow-hidden bg-ink-100 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                           onClick={(e) => {
                             if (paper.coverImage) {
                               e.stopPropagation()
@@ -2903,7 +2903,7 @@ export default function ManagementPage() {
 
                       {/* 标题：**完整展示、绝不省略**（省略了用户就没法认这篇文献），
                           换行行数随标题长度自适应 → 条目高度可以比其他条更高 */}
-                      <td className="px-3 py-3 align-top">
+                      <td className="border border-ink-200 px-3 py-2.5 align-top">
                         <h3 className="text-sm font-medium text-ink-800 break-words">
                           {paper.title}
                         </h3>
@@ -2921,7 +2921,7 @@ export default function ManagementPage() {
 
                       {/* 作者：**一个作者一行**（纵向堆叠，不在横向摊开、不左右滚）；
                           一作标「一作」、通讯标「通讯」 */}
-                      <td className="px-3 py-3 align-top">
+                      <td className="border border-ink-200 px-3 py-2.5 align-top">
                         {authorList.length === 0 ? (
                           <div className="text-xs text-ink-500">—</div>
                         ) : (
@@ -2960,7 +2960,7 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 期刊（上）· 年份（下）：同一格内**纵向堆叠**，不横着摊开（横着摊 = 逼出左右滚动） */}
-                      <td className="px-3 py-3 align-top">
+                      <td className="border border-ink-200 px-3 py-2.5 align-top">
                         <div className="flex flex-col gap-0.5 text-xs text-ink-400">
                           {paper.journal && (
                             <span className="flex items-start gap-1 min-w-0">
@@ -2981,7 +2981,7 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 分类 */}
-                      <td className="px-3 py-3 align-top">
+                      <td className="border border-ink-200 px-3 py-2.5 align-top">
                         <div className="flex flex-wrap gap-1">
                           {paper.categoryIds.length > 0 ? (
                           paper.categoryIds.map((cid, i) => {
@@ -3009,7 +3009,7 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 状态 */}
-                      <td className="px-3 py-3 align-top">
+                      <td className="border border-ink-200 px-3 py-2.5 align-top">
                         <div className="flex flex-wrap items-center gap-1">
                           <StatusBadge status={paper.mdStatus} />
                           {paper.hasPdf && (
@@ -3021,7 +3021,7 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 操作 */}
-                      <td className="px-3 py-3 align-top">
+                      <td className="border border-ink-200 px-3 py-2.5 align-top">
                         <div className="flex flex-wrap items-center justify-end gap-1">
                           {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
                           {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
