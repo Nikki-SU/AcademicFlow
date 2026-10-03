@@ -8,8 +8,14 @@
  *      与课程页右栏同一处，并随即送进 MinerU 管道产出本节课的 board.md）
  *
  * 录音中球身变红并走表；展开即见本轮转写。卸载 / 切页都不影响录音。
- * 还能「弹出为悬浮窗」（Document Picture-in-Picture）：一块始终置顶的小窗，切到别的
- * 标签页 / 别的网站也照样录音、照样看得见状态（前提：这个标签页别关）。
+ *
+ * **自动进悬浮（用户要求，2026-10-03）**：一按「开始录音」，这次点击本身就是浏览器要求的
+ * 用户手势，于是**自动**弹出 Document Picture-in-Picture 悬浮窗 —— 不用再让用户手动点
+ * 「悬浮窗」；停止录音时自动收回页面。不支持 PiP 的环境退回页面内的球。
+ * 悬浮窗默认是**一颗小圆球**（不是大面板）：点球才撑开成转写面板、再点收起，窗口随之缩放。
+ *
+ * 边界（浏览器定的，非本组件偷懒）：浮窗外框是操作系统给的**矩形**，网站既不能把它做成
+ * 圆形、也不能设它的位置，且过小的尺寸会被浏览器兜底放大；弹出与缩放都必须发生在用户点击里。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -71,6 +77,15 @@ function formatElapsed(ms: number): string {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`
 }
 
+/** 已录时长 → 紧凑格式（球内空间小）：不足 1 小时用 MM:SS，超过用 H:MM:SS */
+function compactElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
+}
+
 /** 片段时刻 → 本地 HH:MM:SS */
 function formatClock(at: number): string {
   const d = new Date(at)
@@ -84,6 +99,14 @@ function langLabel(lang: string): string {
   if (l === 'en' || l.startsWith('en-')) return 'EN'
   return lang.trim().slice(0, 6).toUpperCase() || '—'
 }
+
+/**
+ * 悬浮窗（PiP）两种形态的初始 / 切换尺寸。
+ * 球：尽量小（近似一颗球）；面板：撑得下转写列表。
+ * 浏览器可能按「用户友好尺寸」把过小值兜底放大，故球窗可能略有余白 —— 属预期。
+ */
+const PIP_BALL = { w: 150, h: 150 }
+const PIP_PANEL = { w: 344, h: 480 }
 
 export default function RecorderBall() {
   const status = useRecorderStore((s) => s.status)
@@ -113,18 +136,21 @@ export default function RecorderBall() {
    * 弹出「始终置顶」悬浮窗。录音仍在主文档里跑（MediaRecorder / store 都没动），
    * 浮窗只是换一块屏幕来显示球与转写 —— 所以切标签页、切到别的网站都不中断。
    * 必须在用户点击的手势里同步调用（transient activation）。
+   *
+   * `expand=false`（默认）进来的是一颗**小球**；想直接看转写才传 true（手动点「悬浮窗」时）。
    */
-  const openPip = useCallback(async () => {
+  const openPip = useCallback(async (expand: boolean) => {
     const api = window.documentPictureInPicture
     if (!api) return
     try {
-      const win = await api.requestWindow({ width: 360, height: 520 })
+      const s = expand ? PIP_PANEL : PIP_BALL
+      const win = await api.requestWindow({ width: s.w, height: s.h })
       copyStylesInto(win.document)
       win.document.documentElement.lang = 'zh-CN'
       win.document.body.classList.add('bg-paper-100')
       // 用户点浮窗右上角的关闭叉 → 把球收回主页面
       win.addEventListener('pagehide', () => setPipWindow(null))
-      setExpanded(true)
+      setExpanded(expand)
       setPipWindow(win)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -138,6 +164,23 @@ export default function RecorderBall() {
     setPipWindow(null)
     win?.close()
   }, [pipWindow])
+
+  /**
+   * 展开 / 收起转写面板。在浮窗里要**连窗口一起撑大 / 缩回球大小**，
+   * 否则内容撑不满或溢出；resizeTo 同样要求用户手势，点击恰好满足，故同步调用。
+   */
+  const toggleExpanded = useCallback(() => {
+    const next = !expanded
+    setExpanded(next)
+    if (pipWindow) {
+      const s = next ? PIP_PANEL : PIP_BALL
+      try {
+        pipWindow.resizeTo(s.w, s.h)
+      } catch {
+        /* 个别环境不支持缩放，忽略：内容仍可用 */
+      }
+    }
+  }, [expanded, pipWindow])
 
   const isRecording = status === 'recording'
   const isBusy = status === 'stopping'
@@ -186,12 +229,28 @@ export default function RecorderBall() {
   const handleRecordToggle = async () => {
     if (isBusy) return
     if (isRecording) {
+      // 停止录音 → 顺手收回悬浮窗，球回到页面（不再挂着大窗）
       setExpanded(false)
+      if (pipWindow) closePip()
       await stop()
       return
     }
     const id = requireTask()
     if (!id) return
+    // 一按录音就自动进「悬浮小球」：这次点击即浏览器要求的用户手势，故能自动弹出。
+    // 已开着浮窗则顺势收敛成小球（保持「录音=小球」一致）；不支持 PiP 的环境退回页面内的球。
+    if (pipSupported) {
+      if (pipWindow) {
+        setExpanded(false)
+        try {
+          pipWindow.resizeTo(PIP_BALL.w, PIP_BALL.h)
+        } catch {
+          /* 个别环境不支持缩放，忽略：录音不受影响 */
+        }
+      } else {
+        void openPip(false)
+      }
+    }
     await start(id)
   }
 
@@ -268,10 +327,18 @@ export default function RecorderBall() {
   const content = (
     <div
       ref={rootRef}
-      className="fixed bottom-6 right-6 z-40 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2"
+      className={
+        pipWindow
+          ? 'flex h-screen w-screen flex-col items-center justify-center gap-2 overflow-hidden p-3'
+          : 'fixed bottom-6 right-6 z-40 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2'
+      }
     >
       {expanded && (
-        <div className="w-80 max-w-full overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-lift">
+        <div
+          className={`max-w-full overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-lift ${
+            pipWindow ? 'w-full' : 'w-80'
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-ink-100 px-3 py-2">
             <span className="text-xs font-semibold text-ink-700">
               {isRecording ? '本轮转写' : '采集'}
@@ -283,19 +350,30 @@ export default function RecorderBall() {
               {/* 弹出为「始终置顶」悬浮窗：切到别的标签页 / 别的网站也照样录音、照样看得见 */}
               {pipSupported &&
                 (pipWindow ? (
-                  <button
-                    type="button"
-                    onClick={closePip}
-                    title="收回页面"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
-                  >
-                    <Minimize2 className="h-3.5 w-3.5" />
-                    收回
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={toggleExpanded}
+                      title="收起为小球"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      收起为球
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closePip}
+                      title="收回页面"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
+                    >
+                      <Minimize2 className="h-3.5 w-3.5" />
+                      收回
+                    </button>
+                  </div>
                 ) : (
                   <button
                     type="button"
-                    onClick={() => void openPip()}
+                    onClick={() => void openPip(true)}
                     title="弹出为悬浮窗：切到别的标签页 / 别的网站也能继续录音"
                     className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-seal-600 transition hover:bg-seal-50"
                   >
@@ -374,6 +452,7 @@ export default function RecorderBall() {
           </div>
 
           {/* 防休眠说明 + 用户侧开关：浏览器后台会冻结 / 回收空闲页面，这里给出自助加固办法 */}
+          {!pipWindow && (
           <div className="border-t border-ink-100">
             <button
               type="button"
@@ -402,7 +481,7 @@ export default function RecorderBall() {
                     或在地址栏访问 <span className="font-mono text-ink-700">chrome://discards</span>
                     ，把本标签的「自动丢弃」关掉。
                   </li>
-                  <li>或点上方「悬浮窗」，让录音在置顶小窗里跑（但要留着这个标签页别关）。</li>
+                  <li>或直接开始录音：会自动弹出一颗置顶的悬浮球，切走标签页也照样录（但要留着这个标签页别关）。</li>
                 </ul>
                 <button
                   type="button"
@@ -419,14 +498,41 @@ export default function RecorderBall() {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 
-      {/* 球身：未录音=墨绿；录音中=红 + 计时 */}
-      {isRecording ? (
+      {/* 球身：页面内未录音=墨绿圆球、录音中=红药丸；浮窗里收起时=一颗紧凑小球 */}
+      {pipWindow ? (
+        // 浮窗展开时由面板头部的「收起为球」负责收起，这里不重复渲染球
+        !expanded &&
+        (isRecording ? (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            title="展开本轮转写"
+            className="flex h-24 w-24 flex-col items-center justify-center gap-1.5 rounded-full bg-red-500 text-paper-50 shadow-lift transition hover:bg-red-600 active:scale-95"
+          >
+            <span className="relative flex h-3.5 w-3.5 items-center justify-center">
+              <span className="absolute h-3.5 w-3.5 animate-ping rounded-full bg-paper-50 opacity-75" />
+              <span className="h-3.5 w-3.5 rounded-full bg-paper-50" />
+            </span>
+            <span className="font-mono text-xs tabular-nums">{compactElapsed(elapsed)}</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            title="展开采集面板"
+            className="flex h-24 w-24 items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95"
+          >
+            <Mic className="h-8 w-8" />
+          </button>
+        ))
+      ) : isRecording ? (
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={toggleExpanded}
           title={expanded ? '收起' : '展开本轮转写'}
           className="flex items-center gap-2 rounded-full bg-red-500 py-2 pl-3 pr-4 text-paper-50 shadow-lift transition hover:bg-red-600"
         >
@@ -445,7 +551,7 @@ export default function RecorderBall() {
       ) : (
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={toggleExpanded}
           title="采集：录音 / 拍照"
           disabled={isBusy}
           className="flex h-14 w-14 items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95 disabled:opacity-60"
