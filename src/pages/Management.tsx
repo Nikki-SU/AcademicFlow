@@ -2832,20 +2832,21 @@ export default function ManagementPage() {
                 </div>
               )}
               {pagedPapers.length > 0 && (
-                <div className="overflow-x-auto">
-                  {/* table-fixed：列宽固定、标题列吃剩余空间；标题两行内自适应，超长省略，
-                      作者单行不换行 —— 条目本身不滚动（横向溢出仅在极窄窗口兜底） */}
-                  <table className="w-full table-fixed min-w-[56rem] text-left border-collapse">
+                <div>
+                  {/* table-fixed + w-full：表格恒等于容器宽度，列宽按比例分，**绝不横向滚动**。
+                      标题列吃剩余空间、完整展示不省略；作者一格一个作者纵向排、期刊年份纵向堆叠，
+                      格子内该换行就换行 → 行高随内容自适应（每条高度可以不一样）。 */}
+                  <table className="w-full table-fixed text-left border-collapse">
                     <thead>
                       <tr className="bg-paper-100/60 text-xs text-ink-400">
-                        {batchMode && <th className="w-10 px-2 py-2 font-normal" />}
+                        {batchMode && <th className="w-8 px-2 py-2 font-normal" />}
                         <th className="w-[4.5rem] px-2 py-2 font-normal" />
                         <th className="px-3 py-2 font-normal">标题</th>
-                        <th className="w-56 px-3 py-2 font-normal">作者</th>
-                        <th className="w-28 px-3 py-2 font-normal">期刊 · 年份</th>
-                        <th className="w-28 px-3 py-2 font-normal">分类</th>
-                        <th className="w-24 px-3 py-2 font-normal">状态</th>
-                        <th className="w-44 px-3 py-2 font-normal text-right">操作</th>
+                        <th className="w-[19%] px-3 py-2 font-normal">作者</th>
+                        <th className="w-[12%] px-3 py-2 font-normal">期刊 · 年份</th>
+                        <th className="w-[12%] px-3 py-2 font-normal">分类</th>
+                        <th className="w-[9%] px-3 py-2 font-normal">状态</th>
+                        <th className="w-[14%] px-3 py-2 font-normal text-right">操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-ink-100">
@@ -2900,12 +2901,10 @@ export default function ManagementPage() {
                         </div>
                       </td>
 
-                      {/* 标题：限两行（行高随标题自适应），超长省略并给完整 title 提示 */}
+                      {/* 标题：**完整展示、绝不省略**（省略了用户就没法认这篇文献），
+                          换行行数随标题长度自适应 → 条目高度可以比其他条更高 */}
                       <td className="px-3 py-3 align-top">
-                        <h3
-                          className="text-sm font-medium text-ink-800 line-clamp-2 break-words"
-                          title={paper.title}
-                        >
+                        <h3 className="text-sm font-medium text-ink-800 break-words">
                           {paper.title}
                         </h3>
 
@@ -2920,63 +2919,52 @@ export default function ManagementPage() {
                         )}
                       </td>
 
-                      {/* 作者：单行不换行（不再一行一个把行撑高）；一作标「一作」、通讯标「通讯」 */}
+                      {/* 作者：**一个作者一行**（纵向堆叠，不在横向摊开、不左右滚）；
+                          一作标「一作」、通讯标「通讯」 */}
                       <td className="px-3 py-3 align-top">
                         {authorList.length === 0 ? (
                           <div className="text-xs text-ink-500">—</div>
                         ) : (
-                          <div
-                            className="flex items-center gap-1 text-xs overflow-hidden whitespace-nowrap"
-                            title={authorList
-                              .map((a, i) => {
-                                const tags = [
-                                  i === 0 ? '一作' : '',
-                                  a.starred || corresponding.has(a.name) ? '通讯' : '',
-                                ].filter(Boolean)
-                                return tags.length ? `${a.name}（${tags.join('、')}）` : a.name
-                              })
-                              .join('、')}
-                          >
+                          <div className="flex flex-col gap-0.5 text-xs">
                             {authorList.map((a, i) => {
                               const isFirst = i === 0
                               const isCorresponding = a.starred || corresponding.has(a.name)
                               return (
-                                <span key={i} className="inline-flex items-center gap-0.5 shrink-0">
+                                <div key={i} className="flex items-center gap-1 min-w-0">
                                   <span
-                                    className={
+                                    className={`min-w-0 break-words ${
                                       isCorresponding
                                         ? 'text-seal-600 font-medium'
                                         : isFirst
                                           ? 'text-ink-700'
                                           : 'text-ink-500'
-                                    }
+                                    }`}
                                   >
                                     {a.name}
                                   </span>
                                   {isFirst && (
-                                    <span className="px-0.5 py-px rounded bg-ink-100 text-ink-500 text-[0.625rem] leading-none">
+                                    <span className="px-0.5 py-px rounded bg-ink-100 text-ink-500 text-[0.625rem] leading-none shrink-0">
                                       一作
                                     </span>
                                   )}
                                   {isCorresponding && (
-                                    <span className="px-0.5 py-px rounded bg-seal-50 text-seal-600 text-[0.625rem] leading-none">
+                                    <span className="px-0.5 py-px rounded bg-seal-50 text-seal-600 text-[0.625rem] leading-none shrink-0">
                                       通讯
                                     </span>
                                   )}
-                                  {i < authorList.length - 1 && <span className="text-ink-300">、</span>}
-                                </span>
+                                </div>
                               )
                             })}
                           </div>
                         )}
                       </td>
 
-                      {/* 期刊缩写 · 年份 */}
+                      {/* 期刊（上）· 年份（下）：同一格内**纵向堆叠**，不横着摊开（横着摊 = 逼出左右滚动） */}
                       <td className="px-3 py-3 align-top">
-                        <div className="flex items-center gap-1 flex-wrap text-xs text-ink-400">
+                        <div className="flex flex-col gap-0.5 text-xs text-ink-400">
                           {paper.journal && (
-                            <>
-                              <span>{abbrev}</span>
+                            <span className="flex items-start gap-1 min-w-0">
+                              <span className="min-w-0 break-words">{abbrev}</span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -2986,9 +2974,9 @@ export default function ManagementPage() {
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
-                            </>
+                            </span>
                           )}
-                          {paper.year && <span className="shrink-0">{paper.journal ? `· ${paper.year}` : paper.year}</span>}
+                          {paper.year && <span>{paper.year}</span>}
                         </div>
                       </td>
 
@@ -3034,7 +3022,7 @@ export default function ManagementPage() {
 
                       {/* 操作 */}
                       <td className="px-3 py-3 align-top">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex flex-wrap items-center justify-end gap-1">
                           {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
                           {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
                             <label
