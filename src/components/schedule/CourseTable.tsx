@@ -8,6 +8,8 @@
  * - 同一时段重叠的课块自动**并排分列**，不会互相盖住。
  * - 每块按时段所属任务的**根色**着色（课程表 / 任务列表 / DDL 全局同色）。
  * - **一周视图**：表头每天**先日期、后星期**（周一到周日，周末有课 / 调休才出现）。
+ * - **调休日**：那一天对应的列**直接上「被跟随周几」的课表**（如 10 号补上周三的课），
+ *   表头只点一句「按周三」并可在此移除 —— 不用另贴一条文字条目让人自己脑补。
  * - **DDL 死线**：有截止时间的任务，只在**它到期的那一天**（本周这一天）对应列画一条
  *   **红色粗线**（不再按「周几」每周重画）；默认不写任何文字（不挡课）；悬停或点击才
  *   浮出任务名 + 时间，并让 DDL 清单 / 任务栏里对应条目**亮起**（联动由 Schedule.tsx 的 highlightId 统一驱动）。
@@ -56,6 +58,12 @@ function formatDue(ts: number): string {
   const d = new Date(ts)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** Date → 本地 YYYY-MM-DD（用于和调休记录的 date 对齐） */
+function dateKeyOf(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 /** 一列里摆好位置的课块 */
@@ -213,21 +221,33 @@ export function CourseTable({
         active.add(c.weekday)
       }
     }
-    // 调休按它「指定的周几」占列（补周六可能上的是周三的课）
-    for (const d of extraDays) if (d.followWeekday >= 1 && d.followWeekday <= 7) active.add(d.followWeekday)
+    // 调休日：按它**自己日期所在的那一列**占位（补班的往往是某个周六/周日，
+    // 那一列要出现并改上「被跟随周几」的课），而不是加一列「被跟随的周几」
+    for (const d of extraDays) {
+      const wd = weekdayOfDate(d.date)
+      const col = weekDates.get(wd)
+      if (col && isSameDay(new Date(`${d.date}T00:00:00`), col)) active.add(wd)
+    }
     const list = [1, 2, 3, 4, 5]
     for (const w of [6, 7]) if (active.has(w)) list.push(w)
     return list
   }, [courses, extraDays, weekDates])
 
-  // 某一天（周几）要排的课：每周时段按 weekday 归列；单次时段只归到它日期所在的那一列
+  // 调休日：日期 → 记录。某一列若是调休日，就改上「被跟随周几」的课表
+  const extraByDate = useMemo(() => new Map(extraDays.map((d) => [d.date, d])), [extraDays])
+
+  // 某一列要排的课：每周时段按 weekday 归列；单次时段只归到它日期所在的那一列。
+  // 若这一列是**调休日**，直接改用「被跟随周几」的课表（如 10 号补上周三的课）——
+  // 让课表**自己**就是那一天实际上课的样子，而不是另贴一条文字提示。
   const coursesOf = (weekday: number) => {
     const col = weekDates.get(weekday)
+    const ed = col ? extraByDate.get(dateKeyOf(col)) : undefined
+    const effWeekday = ed ? ed.followWeekday : weekday
     return courses.filter((c) => {
       if (c.repeat === 'once') {
         return !!c.date && !!col && isSameDay(new Date(`${c.date}T00:00:00`), col)
       }
-      return c.weekday === weekday
+      return effWeekday >= 1 && effWeekday <= 7 && c.weekday === effWeekday
     })
   }
 
@@ -240,8 +260,9 @@ export function CourseTable({
       .filter((x) => isSameDay(x.d, col) && x.min >= rangeStart && x.min <= rangeEnd)
   }
 
-  // 今天生效的周几（假期 / 周末为 null → 不高亮任何列）；见 scheduleData.resolveToday
-  const today = todayPlan.weekday
+  // 今天是否真排课（假期 / 无课周末 = null）；「高亮哪一列」一律按**日期**判断，
+  // 这样调休日高亮的是「那一天」那一列（而不是它被跟随的周几）——见下方 isToday。
+  const classesOnToday = todayPlan.weekday !== null
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes()
   const showNow = nowMin >= rangeStart && nowMin <= rangeEnd
 
@@ -284,47 +305,18 @@ export function CourseTable({
         </div>
       </div>
 
-      {/* 今日状态条：放假 / 调休补班 / 补班待指定 */}
+      {/* 今日状态条：放假 / 补班待指定。
+          调休日的课表已**直接画在那一天对应的列**里（见 coursesOf / 表头），故不再另加文字条。 */}
       {todayPlan.holiday && (
         <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-seal-50 px-ui-gap py-ui-gap-sm text-ui-xs text-seal-700">
           <CalendarX className="h-ui-icon-sm w-ui-icon-sm" />
           今天「{todayPlan.holiday}」放假 · 不上课，课程表不排课
         </div>
       )}
-      {!todayPlan.holiday && todayPlan.makeup && !todayPlan.unsetMakeup && todayPlan.weekday && (
-        <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-amber-50 px-ui-gap py-ui-gap-sm text-ui-xs text-amber-700">
-          <Repeat className="h-ui-icon-sm w-ui-icon-sm" />
-          今天调休补班 · 按「{WEEKDAY_LABELS[todayPlan.weekday]}」的课表上课
-        </div>
-      )}
       {!todayPlan.holiday && todayPlan.unsetMakeup && (
         <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-amber-50 px-ui-gap py-ui-gap-sm text-ui-xs text-amber-700">
           <Repeat className="h-ui-icon-sm w-ui-icon-sm" />
           今天是官方调休补班日，但还没指定按周几上课 · 点右上「调休」设置
-        </div>
-      )}
-
-      {extraDays.length > 0 && (
-        <div className="flex flex-wrap gap-ui-gap-sm border-b border-ink-100 px-ui-gap py-ui-gap-sm">
-          {extraDays.map((d) => (
-            <span
-              key={d.date}
-              className="inline-flex items-center gap-ui-gap-sm rounded-full bg-seal-100 px-ui-gap-sm py-0.5 text-ui-xs text-seal-700"
-            >
-              {d.date}
-              {d.followWeekday >= 1 && d.followWeekday <= 7
-                ? ` · 按${WEEKDAY_LABELS[d.followWeekday]}`
-                : ''}
-              {d.note ? ` · ${d.note}` : ''}
-              <button
-                onClick={() => onDeleteExtraDay(d.date)}
-                className="hover:text-seal-900"
-                aria-label={`删除调休日 ${d.date}`}
-              >
-                <X className="h-ui-icon-sm w-ui-icon-sm" />
-              </button>
-            </span>
-          ))}
         </div>
       )}
 
@@ -336,20 +328,40 @@ export function CourseTable({
             {days.map((w) => {
               const d = weekDates.get(w)
               const isTodayCol = !!d && isSameDay(d, todayDate)
+              // 这一列是不是调休日？是的话点明「按周几」，并可在此移除
+              const ed = d ? extraByDate.get(dateKeyOf(d)) : undefined
+              const follow = ed && ed.followWeekday >= 1 && ed.followWeekday <= 7 ? ed.followWeekday : 0
               return (
                 <div
                   key={w}
                   className={`rounded-md py-1 text-center font-mono text-ui-xs leading-tight ${
                     isTodayCol
                       ? 'bg-seal-600 font-semibold text-paper-50 shadow-card'
-                      : 'text-ink-500'
+                      : ed
+                        ? 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200'
+                        : 'text-ink-500'
                   }`}
                 >
                   {/* 先日期、后星期：一眼知道这一列是哪一天 */}
                   <div className="text-ui-2xs opacity-80">
                     {d ? `${d.getMonth() + 1}/${d.getDate()}` : ''}
                   </div>
-                  <div>{WEEKDAY_LABELS[w]}</div>
+                  {ed ? (
+                    // 调休日：这一列上的课就是「被跟随周几」的课，表头只点一句（可点 × 移除）
+                    <div className="flex items-center justify-center gap-0.5">
+                      <span>{follow ? `按${WEEKDAY_LABELS[follow]}` : '调休'}</span>
+                      <button
+                        onClick={() => onDeleteExtraDay(ed.date)}
+                        title="移除该调休日"
+                        aria-label={`移除调休日 ${ed.date}`}
+                        className="opacity-60 transition hover:opacity-100"
+                      >
+                        <X className="h-ui-icon-sm w-ui-icon-sm" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div>{WEEKDAY_LABELS[w]}</div>
+                  )}
                 </div>
               )
             })}
@@ -373,7 +385,9 @@ export function CourseTable({
           <div className="grid h-full flex-1 grid-rows-1 gap-ui-gap-sm" style={{ gridTemplateColumns: dayCols }}>
             {days.map((w) => {
               const placed = layoutLane(coursesOf(w), rangeStart, rangeEnd)
-              const isToday = w === today
+              const colDate = weekDates.get(w)
+              // 高亮「今天」按日期判断：调休日高亮的就是那一天那一列（而非它被跟随的周几）
+              const isToday = !!colDate && isSameDay(colDate, todayDate)
               return (
                 <div
                   key={w}
@@ -391,8 +405,8 @@ export function CourseTable({
                       style={{ top: `${pct(m, rangeStart, rangeEnd)}%` }}
                     />
                   ))}
-                  {/* 当前时刻指示 */}
-                  {isToday && showNow && (
+                  {/* 当前时刻指示（只在真正排课的今天画；假期 / 无课周末不画） */}
+                  {isToday && classesOnToday && showNow && (
                     <span
                       className="absolute inset-x-0 z-20 border-t-2 border-hl-red"
                       style={{ top: `${pct(nowMin, rangeStart, rangeEnd)}%` }}
