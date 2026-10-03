@@ -208,6 +208,7 @@ function Settings() {
     asrBaseUrl,
     asrModel,
     asrTranslateModel,
+    asrPolishModel,
     asrTranslateToZh,
     thinkingAi1,
     thinkingAi2,
@@ -831,6 +832,26 @@ function Settings() {
                 />
                 <p className="text-xs text-ink-400">
                   留空表示不翻译；填模型 id 才启用（如 <code className="font-mono">tencent/Hunyuan-MT-7B</code>，免费）。
+                </p>
+              </div>
+            </SubBlock>
+
+            <SubBlock
+              title="转写稿 AI 修饰"
+              hint="把口语化的原始转写整理成分段书面稿：去掉口头禅、重新分段，但不压缩信息"
+            >
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-ink-700">修饰模型</label>
+                <input
+                  type="text"
+                  value={asrPolishModel}
+                  onChange={(e) => updateSettings({ asrPolishModel: e.target.value })}
+                  placeholder="留空 = 不启用（如 Qwen/Qwen2.5-7B-Instruct）"
+                  spellCheck={false}
+                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+                <p className="text-xs text-ink-400">
+                  填一个通用对话模型 id 才启用（与上面的端点 / Key 共用）。留空时，会议页不显示「AI 修饰」按钮。
                 </p>
               </div>
             </SubBlock>

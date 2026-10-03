@@ -136,6 +136,8 @@ const DEFAULT_SETTINGS: SettingsData = {
   asrApiKey: '',
   asrModel: 'TeleAI/TeleSpeechASR',
   asrTranslateModel: 'tencent/Hunyuan-MT-7B',
+  // 转写稿 AI 修饰：用通用对话模型把口语化转写整理成书面段落；留空 = 不启用
+  asrPolishModel: '',
   asrTranslateToZh: true,
 }
 
@@ -183,6 +185,7 @@ const NON_SENSITIVE_LOCAL_BACKUP: { field: keyof SettingsData; key: string }[] =
   { field: 'asrBaseUrl', key: SETTING_KEYS.ASR_BASE_URL },
   { field: 'asrModel', key: SETTING_KEYS.ASR_MODEL },
   { field: 'asrTranslateModel', key: SETTING_KEYS.ASR_TRANSLATE_MODEL },
+  { field: 'asrPolishModel', key: SETTING_KEYS.ASR_POLISH_MODEL },
   { field: 'asrTranslateToZh', key: SETTING_KEYS.ASR_TRANSLATE_TO_ZH },
 ]
 
@@ -220,10 +223,10 @@ const SENSITIVE_KEY_MAP: Record<string, string> = {
 
 /** 字段 → 序列化/反序列化（boolean 需转字符串） */
 function serialize(key: keyof SettingsData, value: unknown): string {
-  // 翻译模型「留空」是合法且需要持久化的状态，但不能直接写字面空串 ——
+  // 翻译 / 修饰模型「留空」是合法且需要持久化的状态（= 不启用），但不能直接写字面空串 ——
   // NON_SENSITIVE_LOCAL_BACKUP 的恢复逻辑把空串当「没配过」跳过。
   // 用一个哨兵值占位，反序列化时再还原成空串。
-  if (key === 'asrTranslateModel') return String(value ?? '') || 'none'
+  if (key === 'asrTranslateModel' || key === 'asrPolishModel') return String(value ?? '') || 'none'
   if (typeof value === 'boolean') return value ? '1' : '0'
   return String(value ?? '')
 }
@@ -233,7 +236,7 @@ function deserialize(
 ): SettingsData[typeof key] {
   const def = DEFAULT_SETTINGS[key]
   if (raw === null) return def as SettingsData[typeof key]
-  if (key === 'asrTranslateModel') {
+  if (key === 'asrTranslateModel' || key === 'asrPolishModel') {
     return (raw === 'none' ? '' : raw) as SettingsData[typeof key]
   }
   if (typeof def === 'boolean') {
@@ -386,6 +389,7 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
         asrBaseUrl: s.asrBaseUrl,
         asrModel: s.asrModel,
         asrTranslateModel: s.asrTranslateModel,
+        asrPolishModel: s.asrPolishModel,
         asrTranslateToZh: s.asrTranslateToZh,
       })
     } catch (err) {
@@ -522,8 +526,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           // 会议转写（ASR）：4 个非敏感字段
           if (loaded.asrBaseUrl !== undefined) patch.asrBaseUrl = String(loaded.asrBaseUrl)
           if (loaded.asrModel !== undefined) patch.asrModel = String(loaded.asrModel)
-          // 翻译模型：空串是合法值（= 不翻译），直接透传
+          // 翻译 / 修饰模型：空串是合法值（= 不启用），直接透传
           if (loaded.asrTranslateModel !== undefined) patch.asrTranslateModel = String(loaded.asrTranslateModel)
+          if (loaded.asrPolishModel !== undefined) patch.asrPolishModel = String(loaded.asrPolishModel)
           if (loaded.asrTranslateToZh !== undefined) patch.asrTranslateToZh = loaded.asrTranslateToZh
           set(patch)
         }
@@ -872,6 +877,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           asrBaseUrl: merged.asrBaseUrl,
           asrModel: merged.asrModel,
           asrTranslateModel: merged.asrTranslateModel,
+          asrPolishModel: merged.asrPolishModel,
           asrTranslateToZh: merged.asrTranslateToZh,
         })
       } catch (err) {

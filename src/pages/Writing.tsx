@@ -1205,6 +1205,7 @@ export default function WritingPage() {
             parentId: null,
             startAt: 0,
             dueAt: 0,
+            done: false,
           }
           const newProjects = [defaultProject]
           setProjects(newProjects)
@@ -3087,6 +3088,7 @@ export default function WritingPage() {
         parentId: null,
         startAt: 0,
         dueAt: 0,
+        done: false,
       }
       setProjects((prev) => {
         const updated = [...prev, newProject]

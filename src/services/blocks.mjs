@@ -47,7 +47,12 @@ export const END = `${OPEN}/${CLOSE}`
 /** 匹配任意 ⟨⟨⟨...⟩⟩⟩ 标记；元信息里不允许再出现定界符 */
 const MARKER_RE = /⟨⟨⟨([^⟨⟩]*)⟩⟩⟩/g
 
-export const FLOW_TYPES = ['标题', '正文', '列表']
+/**
+ * 流块类型。
+ * 「存疑」是转写稿专用：AI 修饰时遇到识别质量极差、无法判断原意的片段，原样保留并标为存疑，
+ * 前端据此标红。它和「正文」一样是流块（参与编号），只是多了「存疑」语义。
+ */
+export const FLOW_TYPES = ['标题', '正文', '列表', '存疑']
 export const FLOAT_TYPES = ['图', '表', '图注', '公式']
 export const NOTE_TYPES = ['引文', '文献']
 
@@ -72,6 +77,9 @@ export function parseMeta(meta) {
     const level = m[1] === '正文' ? 0 : Number(m[2])
     return { kind: 'flow', type: m[1], level, n: Number(m[3]) }
   }
+  // 转写稿存疑段：流块，编号与正文共享同一序列
+  m = s.match(/^存疑·(\d+)$/)
+  if (m) return { kind: 'flow', type: '存疑', level: 0, n: Number(m[1]) }
   m = s.match(/^列表·(\d+)·(\d+)$/)
   if (m) return { kind: 'flow', type: '列表', level: Number(m[1]), n: Number(m[2]) }
   m = s.match(/^(图|表|图注|公式)·(\d+)·(\d+)$/)
@@ -87,6 +95,7 @@ export function metaOf(node) {
     case 'note':
       return node.type
     case 'flow':
+      if (node.type === '存疑') return `存疑·${node.n}`
       return node.type === '列表'
         ? `列表·${node.level}·${node.n}`
         : `文字·${node.type}·${node.level}·${node.n}`

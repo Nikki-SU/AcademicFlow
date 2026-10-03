@@ -438,6 +438,8 @@ export interface SettingsData {
   asrModel: string
   /** 翻译模型 id —— 留空则不翻译（空串是合法值，会持久化） */
   asrTranslateModel: string
+  /** 转写稿 AI 修饰模型 id —— 留空则不启用修饰（空串是合法值，会持久化） */
+  asrPolishModel: string
   /** 非中文转写自动译成中文 */
   asrTranslateToZh: boolean
 }

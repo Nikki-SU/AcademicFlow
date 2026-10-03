@@ -18,6 +18,8 @@ import { readMdFile, writeMdFile, getRepoContext } from './userData'
 import { githubFetch, listRepoFilesInDir, deleteRepoFiles } from './github'
 import { uploadEditorImage } from './editorImages'
 import { dispatchSessionImages, pollSessionImagesProgress } from './workflowClient'
+import { serializeBlocks, readDocument, type Item, type BlockNode } from './blocks.mjs'
+import type { TranscriptBlock } from './asr'
 
 /** 一条转写片段（与 stores/recorder.ts 的 segment 同构） */
 export interface TranscriptSegment {
@@ -286,14 +288,112 @@ export async function saveTranscript(
   return path
 }
 
+/** 转写稿（AI 修饰后）路径：projects/{taskId}/sessions/{sessionId}/polished.md */
+export function sessionPolishedPath(taskId: string, sessionId: string): string {
+  return `${sessionDir(taskId, sessionId)}/polished.md`
+}
+
 /**
- * 读取某任务「最近一次会话」的 transcript.md。
+ * 从原始 transcript.md 里抽出「讲者原话」纯文本，作为 AI 修饰的输入。
+ * 只取 `- [HH:MM:SS]（语种）正文` 这类行；译文行（`  > 译文：…`）与标题不参与。
+ */
+export function extractTranscriptText(md: string): string {
+  const out: string[] = []
+  for (const line of md.split('\n')) {
+    const m = /^- \[\d{2}:\d{2}:\d{2}\]（[^）]*）(.*)$/.exec(line)
+    if (m && m[1].trim()) out.push(m[1].trim())
+  }
+  return out.join('\n')
+}
+
+/** 段落块 → 块文档 md（正文用「正文」块，存疑段用「存疑」块，英文段附 `译文@N` 块） */
+function blocksToMd(blocks: TranscriptBlock[]): string {
+  const items: Item[] = []
+  blocks.forEach((b, i) => {
+    const n = i + 1
+    const node: BlockNode = b.unclear
+      ? { kind: 'flow', type: '存疑', level: 0, n }
+      : { kind: 'flow', type: '正文', level: 0, n }
+    items.push({ t: 'block', node, content: b.text })
+    if (b.translation.trim()) {
+      items.push({
+        t: 'block',
+        node: { kind: 'translation', ref: String(n) },
+        content: b.translation,
+      })
+    }
+  })
+  return serializeBlocks(items) + '\n'
+}
+
+/** 块文档 md → 段落块（读回时译文已合并进对应源块的 cn） */
+function mdToBlocks(md: string): TranscriptBlock[] {
+  const { items } = readDocument(md)
+  const out: TranscriptBlock[] = []
+  for (const it of items) {
+    if (it.t !== 'block' || it.node.kind !== 'flow') continue
+    out.push({
+      text: it.content,
+      translation: it.cn ?? '',
+      unclear: it.node.type === '存疑',
+    })
+  }
+  return out
+}
+
+/** 读取某课时的 AI 修饰转写稿；没有 / 读不到返回 null（空状态），不抛 */
+export async function readPolishedTranscript(
+  taskId: string,
+  sessionId: string,
+): Promise<TranscriptBlock[] | null> {
+  try {
+    const doc = await readMdFile(sessionPolishedPath(taskId, sessionId))
+    if (!doc?.content?.trim()) return null
+    const blocks = mdToBlocks(doc.content)
+    return blocks.length > 0 ? blocks : null
+  } catch {
+    return null
+  }
+}
+
+/** 写入某课时的 AI 修饰转写稿（覆盖）；写失败会 throw，由调用方 toast */
+export async function savePolishedTranscript(
+  taskId: string,
+  sessionId: string,
+  blocks: TranscriptBlock[],
+): Promise<void> {
+  await writeMdFile(
+    sessionPolishedPath(taskId, sessionId),
+    blocksToMd(blocks),
+    'Save polished session transcript',
+  )
+}
+
+/** 删除某课时的修饰转写稿（重新修饰前先清掉旧稿）；文件不存在不算失败 */
+export async function deletePolishedTranscript(taskId: string, sessionId: string): Promise<void> {
+  const ctx = getRepoContext()
+  if (!ctx) return
+  try {
+    await deleteRepoFiles(
+      [sessionPolishedPath(taskId, sessionId)],
+      'Drop stale polished transcript',
+      ctx.owner,
+      ctx.repo,
+      ctx.token,
+    )
+  } catch {
+    // 文件本就不存在等：忽略
+  }
+}
+
+/**
+ * 读取某任务「最近一次会话」的原始转写 + 已修饰转写稿。
  * 会话目录不存在 / 读不到一律返回 null（空状态），不抛错、不弹窗。
  * 会话目录名是毫秒时间戳，取数值最大的那个即最近一次。
  */
 export async function loadLatestTranscript(
   taskId: string,
-): Promise<{ sessionId: string; content: string } | null> {
+): Promise<{ sessionId: string; content: string; blocks: TranscriptBlock[] | null } | null> {
   const ctx = getRepoContext()
   if (!ctx) return null
   try {
@@ -312,7 +412,8 @@ export async function loadLatestTranscript(
     if (!latest) return null
     const doc = await readMdFile(`${sessionDir(taskId, latest)}/transcript.md`)
     if (!doc?.content) return null
-    return { sessionId: latest, content: doc.content }
+    const blocks = await readPolishedTranscript(taskId, latest)
+    return { sessionId: latest, content: doc.content, blocks }
   } catch (err) {
     console.warn('[sessionData] 读取最近一次会话失败:', err)
     return null

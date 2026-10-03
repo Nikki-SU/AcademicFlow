@@ -139,6 +139,120 @@ export async function translateText(
 }
 
 /**
+ * 转写稿 AI 修饰后的一个段落块。
+ * - `text`：修饰后的段落（与讲者原语种一致）。
+ * - `translation`：原文为非中文时的中文翻译；原文为中文时为空串。
+ * - `unclear`：识别质量极差、无法判断原意的段落（原样保留，前端标红）。
+ */
+export interface TranscriptBlock {
+  text: string
+  translation: string
+  unclear: boolean
+}
+
+/** 修饰模型的调用约束：转写稿整理是「搬运 + 轻修饰」，禁止它做任何推理 */
+const POLISH_SYSTEM_PROMPT = `你是转写稿整理引擎。输入是一段语音自动转写的原始文本（含口语、口头禅、重复、结巴、错别字）。
+请把它整理成便于阅读的书面段落。规则：
+1. 只做「必要的修饰」：去掉口头禅（嗯、那个、就是……）、语气词、无意义重复与结巴；补全明显的标点与断句。
+2. 绝不压缩信息、绝不总结、绝不增删事实；专有名词、数字、术语一律原样保留。
+3. 按语义重新分段，每段是一个完整的意思单元。
+4. 遇到识别质量极差、无法判断原意的片段：不要猜测、不要编造，**原样保留**该片段，并把该段 unclear 置为 true。
+5. 原文主要为英文时，为每一段给出忠实的中文翻译；原文主要为中文时，translation 一律为空字符串。
+6. **只输出 JSON**，不要任何解释、不要 Markdown 代码块围栏、不要前后缀文字。
+
+输出 JSON 结构（字段名固定，不可增删、不可改名、不可嵌套多余层级）：
+{"blocks":[{"text":"段落原文","translation":"中文翻译或空串","unclear":false}]}`
+
+/** 剥掉模型可能多包的一层 Markdown 代码块围栏（这是允许的等价形态） */
+function stripCodeFence(s: string): string {
+  const t = s.trim()
+  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)
+  return m ? m[1].trim() : t
+}
+
+/**
+ * 对转写原文做 AI 修饰：重新分段、去掉口语，得到书面化的段落块。
+ *
+ * **契约先行（ADJ-68 / ADJ-70）**：prompt 里把 schema 逐字约束死；解析层只兜「模型多包一层代码块」
+ * 这一种等价形态，其余（缺 blocks / text 非字符串 / 非 JSON）一律抛**可读错误**，绝不静默降级成空结果。
+ */
+export async function polishTranscript(
+  rawText: string,
+  cfg: AsrConfig,
+  opts: { translateToZh: boolean },
+  signal?: AbortSignal,
+): Promise<TranscriptBlock[]> {
+  const model = cfg.model.trim()
+  if (!model) throw new Error('未配置转写稿修饰模型')
+  const source = rawText.trim()
+  if (!source) throw new Error('没有可修饰的转写内容')
+
+  const userHint = opts.translateToZh
+    ? '（若原文主要为英文，请逐段给出中文翻译；若原文为中文，translation 填空串）'
+    : '（不要翻译：所有 translation 一律填空串）'
+
+  const res = await fetch(joinUrl(cfg.baseUrl, '/chat/completions'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${cfg.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: POLISH_SYSTEM_PROMPT },
+        { role: 'user', content: `${userHint}\n\n${source}` },
+      ],
+    }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const snippet = await errorSnippet(res)
+    throw new Error(`转写稿修饰失败（HTTP ${res.status}）：${snippet}`)
+  }
+
+  const data = (await res.json().catch(() => null)) as
+    | { choices?: Array<{ message?: { content?: unknown } }> }
+    | null
+  const content = data?.choices?.[0]?.message?.content
+  if (typeof content !== 'string') {
+    throw new Error('转写稿修饰失败：响应缺少 choices[0].message.content')
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stripCodeFence(content))
+  } catch {
+    throw new Error('转写稿修饰失败：模型返回的不是合法 JSON，请重试')
+  }
+
+  const blocks = (parsed as { blocks?: unknown } | null)?.blocks
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    throw new Error('转写稿修饰失败：返回缺少 blocks 数组，请重试')
+  }
+
+  return blocks.map((b, i) => {
+    const item = b as { text?: unknown; translation?: unknown; unclear?: unknown } | null
+    const text = typeof item?.text === 'string' ? item.text.trim() : ''
+    if (!text) {
+      throw new Error(`转写稿修饰失败：第 ${i + 1} 段缺少 text 文本，请重试`)
+    }
+    const translation = item?.translation
+    if (translation !== undefined && typeof translation !== 'string') {
+      throw new Error(`转写稿修饰失败：第 ${i + 1} 段的 translation 不是字符串，请重试`)
+    }
+    return {
+      text,
+      translation: typeof translation === 'string' ? translation.trim() : '',
+      // unclear 省略 = 该段无存疑（等价形态）；给了就必须是布尔
+      unclear: item?.unclear === true,
+    }
+  })
+}
+
+/**
  * 按浏览器支持的音频容器挑一个 MediaRecorder mimeType。
  * 录音与连通性测试共用同一套，保证「测试能过 = 录音能过」。
  */

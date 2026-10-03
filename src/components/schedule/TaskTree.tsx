@@ -20,7 +20,7 @@
  * 于是「今天要上的课」自然浮到最上面，临到点的定时任务也会顶上来。
  */
 import { Fragment, useEffect, useState } from 'react'
-import { ListTree, Pencil, Plus, Trash2 } from 'lucide-react'
+import { CheckCircle2, Circle, ListTree, Pencil, Plus, Trash2, XCircle } from 'lucide-react'
 import type { Project, ProjectType } from '../../services/projectData'
 import { isOverdue } from '../../services/projectData'
 import type { Course } from '../../services/scheduleData'
@@ -112,12 +112,14 @@ export function TaskTree({
   isLoading,
   highlightId,
   showExpired,
+  showCompleted,
   onSelect,
   onNewRoot,
   onAddChild,
   onEdit,
   onRename,
   onDelete,
+  onToggleDone,
 }: {
   projects: Project[]
   courses: Course[]
@@ -127,6 +129,8 @@ export function TaskTree({
   highlightId: string | null
   /** 整页「显示过期」开关：关掉则过期任务从列表隐藏（由日程页统一控制） */
   showExpired: boolean
+  /** 整页「显示已完成」开关：关掉则已完成任务从列表隐藏（由日程页统一控制） */
+  showCompleted: boolean
   onSelect: (id: string) => void
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
@@ -135,6 +139,8 @@ export function TaskTree({
   onEdit: (project: Project) => void
   onRename: (project: Project, title: string) => Promise<void>
   onDelete: (project: Project) => void
+  /** 勾选 / 取消勾选完成（勾 = 划掉变灰；把过期的叉点一下即变为勾） */
+  onToggleDone: (project: Project) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -173,8 +179,10 @@ export function TaskTree({
   }
   // 同一次渲染内复用时间判定（now 取一次，避免比较器里反复取当前时刻）
   const now = Date.now()
-  // 「显示过期」关掉时，直接从列表里过滤掉过期任务
-  const visibleProjects = showExpired ? projects : projects.filter((p) => !isOverdue(p, now))
+  // 「显示已完成」关掉 → 过滤掉已完成任务；「显示过期」关掉 → 过滤掉过期（未完成）任务
+  const visibleProjects = projects
+    .filter((p) => showCompleted || !p.done)
+    .filter((p) => showExpired || p.done || !isOverdue(p, now))
   const timingCache = new Map<string, Timing>()
   const timingOf = (projectId: string): Timing => {
     let t = timingCache.get(projectId)
@@ -244,8 +252,10 @@ export function TaskTree({
             const isHighlight = project.projectId === highlightId
             const isEditing = project.projectId === editingId
             const isExpanded = project.projectId === expandedId
-            // 过期任务：整行灰掉（仍可点开查看 / 编辑，只是不再抢注意力）
-            const gray = isOverdue(project, now)
+            // 完成 / 过期都算「划掉」：整行变灰、标题加删除线
+            const done = project.done
+            const overdue = !done && isOverdue(project, now)
+            const struck = done || overdue
             const parentTitle = project.parentId
               ? byId.get(project.parentId)?.title || '(未命名任务)'
               : null
@@ -258,7 +268,7 @@ export function TaskTree({
                     setMenu({ project, x: e.clientX, y: e.clientY })
                   }}
                   className={`group flex items-center gap-ui-gap-sm rounded-md pr-1 transition ${
-                    gray ? 'opacity-60 grayscale' : ''
+                    struck ? 'opacity-60 grayscale' : ''
                   } ${
                     isHighlight
                       ? 'bg-red-50 ring-1 ring-red-300'
@@ -283,28 +293,52 @@ export function TaskTree({
                       />
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExpandedId((prev) => (prev === project.projectId ? null : project.projectId))
-                        onSelect(project.projectId)
-                      }}
-                      onDoubleClick={() => startEdit(project)}
-                      title="点击展开详情 · 双击改名"
-                      className="flex min-w-0 flex-1 items-center gap-ui-gap-sm py-ui-gap-sm text-left"
-                    >
-                      <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
-                      <span
-                        className={`min-w-0 flex-1 truncate text-ui-sm ${
-                          gray ? 'text-ink-500' : color.text
-                        } ${isCurrent ? 'font-medium' : ''}`}
+                    <>
+                      {/* 待办小圈圈：空圈 → 完成打勾 / 过期打叉；点一下在完成 / 未完成间切换 */}
+                      <button
+                        type="button"
+                        onClick={() => onToggleDone(project)}
+                        title={
+                          done
+                            ? '已完成（点击取消）'
+                            : overdue
+                              ? '已过期：点一下标记为完成'
+                              : '标记完成'
+                        }
+                        className="shrink-0 rounded-full p-0.5 transition hover:scale-110"
                       >
-                        {project.title || '(未命名任务)'}
-                      </span>
-                      {project.dueAt > 0 && (
-                        <span className="shrink-0 text-ui-2xs text-ink-400">DDL</span>
-                      )}
-                    </button>
+                        {done ? (
+                          <CheckCircle2 className="h-ui-icon-sm w-ui-icon-sm text-emerald-500" />
+                        ) : overdue ? (
+                          <XCircle className="h-ui-icon-sm w-ui-icon-sm text-red-400" />
+                        ) : (
+                          <Circle
+                            className={`h-ui-icon-sm w-ui-icon-sm ${color.text} opacity-60 transition hover:opacity-100`}
+                          />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedId((prev) => (prev === project.projectId ? null : project.projectId))
+                          onSelect(project.projectId)
+                        }}
+                        onDoubleClick={() => startEdit(project)}
+                        title="点击展开详情 · 双击改名"
+                        className="flex min-w-0 flex-1 items-center gap-ui-gap-sm py-ui-gap-sm text-left"
+                      >
+                        <span
+                          className={`min-w-0 flex-1 truncate text-ui-sm ${
+                            struck ? 'text-ink-400 line-through' : color.text
+                          } ${isCurrent ? 'font-medium' : ''}`}
+                        >
+                          {project.title || '(未命名任务)'}
+                        </span>
+                        {project.dueAt > 0 && (
+                          <span className="shrink-0 text-ui-2xs text-ink-400">DDL</span>
+                        )}
+                      </button>
+                    </>
                   )}
                   {/* 高频的「加子任务」放最左，改名/删除低频靠右 */}
                   <button

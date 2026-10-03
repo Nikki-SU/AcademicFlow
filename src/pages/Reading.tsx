@@ -3312,11 +3312,6 @@ export default function ReadingPage() {
                   >
                     <ArrowLeft className="w-4 h-4" />
                   </button>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink-700 truncate">
-                      {docTitle}
-                    </div>
-                  </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
@@ -3914,26 +3909,30 @@ export default function ReadingPage() {
                                     placeholder="写批注…"
                                     className="mt-1.5 w-full h-24 p-2 text-xs border border-ink-200 rounded resize-none focus:outline-none focus:border-seal-400 bg-paper-50"
                                   />
-                                ) : (
+                                ) : anno.note ? (
                                   <div
                                     onClick={startEdit}
                                     className="mt-1 text-sm text-ink-700 cursor-text rounded"
                                   >
-                                    {anno.note && (
-                                      <div
-                                        className="prose-sm max-w-none"
-                                        dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
-                                      />
-                                    )}
+                                    <div
+                                      className="prose-sm max-w-none"
+                                      dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(anno.note) }}
+                                    />
+                                  </div>
+                                ) : (
+                                  // 只有划线、还没写批注：给一个可点的提示，点了直接写批注
+                                  // （解决「手机端划线、电脑端补批注」——空批注不再无可点区域）
+                                  <div
+                                    onClick={startEdit}
+                                    className="mt-1 text-xs text-ink-400 cursor-text hover:text-ink-600"
+                                  >
+                                    点击写批注…
                                   </div>
                                 )}
                               </div>
                               <button
-                                onClick={() => {
-                                  if (confirm('确定删除这条批注吗？')) {
-                                    deleteAnnotation(anno.id)
-                                  }
-                                }}
+                                onClick={() => deleteAnnotation(anno.id)}
+                                title="删除这条批注"
                                 className="p-0.5 text-ink-300 hover:text-red-600 rounded transition flex-shrink-0"
                               >
                                 <X className="w-3 h-3" />

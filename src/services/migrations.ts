@@ -120,6 +120,7 @@ const coursesTaskLink: Migration = {
           parentId: null,
           startAt: 0,
           dueAt: 0,
+          done: false,
         }
         nextProjects = [...nextProjects, task]
         byTitle.set(name, task)
@@ -200,6 +201,8 @@ const projectsSchemaLink: Migration = {
           parentId: r[8] || null,
           startAt: parseInt(r[9] || '0', 10),
           dueAt: parseInt(r[10] || '0', 10),
+          // done 列由后续的 projectsDoneField 迁移补齐，这里先给默认值
+          done: false,
         }))
       },
       true,

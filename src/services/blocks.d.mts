@@ -12,10 +12,11 @@ export const NOTE_TYPES: readonly string[]
 
 export interface FlowNode {
   kind: 'flow'
-  type: '标题' | '正文' | '列表'
+  /** 存疑 = 转写稿里识别质量极差、原样保留的段落（前端标红） */
+  type: '标题' | '正文' | '列表' | '存疑'
   /** 标题级别 1-6；正文恒为 0；列表为层级 */
   level: number
-  /** 全文连续编号，标题/正文/列表共享同一序列 */
+  /** 全文连续编号，标题/正文/列表/存疑共享同一序列 */
   n: number
 }
 export interface FloatNode {

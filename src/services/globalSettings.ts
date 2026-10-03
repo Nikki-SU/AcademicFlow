@@ -46,6 +46,8 @@ export interface GlobalSettingsData {
   asrModel: string
   /** 翻译模型；空串 = 不翻译（用 'none' 哨兵占位，避免空值行被解析器跳过） */
   asrTranslateModel: string
+  /** 转写稿 AI 修饰模型；空串 = 不启用（用 'none' 哨兵占位） */
+  asrPolishModel: string
   /** 非中文自动译成中文 */
   asrTranslateToZh: boolean
 }
@@ -169,6 +171,10 @@ function parseSettingsMd(md: string): Partial<GlobalSettingsData> {
         // 'none' = 用户显式留空（不翻译）
         result.asrTranslateModel = value === 'none' ? '' : value
         break
+      case 'asr_polish_model':
+        // 'none' = 用户显式留空（不修饰）
+        result.asrPolishModel = value === 'none' ? '' : value
+        break
       case 'asr_translate_to_zh':
         result.asrTranslateToZh = value === 'true'
         break
@@ -211,6 +217,7 @@ function serializeSettingsMd(s: GlobalSettingsData): string {
 - asr_base_url: ${s.asrBaseUrl}
 - asr_model: ${s.asrModel}
 - asr_translate_model: ${s.asrTranslateModel || 'none'}
+- asr_polish_model: ${s.asrPolishModel || 'none'}
 - asr_translate_to_zh: ${s.asrTranslateToZh}
 
 ## PDF 处理

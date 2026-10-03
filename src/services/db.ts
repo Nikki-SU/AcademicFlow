@@ -99,6 +99,7 @@ export const SETTING_KEYS = {
   ASR_BASE_URL: 'asr_base_url',
   ASR_MODEL: 'asr_model',
   ASR_TRANSLATE_MODEL: 'asr_translate_model',
+  ASR_POLISH_MODEL: 'asr_polish_model',
   ASR_TRANSLATE_TO_ZH: 'asr_translate_to_zh',
 } as const
 

@@ -78,6 +78,8 @@ export default function SchedulePage() {
   const highlightDdlId = pinnedDdlId ?? hoverDdlId
   // 「显示过期」是**整页**开关：同时管 DDL 栏与任务栏里的过期任务（隐藏 / 显示）
   const [showExpired, setShowExpired] = useState(true)
+  // 「显示已完成」是**整页**开关：同时管 DDL 栏与任务栏里的已完成任务（隐藏 / 显示）
+  const [showCompleted, setShowCompleted] = useState(true)
 
   const currentId = useTaskStore((s) => s.currentProjectId)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
@@ -129,8 +131,10 @@ export default function SchedulePage() {
     [projects],
   )
 
-  // 页面里是否存在过期任务（决定页头「显示过期」开关要不要出现）
-  const hasExpired = useMemo(() => projects.some((p) => isOverdue(p)), [projects])
+  // 页面里是否存在过期任务（未完成且已过点）—— 决定页头「显示过期」开关要不要出现
+  const hasExpired = useMemo(() => projects.some((p) => !p.done && isOverdue(p)), [projects])
+  // 页面里是否存在已完成任务 —— 决定页头「显示已完成」开关要不要出现
+  const hasDone = useMemo(() => projects.some((p) => p.done), [projects])
 
   // 「新建任务」时可指定归属父任务（与大类一起构成两层选择）；不选归属即该大类下的顶级任务
   const parentOptions = useMemo<ParentOption[]>(() => buildParentOptions(projects), [projects])
@@ -369,7 +373,7 @@ export default function SchedulePage() {
       await saveProjects(next)
       if (value.brief.trim()) await saveBrief(project.projectId, value.brief)
       setProjects(next)
-      toast.success(value.parentId ? '已创建子任务' : '已创建任务')
+      // 成功不弹提示：弹窗关闭本身就是成功的信号（用户嫌「成功弹窗」冗余）
     } catch (err) {
       console.error('[Schedule] 创建任务失败:', err)
       toast.error('创建任务失败，请重试')
@@ -397,7 +401,7 @@ export default function SchedulePage() {
       await saveProjects(next)
       await saveBrief(projectId, value.brief)
       setProjects(next)
-      toast.success('已保存任务')
+      // 成功不弹提示：弹窗关闭本身就是成功的信号
     } catch (err) {
       console.error('[Schedule] 保存任务失败:', err)
       toast.error('保存失败，请重试')
@@ -416,6 +420,24 @@ export default function SchedulePage() {
 
   // 点击课表红线：钉住 / 取消钉住对应 DDL 的高亮
   const togglePickDdl = (id: string) => setPinnedDdlId((prev) => (prev === id ? null : id))
+
+  // ---------- 任务完成（打勾 / 划掉）----------
+  /**
+   * 切换任务完成状态：勾 = 划掉变灰；把过期的叉点一下即变为勾。
+   * 不动 `updatedAt` —— 打勾不该让任务在「按修改顺序」里跳位。
+   */
+  const handleToggleDone = async (project: Project) => {
+    const next = projects.map((p) =>
+      p.projectId === project.projectId ? { ...p, done: !p.done } : p,
+    )
+    try {
+      await saveProjects(next)
+      setProjects(next)
+    } catch (err) {
+      console.error('[Schedule] 切换任务完成状态失败:', err)
+      toast.error('操作失败，请重试')
+    }
+  }
 
   // ---------- 任务改名 / 删除（ADJ-64）----------
   const handleRenameTask = async (project: Project, title: string) => {
@@ -460,30 +482,55 @@ export default function SchedulePage() {
             <CalendarDays className="h-ui-icon w-ui-icon text-seal-600" />
             <h1 className="text-lg font-semibold text-ink-800">日程</h1>
           </div>
-          {/* 整页开关：一次隐藏 / 显示 DDL 栏与任务栏里的全部过期任务 */}
-          {hasExpired && (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showExpired}
-              onClick={() => setShowExpired((v) => !v)}
-              title={showExpired ? '隐藏已过期任务' : '显示已过期任务'}
-              className="inline-flex items-center gap-ui-gap-sm text-ui-sm text-ink-500 transition hover:text-ink-700"
-            >
-              显示过期
-              <span
-                className={`relative h-4 w-7 shrink-0 rounded-full transition ${
-                  showExpired ? 'bg-seal-500' : 'bg-ink-200'
-                }`}
+          {/* 整页开关：一次隐藏 / 显示 DDL 栏与任务栏里的全部已过期 / 已完成任务 */}
+          <div className="flex items-center gap-ui-gap">
+            {hasExpired && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showExpired}
+                onClick={() => setShowExpired((v) => !v)}
+                title={showExpired ? '隐藏已过期任务' : '显示已过期任务'}
+                className="inline-flex items-center gap-ui-gap-sm text-ui-sm text-ink-500 transition hover:text-ink-700"
               >
+                显示过期
                 <span
-                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow-sm transition-all ${
-                    showExpired ? 'left-3.5' : 'left-0.5'
+                  className={`relative h-4 w-7 shrink-0 rounded-full transition ${
+                    showExpired ? 'bg-seal-500' : 'bg-ink-200'
                   }`}
-                />
-              </span>
-            </button>
-          )}
+                >
+                  <span
+                    className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow-sm transition-all ${
+                      showExpired ? 'left-3.5' : 'left-0.5'
+                    }`}
+                  />
+                </span>
+              </button>
+            )}
+            {hasDone && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showCompleted}
+                onClick={() => setShowCompleted((v) => !v)}
+                title={showCompleted ? '隐藏已完成任务' : '显示已完成任务'}
+                className="inline-flex items-center gap-ui-gap-sm text-ui-sm text-ink-500 transition hover:text-ink-700"
+              >
+                显示已完成
+                <span
+                  className={`relative h-4 w-7 shrink-0 rounded-full transition ${
+                    showCompleted ? 'bg-seal-500' : 'bg-ink-200'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow-sm transition-all ${
+                      showCompleted ? 'left-3.5' : 'left-0.5'
+                    }`}
+                  />
+                </span>
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -520,12 +567,14 @@ export default function SchedulePage() {
               isLoading={isLoading}
               highlightId={highlightDdlId}
               showExpired={showExpired}
+              showCompleted={showCompleted}
               onSelect={(id) => void setCurrentProject(id)}
               onNewRoot={openCreateRoot}
               onAddChild={openChildForm}
               onEdit={openEdit}
               onRename={handleRenameTask}
               onDelete={setDeleteTarget}
+              onToggleDone={(p) => void handleToggleDone(p)}
             />
           </div>
           <div className={columnBox}>
@@ -535,8 +584,10 @@ export default function SchedulePage() {
               currentId={currentId}
               highlightId={highlightDdlId}
               showExpired={showExpired}
+              showCompleted={showCompleted}
               onNewRoot={openCreateRoot}
               onEdit={openEdit}
+              onToggleDone={(p) => void handleToggleDone(p)}
             />
           </div>
         </div>

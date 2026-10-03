@@ -15,7 +15,7 @@
  *   可在组头**折叠**，也可用日程页页头的「显示过期」开关**整组隐藏 / 显示**（用户要求）。
  */
 import { Fragment, useState } from 'react'
-import { CalendarClock, ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, Circle, Plus, XCircle } from 'lucide-react'
 import type { Project, ProjectType } from '../../services/projectData'
 import { isOverdue } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
@@ -34,8 +34,10 @@ export function DdlList({
   currentId,
   highlightId,
   showExpired,
+  showCompleted,
   onNewRoot,
   onEdit,
+  onToggleDone,
 }: {
   projects: Project[]
   byId: Map<string, Project>
@@ -44,24 +46,31 @@ export function DdlList({
   highlightId: string | null
   /** 整页「显示过期」开关：关掉则过期段整组隐藏（由日程页统一控制） */
   showExpired: boolean
+  /** 整页「显示已完成」开关：关掉则已完成段整组隐藏（由日程页统一控制） */
+  showCompleted: boolean
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
   /** 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情） */
   onEdit: (project: Project) => void
+  /** 勾选 / 取消勾选完成（勾 = 划掉变灰；把过期的叉点一下即变为勾） */
+  onToggleDone: (project: Project) => void
 }) {
-  // 过期组默认展开（先看到它们、且是灰的）；想清爽就折叠起来（用户要求）
+  // 过期组 / 已完成组默认展开（先看到它们、且是灰的）；想清爽就折叠起来（用户要求）
   const [expiredOpen, setExpiredOpen] = useState(true)
+  const [doneOpen, setDoneOpen] = useState(true)
   const now = Date.now()
-  const active = projects.filter((p) => !isOverdue(p, now))
-  const expired = projects.filter((p) => isOverdue(p, now))
-  // 过期段是否真的渲染：开关关掉就整组不出现（连「已过期」组头一起收掉）
+  const active = projects.filter((p) => !p.done && !isOverdue(p, now))
+  const expired = projects.filter((p) => !p.done && isOverdue(p, now))
+  const finished = projects.filter((p) => p.done)
+  // 各段是否真的渲染：开关关掉就整组不出现（连组头一起收掉）
   const showExpiredSection = showExpired && expired.length > 0
-  // 一个卡片都看不到（活跃为空 + 过期被藏或本就没有）→ 给空态文案
-  const nothingToShow = active.length === 0 && !showExpiredSection
+  const showDoneSection = showCompleted && finished.length > 0
+  // 一个卡片都看不到（活跃为空 + 过期 / 已完成被藏或本就没有）→ 给空态文案
+  const nothingToShow = active.length === 0 && !showExpiredSection && !showDoneSection
 
   /**
-   * 一张 DDL 卡片。`gray` = 已过期：整块灰掉（仍可点开查看 / 编辑，顺序不变），
-   * 且不再做「一周以内」淡红 —— 过期了就不该再喊急。
+   * 一张 DDL 卡片。`gray` = 已完成 / 已过期：整块灰掉（仍可点开查看 / 编辑，顺序不变），
+   * 且不再做「一周以内」淡红 —— 都划掉了就不该再喊急。
    */
   const renderCard = (p: Project, gray: boolean) => {
     const color = colorForRoot(getRootId(p, byId))
@@ -84,10 +93,24 @@ export function DdlList({
               : ''
         }`}
       >
-        <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
+        {/* 待办小圈圈：空圈 → 完成打勾 / 过期打叉；点一下在完成 / 未完成间切换 */}
+        <button
+          type="button"
+          onClick={() => onToggleDone(p)}
+          title={p.done ? '已完成（点击取消）' : gray ? '已过期：点一下标记为完成' : '标记完成'}
+          className="shrink-0 rounded-full p-0.5 transition hover:scale-110"
+        >
+          {p.done ? (
+            <CheckCircle2 className="h-ui-icon-sm w-ui-icon-sm text-emerald-500" />
+          ) : gray ? (
+            <XCircle className="h-ui-icon-sm w-ui-icon-sm text-red-400" />
+          ) : (
+            <Circle className={`h-ui-icon-sm w-ui-icon-sm ${color.text} opacity-60 transition hover:opacity-100`} />
+          )}
+        </button>
         <button onClick={() => onEdit(p)} className="min-w-0 flex-1 text-left" title="打开任务详情 / 编辑">
           <div className="truncate text-ui-sm font-medium">
-            <span className={gray ? 'text-ink-500' : color.text}>{p.title || '(未命名任务)'}</span>
+            <span className={gray ? 'text-ink-400 line-through' : color.text}>{p.title || '(未命名任务)'}</span>
           </div>
           {/* 第二行只给时间（年月日 + 几点），不写「截止」二字 */}
           <div className="mt-0.5 text-ui-xs text-ink-500">{formatDue(p.dueAt)}</div>
@@ -147,7 +170,9 @@ export function DdlList({
 
         {nothingToShow ? (
           <p className="py-6 text-center text-ui-sm text-ink-400">
-            {expired.length > 0 ? `已隐藏 ${expired.length} 个过期任务` : '暂无带截止时间的任务'}
+            {expired.length > 0 || finished.length > 0
+              ? `已隐藏 ${expired.length + finished.length} 个已过期 / 已完成任务`
+              : '暂无带截止时间的任务'}
           </p>
         ) : (
           <>
@@ -169,6 +194,25 @@ export function DdlList({
                   <span className="text-ui-2xs font-normal text-ink-300">{expired.length}</span>
                 </button>
                 {expiredOpen && <div className="mt-ui-gap-sm">{renderGrid(expired, true)}</div>}
+              </div>
+            )}
+            {showDoneSection && (
+              <div className={active.length > 0 || showExpiredSection ? 'mt-ui-gap' : ''}>
+                <button
+                  type="button"
+                  onClick={() => setDoneOpen((v) => !v)}
+                  title={doneOpen ? '折叠已完成' : '展开已完成'}
+                  className="flex w-full items-center gap-ui-gap-sm border-b border-ink-100 pb-ui-gap-sm text-ui-xs font-medium text-ink-400"
+                >
+                  {doneOpen ? (
+                    <ChevronDown className="h-ui-icon-sm w-ui-icon-sm" />
+                  ) : (
+                    <ChevronRight className="h-ui-icon-sm w-ui-icon-sm" />
+                  )}
+                  已完成
+                  <span className="text-ui-2xs font-normal text-ink-300">{finished.length}</span>
+                </button>
+                {doneOpen && <div className="mt-ui-gap-sm">{renderGrid(finished, true)}</div>}
               </div>
             )}
           </>
