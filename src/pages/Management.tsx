@@ -300,11 +300,14 @@ const CATEGORY_COLORS = [
 const TIER_STYLE = {
   1: {
     row: 'bg-amber-50/40 hover:bg-amber-100/50',
+    // 选中态整块上色；未选中态也保留淡色，保证两个页签**始终**能靠颜色区分
     tab: 'bg-amber-100 text-amber-700 border border-amber-300',
+    tabIdle: 'bg-amber-50/50 text-amber-700/80 border border-amber-200/60 hover:bg-amber-100/60',
   },
   2: {
     row: 'bg-sky-50/40 hover:bg-sky-100/50',
     tab: 'bg-sky-100 text-sky-700 border border-sky-300',
+    tabIdle: 'bg-sky-50/50 text-sky-700/80 border border-sky-200/60 hover:bg-sky-100/60',
   },
 } as const
 
@@ -2711,7 +2714,7 @@ export default function ManagementPage() {
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
                     tierFilter === 1
                       ? TIER_STYLE[1].tab
-                      : 'text-ink-500 hover:text-ink-700'
+                      : TIER_STYLE[1].tabIdle
                   }`}
                 >
                   一级文献
@@ -2727,7 +2730,7 @@ export default function ManagementPage() {
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
                     tierFilter === 2
                       ? TIER_STYLE[2].tab
-                      : 'text-ink-500 hover:text-ink-700'
+                      : TIER_STYLE[2].tabIdle
                   }`}
                 >
                   二级文献
