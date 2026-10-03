@@ -605,3 +605,112 @@ export async function downloadTaskAttachment(path: string, name: string): Promis
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// 任务要求（projects/{id}/requirements.md）—— ADJ-75
+// -------------------------------------------------
+// 从任务材料（详细描述 brief + 附件文字）里提炼出的「需满足的条件」：
+//   - 要求     → 蓝点
+//   - 注意事项 → 红点
+// 两者本质都是条件，一律作为待办（可勾选完成）；可人工增 / 改 / 删。
+// 存独立 md 文件（而非塞进 projects.csv），因为它是可增删的列表。
+// ═════════════════════════════════════════════════════════════════════════
+
+export type TaskNoteKind = 'requirement' | 'caution'
+
+export interface TaskNote {
+  kind: TaskNoteKind
+  text: string
+  done: boolean
+}
+
+const REQUIREMENTS_PATH = (projectId: string) => `projects/${projectId}/requirements.md`
+
+/**
+ * 解析 requirements.md。
+ * 只认本模块自己写出的格式（`## 要求` / `## 注意事项` 两节 + `- [ ] / - [x]` 条目），
+ * 不猜别名、不做链式容错：不匹配的行一律忽略，不让脏数据变成"看起来像要求"的东西。
+ */
+function parseRequirements(content: string): TaskNote[] {
+  const notes: TaskNote[] = []
+  let kind: TaskNoteKind | null = null
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (/^##\s*注意事项/.test(line)) {
+      kind = 'caution'
+      continue
+    }
+    if (/^##\s*要求/.test(line)) {
+      kind = 'requirement'
+      continue
+    }
+    if (!kind) continue
+    const m = line.match(/^-\s*\[([ xX])\]\s*(.+)$/)
+    if (!m) continue
+    const text = m[2].trim()
+    if (!text) continue
+    notes.push({ kind, text, done: m[1].toLowerCase() === 'x' })
+  }
+  return notes
+}
+
+function serializeRequirements(notes: TaskNote[]): string {
+  const line = (n: TaskNote) => `- [${n.done ? 'x' : ' '}] ${n.text.replace(/\s*\n+\s*/g, ' ').trim()}`
+  const req = notes.filter((n) => n.kind === 'requirement')
+  const cau = notes.filter((n) => n.kind === 'caution')
+  const parts = ['# 任务要求', '', '## 要求', ...req.map(line), '', '## 注意事项', ...cau.map(line), '']
+  return parts.join('\n')
+}
+
+export async function loadTaskRequirements(projectId: string): Promise<TaskNote[]> {
+  const result = await readMdFile(REQUIREMENTS_PATH(projectId))
+  return parseRequirements(result?.content || '')
+}
+
+export async function saveTaskRequirements(projectId: string, notes: TaskNote[]): Promise<void> {
+  await writeMdFile(REQUIREMENTS_PATH(projectId), serializeRequirements(notes), 'Update task requirements')
+}
+
+/**
+ * 可当纯文本读取的附件类型。
+ * 说明：仓库无 PDF / docx 解析库（package.json 无 mammoth / pdf 相关依赖），
+ * 因此这里只读文本类附件；二进制文档（pdf/docx…）无法解析 —— 不假装能解析。
+ */
+const TEXT_ATTACHMENT_EXTS = ['txt', 'md', 'markdown', 'csv', 'json', 'tex', 'bib', 'log', 'yml', 'yaml']
+
+export function isTextAttachment(name: string): boolean {
+  const dot = name.lastIndexOf('.')
+  if (dot < 0) return false
+  return TEXT_ATTACHMENT_EXTS.includes(name.slice(dot + 1).toLowerCase())
+}
+
+/** 读取文本类附件的文字内容；非文本类 / 读取失败返回 null（不静默降级成空字符串） */
+export async function readAttachmentText(path: string, name: string): Promise<string | null> {
+  if (!isTextAttachment(name)) return null
+  const ctx = getRepoContext()
+  if (!ctx) return null
+  const res = await downloadRepoBinaryFile(ctx.owner, ctx.repo, path, ctx.token)
+  if (!res) return null
+  const text = (await res.blob.text()).trim()
+  return text || null
+}
+
+/**
+ * 汇总一个任务的可用材料：详细描述 + 各文本附件的文字。
+ * 作为「AI 提炼任务要求」的唯一输入 —— 材料为空就不许凭空生成。
+ *
+ * @param briefOverride 编辑窗里尚未落库的「详细描述」草稿：传了就优先用它，
+ *   避免 AI 提炼时读到的还是旧 brief.md（用户刚改的内容不能被无视）。
+ *   传空串表示「当前草稿就是空的」，此时不再回退读仓库。
+ */
+export async function collectTaskMaterial(projectId: string, briefOverride?: string): Promise<string> {
+  const chunks: string[] = []
+  const brief = (briefOverride ?? (await loadBrief(projectId))).trim()
+  if (brief) chunks.push(`【详细描述】\n${brief}`)
+  const attachments = await loadTaskAttachments(projectId)
+  for (const a of attachments) {
+    const text = await readAttachmentText(a.path, a.name)
+    if (text) chunks.push(`【附件：${a.name}】\n${text}`)
+  }
+  return chunks.join('\n\n')
+}

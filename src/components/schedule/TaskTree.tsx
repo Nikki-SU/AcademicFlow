@@ -339,7 +339,7 @@ export function TaskTree({
                           onSelect(project.projectId)
                         }}
                         onDoubleClick={() => startEdit(project)}
-                        title="点击展开详情 · 双击改名"
+                        title="点击查看任务要求 · 双击改名"
                         className="flex min-w-0 flex-1 items-center gap-ui-gap-sm py-ui-gap-sm text-left"
                       >
                         <span
@@ -367,7 +367,7 @@ export function TaskTree({
                   <button
                     type="button"
                     onClick={() => onEdit(project)}
-                    title="编辑任务（名称 / 归属 / 时间 / 详情）"
+                    title="编辑任务（名称 / 归属 / 时间 / 描述 / 要求 / 附件）"
                     className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
                   >
                     <Pencil className="h-ui-icon-sm w-ui-icon-sm" />

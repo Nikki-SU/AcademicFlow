@@ -39,6 +39,7 @@ import {
   loadProjects,
   saveProjects,
   saveBrief,
+  saveTaskRequirements,
   renameProject,
   deleteProject,
   descendantIds,
@@ -54,6 +55,7 @@ import { TaskTree } from '../components/schedule/TaskTree'
 import { TaskFormModal, type TaskFormValue, type ParentOption } from '../components/schedule/TaskFormModal'
 import { buildParentOptions } from '../components/schedule/TaskPicker'
 import { TaskDeleteModal } from '../components/schedule/TaskDeleteModal'
+import { TaskRequirementsModal } from '../components/schedule/TaskRequirementsModal'
 import { useTaskStore } from '../stores/task'
 import { useWorkspaceStore } from '../stores/workspace'
 
@@ -79,6 +81,8 @@ export default function SchedulePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
+  // DDL 点任务 → 只读任务要求弹层（编辑从弹层里的「编辑」进编辑窗）
+  const [viewTarget, setViewTarget] = useState<Project | null>(null)
   // DDL 联动高亮：悬停课表红线是瞬时的，点击是钉住的；二者任一即点亮对应条目
   const [hoverDdlId, setHoverDdlId] = useState<string | null>(null)
   const [pinnedDdlId, setPinnedDdlId] = useState<string | null>(null)
@@ -409,6 +413,7 @@ export default function SchedulePage() {
     try {
       await saveProjects(next)
       if (value.brief.trim()) await saveBrief(project.projectId, value.brief)
+      if (value.notes !== null) await saveTaskRequirements(project.projectId, value.notes)
       setProjects(next)
       // 成功不弹提示：弹窗关闭本身就是成功的信号（用户嫌「成功弹窗」冗余）
     } catch (err) {
@@ -437,6 +442,7 @@ export default function SchedulePage() {
     try {
       await saveProjects(next)
       await saveBrief(projectId, value.brief)
+      if (value.notes !== null) await saveTaskRequirements(projectId, value.notes)
       setProjects(next)
       // 成功不弹提示：弹窗关闭本身就是成功的信号
     } catch (err) {
@@ -623,7 +629,7 @@ export default function SchedulePage() {
               showExpired={showExpired}
               showCompleted={showCompleted}
               onNewRoot={openCreateRoot}
-              onEdit={openEdit}
+              onView={setViewTarget}
               onToggleDone={(p) => void handleToggleDone(p)}
             />
           </div>
@@ -653,6 +659,20 @@ export default function SchedulePage() {
           project={deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onConfirm={handleDeleteTask}
+        />
+      )}
+
+      {viewTarget && (
+        <TaskRequirementsModal
+          project={viewTarget}
+          parentTitle={
+            viewTarget.parentId ? byId.get(viewTarget.parentId)?.title || '(未命名任务)' : null
+          }
+          onClose={() => setViewTarget(null)}
+          onEdit={() => {
+            setViewTarget(null)
+            openEdit(viewTarget)
+          }}
         />
       )}
     </div>

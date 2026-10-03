@@ -10,7 +10,8 @@
  * - **加子任务只在任务栏**（TaskTree），DDL 这边不放子任务入口。
  * - **联动高亮**：课表红线悬停 / 点击时，对应行亮起（`highlightId`）。
  * - 新建走**列头「+」**（点哪个大类，就在哪个大类下建顶级任务）。
- * - 点任务 → 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情）。
+ * - 点任务 → **只读**打开该任务的要求（详细描述 / 要求 / 注意事项 / 附件）；
+ *   要编辑走弹层里的「编辑」→ 统一编辑窗（不在列表里直接编辑）。
  * - **过期任务**：有截止时间且已过点的，整块**变灰**、沉到列表底部，仍可点开查看 / 编辑；
  *   可在组头**折叠**，也可用日程页页头的「显示过期」开关**整组隐藏 / 显示**（用户要求）。
  */
@@ -36,7 +37,7 @@ export function DdlList({
   showExpired,
   showCompleted,
   onNewRoot,
-  onEdit,
+  onView,
   onToggleDone,
 }: {
   projects: Project[]
@@ -50,8 +51,8 @@ export function DdlList({
   showCompleted: boolean
   /** 列头「+」新建：指定大类（研究 / 课程）下的顶级任务 */
   onNewRoot: (type: ProjectType) => void
-  /** 打开统一编辑器（改名称 / 归属 / 时间 / DDL / 详情） */
-  onEdit: (project: Project) => void
+  /** 点任务 → 只读打开该任务的要求（编辑走弹层里的「编辑」） */
+  onView: (project: Project) => void
   /** 勾选 / 取消勾选完成（勾 = 划掉变灰；把过期的叉点一下即变为勾） */
   onToggleDone: (project: Project) => void
 }) {
@@ -108,7 +109,7 @@ export function DdlList({
             <Circle className={`h-ui-icon-sm w-ui-icon-sm ${color.text} opacity-60 transition hover:opacity-100`} />
           )}
         </button>
-        <button onClick={() => onEdit(p)} className="min-w-0 flex-1 text-left" title="打开任务详情 / 编辑">
+        <button onClick={() => onView(p)} className="min-w-0 flex-1 text-left" title="查看任务要求">
           <div className="truncate text-ui-sm font-medium">
             <span className={gray ? 'text-ink-400 line-through' : color.text}>{p.title || '(未命名任务)'}</span>
           </div>
