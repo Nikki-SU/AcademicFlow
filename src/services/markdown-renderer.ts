@@ -111,26 +111,84 @@ function renderMath(math: string, displayMode: boolean): string {
   }
 }
 
+/** CSS px → 印刷 pt（CSS 96dpi → 印刷 72dpi），保留两位小数 */
+function pxToPt(px: number): string {
+  return `${Math.round(((px * 72) / 96) * 100) / 100}pt`
+}
+
+/** 选区在文档里覆盖到的元素。与 range.cloneContents() 的元素一一对应：
+ *  只遍历共同祖先的**后代**（不含它本身），顺序都是前序 —— 于是能和克隆体逐一对齐。 */
+function rangeElements(range: Range): Element[] {
+  const lca = range.commonAncestorContainer
+  const root = lca.nodeType === Node.ELEMENT_NODE ? (lca as Element) : lca.parentElement
+  if (!root) return []
+  const out: Element[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+  let n = walker.nextNode()
+  while (n) {
+    if (range.intersectsNode(n)) out.push(n as Element)
+    n = walker.nextNode()
+  }
+  return out
+}
+
+/** 块级元素：克隆出来后不再继承页面上下文，必须自带字号 */
+const COPY_BLOCK_TAGS = new Set([
+  'P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE',
+  'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH', 'SECTION', 'ARTICLE', 'FIGURE', 'FIGCAPTION',
+])
+
 /**
- * 复制含公式的文本时，把 KaTeX 渲染出来的字形换回 LaTeX 源码。
+ * 复制选中的正文，产出一份适合粘进 Word / WPS 的 HTML。
  * ------------------------------------------------------------
- * KaTeX 默认同时输出 MathML 与 HTML 两份（output 默认 htmlAndMathml），而 MathML 那份
- * 只是 clip 隐藏、仍在选中流里 —— 直接复制就会「公式丢失」（复制到的是拼字形的 span）
- * 且「公式位置的内容重复两份」。
- * 这里改用选区克隆重拼：每个公式节点换成它的源码。
+ * 做两件事：
+ * 1. **公式换回 LaTeX 源码**：KaTeX 默认同时输出 MathML 与 HTML 两份字形，直接复制
+ *    会「公式丢失 + 内容重复两份」。这里把每个公式节点换成它的 $…$ 源码。
+ * 2. **字号定格成绝对 pt**：网页界面字号是相对的（随视口流体的根字号缩放），
+ *    Word/WPS 不认这套，粘过去会套用它们自己的默认字号、和网页看到的不一致。
+ *    这里读取每个元素**计算后**的字号，转成 `pt` 内联写进克隆体 —— 粘过去就是
+ *    网页上看到的那个大小（基准字号写在外层容器上，承接没被单独标注的文本）。
  *
- * 返回 false 表示选区里没有公式，交给浏览器默认行为。
+ * 返回 false 表示选区为空（交给浏览器默认行为）。
  */
-export function copySelectionWithFormulaSource(
+export function copySelectionForWord(
   clipboardData: DataTransfer,
   selection: Selection,
 ): boolean {
   if (selection.rangeCount === 0) return false
+  const range = selection.getRangeAt(0)
+  const src = rangeElements(range)
+  // 给范围内元素打临时标记：克隆体会带着标记过来，于是「原元素 ↔ 克隆体」可直接配对，
+  // 不必依赖遍历顺序去猜（顺序一旦错位，公式后面的字号就全乱了）。
+  src.forEach((el, i) => el.setAttribute('data-af-copy', String(i)))
   const holder = document.createElement('div')
-  holder.appendChild(selection.getRangeAt(0).cloneContents())
-  if (!holder.querySelector('.katex')) return false
+  holder.appendChild(range.cloneContents())
+  src.forEach((el) => el.removeAttribute('data-af-copy'))
 
-  // 块级先处理：整块换成 $$…$$，它内部的 .katex 也随之消失
+  if (!holder.textContent?.trim() && !holder.querySelector('img')) return false
+
+  // ① 字号：外层容器承接基准字号（未被单独标注的文本就继承它）
+  //    必须在「替换公式」之前做 —— 公式节点被换成文本后，.katex 内部元素会从
+  //    克隆体里消失，配对就对不上了。
+  const startEl =
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.startContainer as Element)
+      : range.startContainer.parentElement
+  if (startEl) holder.style.fontSize = pxToPt(parseFloat(getComputedStyle(startEl).fontSize))
+
+  // 块级元素、以及字号与父级不同的元素（上标 / 代码等），各写各的字号
+  holder.querySelectorAll<HTMLElement>('[data-af-copy]').forEach((d) => {
+    const s = src[Number(d.getAttribute('data-af-copy'))]
+    d.removeAttribute('data-af-copy')
+    if (!s) return
+    const size = parseFloat(getComputedStyle(s).fontSize)
+    const parentSize = s.parentElement ? parseFloat(getComputedStyle(s.parentElement).fontSize) : size
+    if (COPY_BLOCK_TAGS.has(d.tagName) || size !== parentSize) {
+      d.style.fontSize = pxToPt(size)
+    }
+  })
+
+  // ② 公式：KaTeX 字形 → LaTeX 源码（放在字号之后，避免上面的配对被打乱）
   holder.querySelectorAll('.katex-display').forEach((el) => {
     el.replaceWith(document.createTextNode(wrapFormula(formulaSource(el), true)))
   })
@@ -139,7 +197,8 @@ export function copySelectionWithFormulaSource(
   })
 
   clipboardData.setData('text/plain', (holder.textContent || '').replace(/\n{3,}/g, '\n\n'))
-  clipboardData.setData('text/html', holder.innerHTML)
+  // 用 outerHTML：外层的基准字号写在 holder 自身，只取 innerHTML 会把它丢掉
+  clipboardData.setData('text/html', holder.outerHTML)
   return true
 }
 

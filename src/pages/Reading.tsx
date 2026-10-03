@@ -44,7 +44,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
-import { renderMarkdownToHtml, copySelectionWithFormulaSource } from '../services/markdown-renderer'
+import { renderMarkdownToHtml, copySelectionForWord } from '../services/markdown-renderer'
 import { renderAlignedMdHtml, type TranslationMode } from '../services/translation'
 import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem, type BlockNode } from '../services/blocks.mjs'
 import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits } from '../services/text-highlight'
@@ -3371,7 +3371,7 @@ export default function ReadingPage() {
                         }}
                         onCopy={(e) => {
                           const sel = window.getSelection()
-                          if (sel && e.clipboardData && copySelectionWithFormulaSource(e.clipboardData, sel)) {
+                          if (sel && e.clipboardData && copySelectionForWord(e.clipboardData, sel)) {
                             e.preventDefault()
                           }
                         }}
@@ -3616,7 +3616,7 @@ export default function ReadingPage() {
                       }}
                       onCopy={(e) => {
                         const sel = window.getSelection()
-                        if (sel && e.clipboardData && copySelectionWithFormulaSource(e.clipboardData, sel)) {
+                        if (sel && e.clipboardData && copySelectionForWord(e.clipboardData, sel)) {
                           e.preventDefault()
                         }
                       }}
