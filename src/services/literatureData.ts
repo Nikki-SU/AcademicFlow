@@ -50,6 +50,28 @@ const LITERATURE_HEADERS = [
   'md_status', 'corresponding_author',
 ]
 
+/** Literature → CSV 行（列序与 LITERATURE_HEADERS 逐字一致，全模块唯一来源） */
+function literatureToRow(lit: Literature): string[] {
+  return [
+    lit.doi,
+    lit.title,
+    lit.journal,
+    String(lit.year),
+    lit.authors,
+    lit.keywords,
+    lit.abstractEn,
+    lit.abstractCn,
+    String(lit.tier),
+    String(lit.hasGraphicalAbstract),
+    String(lit.addedAt),
+    String(lit.pdfAddedAt),
+    lit.source,
+    lit.trackingGroup,
+    lit.mdStatus || 'none',
+    lit.correspondingAuthor || '',
+  ]
+}
+
 export function doiToSlug(doi: string): string {
   return encodeURIComponent(doi).replace(/%2F/g, '_').replace(/\./g, '-')
 }
@@ -292,24 +314,7 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
       LITERATURES_PATH,
       toWrite,
       LITERATURE_HEADERS,
-      (lit) => [
-        lit.doi,
-        lit.title,
-        lit.journal,
-        String(lit.year),
-        lit.authors,
-        lit.keywords,
-        lit.abstractEn,
-        lit.abstractCn,
-        String(lit.tier),
-        String(lit.hasGraphicalAbstract),
-        String(lit.addedAt),
-        String(lit.pdfAddedAt),
-        lit.source,
-        lit.trackingGroup,
-        lit.mdStatus || 'none',
-        lit.correspondingAuthor || '',
-      ],
+      literatureToRow,
     )
     console.log(`[saveLiteratures] OK — ${toWrite.length} 条写入 (状态字段来自 GitHub)`)
   } catch (err) {
@@ -515,4 +520,29 @@ export async function updatePaperMdStatus(doi: string, mdStatus: MdStatus): Prom
     l.doi === doi ? { ...l, mdStatus } : l,
   )
   await saveLiteratures(updated)
+}
+
+/**
+ * 标记某篇文献已上传 PDF（pdf_added_at = now）。
+ *
+ * 为什么不走 saveLiteratures：它会把 pdf_added_at 当作「GitHub 权威字段」，
+ * 写前读 GitHub 并用旧值覆盖前端值 —— 这条路只会把 now 写回 0，等于没生效。
+ * 所以这里自己「读 GitHub 最新 → 只改目标行 → 整表写回」，
+ * 其余行按刚读到的 GitHub 现状原样写回，不产生覆盖。
+ */
+export async function markPaperPdfAdded(doi: string): Promise<void> {
+  const lits = await loadLiteratures(true)
+  const now = Date.now()
+  const updated = lits.map((l) => (l.doi === doi ? { ...l, pdfAddedAt: now } : l))
+  await writeCsvFile(LITERATURES_PATH, updated, LITERATURE_HEADERS, literatureToRow)
+}
+
+/**
+ * 撤销入库：把某篇文献整行从 literatures.csv 移除（该文献从未真正入库）。
+ * 依赖 GitHub 权威 merge 的路径无法表达「删行」，故直接整表读改写。
+ */
+export async function removeLiterature(doi: string): Promise<void> {
+  const lits = await loadLiteratures(true)
+  const updated = lits.filter((l) => l.doi !== doi)
+  await writeCsvFile(LITERATURES_PATH, updated, LITERATURE_HEADERS, literatureToRow)
 }

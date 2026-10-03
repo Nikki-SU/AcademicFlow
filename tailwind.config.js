@@ -51,7 +51,7 @@ export default {
        * -------------------------------------------------
        * 一个页面**只用这几种固定比例**，不再各页各写一段 minmax(...)__minmax(...)。
        * 想全局调比例，改这里一处即可；页面侧只写 `lg:grid-cols-ratio-121` 这种语义类。
-       *   1:1:1 / 1:2:1 / 1:1.5:1.5 / 1:1:2
+       *   1:1:1 / 1:2:1 / 1:1.5:1.5 / 1:1:2 / 1:2:2 / 1:3:1 / 1:1:3
        * 三栏一律 minmax(0, …)：允许收缩到 0，窄屏不会把网格撑破（列内自己滚动）。
        * 窄屏塌成单列由页面侧 `grid-cols-1`（默认）负责。
        */
@@ -60,6 +60,9 @@ export default {
         'ratio-121': 'minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr)',
         'ratio-115-115': 'minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1.5fr)',
         'ratio-112': 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr)',
+        'ratio-122': 'minmax(0, 1fr) minmax(0, 2fr) minmax(0, 2fr)',
+        'ratio-131': 'minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr)',
+        'ratio-113': 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 3fr)',
       },
       colors: {
         paper: {

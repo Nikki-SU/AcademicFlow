@@ -396,8 +396,8 @@ function StatusBadge({ status }: { status: Paper['mdStatus'] }) {
   }
   const { label, icon: Icon, color } = config[status]
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>
-      <Icon className={`w-3 h-3 ${status === 'converting' ? 'animate-spin' : ''}`} />
+    <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded-full text-xs font-medium ${color}`}>
+      <Icon className={`w-3 h-3 shrink-0 ${status === 'converting' ? 'animate-spin' : ''}`} />
       {label}
     </span>
   )
@@ -412,7 +412,7 @@ function BookStatusBadge({ status }: { status: BookItem['status'] }) {
   }
   const { label, color } = config[status]
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>
+    <span className={`inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 rounded-full text-xs font-medium ${color}`}>
       {label}
     </span>
   )
@@ -2845,7 +2845,7 @@ export default function ManagementPage() {
                         <th className="w-[16%] border border-ink-200 px-3 py-2 font-normal">作者</th>
                         <th className="w-[11%] border border-ink-200 px-3 py-2 font-normal">期刊 · 年份</th>
                         <th className="w-[11%] border border-ink-200 px-3 py-2 font-normal">分类</th>
-                        <th className="w-[7%] border border-ink-200 px-3 py-2 font-normal">状态</th>
+                        <th className="w-[5.5rem] border border-ink-200 px-2 py-2 font-normal">状态</th>
                         <th className="w-[14%] border border-ink-200 px-3 py-2 font-normal text-right">操作</th>
                       </tr>
                     </thead>
@@ -3009,7 +3009,7 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 状态 */}
-                      <td className="border border-ink-200 px-3 py-2.5 align-top">
+                      <td className="border border-ink-200 px-2 py-2.5 align-top">
                         <div className="flex flex-wrap items-center gap-1">
                           <StatusBadge status={paper.mdStatus} />
                           {paper.hasPdf && (

@@ -8,7 +8,7 @@
  * - 快速入库（DOI / arXiv ID）
  * - 追踪结果展示
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import {
   Bell,
   Globe,
@@ -29,12 +29,25 @@ import {
   Newspaper,
   Hash,
   FileText,
+  Upload,
+  ExternalLink,
+  RotateCcw,
+  Languages,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
 import { DoiLink } from '../components/DoiLink'
 import { readCsvFile, writeCsvFile } from '../services/userData'
-import { loadLiteratures, saveLiteratures, type Literature } from '../services/literatureData'
+import {
+  loadLiteratures,
+  saveLiteratures,
+  markPaperPdfAdded,
+  removeLiterature,
+  type Literature,
+} from '../services/literatureData'
+import { enqueuePaperMineruConvert } from '../services/paperPipeline'
+import { translateText } from '../services/asr'
+import { useSettingsStore } from '../stores/settings'
 import {
   loadTrackingInbox,
   saveTrackingInbox,
@@ -167,6 +180,21 @@ export default function TrackingPage() {
   /** 追踪候选（tracking/inbox.csv）：含「待裁决」与「已忽略」两类，页面只显示待裁决 */
   const [inbox, setInbox] = useState<TrackingCandidate[]>([])
 
+  // ---------- 右栏：已入库但还没传 PDF ----------
+  /** 文献库（literatures/literatures.csv）全量，右栏只取 pdfAddedAt === 0 的 */
+  const [literatures, setLiteratures] = useState<Literature[]>([])
+  /** 正在上传 PDF 的文献 DOI（用于该行 loading） */
+  const [pdfUploadingDoi, setPdfUploadingDoi] = useState<string | null>(null)
+  /** 待上传 PDF 的文献 DOI（隐藏 file input 复用，选中后再打开文件选择器） */
+  const [pdfInputDoi, setPdfInputDoi] = useState<string | null>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
+  /** 右栏批量操作选中的 DOI */
+  const [selectedLibraryDois, setSelectedLibraryDois] = useState<string[]>([])
+  /** 中栏摘要一键翻译结果（DOI → 中文） */
+  const [translatedAbstracts, setTranslatedAbstracts] = useState<Record<string, string>>({})
+  /** 正在翻译的候选 DOI */
+  const [translatingDoi, setTranslatingDoi] = useState<string | null>(null)
+
   // ============================================================
   // 持久化（全部存 GitHub 私库，不使用 localStorage —— SPEC §0/§2.3）
   // ============================================================
@@ -226,6 +254,14 @@ export default function TrackingPage() {
         if (!cancelled) setInbox(inboxRows)
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载追踪候选失败:', err)
+      }
+
+      // 文献库（右栏「已入库未传 PDF」的数据源）
+      try {
+        const lits = await loadLiteratures()
+        if (!cancelled) setLiteratures(lits)
+      } catch (err) {
+        console.warn('[Tracking] 从 GitHub 加载文献库失败:', err)
       }
 
       // 搜索源从 GitHub 私库加载
@@ -414,6 +450,7 @@ export default function TrackingPage() {
         correspondingAuthor: '',
       }
       const status = await addLiteratureToLibrary(newLit)
+      if (status === 'added') setLiteratures((prev) => [...prev, newLit])
       toastAdded(meta.title, status)
       setDoiInput('')
     } catch (err) {
@@ -745,6 +782,7 @@ export default function TrackingPage() {
         correspondingAuthor: '',
       }
       const status = await addLiteratureToLibrary(newLit)
+      if (status === 'added') setLiteratures((prev) => [...prev, newLit])
       // 入库后从候选里移除：它已经在 literatures.csv，后续靠 DOI 去重
       const next = inbox.filter((r) => r.doi !== c.doi)
       await saveTrackingInbox(next)
@@ -802,510 +840,656 @@ export default function TrackingPage() {
     'bg-paper-100 text-ink-600',
   ]
 
+  // ============================================================
+  // 中栏 / 右栏 派生列表
+  // ============================================================
+
+  /** 中栏「待入库」：一个月内、按发现时间越新越上（foundAt 为 Unix 秒） */
+  const pendingList = useMemo(() => {
+    const cutoff = Date.now() / 1000 - 30 * 86400
+    return candidates
+      .filter((c) => c.foundAt >= cutoff)
+      .sort((a, b) => b.foundAt - a.foundAt)
+  }, [candidates])
+  /** 超过一个月未处理的候选数（只隐藏不删除，说明你还没那么在意它） */
+  const staleCandidateCount = candidates.length - pendingList.length
+
+  /** 右栏「已入库未传 PDF」：按入库时间越旧越上（催处理，别让新的盖过旧的） */
+  const libraryPendingPdf = useMemo(
+    () => literatures.filter((l) => !l.pdfAddedAt).sort((a, b) => a.addedAt - b.addedAt),
+    [literatures],
+  )
+
+  // ============================================================
+  // 右栏操作：上传 PDF / 撤销入库 / 批量跳转 DOI
+  // ============================================================
+
+  const handleUploadPdf = (lit: Literature) => {
+    setPdfInputDoi(lit.doi)
+    pdfInputRef.current?.click()
+  }
+
+  const onPdfFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null
+    const doi = pdfInputDoi
+    // 先清空 input，保证同一文件再次选择也能触发 change
+    e.target.value = ''
+    setPdfInputDoi(null)
+    if (!file || !doi) return
+
+    const lit = literatures.find((l) => l.doi === doi)
+    if (!lit) return
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('请选择 PDF 文件')
+      return
+    }
+
+    setPdfUploadingDoi(doi)
+    try {
+      const res = await enqueuePaperMineruConvert(doi, file, lit.title)
+      // enqueuePaperMineruConvert 内部已 toast 成功/失败，这里只负责成功后落 pdf_added_at
+      if (!res.ok) return
+      await markPaperPdfAdded(doi)
+      setLiteratures((prev) =>
+        prev.map((l) => (l.doi === doi ? { ...l, pdfAddedAt: Date.now() } : l)),
+      )
+      setSelectedLibraryDois((prev) => prev.filter((d) => d !== doi))
+      toast.success('已移出待补 PDF 清单')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`上传失败：${msg}`)
+    } finally {
+      setPdfUploadingDoi(null)
+    }
+  }
+
+  const handleUndoIngest = async (lit: Literature) => {
+    try {
+      await removeLiterature(lit.doi)
+      setLiteratures((prev) => prev.filter((l) => l.doi !== lit.doi))
+      setSelectedLibraryDois((prev) => prev.filter((d) => d !== lit.doi))
+      const short = lit.title.slice(0, 40)
+      toast.message(`已移出文献库：${short}${lit.title.length > 40 ? '...' : ''}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`撤销入库失败：${msg}`)
+    }
+  }
+
+  const toggleLibrarySelect = (doi: string) => {
+    setSelectedLibraryDois((prev) =>
+      prev.includes(doi) ? prev.filter((d) => d !== doi) : [...prev, doi],
+    )
+  }
+
+  const handleBatchOpenDoi = () => {
+    const targets = libraryPendingPdf.filter((l) => l.doi && selectedLibraryDois.includes(l.doi))
+    if (targets.length === 0) return
+    targets.forEach((l) =>
+      window.open(`https://doi.org/${l.doi}`, '_blank', 'noopener,noreferrer'),
+    )
+    toast.message(`已打开 ${targets.length} 个 DOI 链接`)
+  }
+
+  // ============================================================
+  // 中栏操作：摘要一键翻译（用完即弃，不入库）
+  // ============================================================
+
+  const handleTranslateAbstract = async (c: TrackingCandidate) => {
+    // 已有译文 → 再点切回英文
+    if (translatedAbstracts[c.doi]) {
+      setTranslatedAbstracts((prev) => {
+        const next = { ...prev }
+        delete next[c.doi]
+        return next
+      })
+      return
+    }
+    const text = (c.abstractEn || '').trim()
+    if (!text) {
+      toast.error('这篇没有可翻译的摘要')
+      return
+    }
+    setTranslatingDoi(c.doi)
+    try {
+      const s = useSettingsStore.getState()
+      const baseUrl = (s.asrBaseUrl || '').trim() || 'https://api.siliconflow.cn/v1'
+      const model = (s.asrTranslateModel || '').trim()
+      const apiKey = (s.asrApiKey || '').trim()
+      const zh = await translateText(text, { baseUrl, apiKey, model })
+      setTranslatedAbstracts((prev) => ({ ...prev, [c.doi]: zh }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`翻译失败：${msg}`, { duration: 8000 })
+    } finally {
+      setTranslatingDoi(null)
+    }
+  }
+
   return (
-    <div className="page-container py-8">
-      {/* 顶栏 */}
-      <div className="mb-6">
+    <div className="page-container flex h-full flex-col py-ui-gap-lg">
+      {/* 页头 */}
+      <div className="mb-ui-gap flex shrink-0 items-center justify-between">
         <h1 className="text-xl font-bold text-ink-800">文献追踪</h1>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid gap-ui-gap-lg lg:min-h-0 lg:flex-1 lg:grid-cols-ratio-122">
         {/* ============================================================ */}
-        {/* 左侧（2/3 宽度）：今日追踪 + 学术搜索 + 追踪结果 */}
+        {/* 左①（1）：功能入口 —— 添加关键词 / 添加期刊 / 立即追踪 / DOI 入库 / 搜索 */}
         {/* ============================================================ */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* ---------- 今日追踪卡片 ---------- */}
-          <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-seal-50 rounded-lg">
-                  <Bell className="w-5 h-5 text-seal-600" />
-                </div>
-                <div>
-                  <h2 className="font-semibold text-ink-800">今日追踪</h2>
-                  <p className="text-xs text-ink-500">下次自动追踪：08:00</p>
-                </div>
+        <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50 lg:min-h-0">
+          <div className="shrink-0 border-b border-ink-100 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="rounded-lg bg-seal-50 p-1.5">
+                <Bell className="h-4 w-4 text-seal-600" />
               </div>
+              <h2 className="text-sm font-semibold text-ink-800">文献追踪</h2>
+            </div>
+
+            {/* 三个动作：添加关键词 / 添加期刊 / 立即追踪（红） */}
+            <div className="space-y-2">
+              <button
+                onClick={openAddKeywordGroup}
+                className="flex w-full items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
+              >
+                <Tag className="h-4 w-4 text-ink-500" />
+                添加关键词
+              </button>
+              <button
+                onClick={openAddJournal}
+                className="flex w-full items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
+              >
+                <Newspaper className="h-4 w-4 text-ink-500" />
+                添加期刊
+              </button>
               <button
                 onClick={handleTrackNow}
                 disabled={isTracking}
-                className="flex items-center gap-2 px-4 py-2 bg-seal-600 text-paper-50 text-sm font-medium rounded-lg hover:bg-seal-700 disabled:opacity-50 transition"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-seal-600 px-3 py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
               >
-                {isTracking ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4" />
-                )}
+                {isTracking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                 立即追踪
               </button>
             </div>
 
-            {/* 配置统计 */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="p-3 bg-seal-50 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Hash className="w-4 h-4 text-seal-600" />
-                  <span className="text-xs text-seal-600 font-medium">关键词组</span>
+            {/* 统计 */}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-seal-50 p-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Hash className="h-3.5 w-3.5 text-seal-600" />
+                  <span className="text-ui-2xs font-medium text-seal-600">关键词组</span>
                 </div>
-                <div className="mt-1 text-2xl font-bold text-seal-700">
+                <div className="mt-0.5 text-lg font-bold text-seal-700">
                   {enabledKeywordGroupCount}
-                  <span className="text-sm font-normal text-seal-400 ml-1">/ {keywordGroups.length}</span>
+                  <span className="ml-1 text-ui-2xs font-normal text-seal-400">/ {keywordGroups.length}</span>
                 </div>
               </div>
-              <div className="p-3 bg-emerald-50 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Newspaper className="w-4 h-4 text-emerald-600" />
-                  <span className="text-xs text-emerald-600 font-medium">追踪期刊</span>
+              <div className="rounded-lg bg-emerald-50 p-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Newspaper className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="text-ui-2xs font-medium text-emerald-600">追踪期刊</span>
                 </div>
-                <div className="mt-1 text-2xl font-bold text-emerald-700">
+                <div className="mt-0.5 text-lg font-bold text-emerald-700">
                   {enabledJournalCount}
-                  <span className="text-sm font-normal text-emerald-400 ml-1">/ {journals.length}</span>
+                  <span className="ml-1 text-ui-2xs font-normal text-emerald-400">/ {journals.length}</span>
                 </div>
               </div>
             </div>
-
-            {/* 追踪源统计 */}
-            <div className="grid grid-cols-4 gap-3 text-center">
+            <div className="mt-2 grid grid-cols-4 gap-1.5 text-center">
               {TRACKING_SOURCES.map((label) => {
                 const count = sourceCount(label)
                 return (
-                  <div key={label} className="p-3 bg-paper-100 rounded-lg">
-                    <div className={`text-lg font-bold ${count > 0 ? 'text-ink-700' : 'text-ink-300'}`}>
-                      {count}
-                    </div>
-                    <div className="text-xs text-ink-500">{label}</div>
+                  <div key={label} className="rounded-lg bg-paper-100 p-1.5">
+                    <div className={`text-sm font-bold ${count > 0 ? 'text-ink-700' : 'text-ink-300'}`}>{count}</div>
+                    <div className="text-ui-2xs text-ink-500">{label}</div>
                   </div>
                 )
               })}
             </div>
           </div>
 
-          {/* ---------- 学术搜索框 ---------- */}
-          <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
-            <h2 className="font-semibold text-ink-800 mb-4 flex items-center gap-2">
-              <Globe className="w-5 h-5 text-seal-600" />
-              学术搜索
-            </h2>
-            <div className="flex gap-2" ref={searchDropdownRef}>
-              {/* 搜索源选择下拉 */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowSearchDropdown(!showSearchDropdown)}
-                  className="flex items-center gap-2 px-3 py-2 border border-ink-300 rounded-lg text-sm hover:border-seal-400 transition bg-paper-50"
-                >
-                  <div className={`w-7 h-7 rounded-md flex items-center justify-center ${selectedSearchSite?.color || 'bg-paper-100 text-ink-600'}`}>
-                    <Search className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-ink-700 max-w-24 truncate">{selectedSearchSite?.name}</span>
-                  <ChevronDown className="w-4 h-4 text-ink-400" />
-                </button>
+          {/* 可滚动功能列表：关键词组 / 期刊 / DOI 入库 / 搜索 */}
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            {/* ---------- 关键词组（可折叠） ---------- */}
+            <div className="rounded-lg border border-ink-200">
+              <button
+                onClick={() => setKeywordGroupsCollapsed(!keywordGroupsCollapsed)}
+                className="flex w-full items-center justify-between p-3 text-left transition hover:bg-paper-100"
+              >
+                <h3 className="flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
+                  <Tag className="h-3.5 w-3.5 text-seal-600" />
+                  关键词组
+                  <span className="font-normal text-ink-400">({keywordGroups.length})</span>
+                </h3>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openAddKeywordGroup()
+                    }}
+                    className="rounded p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                  {keywordGroupsCollapsed ? (
+                    <ChevronRight className="h-3.5 w-3.5 text-ink-400" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 text-ink-400" />
+                  )}
+                </div>
+              </button>
 
-                {showSearchDropdown && (
-                  <div className="absolute top-full left-0 mt-1 w-64 bg-paper-50 border border-ink-200 rounded-lg shadow-lg z-50 overflow-hidden">
-                    <div className="max-h-72 overflow-y-auto py-1">
-                      {searchSites.map((site) => (
-                        <button
-                          key={site.id}
-                          onClick={() => {
-                            setSelectedSearchSiteId(site.id)
-                            setShowSearchDropdown(false)
-                          }}
-                          className={`w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-paper-100 transition ${
-                            selectedSearchSiteId === site.id ? 'bg-seal-50 text-seal-700' : 'text-ink-700'
-                          }`}
+              {!keywordGroupsCollapsed && (
+                <div className="border-t border-ink-100 p-3">
+                  {keywordGroups.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-ink-200 py-4 text-center text-ui-2xs text-ink-400">
+                      尚未配置关键词组
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {keywordGroups.map((group) => (
+                        <div
+                          key={group.id}
+                          className={`rounded-lg border border-ink-200 p-2 transition ${group.enabled ? 'bg-paper-50' : 'bg-paper-100 opacity-60'}`}
                         >
-                          <div className={`w-7 h-7 rounded-md flex items-center justify-center ${site.color}`}>
-                            <Search className="w-3.5 h-3.5" />
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <button
+                                onClick={() => toggleKeywordGroup(group.id)}
+                                className={`relative h-4 w-7 flex-shrink-0 rounded-full transition ${group.enabled ? 'bg-seal-600' : 'bg-ink-300'}`}
+                              >
+                                <div
+                                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow transition-transform ${group.enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+                                />
+                              </button>
+                              <span className="truncate text-ui-xs font-medium text-ink-800">{group.name}</span>
+                            </div>
+                            <div className="flex flex-shrink-0 items-center gap-0.5">
+                              <button
+                                onClick={() => openEditKeywordGroup(group)}
+                                className="rounded p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteKeywordGroup(group.id)}
+                                className="rounded p-1 text-ink-400 transition hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
-                          <span className="flex-1 text-left truncate">{site.name}</span>
-                          {selectedSearchSiteId === site.id && (
-                            <CheckCircle2 className="w-4 h-4 text-seal-600" />
+                          {group.keywords.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1 pl-9">
+                              {group.keywords.slice(0, 4).map((kw, idx) => (
+                                <span key={idx} className="rounded-full bg-seal-50 px-1.5 py-0.5 text-ui-2xs text-seal-600">
+                                  {kw}
+                                </span>
+                              ))}
+                              {group.keywords.length > 4 && (
+                                <span className="rounded-full bg-ink-100 px-1.5 py-0.5 text-ui-2xs text-ink-500">
+                                  +{group.keywords.length - 4}
+                                </span>
+                              )}
+                            </div>
                           )}
-                        </button>
+                        </div>
                       ))}
                     </div>
-                    <div className="border-t border-ink-100 p-2">
-                      <button
-                        onClick={() => {
-                          setShowSearchDropdown(false)
-                          openAddSearchSite()
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-seal-600 hover:bg-seal-50 rounded-md transition"
-                      >
-                        <Settings className="w-4 h-4" />
-                        管理搜索源
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 搜索输入框 */}
-              <div className="flex-1 flex gap-2">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  placeholder="输入搜索关键词..."
-                  className="flex-1 px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-                />
-                <button
-                  onClick={handleSearch}
-                  className="flex items-center gap-2 px-4 py-2 bg-seal-600 text-paper-50 text-sm font-medium rounded-lg hover:bg-seal-700 transition"
-                >
-                  <Search className="w-4 h-4" />
-                  搜索
-                </button>
-              </div>
-            </div>
-            <p className="text-xs text-ink-400 mt-2">
-              提示：按 Enter 快速搜索，在新标签页打开结果
-            </p>
-          </div>
-
-          {/* ---------- 追踪结果 ---------- */}
-          <div className="bg-paper-50 rounded-xl border border-ink-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-ink-800 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-seal-600" />
-                追踪结果
-                {candidates.length > 0 && (
-                  <span className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
-                    {candidates.length} 篇待裁决
-                  </span>
-                )}
-              </h2>
-              {inbox.some((r) => r.status === 'dismissed') && (
-                <span className="text-xs text-ink-400">
-                  已忽略 {inbox.filter((r) => r.status === 'dismissed').length} 篇（不再重复出现）
-                </span>
+                  )}
+                </div>
               )}
             </div>
 
-            {candidates.length === 0 ? (
-              <div className="text-center py-12 text-ink-400">
-                <Rss className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm font-medium">暂无待裁决的文献</p>
-                <p className="text-xs mt-1">点「立即追踪」，或等每天自动追踪把命中的文献放进候选</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {candidates.map((paper) => (
-                  <div
-                    key={paper.doi}
-                    className="p-4 border border-ink-200 rounded-lg hover:border-seal-200 hover:bg-seal-50/30 transition"
+            {/* ---------- 期刊追踪（可折叠） ---------- */}
+            <div className="rounded-lg border border-ink-200">
+              <button
+                onClick={() => setJournalsCollapsed(!journalsCollapsed)}
+                className="flex w-full items-center justify-between p-3 text-left transition hover:bg-paper-100"
+              >
+                <h3 className="flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
+                  <BookMarked className="h-3.5 w-3.5 text-seal-600" />
+                  期刊追踪
+                  <span className="font-normal text-ink-400">({journals.length})</span>
+                </h3>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openAddJournal()
+                    }}
+                    className="rounded p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-ink-800 text-sm leading-snug mb-2">
-                          {paper.title || '(无标题)'}
-                        </h3>
-                        <p className="text-xs text-ink-500 mb-1.5">
-                          {paper.authors}
-                        </p>
-                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-ink-400">
-                          {paper.year > 0 && <span>{paper.year}</span>}
-                          {paper.journal && (
-                            <>
-                              <span className="text-ink-300">·</span>
-                              <span className="text-seal-600">{paper.journal}</span>
-                            </>
-                          )}
-                          {paper.doi && (
-                            <>
-                              <span className="text-ink-300">·</span>
-                              <DoiLink doi={paper.doi} mode="label" showIcon className="text-xs inline-flex items-center gap-0.5" />
-                            </>
-                          )}
-                          {paper.source && (
-                            <>
-                              <span className="text-ink-300">·</span>
-                              <span className="px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded">
-                                {paper.source}
-                              </span>
-                            </>
-                          )}
-                          {paper.trackingGroup && (
-                            <>
-                              <span className="text-ink-300">·</span>
-                              <span className="text-ink-400">来自「{paper.trackingGroup}」</span>
-                            </>
-                          )}
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                  {journalsCollapsed ? (
+                    <ChevronRight className="h-3.5 w-3.5 text-ink-400" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 text-ink-400" />
+                  )}
+                </div>
+              </button>
+
+              {!journalsCollapsed && (
+                <div className="border-t border-ink-100 p-3">
+                  {journals.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-ink-200 py-4 text-center text-ui-2xs text-ink-400">
+                      尚未添加期刊
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {journals.map((journal) => (
+                        <div
+                          key={journal.id}
+                          className={`flex items-center justify-between gap-2 rounded-lg p-2 transition hover:bg-paper-100 ${journal.enabled ? '' : 'opacity-60'}`}
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <button
+                              onClick={() => toggleJournal(journal.id)}
+                              className={`relative h-4 w-7 flex-shrink-0 rounded-full transition ${journal.enabled ? 'bg-seal-600' : 'bg-ink-300'}`}
+                            >
+                              <div
+                                className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow transition-transform ${journal.enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+                              />
+                            </button>
+                            <div className="min-w-0">
+                              <div className="truncate text-ui-xs font-medium text-ink-800">{journal.name}</div>
+                              {journal.issn && <div className="text-ui-2xs text-ink-400">{journal.issn}</div>}
+                            </div>
+                          </div>
+                          <div className="flex flex-shrink-0 items-center gap-0.5">
+                            <button
+                              onClick={() => openEditJournal(journal)}
+                              className="rounded p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteJournal(journal.id)}
+                              className="rounded p-1 text-ink-400 transition hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ---------- DOI 入库 ---------- */}
+            <div className="rounded-lg border border-ink-200 p-3">
+              <h3 className="mb-2 flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
+                <Plus className="h-3.5 w-3.5 text-seal-600" />
+                DOI 入库
+              </h3>
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={doiInput}
+                  onChange={(e) => setDoiInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddByDoi()}
+                  placeholder="输入 DOI 或 DOI 链接..."
+                  className="w-full rounded-lg border border-ink-300 px-3 py-2 text-ui-xs focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                />
+                <button
+                  onClick={handleAddByDoi}
+                  disabled={isAdding || !doiInput.trim()}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-seal-600 px-3 py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
+                >
+                  {isAdding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  通过 DOI 入库
+                </button>
+              </div>
+              <p className="mt-1.5 text-ui-2xs text-ink-400">支持 doi:10.xxx、https://doi.org/10.xxx 等格式</p>
+            </div>
+
+            {/* ---------- 学术搜索 ---------- */}
+            <div className="rounded-lg border border-ink-200 p-3">
+              <h3 className="mb-2 flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
+                <Globe className="h-3.5 w-3.5 text-seal-600" />
+                学术搜索
+              </h3>
+              <div className="space-y-2" ref={searchDropdownRef}>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowSearchDropdown(!showSearchDropdown)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-ink-300 px-3 py-2 text-ui-xs transition hover:border-seal-400"
+                  >
+                    <div className={`flex h-6 w-6 items-center justify-center rounded-md ${selectedSearchSite?.color || 'bg-paper-100 text-ink-600'}`}>
+                      <Search className="h-3 w-3" />
+                    </div>
+                    <span className="flex-1 truncate text-left text-ink-700">{selectedSearchSite?.name}</span>
+                    <ChevronDown className="h-3.5 w-3.5 text-ink-400" />
+                  </button>
+                  {showSearchDropdown && (
+                    <div className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-lg border border-ink-200 bg-paper-50 shadow-lg">
+                      <div className="max-h-72 overflow-y-auto py-1">
+                        {searchSites.map((site) => (
+                          <button
+                            key={site.id}
+                            onClick={() => {
+                              setSelectedSearchSiteId(site.id)
+                              setShowSearchDropdown(false)
+                            }}
+                            className={`flex w-full items-center gap-3 px-3 py-2 text-ui-xs transition hover:bg-paper-100 ${selectedSearchSiteId === site.id ? 'bg-seal-50 text-seal-700' : 'text-ink-700'}`}
+                          >
+                            <div className={`flex h-6 w-6 items-center justify-center rounded-md ${site.color}`}>
+                              <Search className="h-3 w-3" />
+                            </div>
+                            <span className="flex-1 truncate text-left">{site.name}</span>
+                            {selectedSearchSiteId === site.id && <CheckCircle2 className="h-3.5 w-3.5 text-seal-600" />}
+                          </button>
+                        ))}
                       </div>
-                      <div className="flex-shrink-0 flex items-center gap-2">
+                      <div className="border-t border-ink-100 p-2">
                         <button
-                          onClick={() => handleDismissCandidate(paper)}
-                          title="忽略这篇"
-                          className="flex items-center gap-1.5 px-3 py-1.5 border border-ink-200 text-ink-500 text-xs font-medium rounded-lg hover:bg-ink-100 transition"
+                          onClick={() => {
+                            setShowSearchDropdown(false)
+                            openAddSearchSite()
+                          }}
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-ui-xs text-seal-600 transition hover:bg-seal-50"
                         >
-                          <X className="w-3.5 h-3.5" />
-                          忽略
-                        </button>
-                        <button
-                          onClick={() => handleIngestCandidate(paper)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-seal-600 text-paper-50 text-xs font-medium rounded-lg hover:bg-seal-700 transition"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          入库
+                          <Settings className="h-3.5 w-3.5" />
+                          管理搜索源
                         </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    placeholder="输入搜索关键词..."
+                    className="min-w-0 flex-1 rounded-lg border border-ink-300 px-3 py-2 text-ui-xs focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  />
+                  <button
+                    onClick={handleSearch}
+                    className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-3 py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    搜索
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* ============================================================ */}
-        {/* 右侧（1/3 宽度）：快速入库 + 关键词组 + 期刊追踪 */}
-        {/* ============================================================ */}
-        <div className="space-y-6">
-          {/* ---------- 快速入库 ---------- */}
-          <div className="bg-paper-50 rounded-xl border border-ink-200 p-5">
-            <h3 className="font-semibold text-ink-800 text-sm mb-3 flex items-center gap-2">
-              <Plus className="w-4 h-4 text-seal-600" />
-              快速入库
-            </h3>
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={doiInput}
-                onChange={(e) => setDoiInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddByDoi()}
-                placeholder="输入 DOI 或 DOI 链接..."
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-              />
-              <button
-                onClick={handleAddByDoi}
-                disabled={isAdding || !doiInput.trim()}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 disabled:opacity-50 transition"
-              >
-                {isAdding ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4" />
-                )}
-                通过 DOI 入库
-              </button>
             </div>
-            <p className="text-xs text-ink-400 mt-2">
-              支持 doi:10.xxx、https://doi.org/10.xxx 等格式
-            </p>
           </div>
+        </section>
 
-          {/* ---------- 关键词组（可折叠） ---------- */}
-          <div className="bg-paper-50 rounded-xl border border-ink-200 overflow-hidden">
-            <button
-              onClick={() => setKeywordGroupsCollapsed(!keywordGroupsCollapsed)}
-              className="w-full flex items-center justify-between p-5 hover:bg-paper-100 transition"
-            >
-              <h3 className="font-semibold text-ink-800 text-sm flex items-center gap-2">
-                <Tag className="w-4 h-4 text-seal-600" />
-                关键词组
-                <span className="text-xs font-normal text-ink-400">
-                  ({keywordGroups.length})
-                </span>
-              </h3>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openAddKeywordGroup()
-                  }}
-                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-                {keywordGroupsCollapsed ? (
-                  <ChevronRight className="w-4 h-4 text-ink-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-ink-400" />
-                )}
+        {/* ============================================================ */}
+        {/* 中②（2）：待入库 —— 筛出来的候选；入库 / 删除后消失；越新越上，最多堆一个月 */}
+        {/* ============================================================ */}
+        <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50 lg:min-h-0">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-ink-100 px-4 py-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-800">
+              <Rss className="h-4 w-4 text-seal-600" />
+              待入库
+              {pendingList.length > 0 && (
+                <span className="rounded bg-seal-50 px-1.5 py-0.5 text-ui-xs text-seal-600">{pendingList.length}</span>
+              )}
+            </h2>
+            {staleCandidateCount > 0 && (
+              <span className="text-ui-2xs text-ink-400">另有 {staleCandidateCount} 篇超期隐藏</span>
+            )}
+          </div>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+            {pendingList.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center py-12 text-ink-400">
+                <Rss className="mb-3 h-10 w-10 opacity-30" />
+                <p className="text-ui-xs font-medium">暂无待入库的文献</p>
+                <p className="mt-1 px-6 text-center text-ui-2xs">点「立即追踪」，或等每天自动追踪把命中的文献放进候选</p>
               </div>
-            </button>
-
-            {!keywordGroupsCollapsed && (
-              <div className="px-5 pb-5 border-t border-ink-100">
-                {keywordGroups.length === 0 ? (
-                  <div className="text-center py-6 text-ink-400">
-                    <Tag className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-xs">尚未配置关键词组</p>
-                    <button
-                      onClick={openAddKeywordGroup}
-                      className="mt-2 text-xs text-seal-600 hover:underline"
-                    >
-                      立即添加
-                    </button>
+            ) : (
+              pendingList.map((paper) => (
+                <article
+                  key={paper.doi}
+                  className="rounded-lg border border-ink-200 p-3 transition hover:border-seal-200 hover:bg-seal-50/30"
+                >
+                  <h3 className="text-ui-sm font-medium leading-snug text-ink-800">{paper.title || '(无标题)'}</h3>
+                  {paper.authors && <p className="mt-1 text-ui-xs text-ink-500">{paper.authors}</p>}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-ui-2xs text-ink-400">
+                    {paper.year > 0 && <span>{paper.year}</span>}
+                    {paper.journal && <span className="text-seal-600">{paper.journal}</span>}
+                    {paper.source && <span className="rounded bg-ink-100 px-1.5 py-0.5 text-ink-500">{paper.source}</span>}
+                    {paper.trackingGroup && <span>来自「{paper.trackingGroup}」</span>}
                   </div>
-                ) : (
-                  <div className="space-y-2 mt-3 max-h-80 overflow-y-auto">
-                    {keywordGroups.map((group) => (
-                      <div
-                        key={group.id}
-                        className={`p-3 border rounded-lg transition ${
-                          group.enabled
-                            ? 'border-ink-200 bg-paper-50'
-                            : 'border-ink-200 bg-paper-100 opacity-60'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <button
-                              onClick={() => toggleKeywordGroup(group.id)}
-                              className={`w-8 h-4.5 rounded-full transition relative flex-shrink-0 ${
-                                group.enabled ? 'bg-seal-600' : 'bg-ink-300'
-                              }`}
-                            >
-                              <div
-                                className={`absolute top-0.5 w-3.5 h-3.5 bg-paper-50 rounded-full shadow transition-transform ${
-                                  group.enabled ? 'translate-x-4' : 'translate-x-0.5'
-                                }`}
-                              />
-                            </button>
-                            <span className="font-medium text-sm text-ink-800 truncate">
-                              {group.name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-0.5 flex-shrink-0">
-                            <button
-                              onClick={() => openEditKeywordGroup(group)}
-                              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteKeywordGroup(group.id)}
-                              className="p-1 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1 ml-10">
-                          {group.keywords.slice(0, 5).map((kw, idx) => (
-                            <span
-                              key={idx}
-                              className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded-full"
-                            >
-                              {kw}
-                            </span>
-                          ))}
-                          {group.keywords.length > 5 && (
-                            <span className="px-1.5 py-0.5 bg-ink-100 text-ink-500 text-xs rounded-full">
-                              +{group.keywords.length - 5}
-                            </span>
+
+                  {paper.abstractEn && (
+                    <div className="mt-2 rounded-lg bg-paper-100/60 p-2.5">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-ui-2xs font-medium text-ink-500">
+                          {translatedAbstracts[paper.doi] ? '中文摘要' : '摘要（EN）'}
+                        </span>
+                        <button
+                          onClick={() => handleTranslateAbstract(paper)}
+                          disabled={translatingDoi === paper.doi}
+                          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-ui-2xs text-seal-600 transition hover:bg-seal-50 disabled:opacity-50"
+                        >
+                          {translatingDoi === paper.doi ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Languages className="h-3 w-3" />
                           )}
-                        </div>
+                          {translatedAbstracts[paper.doi] ? '看原文' : '译为中文'}
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                      <p className="text-ui-xs leading-relaxed text-ink-600">
+                        {translatedAbstracts[paper.doi] || paper.abstractEn}
+                      </p>
+                    </div>
+                  )}
 
-          {/* ---------- 期刊追踪（可折叠） ---------- */}
-          <div className="bg-paper-50 rounded-xl border border-ink-200 overflow-hidden">
-            <button
-              onClick={() => setJournalsCollapsed(!journalsCollapsed)}
-              className="w-full flex items-center justify-between p-5 hover:bg-paper-100 transition"
-            >
-              <h3 className="font-semibold text-ink-800 text-sm flex items-center gap-2">
-                <BookMarked className="w-4 h-4 text-seal-600" />
-                期刊追踪
-                <span className="text-xs font-normal text-ink-400">
-                  ({journals.length})
-                </span>
-              </h3>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openAddJournal()
-                  }}
-                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-                {journalsCollapsed ? (
-                  <ChevronRight className="w-4 h-4 text-ink-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-ink-400" />
-                )}
-              </div>
-            </button>
-
-            {!journalsCollapsed && (
-              <div className="px-5 pb-5 border-t border-ink-100">
-                {journals.length === 0 ? (
-                  <div className="text-center py-6 text-ink-400">
-                    <Newspaper className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-xs">尚未添加期刊</p>
+                  <div className="mt-2.5 flex items-center justify-end gap-2">
+                    {paper.doi && (
+                      <DoiLink doi={paper.doi} mode="label" showIcon className="mr-auto inline-flex items-center gap-0.5 text-ui-2xs" />
+                    )}
                     <button
-                      onClick={openAddJournal}
-                      className="mt-2 text-xs text-seal-600 hover:underline"
+                      onClick={() => handleDismissCandidate(paper)}
+                      title="删除这篇（不再出现）"
+                      className="flex items-center gap-1.5 rounded-lg border border-ink-200 px-2.5 py-1.5 text-ui-xs font-medium text-ink-500 transition hover:bg-ink-100"
                     >
-                      立即添加
+                      <X className="h-3.5 w-3.5" />
+                      删除
+                    </button>
+                    <button
+                      onClick={() => handleIngestCandidate(paper)}
+                      className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-2.5 py-1.5 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      入库
                     </button>
                   </div>
-                ) : (
-                  <div className="space-y-1.5 mt-3 max-h-80 overflow-y-auto">
-                    {journals.map((journal) => (
-                      <div
-                        key={journal.id}
-                        className={`flex items-center justify-between p-2.5 rounded-lg transition ${
-                          journal.enabled
-                            ? 'hover:bg-paper-100'
-                            : 'opacity-60 hover:bg-paper-100'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <button
-                            onClick={() => toggleJournal(journal.id)}
-                            className={`w-8 h-4.5 rounded-full transition relative flex-shrink-0 ${
-                              journal.enabled ? 'bg-seal-600' : 'bg-ink-300'
-                            }`}
-                          >
-                            <div
-                              className={`absolute top-0.5 w-3.5 h-3.5 bg-paper-50 rounded-full shadow transition-transform ${
-                                journal.enabled ? 'translate-x-4' : 'translate-x-0.5'
-                              }`}
-                            />
-                          </button>
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm text-ink-800 truncate">
-                              {journal.name}
-                            </div>
-                            {journal.issn && (
-                              <div className="text-xs text-ink-400">{journal.issn}</div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-0.5 flex-shrink-0">
-                          <button
-                            onClick={() => openEditJournal(journal)}
-                            className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteJournal(journal.id)}
-                            className="p-1 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                </article>
+              ))
             )}
           </div>
-        </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/* 右②（2）：已入库但还没传 PDF —— 催你尽快把 PDF 找进来；越旧越上 */}
+        {/* ============================================================ */}
+        <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50 lg:min-h-0">
+          <div className="shrink-0 border-b border-ink-100 px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-800">
+                <FileText className="h-4 w-4 text-seal-600" />
+                待补 PDF
+                {libraryPendingPdf.length > 0 && (
+                  <span className="rounded bg-orange-50 px-1.5 py-0.5 text-ui-xs text-orange-600">{libraryPendingPdf.length}</span>
+                )}
+              </h2>
+              {selectedLibraryDois.length > 0 && (
+                <button
+                  onClick={handleBatchOpenDoi}
+                  className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-2.5 py-1.5 text-ui-2xs font-medium text-paper-50 transition hover:bg-seal-700"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  打开 DOI（{selectedLibraryDois.length}）
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-ui-2xs text-ink-400">决定要读的，就赶紧把 PDF 找进来，别拖着</p>
+          </div>
+          <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
+            {libraryPendingPdf.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center py-12 text-ink-400">
+                <CheckCircle2 className="mb-3 h-10 w-10 opacity-30" />
+                <p className="text-ui-xs font-medium">都补上 PDF 了，没有拖欠</p>
+              </div>
+            ) : (
+              libraryPendingPdf.map((lit) => (
+                <div
+                  key={lit.doi}
+                  className="flex items-center gap-2 rounded-lg border border-ink-200 p-2.5 transition hover:border-seal-200"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedLibraryDois.includes(lit.doi)}
+                    onChange={() => toggleLibrarySelect(lit.doi)}
+                    className="h-3.5 w-3.5 flex-shrink-0 accent-seal-600"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-ui-xs text-ink-800" title={lit.title}>
+                    {lit.title || '(无标题)'}
+                  </span>
+                  {lit.doi && (
+                    <DoiLink doi={lit.doi} mode="label" showIcon className="flex-shrink-0 text-ui-2xs" />
+                  )}
+                  <button
+                    onClick={() => handleUploadPdf(lit)}
+                    disabled={pdfUploadingDoi === lit.doi}
+                    title="上传 PDF"
+                    className="flex-shrink-0 rounded p-1.5 text-ink-500 transition hover:bg-seal-50 hover:text-seal-600 disabled:opacity-50"
+                  >
+                    {pdfUploadingDoi === lit.doi ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleUndoIngest(lit)}
+                    title="撤销入库（从文献库移除）"
+                    className="flex-shrink-0 rounded p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={onPdfFileChange}
+          />
+        </section>
       </div>
 
       {/* ============================================================ */}
