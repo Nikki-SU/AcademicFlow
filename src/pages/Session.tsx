@@ -123,23 +123,27 @@ export default function SessionPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper-100">
-      {/* 页头：命名随当前任务 type 走 */}
-      <header className="flex shrink-0 items-center gap-2 border-b border-ink-200 bg-paper-50 px-4 py-2.5">
-        <Mic className="h-4 w-4 text-seal-600" />
-        <h1 className="text-sm font-semibold text-ink-800">{label}</h1>
-        <span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10px] text-ink-500">{kindText}</span>
+      {/* 页头：命名随当前任务 type 走；高度与下面三块面板页头同取 --ui-header */}
+      <header className="flex h-ui-header shrink-0 items-center gap-ui-gap-sm border-b border-ink-200 bg-paper-50 px-ui-gap">
+        <Mic className="h-ui-icon w-ui-icon shrink-0 text-seal-600" />
+        <h1 className="shrink-0 text-ui-sm font-semibold text-ink-800">{label}</h1>
+        <span className="shrink-0 rounded-control-sm bg-ink-100 px-1.5 py-0.5 text-ui-2xs text-ink-500">
+          {kindText}
+        </span>
         {current && (
-          <span className="ml-2 min-w-0 truncate text-xs text-ink-500">{current.title || '(未命名任务)'}</span>
+          <span className="min-w-0 truncate text-ui-2xs text-ink-500">{current.title || '(未命名任务)'}</span>
         )}
-        <span className="ml-auto shrink-0 text-xs text-ink-400">{hint}</span>
+        <span className="ml-auto shrink-0 text-ui-2xs text-ink-400">{hint}</span>
       </header>
 
-      {/* 三栏默认 1:3:1，拖中缝可在 1:3:1 / 1:2:2 / 1:1:3 间切换；窄屏塌成三行堆叠 */}
+      {/* 三栏默认 1:3:1，拖中缝可在 1:3:1 / 1:2:2 / 1:1:3 间切换；窄屏塌成三行堆叠。
+          栅格**只有三列、等 gap**——拖动柄是叠加在缝隙上的绝对定位层（不占栏位），
+          所以左↔中、中↔右的留白严格相等，最左栏与最右栏视觉对称。 */}
       <div
         ref={sessionGridRef}
-        className="min-h-0 flex-1 grid grid-cols-[var(--session-cols)] grid-rows-[minmax(0,1fr)] gap-3 p-3 overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[repeat(3,minmax(0,1fr))]"
+        className="relative min-h-0 flex-1 grid grid-cols-[var(--session-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap p-ui-gap overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[repeat(3,minmax(0,1fr))]"
         style={{
-          '--session-cols': `minmax(0, 1fr) minmax(0, ${4 - rightFr}fr) 0.375rem minmax(0, ${rightFr}fr)`,
+          '--session-cols': `minmax(0, 1fr) minmax(0, ${4 - rightFr}fr) minmax(0, ${rightFr}fr)`,
         } as CSSProperties}
       >
         <div className="min-w-0">
@@ -151,18 +155,25 @@ export default function SessionPage() {
           />
         </div>
 
-        <div className="min-w-0">
+        <div className="relative min-w-0">
           <SessionTranscript taskId={currentProjectId} />
-        </div>
 
-        {/* 中缝拖动柄：宽屏专用；左右拉在中、右两栏之间切换比例 */}
-        <div
-          className={`hidden min-[1101px]:flex items-center justify-center cursor-col-resize bg-ink-100 hover:bg-seal-100 transition-colors z-10 ${
-            isDragging ? 'bg-seal-200' : ''
-          }`}
-          onMouseDown={handleDividerDown}
-        >
-          <GripVertical className="h-3 w-3 text-ink-400" />
+          {/* 中缝拖动柄：**叠加**在「中↔右」的缝隙上（不再单独占一条栅格轨），
+              全高可拖（按住从上到下任意位置都能拖），圆心落在缝正中 → 左右留白对称。
+              宽屏专用，窄屏抽屉模式隐藏。 */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="拖动调整中右两栏比例"
+            onMouseDown={handleDividerDown}
+            className={`absolute inset-y-0 z-10 hidden w-2 translate-x-1/2 cursor-col-resize touch-none items-center justify-center transition-colors min-[1101px]:flex ${
+              isDragging ? 'bg-seal-200/60' : 'hover:bg-seal-200/50'
+            }`}
+            style={{ right: 'calc(var(--ui-gap) / -2)' }}
+          >
+            <span className="h-full w-px bg-ink-200" />
+            <GripVertical className="absolute h-3 w-3 text-ink-400" />
+          </div>
         </div>
 
         <div className="min-w-0">

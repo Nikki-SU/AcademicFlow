@@ -45,6 +45,20 @@ export default {
         'ui-icon-sm': 'var(--ui-icon-sm)',
         'ui-dot': 'var(--ui-dot)',
         'ui-lane': 'var(--ui-lane)',
+        /* 面板页头固定高度：三栏面板的横线靠它对齐（唯一来源） */
+        'ui-header': 'var(--ui-header)',
+      },
+      /*
+       * 圆角：全站只认这三档，杜绝各处即兴写 rounded-lg / md / xl 造成参差。
+       *   card        面板 / 卡片 / 弹窗外壳
+       *   control     按钮 / 输入框 / 页签外层
+       *   control-sm  段控件内层按钮（比外壳小一档，同视觉圆心）
+       * 默认档（none/sm/DEFAULT/md/lg/xl/2xl/3xl/full）仍在，但界面组件一律用上面三档。
+       */
+      borderRadius: {
+        card: '0.75rem',
+        control: '0.5rem',
+        'control-sm': '0.375rem',
       },
       /*
        * 全站多栏比例模板（唯一来源）

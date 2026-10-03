@@ -19,6 +19,8 @@ import {
 } from '../../services/sessionData'
 import { polishTranscript, type TranscriptBlock } from '../../services/asr'
 import TranscriptEditor from './TranscriptEditor'
+import { Panel, PanelHeader, PanelBody, EmptyState } from '../ui/Panel'
+import Button from '../ui/Button'
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
@@ -172,84 +174,77 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
   const elapsed = startedAt ? now - startedAt : 0
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
-      <div className="flex items-center justify-between gap-2 border-b border-ink-100 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <Mic className="h-4 w-4 text-seal-600" />
-          <h2 className="text-sm font-semibold text-ink-800">录音 / 转写</h2>
-          {isRecording && (
-            <span className="font-mono text-xs tabular-nums text-red-600">{formatElapsed(elapsed)}</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {/* 有原始转写且非录音态 → 提供「AI 修饰 / 重新修饰」 */}
-          {isIdle && sessionId && lastText && (
-            <button
-              type="button"
-              onClick={handlePolish}
-              disabled={polishing}
-              title={blocks ? '重新修饰（覆盖当前修饰稿）' : '把口语化转写整理成分段书面稿'}
-              className="flex items-center gap-1.5 rounded-lg border border-seal-300 px-2.5 py-1.5 text-xs font-medium text-seal-700 transition hover:bg-seal-50 disabled:opacity-60"
-            >
-              {polishing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {polishing ? '修饰中…' : blocks ? '重新修饰' : 'AI 修饰'}
-            </button>
-          )}
-          {/* 有修饰稿 → 可切看原始转写 */}
-          {isIdle && blocks && (
-            <button
-              type="button"
-              onClick={() => setShowRaw((v) => !v)}
-              title={showRaw ? '回到修饰稿' : '查看原始转写'}
-              className="rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-100 hover:text-ink-700"
-            >
-              {showRaw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          )}
-          {isRecording || isBusy ? (
-            <button
-              type="button"
-              onClick={stop}
-              disabled={isBusy}
-              className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-3 py-1.5 text-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-60"
-            >
-              {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-              {isBusy ? '保存中…' : '停止并保存'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleStart}
-              className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-3 py-1.5 text-xs font-medium text-paper-50 transition hover:bg-seal-700"
-            >
-              <Mic className="h-3.5 w-3.5" />
-              开始录音
-            </button>
-          )}
-        </div>
-      </div>
+    <Panel>
+      <PanelHeader
+        icon={<Mic />}
+        title="录音 / 转写"
+        meta={
+          isRecording ? (
+            <span className="font-mono tabular-nums text-red-600">{formatElapsed(elapsed)}</span>
+          ) : undefined
+        }
+        actions={
+          <>
+            {/* 有原始转写且非录音态 → 提供「AI 修饰 / 重新修饰」 */}
+            {isIdle && sessionId && lastText && (
+              <Button
+                variant="accent"
+                size="sm"
+                onClick={handlePolish}
+                disabled={polishing}
+                title={blocks ? '重新修饰（覆盖当前修饰稿）' : '把口语化转写整理成分段书面稿'}
+                icon={polishing ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              >
+                {polishing ? '修饰中…' : blocks ? '重新修饰' : 'AI 修饰'}
+              </Button>
+            )}
+            {/* 有修饰稿 → 可切看原始转写 */}
+            {isIdle && blocks && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setShowRaw((v) => !v)}
+                title={showRaw ? '回到修饰稿' : '查看原始转写'}
+              >
+                {showRaw ? <EyeOff /> : <Eye />}
+              </Button>
+            )}
+            {isRecording || isBusy ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={stop}
+                disabled={isBusy}
+                icon={isBusy ? <Loader2 className="animate-spin" /> : <Square />}
+              >
+                {isBusy ? '保存中…' : '停止并保存'}
+              </Button>
+            ) : (
+              <Button variant="primary" size="sm" onClick={handleStart} icon={<Mic />}>
+                开始录音
+              </Button>
+            )}
+          </>
+        }
+      />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <PanelBody>
         {isRecording ? (
           segments.length === 0 ? (
-            <p className="py-10 text-center text-sm text-ink-400">正在录音…每 10 秒回一片转写</p>
+            <p className="py-10 text-center text-ui-sm text-ink-400">正在录音…每 10 秒回一片转写</p>
           ) : (
             <ul className="space-y-3">
               {segments.map((seg) => (
                 <li key={seg.id} className="border-b border-ink-100 pb-3 last:border-0">
-                  <div className="flex items-center gap-2 text-[11px]">
+                  <div className="flex items-center gap-ui-gap-sm text-ui-2xs">
                     <span className="font-mono text-ink-400">{formatClock(seg.at)}</span>
-                    <span className="rounded bg-seal-50 px-1.5 py-0.5 text-[10px] font-medium text-seal-700">
+                    <span className="rounded-control-sm bg-seal-50 px-1.5 py-0.5 font-medium text-seal-700">
                       {langLabel(seg.language)}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm leading-relaxed text-ink-800">{seg.text}</p>
+                  <p className="mt-1 text-ui-sm leading-relaxed text-ink-800">{seg.text}</p>
                   {seg.translation && (
-                    <p className="mt-1.5 border-l-2 border-seal-300 bg-seal-50/30 py-1 pl-3 pr-2 text-sm leading-relaxed text-ink-700">
+                    <p className="mt-1.5 border-l-2 border-seal-300 bg-seal-50/30 py-1 pl-3 pr-2 text-ui-sm leading-relaxed text-ink-700">
                       {seg.translation}
                     </p>
                   )}
@@ -258,43 +253,41 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
             </ul>
           )
         ) : lastLoading ? (
-          <p className="py-10 text-center text-sm text-ink-400">加载最近一次会话…</p>
+          <p className="py-10 text-center text-ui-sm text-ink-400">加载最近一次会话…</p>
         ) : !lastContent ? (
-          <div className="py-10 text-center">
-            <Mic className="mx-auto h-6 w-6 text-ink-300" />
-            <p className="mt-2 text-sm text-ink-400">还没有转写记录</p>
-            <p className="mt-1 text-xs text-ink-400">
-              点「开始录音」，或从右下角悬浮球开录（需先在设置里配好 Key）
-            </p>
-          </div>
+          <EmptyState
+            icon={<Mic />}
+            title="还没有转写记录"
+            hint="点「开始录音」，或从右下角悬浮球开录（需先在设置里配好 Key）"
+          />
         ) : showRaw ? (
           <div>
-            <div className="mb-2 flex items-center gap-1.5 text-xs text-ink-500">
-              <FileText className="h-3.5 w-3.5" />
+            <div className="mb-2 flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
+              <FileText className="h-ui-icon-sm w-ui-icon-sm" />
               原始转写（只读）
             </div>
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-ink-700">
+            <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
               {lastContent}
             </pre>
           </div>
         ) : blocks ? (
           <div>
-            <div className="mb-2 flex items-center gap-1.5 text-xs text-ink-500">
-              <Sparkles className="h-3.5 w-3.5" />
+            <div className="mb-2 flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
+              <Sparkles className="h-ui-icon-sm w-ui-icon-sm" />
               转写稿（可拖拽 / 删除 / 合并 / 改字，自动保存）
             </div>
             <TranscriptEditor blocks={blocks} onChange={setBlocks} />
           </div>
         ) : (
           <div>
-            <div className="mb-2 flex items-center gap-1.5 text-xs text-ink-500">
-              <FileText className="h-3.5 w-3.5" />
+            <div className="mb-2 flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
+              <FileText className="h-ui-icon-sm w-ui-icon-sm" />
               最近一次会话（原始转写）
             </div>
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-ink-700">
+            <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
               {lastContent}
             </pre>
-            <div className="mt-4 rounded-lg border border-seal-200 bg-seal-50/50 p-3 text-xs text-ink-600">
+            <div className="mt-4 rounded-control border border-seal-200 bg-seal-50/50 p-3 text-ui-xs text-ink-600">
               这份是语音原话，还比较口语。点右上角
               <span className="mx-1 font-medium text-seal-700">「AI 修饰」</span>
               重新分段、去掉口头禅，整理成可用的书面转写稿。
@@ -303,9 +296,9 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
         )}
 
         {error && (
-          <p className="mt-3 rounded bg-red-50 px-2 py-1 text-xs text-red-600">{error}</p>
+          <p className="mt-3 rounded-control-sm bg-red-50 px-2 py-1 text-ui-xs text-red-600">{error}</p>
         )}
-      </div>
-    </section>
+      </PanelBody>
+    </Panel>
   )
 }

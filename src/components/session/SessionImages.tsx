@@ -24,6 +24,9 @@ import { forgetRepoImage, repoImageBlobUrl } from '../../services/editorImages'
 import { useSessionStore } from '../../stores/session'
 import { useSessionImagesStore } from '../../stores/sessionImages'
 import CameraCapture from '../CameraCapture'
+import { Panel, PanelHeader, PanelBody, EmptyState } from '../ui/Panel'
+import Button from '../ui/Button'
+import { UnderlineTabs } from '../ui/Tabs'
 
 /** 单个缩略图：自己负责把仓库路径换成可显示的 blob URL */
 function Thumb({ file, onDelete }: { file: SessionImageFile; onDelete: () => void }) {
@@ -40,7 +43,7 @@ function Thumb({ file, onDelete }: { file: SessionImageFile; onDelete: () => voi
   }, [file.path])
 
   return (
-    <div className="group relative overflow-hidden rounded-lg border border-ink-200 bg-paper-100">
+    <div className="group relative overflow-hidden rounded-control-sm border border-ink-200 bg-paper-100">
       {url ? (
         <img
           src={url}
@@ -51,16 +54,16 @@ function Thumb({ file, onDelete }: { file: SessionImageFile; onDelete: () => voi
         />
       ) : (
         <div className="flex h-24 items-center justify-center">
-          <ImageIcon className="h-5 w-5 text-ink-300" />
+          <ImageIcon className="h-ui-icon-sm w-ui-icon-sm text-ink-300" />
         </div>
       )}
       <button
         type="button"
         onClick={onDelete}
         title="删除这张图"
-        className="absolute right-1 top-1 rounded-md bg-ink-900/55 p-1 text-paper-50 opacity-0 transition group-hover:opacity-100 hover:bg-red-600"
+        className="absolute right-1 top-1 rounded-control-sm bg-ink-900/55 p-1 text-paper-50 opacity-0 transition group-hover:opacity-100 hover:bg-red-600"
       >
-        <Trash2 className="h-3.5 w-3.5" />
+        <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
       </button>
     </div>
   )
@@ -185,122 +188,111 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const busy = isUploading
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
-      <div className="flex items-center justify-between gap-2 border-b border-ink-100 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <ImageIcon className="h-4 w-4 text-seal-600" />
-          <h2 className="text-sm font-semibold text-ink-800">本节课照片</h2>
-          {images.length > 0 && <span className="text-[11px] text-ink-400">{images.length} 张</span>}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => (canUseCamera ? setCameraOpen(true) : inputRef.current?.click())}
-            disabled={!taskId || busy}
-            title={taskId ? '打开相机拍照' : '先选一个任务'}
-            className="flex items-center gap-1.5 rounded-lg border border-ink-200 px-2.5 py-1.5 text-xs font-medium text-ink-700 transition hover:bg-paper-100 disabled:opacity-60"
-          >
-            {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-            拍照
-          </button>
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={!taskId || busy}
-            title={taskId ? '选择图片文件' : '先选一个任务'}
-            className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-2.5 py-1.5 text-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-60"
-          >
-            <ImagePlus className="h-3.5 w-3.5" />
-            选择文件
-          </button>
-        </div>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => void handleFiles(e.target.files)}
-        />
-      </div>
+    <Panel>
+      <PanelHeader
+        icon={<ImageIcon />}
+        title="本节课照片"
+        meta={images.length > 0 ? `${images.length} 张` : undefined}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => (canUseCamera ? setCameraOpen(true) : inputRef.current?.click())}
+              disabled={!taskId || busy}
+              title={taskId ? '打开相机拍照' : '先选一个任务'}
+              icon={isUploading ? <Loader2 className="animate-spin" /> : <Camera />}
+            >
+              拍照
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => inputRef.current?.click()}
+              disabled={!taskId || busy}
+              title={taskId ? '选择图片文件' : '先选一个任务'}
+              icon={<ImagePlus />}
+            >
+              选择文件
+            </Button>
+          </>
+        }
+      />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => void handleFiles(e.target.files)}
+      />
 
-      {/* 两个页签：原始照片 / 识别合并后的 board.md */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-ink-100 px-2 pt-2">
-        <button
-          type="button"
-          onClick={() => setTab('photos')}
-          className={`rounded-t-md px-3 py-1.5 text-xs font-medium transition ${
-            tab === 'photos' ? 'bg-paper-100 text-ink-800' : 'text-ink-400 hover:text-ink-700'
-          }`}
-        >
-          照片
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('board')}
-          className={`flex items-center gap-1 rounded-t-md px-3 py-1.5 text-xs font-medium transition ${
-            tab === 'board' ? 'bg-paper-100 text-ink-800' : 'text-ink-400 hover:text-ink-700'
-          }`}
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          识别结果
-        </button>
-        <button
-          type="button"
-          onClick={() => void reload()}
-          disabled={!taskId || isLoading}
-          title="刷新"
-          className="ml-auto rounded-md p-1.5 text-ink-400 transition hover:bg-paper-100 hover:text-ink-700 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
+      {/* 两个页签：原始照片 / 识别合并后的 board.md；行尾刷新与页签同基线 */}
+      <UnderlineTabs
+        items={[
+          { id: 'photos', label: '照片' },
+          { id: 'board', label: '识别结果', icon: <Sparkles className="h-ui-icon-sm w-ui-icon-sm" /> },
+        ]}
+        value={tab}
+        onChange={setTab}
+        trailing={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => void reload()}
+            disabled={!taskId || isLoading}
+            title="刷新"
+          >
+            <RefreshCw className={isLoading ? 'animate-spin' : ''} />
+          </Button>
+        }
+      />
 
       {/* 识别状态条：识别中显示进度文案，失败显示原因 */}
       {(recognizing || recError) && (
         <div
-          className={`flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[11px] ${
+          className={`flex shrink-0 items-center gap-ui-gap-sm border-b border-ink-100 px-ui-gap py-1.5 text-ui-2xs ${
             recError ? 'bg-red-50 text-red-600' : 'bg-seal-50 text-seal-700'
           }`}
         >
-          {recognizing && <Loader2 className="h-3 w-3 animate-spin" />}
+          {recognizing && <Loader2 className="h-ui-icon-sm w-ui-icon-sm animate-spin" />}
           <span className="min-w-0 truncate">
             {recError ? `识别失败：${recError}` : recMessage || '识别中…'}
           </span>
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <PanelBody>
         {!taskId ? (
-          <p className="py-10 text-center text-sm text-ink-400">先选一个任务</p>
+          <EmptyState icon={<ImageIcon />} title="先选一个任务" />
         ) : tab === 'photos' ? (
           isLoading && images.length === 0 ? (
-            <p className="py-10 text-center text-sm text-ink-400">加载照片…</p>
+            <p className="py-10 text-center text-ui-sm text-ink-400">加载照片…</p>
           ) : images.length === 0 ? (
-            <div className="py-10 text-center">
-              <Camera className="mx-auto h-6 w-6 text-ink-300" />
-              <p className="mt-2 text-sm text-ink-400">还没有照片</p>
-              <p className="mt-1 text-xs text-ink-400">点「拍照」拍板书 / 幻灯片，拍完自动识别</p>
-            </div>
+            <EmptyState
+              icon={<Camera />}
+              title="还没有照片"
+              hint="点「拍照」拍板书 / 幻灯片，拍完自动识别"
+            />
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-ui-gap-sm">
               {images.map((file) => (
                 <Thumb key={file.path} file={file} onDelete={() => void handleDelete(file)} />
               ))}
             </div>
           )
         ) : board ? (
-          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-ink-700">
+          <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
             {board}
           </pre>
         ) : (
-          <div className="py-10 text-center">
-            <Sparkles className="mx-auto h-6 w-6 text-ink-300" />
-            <p className="mt-2 text-sm text-ink-400">还没有识别结果</p>
-            <p className="mt-1 text-xs text-ink-400">传上照片后会自动识别，合并成本节课的 board.md</p>
-          </div>
+          <EmptyState
+            icon={<Sparkles />}
+            title="还没有识别结果"
+            hint="传上照片后会自动识别，合并成本节课的 board.md"
+          />
         )}
-      </div>
+      </PanelBody>
 
       {/* 应用内相机：实时取景 + 快门，拍到即入本节课并触发识别 */}
       {cameraOpen && (
@@ -309,6 +301,6 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
           onClose={() => setCameraOpen(false)}
         />
       )}
-    </section>
+    </Panel>
   )
 }

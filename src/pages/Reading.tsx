@@ -2914,7 +2914,7 @@ export default function ReadingPage() {
     /*
      * 三栏用 Grid：
      *  - 默认比例 **1:3:1**（左 1 / 中 3 / 右 1），中栏最宽，适合精读
-     *  - 列宽由 --reader-cols 给（默认 `1fr 3fr 0.375rem 1fr`，中间那道 0.375rem 是拖动柄）
+     *  - 列宽由 --reader-cols 给（默认 `1fr 3fr 1fr`，**只有三列、等 gap**，不插拖动轨）
      *  - 拖中缝（GripVertical）可把右栏拉宽到 **1:2:2** —— 边读边看笔记时用
      *  - 中栏里的正文按 --reader-column 限宽：宽度取「中栏列宽」与 95ch 的较小值，
      *    所以中栏一变宽正文就跟着变宽（不是只把白卡拉大）
@@ -2928,29 +2928,29 @@ export default function ReadingPage() {
      */
     <div
       ref={readerGridRef}
-      className="h-full overflow-hidden bg-paper-100 grid grid-cols-[var(--reader-cols)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
+      className="relative h-full overflow-hidden bg-paper-100 grid grid-cols-[var(--reader-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap p-ui-gap max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)] max-[1100px]:gap-0 max-[1100px]:p-0"
       style={{
         fontSize: `${fontSize / 16}rem`,
-        '--reader-cols': `minmax(0, 1fr) minmax(0, ${4 - readerRightFr}fr) 0.375rem minmax(0, ${readerRightFr}fr)`,
+        '--reader-cols': `minmax(0, 1fr) minmax(0, ${4 - readerRightFr}fr) minmax(0, ${readerRightFr}fr)`,
       } as CSSProperties}
     >
       {/* 窄屏专用：两个抽屉开关 */}
       <div
-        className="hidden max-[1100px]:flex items-center gap-2 px-2 py-1.5 bg-paper-50 border-b border-ink-200"
+        className="hidden max-[1100px]:flex items-center gap-ui-gap px-ui-gap py-1.5 bg-paper-50 border-b border-ink-200"
         style={{ fontSize: '1rem' }}
       >
         <button
           onClick={() => setLeftDrawer(true)}
-          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-100 rounded transition"
+          className="flex items-center gap-1.5 rounded-control px-2 py-1 text-ui-xs font-medium text-ink-600 hover:bg-ink-100 transition"
         >
-          <ListTree className="w-4 h-4" />
+          <ListTree className="h-ui-icon-sm w-ui-icon-sm" />
           列表 / 大纲
         </button>
         <button
           onClick={() => setRightDrawer(true)}
-          className="ml-auto flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-ink-600 hover:bg-ink-100 rounded transition"
+          className="ml-auto flex items-center gap-1.5 rounded-control px-2 py-1 text-ui-xs font-medium text-ink-600 hover:bg-ink-100 transition"
         >
-          <StickyNote className="w-4 h-4" />
+          <StickyNote className="h-ui-icon-sm w-ui-icon-sm" />
           问 AI / 笔记 / 批注
         </button>
       </div>
@@ -2979,14 +2979,14 @@ export default function ReadingPage() {
         </button>
       )}
 
-      <aside className={`bg-paper-50 border-r border-ink-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
+      <aside className={`min-w-0 bg-paper-50 border border-ink-200 rounded-card flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:rounded-none max-[1100px]:border-y-0 max-[1100px]:border-l-0 max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
         leftDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:-translate-x-full'
       }`}
         style={{ fontSize: '1rem' }}
       >
         {/* 固定：阅读对象切换（文献 / 图书 / 其他文档） */}
         <div className="p-2 border-b border-ink-200 flex-shrink-0">
-          <div className="flex gap-1 p-0.5 bg-ink-100 rounded-md">
+          <div className="flex gap-0.5 rounded-control bg-ink-100 p-0.5">
             {([
               { type: 'paper' as DocType, label: '文献', Icon: BookOpen },
               { type: 'book' as DocType, label: '图书', Icon: BookCopy },
@@ -2995,13 +2995,13 @@ export default function ReadingPage() {
               <button
                 key={type}
                 onClick={() => setDocType(type)}
-                className={`flex-1 flex items-center justify-center gap-1 px-1 py-1 text-xs rounded transition ${
+                className={`flex-1 flex items-center justify-center gap-1 rounded-control-sm px-1 py-1 text-ui-2xs transition ${
                   docType === type
                     ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
                     : 'text-ink-500 hover:text-ink-700'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                <Icon className="h-ui-icon-sm w-ui-icon-sm flex-shrink-0" />
                 <span className="truncate">{label}</span>
               </button>
             ))}
@@ -3507,8 +3507,9 @@ export default function ReadingPage() {
         </div>
       </aside>
 
+      <div className="relative flex min-w-0 min-h-0 flex-col">
       <section
-        className="bg-paper-100 flex flex-col min-w-0 min-h-0 overflow-hidden"
+        className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-100"
         style={{ fontSize: '1rem' }}
       >
         {isPlain ? (
@@ -3857,18 +3858,25 @@ export default function ReadingPage() {
         )}
       </section>
 
-      {/* 中缝拖动柄：宽屏专用（<1100px 抽屉模式隐藏）。左右拉可把右栏在三档 1:3:1 / 1:2:2 / 1:1:3 自由切换 */}
+      {/* 中缝拖动柄：**叠加**在「中↔右」缝隙上（不占栏位），全高可拖
+          （从上到下按住任意位置都能拖），圆心落缝正中 → 左右留白严格对称。
+          宽屏专用（<1100px 抽屉模式隐藏）。左右拉把右栏在三档 1:3:1 / 1:2:2 / 1:1:3 切换。 */}
       <div
-        className={`hidden min-[1101px]:flex items-center justify-center cursor-col-resize bg-ink-100 hover:bg-seal-100 transition-colors z-10 ${
-          readerDragging ? 'bg-seal-200' : ''
-        }`}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="拖动调整中右两栏比例"
         onMouseDown={handleReaderDividerDown}
+        className={`absolute inset-y-0 right-[calc(var(--ui-gap)/-2)] z-10 hidden w-2 translate-x-1/2 cursor-col-resize touch-none items-center justify-center transition-colors min-[1101px]:flex ${
+          readerDragging ? 'bg-seal-200/60' : 'hover:bg-seal-200/50'
+        }`}
       >
-        <GripVertical className="w-3 h-3 text-ink-400" />
+        <span className="h-full w-px bg-ink-200" />
+        <GripVertical className="absolute h-3 w-3 text-ink-400" />
+      </div>
       </div>
 
       {/* 右栏：问 AI / 笔记 / 批注 —— 文献与图书同一套 */}
-      <aside className={`bg-paper-50 border-l border-ink-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-40 max-[1100px]:w-[min(24rem,90vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
+      <aside className={`min-w-0 bg-paper-50 border border-ink-200 rounded-card flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-40 max-[1100px]:w-[min(24rem,90vw)] max-[1100px]:rounded-none max-[1100px]:border-y-0 max-[1100px]:border-r-0 max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
         rightDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:translate-x-full'
       }`}
         style={{ fontSize: '1rem' }}
@@ -3876,38 +3884,38 @@ export default function ReadingPage() {
         <div className="flex border-b border-ink-200 flex-shrink-0">
           <button
             onClick={() => setActiveSideTab('ask')}
-            className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
+            className={`flex-1 px-ui-gap-sm py-2.5 text-ui-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'ask'
-                ? 'text-seal-600 border-b-2 border-seal-600 bg-seal-50/30'
+                ? 'text-seal-600 border-b-2 border-seal-600'
                 : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
             }`}
           >
-            <Sparkles className="w-4 h-4" />
+            <Sparkles className="h-ui-icon-sm w-ui-icon-sm" />
             问 AI
           </button>
           <button
             onClick={() => setActiveSideTab('notes')}
-            className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
+            className={`flex-1 px-ui-gap-sm py-2.5 text-ui-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'notes'
-                ? 'text-seal-600 border-b-2 border-seal-600 bg-seal-50/30'
+                ? 'text-seal-600 border-b-2 border-seal-600'
                 : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
             }`}
           >
-            <StickyNote className="w-4 h-4" />
+            <StickyNote className="h-ui-icon-sm w-ui-icon-sm" />
             笔记
           </button>
           <button
             onClick={() => setActiveSideTab('annotations')}
-            className={`flex-1 px-2 py-2.5 text-xs font-medium transition flex items-center justify-center gap-1 ${
+            className={`flex-1 px-ui-gap-sm py-2.5 text-ui-xs font-medium transition flex items-center justify-center gap-1 ${
               activeSideTab === 'annotations'
-                ? 'text-seal-600 border-b-2 border-seal-600 bg-seal-50/30'
+                ? 'text-seal-600 border-b-2 border-seal-600'
                 : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
             }`}
           >
-            <Highlighter className="w-4 h-4" />
+            <Highlighter className="h-ui-icon-sm w-ui-icon-sm" />
             批注
             {paperAnnotations.length > 0 && (
-              <span className="px-1.5 py-0.5 text-[0.625rem] bg-seal-100 text-seal-600 rounded-full font-medium">
+              <span className="px-1.5 py-0.5 text-ui-2xs bg-seal-100 text-seal-600 rounded-full font-medium">
                 {paperAnnotations.length}
               </span>
             )}
@@ -4213,7 +4221,7 @@ export default function ReadingPage() {
       {/* 导入其他文档：和管理页是同一套入口（.md 多选 / 粘贴 / zip），落到同一处 documents/ */}
       {showImportDocModal && (
         <Modal title="导入文档" onClose={() => { if (!importing) setShowImportDocModal(false) }}>
-          <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-lg mb-5 w-fit">
+          <div className="flex items-center gap-0.5 rounded-control bg-ink-100 p-0.5 mb-5 w-fit">
             {([
               { id: 'file', label: '上传 .md 文件' },
               { id: 'paste', label: '粘贴文本' },
@@ -4223,7 +4231,7 @@ export default function ReadingPage() {
                 key={m.id}
                 onClick={() => setImportMode(m.id)}
                 disabled={importing}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition disabled:opacity-60 ${
+                className={`px-3 py-1.5 rounded-control-sm text-ui-xs font-medium transition disabled:opacity-60 ${
                   importMode === m.id ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
                 }`}
               >
@@ -4234,7 +4242,7 @@ export default function ReadingPage() {
 
           {importMode === 'file' && (
             <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
                 importing
                   ? 'opacity-60 pointer-events-none'
                   : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
@@ -4285,7 +4293,7 @@ export default function ReadingPage() {
 
           {importMode === 'zip' && (
             <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
                 importing
                   ? 'opacity-60 pointer-events-none'
                   : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
