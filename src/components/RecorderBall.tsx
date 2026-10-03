@@ -102,10 +102,12 @@ function langLabel(lang: string): string {
 
 /**
  * 悬浮窗（PiP）两种形态的初始 / 切换尺寸。
- * 球：尽量小（近似一颗球）；面板：撑得下转写列表。
- * 浏览器可能按「用户友好尺寸」把过小值兜底放大，故球窗可能略有余白 —— 属预期。
+ * 球：**窗口紧贴球身**（球直径 + 四周各 4px 呼吸，不再留大片空白）；面板：撑得下转写列表。
+ * 见下方 `PIP_BALL_PX` —— 球和窗口尺寸同源，改球直径窗口自动跟着收。
+ * 浏览器可能按「用户友好尺寸」把过小值兜底放大，故球窗仍可能略有余白 —— 属预期。
  */
-const PIP_BALL = { w: 150, h: 150 }
+const PIP_BALL_PX = 64
+const PIP_BALL = { w: PIP_BALL_PX + 8, h: PIP_BALL_PX + 8 }
 const PIP_PANEL = { w: 344, h: 480 }
 
 export default function RecorderBall() {
@@ -144,7 +146,14 @@ export default function RecorderBall() {
     if (!api) return
     try {
       const s = expand ? PIP_PANEL : PIP_BALL
-      const win = await api.requestWindow({ width: s.w, height: s.h })
+      // disallowReturnToOpener：隐去顶栏「返回标签页」按钮，让球窗能压到最小高度；
+      // preferInitialWindowPlacement：每次重开都回到初始「小球」尺寸，不被上次拉大的尺寸带偏。
+      const win = await api.requestWindow({
+        width: s.w,
+        height: s.h,
+        disallowReturnToOpener: true,
+        preferInitialWindowPlacement: true,
+      })
       copyStylesInto(win.document)
       win.document.documentElement.lang = 'zh-CN'
       win.document.body.classList.add('bg-paper-100')
@@ -329,7 +338,9 @@ export default function RecorderBall() {
       ref={rootRef}
       className={
         pipWindow
-          ? 'flex h-screen w-screen flex-col items-center justify-center gap-2 overflow-hidden p-3'
+          ? `flex h-screen w-screen flex-col items-center justify-center overflow-hidden ${
+              expanded ? 'gap-2 p-3' : 'p-1'
+            }`
           : 'fixed bottom-6 right-6 z-40 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2'
       }
     >
@@ -511,22 +522,24 @@ export default function RecorderBall() {
             type="button"
             onClick={toggleExpanded}
             title="展开本轮转写"
-            className="flex h-24 w-24 flex-col items-center justify-center gap-1.5 rounded-full bg-red-500 text-paper-50 shadow-lift transition hover:bg-red-600 active:scale-95"
+            style={{ width: PIP_BALL_PX, height: PIP_BALL_PX }}
+            className="flex flex-col items-center justify-center gap-0.5 rounded-full bg-red-500 text-paper-50 shadow-lift transition hover:bg-red-600 active:scale-95"
           >
-            <span className="relative flex h-3.5 w-3.5 items-center justify-center">
-              <span className="absolute h-3.5 w-3.5 animate-ping rounded-full bg-paper-50 opacity-75" />
-              <span className="h-3.5 w-3.5 rounded-full bg-paper-50" />
+            <span className="relative flex h-2.5 w-2.5 items-center justify-center">
+              <span className="absolute h-2.5 w-2.5 animate-ping rounded-full bg-paper-50 opacity-75" />
+              <span className="h-2.5 w-2.5 rounded-full bg-paper-50" />
             </span>
-            <span className="font-mono text-xs tabular-nums">{compactElapsed(elapsed)}</span>
+            <span className="font-mono text-[10px] leading-none tabular-nums">{compactElapsed(elapsed)}</span>
           </button>
         ) : (
           <button
             type="button"
             onClick={toggleExpanded}
             title="展开采集面板"
-            className="flex h-24 w-24 items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95"
+            style={{ width: PIP_BALL_PX, height: PIP_BALL_PX }}
+            className="flex items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95"
           >
-            <Mic className="h-8 w-8" />
+            <Mic className="h-7 w-7" />
           </button>
         ))
       ) : isRecording ? (
