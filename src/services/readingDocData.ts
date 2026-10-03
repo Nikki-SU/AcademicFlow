@@ -7,7 +7,8 @@
  *   其他文档 document → documents/{目录名}/
  *
  * 每个对象目录下：
- *   notes.md                        笔记
+ *   notes/{名称}.md                 笔记（一篇文档可以有多个命名笔记）
+ *   notes/images/                   笔记里的图片
  *   annotations/annotations.csv     批注
  *   ai-chat.md                      问 AI 的对话记录（一本书 / 一篇文献一个大对话）
  *   reading-progress.json           阅读进度（读到哪个标题）
@@ -16,7 +17,9 @@
  * 不再各自硬编码 literatures/ 前缀。
  */
 
-import { readMdFile, writeMdFile } from './userData'
+import JSZip from 'jszip'
+import { readMdFile, writeMdFile, getRepoContext, invalidateCache } from './userData'
+import { githubFetch, deleteRepoFiles, writeFileBatch } from './github'
 import { doiToSlug } from './literatureData'
 
 export type DocKind = 'paper' | 'book' | 'document'
@@ -34,29 +37,416 @@ export function docBasePath(ref: DocRef): string {
   return `literatures/${doiToSlug(ref.id)}`
 }
 
-export function notesPath(ref: DocRef): string {
-  return `${docBasePath(ref)}/notes.md`
+export function notesDir(ref: DocRef): string {
+  return `${docBasePath(ref)}/notes`
 }
 
+/** 问 AI 对话记录（整篇一个大对话） */
 export function chatPath(ref: DocRef): string {
   return `${docBasePath(ref)}/ai-chat.md`
 }
 
+/** 阅读进度（读到哪个标题，下次打开跳回去） */
 export function progressPath(ref: DocRef): string {
   return `${docBasePath(ref)}/reading-progress.json`
 }
 
-// ============================================================
-// 笔记
-// ============================================================
+/** 笔记内图片的子目录名（相对笔记目录）；全站一份，改这里三处一起变 */
+export const NOTE_IMAGE_SUBDIR = 'images'
 
-export async function loadNotes(ref: DocRef): Promise<string> {
-  const result = await readMdFile(notesPath(ref))
+/** 笔记图片目录（仓库路径，不带尾斜杠）：{笔记目录}/images */
+export function noteImageDir(ref: DocRef): string {
+  return `${notesDir(ref)}/${NOTE_IMAGE_SUBDIR}`
+}
+
+// ============================================================
+// 笔记（一篇文档可有多个命名笔记）
+// ============================================================
+//
+// 存储：{docBasePath}/notes/{名称}.md；图片在 {docBasePath}/notes/images/。
+// 笔记名即文件名（去掉 .md），因此禁止含路径分隔符等危险字符（sanitizeNoteName）。
+
+/** 单个笔记的 .md 路径 */
+export function notePath(ref: DocRef, name: string): string {
+  return `${notesDir(ref)}/${name}.md`
+}
+
+/** 规整笔记名：去掉路径分隔与 Windows 非法字符；空则回退「未命名」 */
+export function sanitizeNoteName(raw: string): string {
+  const cleaned = (raw || '')
+    .replace(/[/\\:*?"<>|]/g, '')
+    .replace(/^\.+/, '')
+    .trim()
+    .slice(0, 60)
+  return cleaned || '未命名'
+}
+
+/**
+ * 全仓库文件路径集合（带短 TTL 缓存）。
+ * 笔记列表、以及「其他文档」里的笔记条目都靠它一次拉取。
+ * 新建 / 删除 / 重命名笔记后调用 invalidateNoteTree() 让它失效。
+ */
+let treeCache: { at: number; paths: Set<string> } | null = null
+const TREE_TTL = 15_000
+
+async function repoTreePaths(force = false): Promise<Set<string> | null> {
+  if (!force && treeCache && Date.now() - treeCache.at < TREE_TTL) return treeCache.paths
+  const ctx = getRepoContext()
+  if (!ctx) return treeCache?.paths ?? null
+  try {
+    const res = await githubFetch(
+      `/repos/${ctx.owner}/${ctx.repo}/git/trees/main?recursive=1`,
+      ctx.token,
+    )
+    if (!res.ok) return treeCache?.paths ?? null
+    const data = (await res.json()) as { tree?: Array<{ path: string; type: string }> }
+    const paths = new Set<string>()
+    for (const e of data.tree ?? []) if (e.type === 'blob') paths.add(e.path)
+    treeCache = { at: Date.now(), paths }
+    return paths
+  } catch {
+    return treeCache?.paths ?? null
+  }
+}
+
+/** 让文件树缓存立即失效（笔记结构发生增删改后调用） */
+export function invalidateNoteTree() {
+  treeCache = null
+}
+
+/** 列出一个文档的全部笔记名（notes/ 根下的 .md；images/ 等子目录不算） */
+export async function listNotes(ref: DocRef): Promise<string[]> {
+  const paths = await repoTreePaths()
+  if (!paths) return []
+  const prefix = `${notesDir(ref)}/`
+  const names: string[] = []
+  for (const p of paths) {
+    if (!p.startsWith(prefix)) continue
+    const rest = p.slice(prefix.length)
+    if (rest.includes('/')) continue
+    if (!/\.md$/i.test(rest)) continue
+    names.push(rest.slice(0, -3))
+  }
+  return names.sort((a, b) => a.localeCompare(b, 'zh'))
+}
+
+export async function loadNote(ref: DocRef, name: string): Promise<string> {
+  const result = await readMdFile(notePath(ref, name))
   return result?.content || ''
 }
 
-export async function saveNotes(ref: DocRef, content: string): Promise<void> {
-  await writeMdFile(notesPath(ref), content, 'Update reading notes')
+export async function saveNote(ref: DocRef, name: string, content: string): Promise<void> {
+  await writeMdFile(notePath(ref, name), content, `Update note ${name}`)
+}
+
+export async function createNote(ref: DocRef, name: string, content = ''): Promise<void> {
+  await writeMdFile(notePath(ref, name), content, `Create note ${name}`)
+  invalidateNoteTree()
+}
+
+export async function deleteNote(ref: DocRef, name: string): Promise<void> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪，无法删除笔记')
+  const path = notePath(ref, name)
+  await deleteRepoFiles([path], `Delete note ${name}`, ctx.owner, ctx.repo, ctx.token)
+  invalidateCache(path)
+  invalidateNoteTree()
+}
+
+export async function renameNote(ref: DocRef, oldName: string, newName: string): Promise<void> {
+  const content = await loadNote(ref, oldName)
+  await writeMdFile(notePath(ref, newName), content, `Rename note ${oldName} → ${newName}`)
+  const ctx = getRepoContext()
+  if (ctx) {
+    await deleteRepoFiles(
+      [notePath(ref, oldName)],
+      `Rename note ${oldName} → ${newName}`,
+      ctx.owner,
+      ctx.repo,
+      ctx.token,
+    )
+  }
+  invalidateCache(notePath(ref, oldName))
+  invalidateNoteTree()
+}
+
+/**
+ * 扫描全仓库，列出所有文档的笔记文件（不带标题，标题由调用方按 parent 反查）。
+ * 路径形如 {root}/{parentId}/notes/{名称}.md —— parentId 可能含 `/`（书名/文档名），
+ * 所以从右往左解析。
+ */
+export interface NoteFileRef {
+  parentKind: DocKind
+  parentId: string
+  name: string
+}
+
+export async function listAllNoteFiles(): Promise<NoteFileRef[]> {
+  const paths = await repoTreePaths()
+  if (!paths) return []
+  const re = /^(literatures|textbooks|documents)\/(.+)\/notes\/([^/]+)\.md$/i
+  const out: NoteFileRef[] = []
+  for (const p of paths) {
+    const m = re.exec(p)
+    if (!m) continue
+    out.push({
+      parentKind: m[1] === 'literatures' ? 'paper' : m[1] === 'textbooks' ? 'book' : 'document',
+      parentId: m[2],
+      name: m[3],
+    })
+  }
+  return out
+}
+
+/** 笔记所在的那篇文档的 DocRef */
+export function noteParentRef(ref: NoteFileRef): DocRef {
+  return { kind: ref.parentKind, id: ref.parentId }
+}
+
+/** 笔记的唯一标识串（笔记列表选中态、docKey、检索命中都靠它） */
+export function noteRefKey(ref: NoteFileRef): string {
+  return `note:${ref.parentKind}:${ref.parentId}:${ref.name}`
+}
+
+/**
+ * NoteFileRef ↔ URL 参数（doc=note:...）。
+ * 用 JSON 而不是 `a:b:c` 拼串：书名 / 目录名 / 笔记名都可能含分隔符，
+ * 拼串解析会歧义，JSON 不会。
+ */
+export function encodeNoteFileRef(ref: NoteFileRef): string {
+  return JSON.stringify({ parentKind: ref.parentKind, parentId: ref.parentId, name: ref.name })
+}
+
+export function decodeNoteFileRef(s: string): NoteFileRef | null {
+  try {
+    const o = JSON.parse(s) as Partial<NoteFileRef>
+    const kinds = ['paper', 'book', 'document']
+    if (
+      o &&
+      typeof o.parentKind === 'string' &&
+      kinds.includes(o.parentKind) &&
+      typeof o.parentId === 'string' &&
+      o.parentId &&
+      typeof o.name === 'string' &&
+      o.name
+    ) {
+      return { parentKind: o.parentKind as DocKind, parentId: o.parentId, name: o.name }
+    }
+  } catch {
+    // 非 JSON（旧参数 / 手改的 URL）→ 交给调用方忽略
+  }
+  return null
+}
+
+// ============================================================
+// 从附件导入笔记
+// ============================================================
+//
+// 支持任何「带文字」的附件：
+//   .md / .markdown / .txt   直接当 markdown
+//   .docx                    zip 内 word/document.xml 抽文本（只依赖 JSZip，不引新库）
+//   .zip                     内含 markdown 各成一篇笔记；图片收进 notes/images/；
+//                            内含 docx 同样抽文本
+// 说明：PDF / 旧版 .doc 本地转不了，明确报可读错误让用户先转成 markdown，
+// 不给"看起来像结果其实是垃圾"的东西（见 project_rules「先约束再容错」）。
+//
+// 导入时把图片引用统一改写成**仓库绝对路径**（notes/images/xxx），
+// 与编辑器写图落盘的口径一致（VditorEditor 也是写仓库绝对路径）。
+
+export interface NoteImageFile {
+  /** 仓库内目标路径（已含 notes/images/） */
+  repoPath: string
+  blob: Blob
+}
+
+export interface ImportedNote {
+  name: string
+  markdown: string
+  images: NoteImageFile[]
+}
+
+const NOTE_IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+/** 文件名（去目录、去扩展名）→ 笔记名 */
+function baseNameOf(name: string): string {
+  return sanitizeNoteName((name.split('/').pop() || name).replace(/\.[^.]+$/, '').trim())
+}
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
+
+/** 取一个 w:p / w:tc 内的纯文本（w:t 文本、w:tab / w:br 记空格） */
+function docxNodeText(el: Element): string {
+  const out: string[] = []
+  const walk = (n: Node) => {
+    if (n.nodeType !== 1) return
+    const e = n as Element
+    if (e.nodeName === 'w:t') { out.push(e.textContent ?? ''); return }
+    if (e.nodeName === 'w:tab' || e.nodeName === 'w:br') { out.push(' '); return }
+    e.childNodes.forEach(walk)
+  }
+  el.childNodes.forEach(walk)
+  return out.join('').replace(/\s+/g, ' ').trim()
+}
+
+/** docx → markdown（保留段落顺序与表格的基本结构） */
+async function docxToMarkdown(blob: Blob): Promise<string> {
+  const zip = await JSZip.loadAsync(blob)
+  const xml = await zip.file('word/document.xml')?.async('string')
+  if (!xml) throw new Error('不是有效的 .docx（缺少 word/document.xml）')
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
+  const body = doc.getElementsByTagName('w:body')[0]
+  const lines: string[] = []
+  for (const node of Array.from(body?.children ?? [])) {
+    if (node.nodeName === 'w:p') {
+      const text = docxNodeText(node)
+      if (text) lines.push(text)
+    } else if (node.nodeName === 'w:tbl') {
+      const rows = Array.from(node.getElementsByTagName('w:tr')).map((tr) =>
+        Array.from(tr.getElementsByTagName('w:tc')).map((tc) =>
+          docxNodeText(tc).replace(/\|/g, '\\|'),
+        ),
+      )
+      if (rows.length) {
+        lines.push('')
+        lines.push(`| ${rows[0].join(' | ')} |`)
+        lines.push(`| ${rows[0].map(() => '---').join(' | ')} |`)
+        for (const r of rows.slice(1)) lines.push(`| ${r.join(' | ')} |`)
+        lines.push('')
+      }
+    }
+  }
+  return lines.join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/** 规整图片名（去路径、去非法字符），保证落在 notes/images/ 下不冲突 */
+function safeImageName(raw: string, used: Set<string>): string {
+  const leaf = raw.split('/').pop() || 'image'
+  const dot = leaf.lastIndexOf('.')
+  const stem = (dot > 0 ? leaf.slice(0, dot) : leaf).replace(/[^\w\u4e00-\u9fa5.-]+/g, '-') || 'image'
+  const ext = dot > 0 ? leaf.slice(dot) : '.png'
+  let name = `${stem}${ext}`
+  let n = 2
+  while (used.has(name)) { name = `${stem}-${n}${ext}`; n++ }
+  used.add(name)
+  return name
+}
+
+/**
+ * 解析一批上传的附件 → 待写入的笔记（需要 DocRef 以决定图片落盘目录）。
+ * 会抛可读错误（不认识的类型 / PDF / 旧 doc），由调用方 toast 出来。
+ */
+export async function extractNoteAttachmentsFor(
+  docRef: DocRef,
+  files: File[],
+): Promise<ImportedNote[]> {
+  const imgDir = noteImageDir(docRef)
+  const out: ImportedNote[] = []
+
+  for (const file of files) {
+    const lower = file.name.toLowerCase()
+    if (/\.(md|markdown|txt)$/.test(lower)) {
+      out.push({ name: baseNameOf(file.name), markdown: await file.text(), images: [] })
+      continue
+    }
+    if (/\.docx$/.test(lower) || file.type === DOCX_MIME) {
+      out.push({ name: baseNameOf(file.name), markdown: await docxToMarkdown(file), images: [] })
+      continue
+    }
+    if (/\.doc$/.test(lower)) {
+      throw new Error(`暂不支持旧版 .doc（${file.name}）：请先另存为 .docx 或 markdown 再上传`)
+    }
+    if (/\.pdf$/.test(lower) || file.type === 'application/pdf') {
+      throw new Error(`PDF（${file.name}）不能直接转成笔记：请先用转换管线转出 markdown 再上传`)
+    }
+    if (/\.zip$/.test(lower) || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
+      out.push(...(await extractFromZip(file, imgDir)))
+      continue
+    }
+    throw new Error(`不认识的文件类型：${file.name}（支持 .md / .docx / .zip）`)
+  }
+  return out.filter((n) => n.markdown.trim() || n.images.length > 0)
+}
+
+async function extractFromZip(file: File | Blob, imgDir: string): Promise<ImportedNote[]> {
+  const zip = await JSZip.loadAsync(file)
+  const mds: { path: string; content: string }[] = []
+  /** 图片：小写相对路径 → blob（先全部异步读出来，后面的同步 replace 才能直接用） */
+  const imageBlobs = new Map<string, Blob>()
+
+  for (const entry of Object.values(zip.files)) {
+    if (entry.dir) continue
+    if (entry.name.startsWith('__MACOSX/')) continue
+    if (entry.name.split('/').some((seg) => seg.startsWith('.'))) continue
+    if (/\.(md|markdown|txt)$/i.test(entry.name)) {
+      mds.push({ path: entry.name, content: await entry.async('string') })
+      continue
+    }
+    if (/\.docx$/i.test(entry.name)) {
+      mds.push({ path: entry.name, content: await docxToMarkdown(await entry.async('blob')) })
+      continue
+    }
+    if (NOTE_IMAGE_EXT.test(entry.name)) {
+      imageBlobs.set(entry.name.toLowerCase(), await entry.async('blob'))
+    }
+  }
+
+  const notes: ImportedNote[] = []
+  const used = new Set<string>()
+  for (const md of mds) {
+    const images: NoteImageFile[] = []
+    // 把 md 里引用到的图片收进来，并把引用改写成仓库绝对路径
+    const markdown = md.content.replace(
+      /!\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)/g,
+      (full, alt: string, href: string, title = '') => {
+        const key = decodeURIComponent(href).replace(/^\.\//, '').replace(/^\//, '').toLowerCase()
+        const leaf = key.split('/').pop() || key
+        // 先按完整相对路径找，再退到按文件名找
+        let matched: string | undefined
+        let blob: Blob | undefined
+        if (imageBlobs.has(key)) {
+          matched = key
+          blob = imageBlobs.get(key)
+        } else {
+          for (const [k, b] of imageBlobs) {
+            if (k === leaf || k.endsWith(`/${leaf}`)) { matched = k; blob = b; break }
+          }
+        }
+        if (!blob || !matched) return full
+        const name = safeImageName(matched, used)
+        images.push({ repoPath: `${imgDir}/${name}`, blob })
+        return `![${alt}](${imgDir}/${name}${title})`
+      },
+    )
+    notes.push({ name: baseNameOf(md.path), markdown, images })
+  }
+  return notes
+}
+
+/** 把解析出的笔记写入仓库（先传图片，再写 md；顺序保证 md 里的图先就位） */
+export async function saveImportedNote(docRef: DocRef, note: ImportedNote): Promise<void> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪，无法保存笔记')
+  if (note.images.length > 0) {
+    const ops = await Promise.all(
+      note.images.map(async (img) => ({
+        path: img.repoPath,
+        content: arrayBufferToBase64(await img.blob.arrayBuffer()),
+        encoding: 'base64' as const,
+      })),
+    )
+    await writeFileBatch(ops, `Add ${note.images.length} note image(s)`, ctx.owner, ctx.repo, ctx.token)
+  }
+  await writeMdFile(notePath(docRef, note.name), note.markdown, `Import note ${note.name}`)
+  invalidateNoteTree()
 }
 
 // ============================================================

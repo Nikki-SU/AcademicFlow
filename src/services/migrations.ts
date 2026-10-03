@@ -577,7 +577,8 @@ async function readDocText(path: string): Promise<string | null> {
  */
 function isEditableDocPath(p: string): boolean {
   if (!p.endsWith('.md')) return false
-  return p.startsWith('projects/') || /\/notes\.md$/.test(p)
+  // 笔记已是多笔记结构：notes/{名称}.md（旧结构 notes.md 由 readingNotesMulti 迁移）
+  return p.startsWith('projects/') || /\/notes\/[^/]+\.md$/.test(p)
 }
 
 async function editableDocPaths(): Promise<string[]> {
@@ -751,6 +752,57 @@ const projectsDoneField: Migration = {
   },
 }
 
+/**
+ * v5 → v6：阅读笔记从单文件 notes.md 升级为多笔记目录 notes/{名称}.md
+ * 一篇文档（尤其图书）现在可以有多篇命名笔记。旧的单篇笔记挪到 notes/笔记.md；
+ * 旧的笔记图片目录 notes-images/ 一并挪进 notes/images/。
+ * 目标已存在时，旧文件视为冗余副本直接删除（避免探测永远为真、迁移反复出现）。
+ */
+const readingNotesMulti: Migration = {
+  id: 'reading-notes-multi-v1',
+  affects: ['reading', 'management', 'learn', 'writing'],
+  since: 6,
+  label: '把阅读笔记升级为「多笔记」（notes.md → notes/笔记.md，图片目录并入 notes/images）',
+  detect: async () => {
+    const blobs = await listRepoBlobs()
+    if (!blobs) return false
+    for (const root of [LITERATURES_DIR, TEXTBOOKS_DIR, DOCUMENTS_DIR]) {
+      for (const [, files] of topLevelFiles(blobs, root)) {
+        if (files.has('notes.md')) return true
+      }
+    }
+    // 旧笔记图片目录 notes-images/ 下还有文件 → 需要挪进 notes/images/
+    for (const p of blobs.keys()) {
+      if (/^(literatures|textbooks|documents)\/.+\/notes-images\//.test(p)) return true
+    }
+    return false
+  },
+  run: async (onProgress) => {
+    const blobs = await listRepoBlobs()
+    if (!blobs) return
+    const moves: Array<{ from: string; to: string }> = []
+    const redundant: string[] = []
+    for (const root of [LITERATURES_DIR, TEXTBOOKS_DIR, DOCUMENTS_DIR]) {
+      for (const [id, files] of topLevelFiles(blobs, root)) {
+        if (!files.has('notes.md')) continue
+        const dir = `${root}/${id}`
+        const target = `${dir}/notes/笔记.md`
+        if (blobs.has(target)) redundant.push(`${dir}/notes.md`)
+        else moves.push({ from: `${dir}/notes.md`, to: target })
+      }
+    }
+    for (const p of blobs.keys()) {
+      const m = /^(literatures|textbooks|documents)\/(.+)\/notes-images\/(.+)$/.exec(p)
+      if (!m) continue
+      const to = `${m[1]}/${m[2]}/notes/images/${m[3]}`
+      if (blobs.has(to)) redundant.push(p)
+      else moves.push({ from: p, to })
+    }
+    await moveRepoFiles(moves, onProgress)
+    await removeRepoFiles(redundant)
+  },
+}
+
 // 顺序即执行顺序：先补全 projects 表结构，再修正 courses 脏值，最后挂课程任务（依赖前两者保证的列与合法值）。
 export const MIGRATIONS: Migration[] = [
   projectsSchemaLink,
@@ -766,6 +818,7 @@ export const MIGRATIONS: Migration[] = [
   annotationAnchorsV2,
   projectsDoneField,
   coursesRepeatField,
+  readingNotesMulti,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
@@ -809,7 +862,7 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
  * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 5
+export const DATA_VERSION = 6
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']

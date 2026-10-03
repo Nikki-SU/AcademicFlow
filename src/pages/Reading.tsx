@@ -38,7 +38,18 @@ import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Ca
 import { loadCategories as loadPaperCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { HIGHLIGHTERS, highlighterOf, type HighlighterColor } from '../services/highlightColors'
-import { loadNotes, saveNotes, loadProgress, saveProgress, notesPath, type DocRef, type ReadingProgress } from '../services/readingDocData'
+import {
+  decodeNoteFileRef,
+  listAllNoteFiles,
+  loadNote,
+  loadProgress,
+  noteParentRef,
+  noteRefKey,
+  saveProgress,
+  type DocRef,
+  type NoteFileRef,
+  type ReadingProgress,
+} from '../services/readingDocData'
 import { getLastRead, setLastRead } from '../services/uiState'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
@@ -55,8 +66,8 @@ import {
   KIND_LABEL,
   type SearchHit,
 } from '../services/librarySearch'
-import VditorEditor, { type VditorEditorHandle } from '../components/VditorEditor'
 import ReadingAskPanel from '../components/ReadingAskPanel'
+import ReadingNotesPanel from '../components/ReadingNotesPanel'
 import { toast } from 'sonner'
 
 /** 右栏页签：问 AI / 笔记 / 批注（文献与图书同一套） */
@@ -545,6 +556,20 @@ function getPlainImageBaseUrl(ownerDir: string, root: 'textbooks' | 'documents')
 }
 
 /**
+ * 笔记的图片基准 URL：直接指到**仓库根**。
+ * 笔记里的图片引用是仓库绝对路径（编辑器与导入都写 `literatures/{slug}/notes/images/x.png`），
+ * 拼在仓库根之后正好是完整路径；也让它落进 hydrateImages 的 `api.github.com/repos` 匹配。
+ */
+function getRepoImageBaseUrl(): string {
+  const auth = useAuthStore.getState()
+  const ws = useWorkspaceStore.getState()
+  if (!auth.user || !ws.repo) return ''
+  const owner = encodeURIComponent(auth.user.login)
+  const repo = encodeURIComponent(ws.repo.name)
+  return `https://api.github.com/repos/${owner}/${repo}/contents/`
+}
+
+/**
  * 预加载图片：把 GitHub Contents API 的图片 URL fetch 成 Blob，再转成 blob: URL
  * 这样可以带 Accept: application/vnd.github.v3.raw + token header
  * 不走 raw.githubusercontent.com（GFW 会挡）
@@ -660,7 +685,6 @@ export default function ReadingPage() {
   const [showToolbar, setShowToolbar] = useState(false)
   const [toolbarPosition, setToolbarPosition] = useState({ top: 0, left: 0 })
   const [selectedText, setSelectedText] = useState('')
-  const [noteSaveState, setNoteSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
   const [annotationSaveState, setAnnotationSaveState] = useState<SaveState>({ status: 'idle', lastSaved: null })
   const [translation_mode, set_translation_mode] = useState<TranslationMode>('original')
   const [aligned_content, set_aligned_content] = useState('')
@@ -710,6 +734,15 @@ export default function ReadingPage() {
   const [docMarkdown, setDocMarkdown] = useState('')
   const [docLoading, setDocLoading] = useState(false)
 
+  /**
+   * 笔记阅读（「其他文档」列表里也能看到自己所有文献 / 图书的命名笔记）。
+   * 目的是"大屏读笔记"：点开就是只读的整篇笔记，不含批注、不再嵌套子笔记。
+   */
+  const [noteFiles, setNoteFiles] = useState<NoteFileRef[]>([])
+  const [selectedNote, setSelectedNote] = useState<NoteFileRef | null>(null)
+  const [noteMarkdown, setNoteMarkdown] = useState('')
+  const [noteLoading, setNoteLoading] = useState(false)
+
   // ── 统一筛选：分类（三类各自的表）+ 有无 md + 文献一级/二级 ──
   const [paperCategories, setPaperCategories] = useState<LiteratureCategory[]>([])
   const [bookCategories, setBookCategories] = useState<Category[]>([])
@@ -745,8 +778,6 @@ export default function ReadingPage() {
   const [importing, setImporting] = useState(false)
 
   const readerRef = useRef<HTMLDivElement>(null)
-  const noteVditorRef = useRef<VditorEditorHandle>(null)
-  const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
   /** 当前选区落在哪个块上（en-12 / cn-12）—— 划词时记下，加批注时用 */
@@ -782,17 +813,37 @@ export default function ReadingPage() {
 
   const isBook = docType === 'book'
   const isDoc = docType === 'document'
+  /** 当前在「其他文档」里读的是某一篇笔记（而不是导入的文档） */
+  const isNote = isDoc && selectedNote !== null
   /**
    * 「单语言纯 markdown」阅读路径：图书和其他文档都走这条（正文直接渲染，没有 en/cn 双块）。
    * 文献走的是另一条（aligned 块文档 + 原文/译文/对照三种模式），两条路的渲染、大纲、
-   * 进度回填、图片 hydrate 都不同，所以这里必须分清楚。
+   * 进度回填、图片 hydrate 都不同，所以这里必须分清楚。笔记复用这条纯 markdown 路。
    */
   const isPlain = isBook || isDoc
-  /** 当前单语言对象的主键（图书 = 书名，文档 = 目录名） */
-  const plainId = isBook ? selectedBookId : isDoc ? selectedDocumentId : null
+  /** 当前单语言对象的主键（图书 = 书名，文档 = 目录名，笔记 = noteRefKey） */
+  const plainId = isBook
+    ? selectedBookId
+    : isDoc
+      ? selectedNote
+        ? noteRefKey(selectedNote)
+        : selectedDocumentId
+      : null
   /** 当前单语言对象的正文 */
-  const plainMarkdown = isBook ? bookMarkdown : isDoc ? docMarkdown : ''
-  const plainLoading = isBook ? bookLoading : isDoc ? docLoading : false
+  const plainMarkdown = isBook
+    ? bookMarkdown
+    : isDoc
+      ? selectedNote
+        ? noteMarkdown
+        : docMarkdown
+      : ''
+  const plainLoading = isBook
+    ? bookLoading
+    : isDoc
+      ? selectedNote
+        ? noteLoading
+        : docLoading
+      : false
 
   /** 切换阅读对象时把分类筛选清掉（三类的分类表不是同一套） */
   useEffect(() => {
@@ -803,13 +854,21 @@ export default function ReadingPage() {
   /**
    * 当前阅读对象的统一标识：文献按 DOI、图书按书名、其他文档按目录名。
    * 三者除了 pipeline 之外完全对称，笔记 / 批注 / 问 AI 的存储路径都由它决定。
+   * 读笔记时 docRef 为 null —— 笔记本身不再有笔记 / 批注（避免无限嵌套）。
    */
   const docRef: DocRef | null = useMemo(() => {
     if (isBook) return selectedBookId ? { kind: 'book', id: selectedBookId } : null
-    if (isDoc) return selectedDocumentId ? { kind: 'document', id: selectedDocumentId } : null
+    if (isDoc) {
+      if (selectedNote) return null
+      return selectedDocumentId ? { kind: 'document', id: selectedDocumentId } : null
+    }
     return selectedPaperId ? { kind: 'paper', id: selectedPaperId } : null
-  }, [isBook, isDoc, selectedBookId, selectedDocumentId, selectedPaperId])
-  const docKey = docRef ? `${docRef.kind}:${docRef.id}` : ''
+  }, [isBook, isDoc, selectedNote, selectedBookId, selectedDocumentId, selectedPaperId])
+  const docKey = docRef
+    ? `${docRef.kind}:${docRef.id}`
+    : selectedNote
+      ? noteRefKey(selectedNote)
+      : ''
 
   useEffect(() => {
     if (!repo) return
@@ -880,6 +939,21 @@ export default function ReadingPage() {
     const kind = docParam.slice(0, sep)
     const id = docParam.slice(sep + 1)
     if (!id) { docParamAppliedRef.current = location.key; return }
+
+    // 笔记：id 是 JSON（见 encodeNoteFileRef），不依赖任何列表，直接打开
+    if (kind === 'note') {
+      const ref = decodeNoteFileRef(id)
+      if (!ref) { docParamAppliedRef.current = location.key; return }
+      setDocType('document')
+      setSelectedDocumentId(null)
+      setSelectedNote(ref)
+      docParamAppliedRef.current = location.key
+      if (qParam) {
+        setFindTarget((prev) => ({ key: noteRefKey(ref), q: qParam, n: (prev?.n ?? 0) + 1 }))
+      }
+      return
+    }
+
     let resolvedId: string | null = null
     if (kind === 'paper') {
       if (papersLoading) return
@@ -895,6 +969,7 @@ export default function ReadingPage() {
     } else if (kind === 'document') {
       if (documentsLoading) return
       setDocType('document')
+      setSelectedNote(null)
       resolvedId = documents.some((d) => d.id === id) ? id : (documents[0]?.id ?? null)
       setSelectedDocumentId(resolvedId)
     } else {
@@ -936,6 +1011,7 @@ export default function ReadingPage() {
       if (documentsLoading) return
       if (documents.some((d) => d.id === last.id)) {
         setDocType('document')
+        setSelectedNote(null)
         setSelectedDocumentId(last.id)
       }
       lastReadAppliedRef.current = true
@@ -1029,7 +1105,10 @@ export default function ReadingPage() {
       await refreshDocuments()
       setShowImportDocModal(false)
       setPasteDoc({ title: '', content: '' })
-      if (added[0]) setSelectedDocumentId(added[0].id)
+      if (added[0]) {
+        setSelectedNote(null)
+        setSelectedDocumentId(added[0].id)
+      }
     } catch (err) {
       toast.error(`导入失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -1118,6 +1197,36 @@ export default function ReadingPage() {
     return () => { cancelled = true }
   }, [selectedDocumentId])
 
+  // 「其他文档」列表里的笔记清单：全库扫描一次（切到文档页签时刷新）
+  useEffect(() => {
+    if (!repo || docType !== 'document') return
+    let cancelled = false
+    listAllNoteFiles()
+      .then((list) => { if (!cancelled) setNoteFiles(list) })
+      .catch((err) => console.error('[Reading] 加载笔记列表失败:', err))
+    return () => { cancelled = true }
+  }, [repo, docType])
+
+  // 选中笔记后加载它的 markdown（只读展示）
+  useEffect(() => {
+    if (!selectedNote) {
+      setNoteMarkdown('')
+      return
+    }
+    let cancelled = false
+    setNoteLoading(true)
+    loadNote(noteParentRef(selectedNote), selectedNote.name)
+      .then((md) => { if (!cancelled) setNoteMarkdown(md) })
+      .catch((err) => {
+        console.error('[Reading] 加载笔记失败:', err)
+        if (!cancelled) setNoteMarkdown('')
+      })
+      .finally(() => { if (!cancelled) setNoteLoading(false) })
+    return () => { cancelled = true }
+    // 靠笔记唯一标识变化触发；selectedNote 每次是同一引用即不重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNote ? noteRefKey(selectedNote) : ''])
+
   useEffect(() => {
     if (!selectedPaperId) {
       setSelectedAnnotationId(null)
@@ -1196,13 +1305,6 @@ export default function ReadingPage() {
         if (!cancelled) setAnnotations([])
       })
 
-    loadNotes(docRef)
-      .then((noteContent) => { if (!cancelled) setCurrentNoteMd(noteContent || '') })
-      .catch((err) => {
-        console.error('[Reading] 加载笔记失败:', err)
-        if (!cancelled) setCurrentNoteMd('')
-      })
-
     return () => { cancelled = true }
     // docKey 唯一标识对象；docRef 每次渲染都是新对象，不能进依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1241,22 +1343,6 @@ export default function ReadingPage() {
           toast.error(`批注保存失败：${err?.message || err}`)
         })
     }, 500)
-  }, [docRef])
-
-  const saveNoteToStorage = useCallback((md: string) => {
-    if (!docRef) return
-    if (noteSaveTimerRef.current) {
-      clearTimeout(noteSaveTimerRef.current)
-    }
-    setNoteSaveState({ status: 'saving', lastSaved: null })
-    noteSaveTimerRef.current = setTimeout(() => {
-      // 笔记本来就以 md 落盘：md 进 md 出，不再走 html↔md 的有损往返
-      saveNotes(docRef, md).catch(err => console.error('[Reading] 保存笔记到 GitHub 失败:', err))
-      setNoteSaveState({ status: 'saved', lastSaved: Date.now() })
-      setTimeout(() => {
-        setNoteSaveState((prev) => ({ ...prev, status: 'idle' }))
-      }, 2000)
-    }, 800)
   }, [docRef])
 
   const handleTextSelection = useCallback(() => {
@@ -1438,10 +1524,24 @@ export default function ReadingPage() {
     (d) => matchSearch(d.title) && matchesCategory(categoriesOfMember(documentCategories, d.id)),
   )
 
+  /** 笔记「来自哪篇文档」的标题（列表里显示、点开时标注来源） */
+  const noteParentTitle = (ref: NoteFileRef): string => {
+    if (ref.parentKind === 'paper') return papers.find((p) => p.id === ref.parentId)?.title ?? ref.parentId
+    if (ref.parentKind === 'book') return books.find((b) => b.id === ref.parentId)?.title ?? ref.parentId
+    return documents.find((d) => d.id === ref.parentId)?.title ?? ref.parentId
+  }
+
+  /** 「其他文档」列表里的笔记：按名字 / 来源标题过滤同一套搜索词 */
+  const filteredNoteFiles = noteFiles.filter(
+    (n) => matchSearch(n.name) || matchSearch(noteParentTitle(n)),
+  )
+
   /** 当前阅读对象的标题（导出文件名、问 AI 面板都用它） */
-  const docTitle = isPlain
-    ? ((isBook ? selectedBook?.title : selectedDocument?.title) ?? '')
-    : (selectedPaper?.title ?? '')
+  const docTitle = isNote
+    ? (selectedNote?.name ?? '')
+    : isPlain
+      ? ((isBook ? selectedBook?.title : selectedDocument?.title) ?? '')
+      : (selectedPaper?.title ?? '')
 
   /**
    * 提交全文检索：把左栏切成结果面板。
@@ -1467,6 +1567,16 @@ export default function ReadingPage() {
 
   /** 点结果：切到对应阅读对象，并把检索词交给正文做高亮定位 */
   const openSearchHit = (hit: SearchHit) => {
+    if (hit.kind === 'note') {
+      const ref = decodeNoteFileRef(hit.id)
+      if (!ref) return
+      setDocType('document')
+      setSelectedDocumentId(null)
+      setSelectedNote(ref)
+      setFindTarget((prev) => ({ key: noteRefKey(ref), q: ftQuery, n: (prev?.n ?? 0) + 1 }))
+      setLeftDrawer(false)
+      return
+    }
     setDocType(hit.kind)
     if (hit.kind === 'paper') {
       setSelectedPaperId(hit.id)
@@ -1475,6 +1585,7 @@ export default function ReadingPage() {
     } else if (hit.kind === 'book') {
       setSelectedBookId(hit.id)
     } else {
+      setSelectedNote(null)
       setSelectedDocumentId(hit.id)
     }
     setFindTarget((prev) => ({ key: `${hit.kind}:${hit.id}`, q: ftQuery, n: (prev?.n ?? 0) + 1 }))
@@ -1497,11 +1608,12 @@ export default function ReadingPage() {
   /** 单语言正文渲染 + 大纲（图书与其他文档同一条路）：标题注入 id 后按标题层级生成大纲 */
   const { html: bookRenderedHtml, outline: bookOutline } = useMemo(() => {
     if (!isPlain || !plainMarkdown.trim()) return { html: '', outline: [] as OutlineItem[] }
-    const raw = renderMarkdownToHtml(plainMarkdown, {
-      imageBaseUrl: getPlainImageBaseUrl(plainId ?? '', isDoc ? 'documents' : 'textbooks'),
-    })
+    const imageBaseUrl = isNote
+      ? getRepoImageBaseUrl()
+      : getPlainImageBaseUrl(plainId ?? '', isDoc ? 'documents' : 'textbooks')
+    const raw = renderMarkdownToHtml(plainMarkdown, { imageBaseUrl })
     return buildOutlineAndAnchors(withBookBlockIds(raw))
-  }, [isPlain, isDoc, plainMarkdown, plainId])
+  }, [isPlain, isDoc, isNote, plainMarkdown, plainId])
 
   /** 点大纲跳到正文对应标题 */
   const jumpToAnchor = useCallback((anchor: string) => {
@@ -1958,10 +2070,9 @@ export default function ReadingPage() {
     return () => clearTimeout(t)
   }, [bookRenderedHtml])
 
-  // 笔记：Vditor 所见即所得编辑器（工具栏/图片上传由编辑器自带）
+  // 笔记侧栏由 ReadingNotesPanel 自管（多笔记 + 自动保存）；这里只保留当前笔记内容与导出。
   const handleNoteChange = (md: string) => {
     setCurrentNoteMd(md)
-    saveNoteToStorage(md)
   }
 
   const exportNote = () => {
@@ -2455,13 +2566,6 @@ export default function ReadingPage() {
       }
     }
   }, [selectedAnnotationId, activeSideTab])
-
-  // 笔记字数：直接数 md 正文（去掉代码块、图片、markdown 标记与空白）
-  const wordCount = currentNoteMd
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/[#>*`_~\-|[\]()]/g, '')
-    .replace(/\s+/g, '').length
 
   // ─────────────────────────── 听书（浏览器内置 TTS） ───────────────────────────
   /**
@@ -3132,7 +3236,7 @@ export default function ReadingPage() {
                 <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
                 <p>加载中...</p>
               </div>
-            ) : documents.length === 0 ? (
+            ) : documents.length === 0 && filteredNoteFiles.length === 0 ? (
               <div className="text-center py-8 text-ink-400 text-sm px-4">
                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <button
@@ -3143,43 +3247,88 @@ export default function ReadingPage() {
                   导入文档
                 </button>
               </div>
-            ) : filteredDocuments.length === 0 ? (
+            ) : filteredDocuments.length === 0 && filteredNoteFiles.length === 0 ? (
               <div className="text-center py-8 text-ink-400 text-sm">
                 <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p>没有找到匹配的文档</p>
               </div>
             ) : (
-              filteredDocuments.map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => {
-                    setSelectedDocumentId(d.id)
-                    setSelectedAnnotationId(null)
-                    setEditingAnnotationId(null)
-                    setLeftDrawer(false)
-                  }}
-                  className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
-                    selectedDocumentId === d.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
-                  }`}
-                >
-                  <div className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
-                    {d.title}
+              <>
+                {filteredDocuments.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => {
+                      setSelectedNote(null)
+                      setSelectedDocumentId(d.id)
+                      setSelectedAnnotationId(null)
+                      setEditingAnnotationId(null)
+                      setLeftDrawer(false)
+                    }}
+                    className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                      selectedDocumentId === d.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
+                    }`}
+                  >
+                    <div className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
+                      {d.title}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5 text-xs text-ink-400">
+                      {d.author ? <span className="truncate">{d.author}</span> : null}
+                      {d.hasContent ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium">
+                          <FileText className="w-3 h-3" />
+                          已导入
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded text-[0.625rem]">
+                          无正文
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+
+                {/*
+                 * 笔记：全库所有文献 / 图书 / 文档的命名笔记都列在这里，
+                 * 方便不打开原文、直接大屏读自己的笔记（点开是只读视图）。
+                 */}
+                {filteredNoteFiles.length > 0 && (
+                  <div className="border-t border-ink-200">
+                    <div className="px-3 py-1.5 text-[0.6875rem] font-semibold text-ink-400 bg-paper-100">
+                      笔记
+                      <span className="ml-1.5 font-normal">{filteredNoteFiles.length}</span>
+                    </div>
+                    {filteredNoteFiles.map((n) => {
+                      const key = noteRefKey(n)
+                      const activeNote = selectedNote ? noteRefKey(selectedNote) === key : false
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => {
+                            setSelectedDocumentId(null)
+                            setSelectedNote(n)
+                            setSelectedAnnotationId(null)
+                            setEditingAnnotationId(null)
+                            setLeftDrawer(false)
+                          }}
+                          className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                            activeNote ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <StickyNote className="w-3.5 h-3.5 flex-shrink-0 text-amber-500" />
+                            <span className="text-sm font-medium text-ink-700 line-clamp-2 leading-snug">
+                              {n.name}
+                            </span>
+                          </div>
+                          <div className="text-xs text-ink-400 mt-1 truncate">
+                            来自「{noteParentTitle(n)}」
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
-                  <div className="flex items-center gap-2 mt-1.5 text-xs text-ink-400">
-                    {d.author ? <span className="truncate">{d.author}</span> : null}
-                    {d.hasContent ? (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium">
-                        <FileText className="w-3 h-3" />
-                        已导入
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded text-[0.625rem]">
-                        无正文
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))
+                )}
+              </>
             )
           ) : papersLoading ? (
             <div className="text-center py-8 text-ink-400 text-sm">
@@ -3307,11 +3456,23 @@ export default function ReadingPage() {
               <div className="bg-paper-50 border-b border-ink-200 px-4 py-2 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
-                    onClick={() => (isBook ? setSelectedBookId(null) : setSelectedDocumentId(null))}
+                    onClick={() => {
+                      if (selectedNote) setSelectedNote(null)
+                      else if (isBook) setSelectedBookId(null)
+                      else setSelectedDocumentId(null)
+                    }}
                     className="p-1.5 text-ink-500 hover:bg-ink-100 rounded transition flex-shrink-0"
                   >
                     <ArrowLeft className="w-4 h-4" />
                   </button>
+                  {selectedNote && (
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-ink-700 truncate">{selectedNote.name}</div>
+                      <div className="text-xs text-ink-400 truncate">
+                        笔记 · 来自「{noteParentTitle(selectedNote)}」 · 只读
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
@@ -3444,14 +3605,6 @@ export default function ReadingPage() {
                 >
                   <Download className="w-3.5 h-3.5" />
                   导出批注
-                </button>
-                <button
-                  onClick={exportNote}
-                  disabled={!currentNoteMd.trim()}
-                  className="px-2.5 py-1.5 text-xs bg-seal-600 text-paper-50 rounded hover:bg-seal-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  导出笔记
                 </button>
                 <div className="w-px h-5 bg-ink-200 mx-1" />
                 <button
@@ -3699,72 +3852,26 @@ export default function ReadingPage() {
               selectedText={selectedText}
             />
           ) : activeSideTab === 'notes' ? (
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="px-3 py-2 border-b border-ink-100 flex items-center justify-end flex-shrink-0 bg-paper-100/50">
-                <button
-                  onClick={exportNote}
-                  disabled={!docRef || !currentNoteMd.trim()}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  导出
-                </button>
+            docRef ? (
+              <ReadingNotesPanel
+                docRef={docRef}
+                placeholder={
+                  isBook
+                    ? '记录这本书的笔记…'
+                    : isDoc
+                      ? '记录这个文档的笔记…'
+                      : '记录这篇文献的笔记…'
+                }
+                value={currentNoteMd}
+                onChange={handleNoteChange}
+                onExport={exportNote}
+              />
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center text-ink-400 px-6">
+                <StickyNote className="w-8 h-8 mb-2 opacity-30" />
+                <p className="text-sm text-ink-500">请选择要阅读的文献 / 图书 / 文档</p>
               </div>
-
-              <div className="flex-1 min-h-0">
-                {docRef ? (
-                  <VditorEditor
-                    ref={noteVditorRef}
-                    value={currentNoteMd}
-                    onChange={handleNoteChange}
-                    height="100%"
-                    placeholder={
-                      isBook
-                        ? '记录这本书的笔记…'
-                        : isDoc
-                          ? '记录这个文档的笔记…'
-                          : '记录这篇文献的笔记…'
-                    }
-                    className="h-full"
-                    docPath={notesPath(docRef)}
-                    imageSubDir="notes-images"
-                  />
-                ) : (
-                  <div className="text-center text-ink-400 py-8">
-                    <StickyNote className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  </div>
-                )}
-              </div>
-
-              <div className="px-3 py-2 border-t border-ink-100 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
-                <div className="flex items-center gap-1.5 text-xs text-ink-400">
-                  {noteSaveState.status === 'saving' && (
-                    <>
-                      <span className="w-2.5 h-2.5 border border-ink-300 border-t-seal-500 rounded-full animate-spin" />
-                      <span className="text-seal-600">保存中...</span>
-                    </>
-                  )}
-                  {noteSaveState.status === 'saved' && (
-                    <>
-                      <Save className="w-3.5 h-3.5 text-green-500" />
-                      <span className="text-green-600 font-medium">
-                        已自动保存
-                        {noteSaveState.lastSaved && ` ${formatTime(noteSaveState.lastSaved)}`}
-                      </span>
-                    </>
-                  )}
-                  {noteSaveState.status === 'idle' && (
-                    <>
-                      <Save className="w-3.5 h-3.5" />
-                      <span>自动保存</span>
-                    </>
-                  )}
-                </div>
-                <span className="text-xs text-ink-400 font-mono">
-                  {wordCount} 字
-                </span>
-              </div>
-            </div>
+            )
           ) : (
             <div className="flex-1 flex flex-col">
               <div className="px-3 py-2 border-b border-ink-100 flex-shrink-0 space-y-2">

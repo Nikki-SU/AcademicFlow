@@ -13,15 +13,25 @@
  *           没有块文档时退回 MinerU 原文 full.md
  *   - 图书：textbooks/{id}/content.md
  *   - 其他文档：documents/{id}/content.md
+ *   - 笔记：literatures|textbooks|documents/{id}/notes/{名称}.md
+ *
+ * ⚠️ 笔记只进「全文检索」，**绝不作为引用材料**：引用材料（写作页的引用范围）走的是
+ * 文献元数据，不经过这里。笔记是用户的二手记录，可信度不够，不能当信源。
  */
 
 import { readMdFile } from './userData'
 import { listBooks } from './textbookData'
 import { listDocuments } from './documentData'
 import { loadLiteratures, doiToSlug } from './literatureData'
+import {
+  encodeNoteFileRef,
+  listAllNoteFiles,
+  noteParentRef,
+  notePath,
+} from './readingDocData'
 import { stripMarkers } from './blocks.mjs'
 
-export type SearchKind = 'paper' | 'book' | 'document'
+export type SearchKind = 'paper' | 'book' | 'document' | 'note'
 
 /** 索引里的一篇正文 */
 export interface SearchDoc {
@@ -124,6 +134,8 @@ interface Target {
 /** 收集所有待索引的正文路径 */
 async function collectTargets(): Promise<Target[]> {
   const targets: Target[] = []
+  /** `${kind}:${id}` → 标题，给笔记命中拼「来自哪篇文档」用 */
+  const titleOf = new Map<string, string>()
 
   // 文献：以元数据表为准（有 DOI 才有稳定标题），路径按 slug 推断
   try {
@@ -131,10 +143,12 @@ async function collectTargets(): Promise<Target[]> {
     for (const l of lits) {
       if (!l.doi) continue
       const slug = doiToSlug(l.doi)
+      const title = l.title || l.doi
+      titleOf.set(`paper:${l.doi}`, title)
       targets.push({
         kind: 'paper',
         id: l.doi,
-        title: l.title || l.doi,
+        title,
         paths: [
           `literatures/${slug}/${slug}.md`,
           `literatures/${slug}/full.md`,
@@ -150,6 +164,7 @@ async function collectTargets(): Promise<Target[]> {
     const books = await listBooks()
     for (const b of books) {
       if (!b.hasContent) continue
+      titleOf.set(`book:${b.id}`, b.title || b.id)
       targets.push({
         kind: 'book',
         id: b.id,
@@ -166,6 +181,7 @@ async function collectTargets(): Promise<Target[]> {
     const docs = await listDocuments()
     for (const d of docs) {
       if (!d.hasContent) continue
+      titleOf.set(`document:${d.id}`, d.title || d.id)
       targets.push({
         kind: 'document',
         id: d.id,
@@ -175,6 +191,22 @@ async function collectTargets(): Promise<Target[]> {
     }
   } catch (err) {
     console.warn('[librarySearch] 文档列表读取失败，跳过文档索引：', err)
+  }
+
+  // 笔记：一篇文档可有多篇命名笔记，标题拼成「所属文档 · 笔记名」便于辨认
+  try {
+    const notes = await listAllNoteFiles()
+    for (const n of notes) {
+      const parentTitle = titleOf.get(`${n.parentKind}:${n.parentId}`) ?? n.parentId
+      targets.push({
+        kind: 'note',
+        id: encodeNoteFileRef(n),
+        title: `${parentTitle} · ${n.name}`,
+        paths: [notePath(noteParentRef(n), n.name)],
+      })
+    }
+  } catch (err) {
+    console.warn('[librarySearch] 笔记列表读取失败，跳过笔记索引：', err)
   }
 
   return targets
@@ -305,4 +337,5 @@ export const KIND_LABEL: Record<SearchKind, string> = {
   paper: '文献',
   book: '图书',
   document: '文档',
+  note: '笔记',
 }

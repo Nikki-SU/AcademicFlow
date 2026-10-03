@@ -90,7 +90,6 @@ import {
   MoveRight,
   Tag,
   Library,
-  Copy,
   Pencil,
   // ListTodo,
 } from 'lucide-react'
@@ -103,6 +102,8 @@ import {
   KIND_LABEL,
   type SearchHit,
 } from '../services/librarySearch'
+import { listNotes, type DocRef } from '../services/readingDocData'
+import { loadAnnotations } from '../services/annotationData'
 
 type SubTabId = 'library' | 'templates' | 'knowledge' | 'documents' | 'import-export'
 
@@ -293,6 +294,19 @@ const CATEGORY_COLORS = [
   'bg-rose-50 text-rose-600',
   'bg-teal-50 text-teal-600',
 ]
+
+/** 文献分级配色：一级（原创）暖色 amber，二级（综述等二手文献）冷色 sky。
+ *  用「整行底色 + 页签底色」区分，不在标题前放图标（图标占格子且不表意）。 */
+const TIER_STYLE = {
+  1: {
+    row: 'bg-amber-50/40 hover:bg-amber-100/50',
+    tab: 'bg-amber-100 text-amber-700 border border-amber-300',
+  },
+  2: {
+    row: 'bg-sky-50/40 hover:bg-sky-100/50',
+    tab: 'bg-sky-100 text-sky-700 border border-sky-300',
+  },
+} as const
 
 /** 把分类树拍平成一层（'全部文献' 是伪分类，不落盘） */
 function flattenCategories(cats: PaperCategory[]): PaperCategory[] {
@@ -590,6 +604,15 @@ export default function ManagementPage() {
   const [showEditPaperModal, setShowEditPaperModal] = useState(false)
   const [showImageLightbox, setShowImageLightbox] = useState<string | null>(null)
   const [editingPaper, setEditingPaper] = useState<Paper | null>(null)
+  /**
+   * 编辑弹窗里的笔记面板：真实反映这篇文献的笔记（notes/{名称}.md）与批注数量。
+   * 以前这里是「hasNotes 就地取反」的假开关，点一下有、再点一下无，毫无意义。
+   */
+  const [paperNoteInfo, setPaperNoteInfo] = useState<{
+    loading: boolean
+    notes: string[]
+    annotations: number
+  }>({ loading: false, notes: [], annotations: 0 })
   /**
    * 「编辑文献」弹窗里的词根词缀修正。
    * 文献是从原文提取单词的源头，所以"改切分"这件事挂在这里，跟改文献元数据同一个入口 ——
@@ -1688,6 +1711,28 @@ export default function ManagementPage() {
       .catch(() => setPaperWords([]))
   }
 
+  // 打开编辑弹窗时，读回这篇文献真实的笔记（notes/{名称}.md）与批注数量
+  useEffect(() => {
+    if (!showEditPaperModal || !editingPaper?.doi) {
+      setPaperNoteInfo({ loading: false, notes: [], annotations: 0 })
+      return
+    }
+    let cancelled = false
+    const ref: DocRef = { kind: 'paper', id: editingPaper.doi }
+    setPaperNoteInfo({ loading: true, notes: [], annotations: 0 })
+    Promise.all([
+      listNotes(ref).catch(() => [] as string[]),
+      loadAnnotations(ref).catch(() => []),
+    ]).then(([notes, anns]) => {
+      if (!cancelled) setPaperNoteInfo({ loading: false, notes, annotations: anns.length })
+    })
+    return () => {
+      cancelled = true
+    }
+    // editingPaper?.doi 变化即换了一篇文献
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEditPaperModal, editingPaper?.doi])
+
   const handleSavePaper = async () => {
     if (!editingPaper) return
     // 词根词缀先写：整表重写，失败就别把弹窗关掉（用户还能重试）
@@ -2665,11 +2710,10 @@ export default function ManagementPage() {
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
                     tierFilter === 1
-                      ? 'bg-paper-50 text-seal-600 shadow-sm border border-ink-200'
+                      ? TIER_STYLE[1].tab
                       : 'text-ink-500 hover:text-ink-700'
                   }`}
                 >
-                  <span className="text-base">📄</span>
                   一级文献
                   <span className="text-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
                     {filteredPapers.filter((p) => p.tier === 1).length}
@@ -2682,11 +2726,10 @@ export default function ManagementPage() {
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
                     tierFilter === 2
-                      ? 'bg-paper-50 text-seal-600 shadow-sm border border-ink-200'
+                      ? TIER_STYLE[2].tab
                       : 'text-ink-500 hover:text-ink-700'
                   }`}
                 >
-                  <span className="text-base">📖</span>
                   二级文献
                   <span className="text-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
                     {filteredPapers.filter((p) => p.tier === 2).length}
@@ -2769,9 +2812,9 @@ export default function ManagementPage() {
                   return (
                     <tr
                       key={paper.id}
-                      className={`hover:bg-paper-100/70 transition ${
+                      className={`transition ${TIER_STYLE[paper.tier].row} ${
                         batchMode ? 'cursor-pointer' : ''
-                      } ${selectedPapers.has(paper.id) ? 'bg-seal-50' : ''}`}
+                      } ${selectedPapers.has(paper.id) ? '!bg-seal-50' : ''}`}
                       onClick={() => batchMode && toggleSelectPaper(paper.id)}
                     >
                       {batchMode && (
@@ -2811,13 +2854,10 @@ export default function ManagementPage() {
 
                       {/* 标题（关键词跟着标题走，同一个格子里换行） */}
                       <td className="px-3 py-3 align-top">
-                        <div className="flex items-start gap-2 min-w-0">
-                          <span className="text-sm shrink-0">{paper.tier === 2 ? '📖' : '📄'}</span>
-                          <h3 className="text-sm font-medium text-ink-800 min-w-0">{paper.title}</h3>
-                        </div>
+                        <h3 className="text-sm font-medium text-ink-800 min-w-0">{paper.title}</h3>
 
                         {paper.keywords.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1.5 ml-6">
+                          <div className="flex flex-wrap gap-1 mt-1.5">
                             {paper.keywords.slice(0, 2).map((kw) => (
                               <span key={kw} className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
                                 {kw}
@@ -2928,18 +2968,18 @@ export default function ManagementPage() {
                               />
                             </label>
                           )}
-                          {/* DOI 复制：只给图标，不显示 DOI 文本 */}
+                          {/* DOI 跳转：点图标直接打开原文（doi.org 解析），不做复制 */}
                           {paper.doi && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void navigator.clipboard.writeText(paper.doi)
-                                toast.success('DOI 已复制')
-                              }}
+                            <a
+                              href={`https://doi.org/${normalizeDoi(paper.doi).doi ?? paper.doi}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="打开原文（DOI 跳转）"
+                              onClick={(e) => e.stopPropagation()}
                               className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
                             >
-                              <Copy className="w-4 h-4" />
-                            </button>
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
                           )}
                           <button
                             disabled={paper.mdStatus === 'converting'}
@@ -4080,18 +4120,50 @@ export default function ManagementPage() {
               <div>
                 <label className="block text-sm font-medium text-ink-700 mb-1.5">笔记</label>
                 <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <StickyNote className={`w-4 h-4 ${editingPaper.hasNotes ? 'text-amber-500' : 'text-ink-300'}`} />
-                      <span className="text-sm text-ink-700">
-                        {editingPaper.hasNotes ? '有笔记' : '无笔记'}
-                      </span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <StickyNote
+                          className={`w-4 h-4 ${
+                            paperNoteInfo.notes.length > 0 || paperNoteInfo.annotations > 0
+                              ? 'text-amber-500'
+                              : 'text-ink-300'
+                          }`}
+                        />
+                        <span className="text-sm text-ink-700">
+                          {paperNoteInfo.loading
+                            ? '读取中…'
+                            : paperNoteInfo.notes.length > 0 || paperNoteInfo.annotations > 0
+                              ? `有 ${paperNoteInfo.notes.length} 篇笔记 · ${paperNoteInfo.annotations} 条批注`
+                              : '暂无笔记'}
+                        </span>
+                      </div>
+                      {!paperNoteInfo.loading && paperNoteInfo.notes.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {paperNoteInfo.notes.map((n) => (
+                            <span
+                              key={n}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-600 text-xs rounded"
+                            >
+                              <FileText className="w-3 h-3" />
+                              {n}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs text-ink-400 mt-1.5">
+                        笔记在阅读页维护：一篇文献可以写多篇命名笔记，也可上传 md / docx / zip 的总结文稿。
+                      </p>
                     </div>
                     <button
-                      onClick={() => setEditingPaper({ ...editingPaper, hasNotes: !editingPaper.hasNotes })}
-                      className="text-xs text-seal-600 hover:underline"
+                      onClick={() => {
+                        setShowEditPaperModal(false)
+                        handleOpenReading(editingPaper)
+                      }}
+                      className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 text-xs bg-seal-600 text-paper-50 rounded hover:bg-seal-700 transition"
                     >
-                      {editingPaper.hasNotes ? '查看笔记' : '添加笔记'}
+                      <StickyNote className="w-3.5 h-3.5" />
+                      打开笔记
                     </button>
                   </div>
                 </div>
