@@ -45,6 +45,8 @@ export interface Project {
   parentId: string | null
   startAt: number
   dueAt: number
+  /** 是否已完成（待办勾选）：完成就划掉变灰；由用户勾选或把过期的叉点成勾 */
+  done: boolean
 }
 
 /**
@@ -72,6 +74,7 @@ const PROJECT_HEADERS = [
   'project_id', 'title', 'target_journal', 'textbook_refs',
   'status', 'created_at', 'updated_at',
   'type', 'parent_id', 'start_at', 'due_at',
+  'done',
 ]
 
 const CITATION_HEADERS = [
@@ -96,6 +99,8 @@ export async function loadProjects(force = false): Promise<Project[]> {
         parentId: r[8] || null,
         startAt: parseInt(r[9] || '0', 10),
         dueAt: parseInt(r[10] || '0', 10),
+        // done 列由迁移（services/migrations.ts）保证存在，这里不做旧格式兜底
+        done: (r[11] || '').trim().toLowerCase() === 'true',
       }))
     },
     force,
@@ -119,6 +124,7 @@ export async function saveProjects(projects: Project[]): Promise<void> {
       p.parentId ?? '',
       String(p.startAt || 0),
       String(p.dueAt || 0),
+      p.done ? 'true' : 'false',
     ],
   )
 }

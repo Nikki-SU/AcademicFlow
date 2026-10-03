@@ -705,6 +705,27 @@ const annotationAnchorsV2: Migration = {
   },
 }
 
+/**
+ * v3 → v4：任务表补 done 列
+ * 新增「任务完成状态」——每个任务左边一个小圈圈，勾上 = 完成（划掉、变灰）；
+ * 忘记勾而自动过期的，把圈里的叉点一下也能变勾。旧表没有 done 列，一律补 false（未完成）。
+ * 之后 loadProjects 便直接假定该列存在，不再写旧格式分支。
+ */
+const projectsDoneField: Migration = {
+  id: 'projects-done-field-v1',
+  affects: ['schedule', 'tracking', 'session', 'writing'],
+  since: 4,
+  label: '升级项目表（补 done 列：任务完成状态）',
+  detect: async () => {
+    const header = await readCsvHeader(PROJECTS_PATH)
+    return !!header && !header.includes('done')
+  },
+  run: async () => {
+    const projects = await loadProjects(true)
+    await saveProjects(projects.map((p) => ({ ...p, done: false })))
+  },
+}
+
 // 顺序即执行顺序：先补全 projects 表结构，再修正 courses 脏值，最后挂课程任务（依赖前两者保证的列与合法值）。
 export const MIGRATIONS: Migration[] = [
   projectsSchemaLink,
@@ -718,6 +739,7 @@ export const MIGRATIONS: Migration[] = [
   documentMdNames,
   docImagesV1,
   annotationAnchorsV2,
+  projectsDoneField,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
@@ -761,7 +783,7 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
  * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 3
+export const DATA_VERSION = 4
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']

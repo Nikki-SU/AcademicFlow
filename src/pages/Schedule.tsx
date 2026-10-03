@@ -170,6 +170,7 @@ export default function SchedulePage() {
       parentId: null,
       startAt: 0,
       dueAt: 0,
+      done: false,
     }
     const next = [...projects, task]
     await saveProjects(next)
@@ -211,6 +212,7 @@ export default function SchedulePage() {
             parentId: null,
             startAt: 0,
             dueAt: 0,
+            done: false,
           }
           const next = [...projects, task]
           await saveProjects(next)
@@ -360,6 +362,7 @@ export default function SchedulePage() {
       parentId: value.parentId,
       startAt: value.startAt,
       dueAt: value.dueAt,
+      done: false,
     }
     const next = [...projects, project]
     try {
