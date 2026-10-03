@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, type DragEvent } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, type DragEvent, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   BookOpen,
@@ -30,6 +30,7 @@ import {
   Pause,
   Square,
   Headphones,
+  GripVertical,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
@@ -770,6 +771,17 @@ export default function ReadingPage() {
    */
   const [leftDrawer, setLeftDrawer] = useState(false)
   const [rightDrawer, setRightDrawer] = useState(false)
+
+  /**
+   * 宽屏阅读页「中栏 : 右栏」比例拖动。
+   * 左栏恒为 1fr，右栏在 1fr（默认 1:3:1）与 2fr（拖成 1:2:2）之间滑动，
+   * 中栏 = 5 − 1 − 右，所以总量恒为 5fr，拖动时其余栏不会跳。
+   */
+  const [readerRightFr, setReaderRightFr] = useState(1)
+  const [readerDragging, setReaderDragging] = useState(false)
+  const readerGridRef = useRef<HTMLDivElement>(null)
+  const readerDragStartX = useRef(0)
+  const readerDragStartFr = useRef(1)
 
   // ── 阅读页直接导入其他文档（不绕去管理页；写的是同一份 documents/ 数据） ──
   const [showImportDocModal, setShowImportDocModal] = useState(false)
@@ -2463,6 +2475,45 @@ export default function ReadingPage() {
   }, [docKey, paperRenderedHtml, bookRenderedHtml])
 
   /**
+   * 阅读页中缝拖动：改「中栏 : 右栏」比例（1:3:1 ↔ 1:2:2）。
+   * 左栏恒 1fr，右栏 1fr→2fr，中栏自动 3fr→2fr（总量恒 5fr）。
+   * 松手吸附到两档，避免停在不上不下的中间比例。
+   */
+  const handleReaderDividerDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setReaderDragging(true)
+    readerDragStartX.current = e.clientX
+    readerDragStartFr.current = readerRightFr
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    if (!readerDragging) return
+    const handleMouseMove = (e: MouseEvent) => {
+      const el = readerGridRef.current
+      if (!el) return
+      // 三栏总量恒为 5fr，1fr ≈ 容器宽 / 5；右栏每移动 1fr 就吃掉中栏 1fr
+      const fr = el.clientWidth / 5
+      const deltaFr = (e.clientX - readerDragStartX.current) / fr
+      const next = Math.max(1, Math.min(2, readerDragStartFr.current + deltaFr))
+      setReaderRightFr(next)
+    }
+    const handleMouseUp = () => {
+      setReaderDragging(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      setReaderRightFr((cur) => (cur < 1.5 ? 1 : 2))
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [readerDragging])
+
+  /**
    * 逐行交替底色（防看漏）。
    *
    * 粒度取「1 行有色 / 1 行无色」：这是唯一能保证**任意相邻两行都不同色**的粒度。
@@ -2857,12 +2908,13 @@ export default function ReadingPage() {
   return (
     /*
      * 三栏用 Grid：
-     *  - 左右两栏**等宽**，走全站统一模板 ratio-121（1fr : 2fr : 1fr，即 1:2:1），中栏自然居中
-     *  - 比例来自 tailwind.config.js 的 gridTemplateColumns.ratio-121，全站统一，便于全局调
-     *  - 中栏 1fr 吃掉剩下的一半：正文卡片在里面按 --reader-column 限宽并居中
-     *    （--reader-column = 正文宽 + 卡片内边距 + 中栏内边距，保证正文铺满卡片内容区）
+     *  - 默认比例 **1:3:1**（左 1 / 中 3 / 右 1），中栏最宽，适合精读
+     *  - 列宽由 --reader-cols 给（默认 `1fr 3fr 0.375rem 1fr`，中间那道 0.375rem 是拖动柄）
+     *  - 拖中缝（GripVertical）可把右栏拉宽到 **1:2:2** —— 边读边看笔记时用
+     *  - 中栏里的正文按 --reader-column 限宽：宽度取「中栏列宽」与 95ch 的较小值，
+     *    所以中栏一变宽正文就跟着变宽（不是只把白卡拉大）
      *  - 高度 h-full：由 Layout 的 main（h-screen 外壳下的确定高度）撑，不自己算 calc(100vh-3rem)
-     *  - <1100px：栅格塌成单列，两侧栏变覆盖式抽屉，正文独占全宽
+     *  - <1100px：grid-cols-1 覆盖掉列宽，栅格塌成单列，两侧栏变覆盖式抽屉，正文独占全宽
      *
      * 字号挂在**栅格容器**上：--reader-column 里的 ch 必须和 .measure-reader 用同一个
      * ch，正文卡片宽度才会随字号一起变。
@@ -2870,8 +2922,12 @@ export default function ReadingPage() {
      * （正文卡片本来就有自己的字号，不受影响）。
      */
     <div
-      className="h-full overflow-hidden bg-paper-100 grid grid-cols-ratio-121 grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
-      style={{ fontSize: `${fontSize / 16}rem` }}
+      ref={readerGridRef}
+      className="h-full overflow-hidden bg-paper-100 grid grid-cols-[var(--reader-cols)] grid-rows-[minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)]"
+      style={{
+        fontSize: `${fontSize / 16}rem`,
+        '--reader-cols': `minmax(0, 1fr) minmax(0, ${4 - readerRightFr}fr) 0.375rem minmax(0, ${readerRightFr}fr)`,
+      } as CSSProperties}
     >
       {/* 窄屏专用：两个抽屉开关 */}
       <div
@@ -3795,6 +3851,16 @@ export default function ReadingPage() {
           </div>
         )}
       </section>
+
+      {/* 中缝拖动柄：宽屏专用（<1100px 抽屉模式隐藏）。左右拉可把右栏在 1:3:1 ↔ 1:2:2 间切换 */}
+      <div
+        className={`hidden min-[1101px]:flex items-center justify-center cursor-col-resize bg-ink-100 hover:bg-seal-100 transition-colors z-10 ${
+          readerDragging ? 'bg-seal-200' : ''
+        }`}
+        onMouseDown={handleReaderDividerDown}
+      >
+        <GripVertical className="w-3 h-3 text-ink-400" />
+      </div>
 
       {/* 右栏：问 AI / 笔记 / 批注 —— 文献与图书同一套 */}
       <aside className={`bg-paper-50 border-l border-ink-200 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-40 max-[1100px]:w-[min(24rem,90vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
