@@ -328,7 +328,7 @@ export function CourseTable({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto p-ui-gap">
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-ui-gap">
         {/* 表头：日期 + 星期（与下方时间轴网格严格对齐） */}
         <div className="flex gap-ui-gap-sm">
           <div className="w-ui-axis shrink-0" />
@@ -356,9 +356,9 @@ export function CourseTable({
           </div>
         </div>
 
-        {/* 主体：左=时间刻度，右=每天一列 */}
-        <div className="mt-ui-gap-sm flex gap-ui-gap-sm">
-          <div className="relative w-ui-axis shrink-0" style={{ height: 'var(--ui-lane)' }}>
+        {/* 主体：左=时间刻度，右=每天一列；高度撑满剩余空间，不再叠一个独立视口比例 */}
+        <div className="mt-ui-gap-sm flex min-h-0 flex-1 gap-ui-gap-sm">
+          <div className="relative w-ui-axis shrink-0">
             {hourTicks.map((m) => (
               <span
                 key={m}
@@ -370,7 +370,7 @@ export function CourseTable({
             ))}
           </div>
 
-          <div className="grid flex-1 gap-ui-gap-sm" style={{ gridTemplateColumns: dayCols }}>
+          <div className="grid h-full flex-1 grid-rows-1 gap-ui-gap-sm" style={{ gridTemplateColumns: dayCols }}>
             {days.map((w) => {
               const placed = layoutLane(coursesOf(w), rangeStart, rangeEnd)
               const isToday = w === today
@@ -382,7 +382,6 @@ export function CourseTable({
                       ? 'border-seal-300 bg-seal-50 ring-1 ring-inset ring-seal-200'
                       : 'border-ink-100 bg-paper-100'
                   }`}
-                  style={{ height: 'var(--ui-lane)' }}
                 >
                   {/* 整点网格线 */}
                   {hourTicks.map((m) => (
