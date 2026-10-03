@@ -774,9 +774,11 @@ export default function ReadingPage() {
 
   /**
    * 宽屏阅读页「中栏 : 右栏」比例拖动。
-   * 左栏恒为 1fr，右栏在 1fr（默认 1:3:1）与 2fr（拖成 1:2:2）之间滑动，
+   * 左栏恒为 1fr，右栏在 1fr / 2fr / 3fr 三档间滑动：
+   * 右=1 是 1:3:1、右=2 是 1:2:2、右=3 是 1:1:3，
    * 中栏 = 5 − 1 − 右，所以总量恒为 5fr，拖动时其余栏不会跳。
    */
+  const RIGHT_FR_SNAPS = [1, 2, 3]
   const [readerRightFr, setReaderRightFr] = useState(1)
   const [readerDragging, setReaderDragging] = useState(false)
   const readerGridRef = useRef<HTMLDivElement>(null)
@@ -2475,9 +2477,9 @@ export default function ReadingPage() {
   }, [docKey, paperRenderedHtml, bookRenderedHtml])
 
   /**
-   * 阅读页中缝拖动：改「中栏 : 右栏」比例（1:3:1 ↔ 1:2:2）。
-   * 左栏恒 1fr，右栏 1fr→2fr，中栏自动 3fr→2fr（总量恒 5fr）。
-   * 松手吸附到两档，避免停在不上不下的中间比例。
+   * 阅读页中缝拖动：改「中栏 : 右栏」比例（1:3:1 ↔ 1:2:2 ↔ 1:1:3）。
+   * 左栏恒 1fr，右栏 1fr→3fr，中栏自动 3fr→1fr（总量恒 5fr）。
+   * 松手吸附到三档，避免停在不上不下的中间比例。
    */
   const handleReaderDividerDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -2496,14 +2498,16 @@ export default function ReadingPage() {
       // 三栏总量恒为 5fr，1fr ≈ 容器宽 / 5；右栏每移动 1fr 就吃掉中栏 1fr
       const fr = el.clientWidth / 5
       const deltaFr = (e.clientX - readerDragStartX.current) / fr
-      const next = Math.max(1, Math.min(2, readerDragStartFr.current + deltaFr))
+      const next = Math.max(1, Math.min(3, readerDragStartFr.current + deltaFr))
       setReaderRightFr(next)
     }
     const handleMouseUp = () => {
       setReaderDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-      setReaderRightFr((cur) => (cur < 1.5 ? 1 : 2))
+      setReaderRightFr((cur) =>
+        RIGHT_FR_SNAPS.reduce((best, v) => (Math.abs(v - cur) < Math.abs(best - cur) ? v : best)),
+      )
     }
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)

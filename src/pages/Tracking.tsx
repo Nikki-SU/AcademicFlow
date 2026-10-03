@@ -188,12 +188,22 @@ export default function TrackingPage() {
   /** 待上传 PDF 的文献 DOI（隐藏 file input 复用，选中后再打开文件选择器） */
   const [pdfInputDoi, setPdfInputDoi] = useState<string | null>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
+  /** 摘要译文缓存镜像（供自动翻译队列判断「是否已译」，不触发重渲染） */
+  const translatedAbstractsRef = useRef<Record<string, string>>({})
+  /** 正在翻译的 DOI（防止重复入队） */
+  const translatingRef = useRef<Set<string>>(new Set())
+  /** 自动翻译失败只提示一次，避免刷屏 */
+  const translationErrorShownRef = useRef(false)
   /** 右栏批量操作选中的 DOI */
   const [selectedLibraryDois, setSelectedLibraryDois] = useState<string[]>([])
-  /** 中栏摘要一键翻译结果（DOI → 中文） */
+  /** 中栏批量操作选中的候选 DOI */
+  const [selectedCandidateDois, setSelectedCandidateDois] = useState<string[]>([])
+  /** 中栏摘要译文缓存（DOI → 中文）；默认显示译文，缓存避免重复翻译 */
   const [translatedAbstracts, setTranslatedAbstracts] = useState<Record<string, string>>({})
-  /** 正在翻译的候选 DOI */
-  const [translatingDoi, setTranslatingDoi] = useState<string | null>(null)
+  /** 中栏想看英文原文的候选 DOI（默认显示中文译文） */
+  const [showOriginalDois, setShowOriginalDois] = useState<string[]>([])
+  /** 中栏正在翻译（自动 + 手动）的候选 DOI，用于按钮 loading */
+  const [translatingDois, setTranslatingDois] = useState<string[]>([])
 
   // ============================================================
   // 持久化（全部存 GitHub 私库，不使用 localStorage —— SPEC §0/§2.3）
@@ -757,36 +767,39 @@ export default function TrackingPage() {
   // 候选裁决：入库 / 忽略
   // ============================================================
 
+  const candidateToLiterature = (c: TrackingCandidate): Literature => ({
+    doi: c.doi,
+    title: c.title,
+    journal: c.journal,
+    year: c.year,
+    authors: c.authors,
+    keywords: c.keywords,
+    abstractEn: c.abstractEn,
+    abstractCn: '',
+    tier: 0,
+    hasGraphicalAbstract: false,
+    addedAt: Date.now(),
+    pdfAddedAt: 0,
+    source: c.source || '追踪',
+    trackingGroup: c.trackingGroup,
+    mdStatus: 'none',
+    correspondingAuthor: '',
+  })
+
   const handleIngestCandidate = async (c: TrackingCandidate) => {
     if (!c.doi) {
       toast.error('该候选缺少 DOI，无法入库')
       return
     }
     try {
-      const newLit: Literature = {
-        doi: c.doi,
-        title: c.title,
-        journal: c.journal,
-        year: c.year,
-        authors: c.authors,
-        keywords: c.keywords,
-        abstractEn: c.abstractEn,
-        abstractCn: '',
-        tier: 0,
-        hasGraphicalAbstract: false,
-        addedAt: Date.now(),
-        pdfAddedAt: 0,
-        source: c.source || '追踪',
-        trackingGroup: c.trackingGroup,
-        mdStatus: 'none',
-        correspondingAuthor: '',
-      }
+      const newLit = candidateToLiterature(c)
       const status = await addLiteratureToLibrary(newLit)
       if (status === 'added') setLiteratures((prev) => [...prev, newLit])
       // 入库后从候选里移除：它已经在 literatures.csv，后续靠 DOI 去重
       const next = inbox.filter((r) => r.doi !== c.doi)
       await saveTrackingInbox(next)
       setInbox(next)
+      setSelectedCandidateDois((prev) => prev.filter((d) => d !== c.doi))
       toastAdded(c.title, status)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -802,11 +815,68 @@ export default function TrackingPage() {
       )
       await saveTrackingInbox(next)
       setInbox(next)
+      setSelectedCandidateDois((prev) => prev.filter((d) => d !== c.doi))
       const short = c.title.slice(0, 40)
       toast.message(`已忽略：${short}${c.title.length > 40 ? '...' : ''}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`忽略失败：${msg}`)
+    }
+  }
+
+  const toggleCandidateSelect = (doi: string) => {
+    setSelectedCandidateDois((prev) =>
+      prev.includes(doi) ? prev.filter((d) => d !== doi) : [...prev, doi],
+    )
+  }
+
+  /** 中栏批量入库：选中的候选一次性入库并移出候选 */
+  const handleBatchIngestCandidates = async () => {
+    const targets = pendingList.filter((c) => c.doi && selectedCandidateDois.includes(c.doi))
+    if (targets.length === 0) return
+    try {
+      let added = 0
+      let exists = 0
+      for (const c of targets) {
+        const newLit = candidateToLiterature(c)
+        const status = await addLiteratureToLibrary(newLit)
+        if (status === 'added') {
+          added += 1
+          setLiteratures((prev) => [...prev, newLit])
+        } else {
+          exists += 1
+        }
+      }
+      const selected = new Set(targets.map((c) => c.doi))
+      const next = inbox.filter((r) => !selected.has(r.doi))
+      await saveTrackingInbox(next)
+      setInbox(next)
+      setSelectedCandidateDois([])
+      toast.success(`已入库 ${added} 篇${exists > 0 ? `，${exists} 篇已在库` : ''}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`批量入库失败：${msg}`)
+    }
+  }
+
+  /** 中栏批量删除：选中的候选统一标 dismissed（保留行做去重，不再出现） */
+  const handleBatchDismissCandidates = async () => {
+    const selected = new Set(selectedCandidateDois)
+    const count = pendingList.filter((c) => selected.has(c.doi)).length
+    if (count === 0) return
+    try {
+      const next = inbox.map((r) =>
+        selected.has(r.doi) && r.status === 'pending'
+          ? { ...r, status: 'dismissed' as const }
+          : r,
+      )
+      await saveTrackingInbox(next)
+      setInbox(next)
+      setSelectedCandidateDois([])
+      toast.message(`已忽略 ${count} 篇`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`批量忽略失败：${msg}`)
     }
   }
 
@@ -844,15 +914,33 @@ export default function TrackingPage() {
   // 中栏 / 右栏 派生列表
   // ============================================================
 
-  /** 中栏「待入库」：一个月内、按发现时间越新越上（foundAt 为 Unix 秒） */
+  /** 中栏「待入库」：按发现时间越新越上（foundAt 为 Unix 秒） */
   const pendingList = useMemo(() => {
     const cutoff = Date.now() / 1000 - 30 * 86400
-    return candidates
-      .filter((c) => c.foundAt >= cutoff)
-      .sort((a, b) => b.foundAt - a.foundAt)
+    return candidates.filter((c) => c.foundAt >= cutoff).sort((a, b) => b.foundAt - a.foundAt)
   }, [candidates])
-  /** 超过一个月未处理的候选数（只隐藏不删除，说明你还没那么在意它） */
-  const staleCandidateCount = candidates.length - pendingList.length
+
+  /** 中栏批量操作选中的有效条目数（只算仍在待入库列表里的） */
+  const selectedCandidateCount = pendingList.filter((c) =>
+    selectedCandidateDois.includes(c.doi),
+  ).length
+
+  // 超期（满一个月未处理）的候选直接自动删除，不再堆积（用户 2026-10-04 拍板）
+  useEffect(() => {
+    const cutoff = Date.now() / 1000 - 30 * 86400
+    const stale = inbox.filter((r) => r.status === 'pending' && r.foundAt < cutoff)
+    if (stale.length === 0) return
+    const next = inbox.filter((r) => !(r.status === 'pending' && r.foundAt < cutoff))
+    ;(async () => {
+      try {
+        await saveTrackingInbox(next)
+        setInbox(next)
+        toast.message(`已自动清理 ${stale.length} 篇超期（超过一个月未处理）的候选`)
+      } catch (err) {
+        console.error('[Tracking] 自动清理超期候选失败:', err)
+      }
+    })()
+  }, [inbox])
 
   /** 右栏「已入库未传 PDF」：按入库时间越旧越上（催处理，别让新的盖过旧的） */
   const libraryPendingPdf = useMemo(
@@ -932,39 +1020,96 @@ export default function TrackingPage() {
   }
 
   // ============================================================
-  // 中栏操作：摘要一键翻译（用完即弃，不入库）
+  // 中栏操作：摘要翻译（默认显示中文译文，译文缓存；可切回英文原文）
   // ============================================================
 
-  const handleTranslateAbstract = async (c: TrackingCandidate) => {
-    // 已有译文 → 再点切回英文
-    if (translatedAbstracts[c.doi]) {
-      setTranslatedAbstracts((prev) => {
-        const next = { ...prev }
-        delete next[c.doi]
-        return next
-      })
-      return
+  const readTranslateCfg = () => {
+    const s = useSettingsStore.getState()
+    return {
+      baseUrl: (s.asrBaseUrl || '').trim() || 'https://api.siliconflow.cn/v1',
+      model: (s.asrTranslateModel || '').trim(),
+      apiKey: (s.asrApiKey || '').trim(),
     }
+  }
+
+  const setTranslated = (doi: string, zh: string) => {
+    translatedAbstractsRef.current = { ...translatedAbstractsRef.current, [doi]: zh }
+    setTranslatedAbstracts((prev) => ({ ...prev, [doi]: zh }))
+  }
+
+  const markTranslating = (doi: string, on: boolean) => {
+    if (on) translatingRef.current.add(doi)
+    else translatingRef.current.delete(doi)
+    setTranslatingDois((prev) =>
+      on ? (prev.includes(doi) ? prev : [...prev, doi]) : prev.filter((d) => d !== doi),
+    )
+  }
+
+  /** 手动（重试）翻译单条摘要 */
+  const retranslateAbstract = async (c: TrackingCandidate) => {
     const text = (c.abstractEn || '').trim()
     if (!text) {
       toast.error('这篇没有可翻译的摘要')
       return
     }
-    setTranslatingDoi(c.doi)
+    if (translatingRef.current.has(c.doi)) return
+    markTranslating(c.doi, true)
     try {
-      const s = useSettingsStore.getState()
-      const baseUrl = (s.asrBaseUrl || '').trim() || 'https://api.siliconflow.cn/v1'
-      const model = (s.asrTranslateModel || '').trim()
-      const apiKey = (s.asrApiKey || '').trim()
-      const zh = await translateText(text, { baseUrl, apiKey, model })
-      setTranslatedAbstracts((prev) => ({ ...prev, [c.doi]: zh }))
+      const zh = await translateText(text, readTranslateCfg())
+      setTranslated(c.doi, zh)
+      setShowOriginalDois((prev) => prev.filter((d) => d !== c.doi))
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`翻译失败：${msg}`, { duration: 8000 })
     } finally {
-      setTranslatingDoi(null)
+      markTranslating(c.doi, false)
     }
   }
+
+  const toggleAbstractOriginal = (doi: string) => {
+    setShowOriginalDois((prev) =>
+      prev.includes(doi) ? prev.filter((d) => d !== doi) : [...prev, doi],
+    )
+  }
+
+  // 中栏摘要默认显示中文译文：进视口即自动排队翻译（顺序执行，避免并发打爆）
+  useEffect(() => {
+    let cancelled = false
+    const { apiKey } = readTranslateCfg()
+    // 未配置翻译 key 就不自动翻，保留英文原文
+    if (!apiKey) return
+    const queue = pendingList.filter(
+      (c) =>
+        (c.abstractEn || '').trim() &&
+        !translatedAbstractsRef.current[c.doi] &&
+        !translatingRef.current.has(c.doi),
+    )
+    if (queue.length === 0) return
+    ;(async () => {
+      for (const c of queue) {
+        if (cancelled) return
+        markTranslating(c.doi, true)
+        try {
+          const zh = await translateText((c.abstractEn || '').trim(), readTranslateCfg())
+          if (cancelled) return
+          setTranslated(c.doi, zh)
+        } catch (err) {
+          if (cancelled) return
+          if (!translationErrorShownRef.current) {
+            translationErrorShownRef.current = true
+            const msg = err instanceof Error ? err.message : String(err)
+            toast.error(`摘要自动翻译失败，已显示英文原文：${msg}`, { duration: 8000 })
+          }
+        } finally {
+          markTranslating(c.doi, false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingList])
 
   return (
     <div className="page-container flex h-full flex-col py-ui-gap-lg">
@@ -1322,7 +1467,7 @@ export default function TrackingPage() {
         </section>
 
         {/* ============================================================ */}
-        {/* 中②（2）：待入库 —— 筛出来的候选；入库 / 删除后消失；越新越上，最多堆一个月 */}
+        {/* 中②（2）：待入库 —— 筛出来的候选；入库 / 删除后消失；越新越上 */}
         {/* ============================================================ */}
         <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50 lg:min-h-0">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-ink-100 px-4 py-3">
@@ -1333,8 +1478,25 @@ export default function TrackingPage() {
                 <span className="rounded bg-seal-50 px-1.5 py-0.5 text-ui-xs text-seal-600">{pendingList.length}</span>
               )}
             </h2>
-            {staleCandidateCount > 0 && (
-              <span className="text-ui-2xs text-ink-400">另有 {staleCandidateCount} 篇超期隐藏</span>
+            {selectedCandidateCount > 0 ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleBatchDismissCandidates}
+                  className="flex items-center gap-1 rounded-lg border border-ink-200 px-2 py-1 text-ui-2xs font-medium text-ink-500 transition hover:bg-ink-100"
+                >
+                  <X className="h-3 w-3" />
+                  删除（{selectedCandidateCount}）
+                </button>
+                <button
+                  onClick={handleBatchIngestCandidates}
+                  className="flex items-center gap-1 rounded-lg bg-seal-600 px-2 py-1 text-ui-2xs font-medium text-paper-50 transition hover:bg-seal-700"
+                >
+                  <Plus className="h-3 w-3" />
+                  入库（{selectedCandidateCount}）
+                </button>
+              </div>
+            ) : (
+              <span className="text-ui-2xs text-ink-400">超过一个月未处理会自动清理</span>
             )}
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
@@ -1345,67 +1507,86 @@ export default function TrackingPage() {
                 <p className="mt-1 px-6 text-center text-ui-2xs">点「立即追踪」，或等每天自动追踪把命中的文献放进候选</p>
               </div>
             ) : (
-              pendingList.map((paper) => (
-                <article
-                  key={paper.doi}
-                  className="rounded-lg border border-ink-200 p-3 transition hover:border-seal-200 hover:bg-seal-50/30"
-                >
-                  <h3 className="text-ui-sm font-medium leading-snug text-ink-800">{paper.title || '(无标题)'}</h3>
-                  {paper.authors && <p className="mt-1 text-ui-xs text-ink-500">{paper.authors}</p>}
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-ui-2xs text-ink-400">
-                    {paper.year > 0 && <span>{paper.year}</span>}
-                    {paper.journal && <span className="text-seal-600">{paper.journal}</span>}
-                    {paper.source && <span className="rounded bg-ink-100 px-1.5 py-0.5 text-ink-500">{paper.source}</span>}
-                    {paper.trackingGroup && <span>来自「{paper.trackingGroup}」</span>}
-                  </div>
+              pendingList.map((paper) => {
+                const zh = translatedAbstracts[paper.doi]
+                const showEn = showOriginalDois.includes(paper.doi) || !zh
+                const isTranslating = translatingDois.includes(paper.doi)
+                return (
+                  <article
+                    key={paper.doi}
+                    className="rounded-lg border border-ink-200 p-3 transition hover:border-seal-200 hover:bg-seal-50/30"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedCandidateDois.includes(paper.doi)}
+                        onChange={() => toggleCandidateSelect(paper.doi)}
+                        className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 accent-seal-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-ui-sm font-medium leading-snug text-ink-800">{paper.title || '(无标题)'}</h3>
+                        {paper.authors && <p className="mt-1 text-ui-xs text-ink-500">{paper.authors}</p>}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-ui-2xs text-ink-400">
+                          {paper.year > 0 && <span>{paper.year}</span>}
+                          {paper.journal && <span className="text-seal-600">{paper.journal}</span>}
+                          {paper.source && <span className="rounded bg-ink-100 px-1.5 py-0.5 text-ink-500">{paper.source}</span>}
+                          {paper.trackingGroup && <span>来自「{paper.trackingGroup}」</span>}
+                        </div>
 
-                  {paper.abstractEn && (
-                    <div className="mt-2 rounded-lg bg-paper-100/60 p-2.5">
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-ui-2xs font-medium text-ink-500">
-                          {translatedAbstracts[paper.doi] ? '中文摘要' : '摘要（EN）'}
-                        </span>
-                        <button
-                          onClick={() => handleTranslateAbstract(paper)}
-                          disabled={translatingDoi === paper.doi}
-                          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-ui-2xs text-seal-600 transition hover:bg-seal-50 disabled:opacity-50"
-                        >
-                          {translatingDoi === paper.doi ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Languages className="h-3 w-3" />
+                        {paper.abstractEn && (
+                          <div className="mt-2 rounded-lg bg-paper-100/60 p-2.5">
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <span className="text-ui-2xs font-medium text-ink-500">
+                                {showEn ? '摘要（EN）' : '中文摘要'}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  if (isTranslating) return
+                                  if (zh) toggleAbstractOriginal(paper.doi)
+                                  else retranslateAbstract(paper)
+                                }}
+                                disabled={isTranslating}
+                                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-ui-2xs text-seal-600 transition hover:bg-seal-50 disabled:opacity-50"
+                              >
+                                {isTranslating ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Languages className="h-3 w-3" />
+                                )}
+                                {isTranslating ? '翻译中' : zh ? (showEn ? '看译文' : '看原文') : '译为中文'}
+                              </button>
+                            </div>
+                            <p className="text-ui-xs leading-relaxed text-ink-600">
+                              {showEn ? paper.abstractEn : zh}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="mt-2.5 flex items-center justify-end gap-2">
+                          {paper.doi && (
+                            <DoiLink doi={paper.doi} mode="label" showIcon className="mr-auto inline-flex items-center gap-0.5 text-ui-2xs" />
                           )}
-                          {translatedAbstracts[paper.doi] ? '看原文' : '译为中文'}
-                        </button>
+                          <button
+                            onClick={() => handleDismissCandidate(paper)}
+                            title="删除这篇（不再出现）"
+                            className="flex items-center gap-1.5 rounded-lg border border-ink-200 px-2.5 py-1.5 text-ui-xs font-medium text-ink-500 transition hover:bg-ink-100"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            删除
+                          </button>
+                          <button
+                            onClick={() => handleIngestCandidate(paper)}
+                            className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-2.5 py-1.5 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            入库
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-ui-xs leading-relaxed text-ink-600">
-                        {translatedAbstracts[paper.doi] || paper.abstractEn}
-                      </p>
                     </div>
-                  )}
-
-                  <div className="mt-2.5 flex items-center justify-end gap-2">
-                    {paper.doi && (
-                      <DoiLink doi={paper.doi} mode="label" showIcon className="mr-auto inline-flex items-center gap-0.5 text-ui-2xs" />
-                    )}
-                    <button
-                      onClick={() => handleDismissCandidate(paper)}
-                      title="删除这篇（不再出现）"
-                      className="flex items-center gap-1.5 rounded-lg border border-ink-200 px-2.5 py-1.5 text-ui-xs font-medium text-ink-500 transition hover:bg-ink-100"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      删除
-                    </button>
-                    <button
-                      onClick={() => handleIngestCandidate(paper)}
-                      className="flex items-center gap-1.5 rounded-lg bg-seal-600 px-2.5 py-1.5 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      入库
-                    </button>
-                  </div>
-                </article>
-              ))
+                  </article>
+                )
+              })
             )}
           </div>
         </section>
