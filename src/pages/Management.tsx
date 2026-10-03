@@ -26,8 +26,9 @@ import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch, deleteRepoFiles } from '../services/github'
-import { pollProgressJson, pollBookProgressJson, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
+import { pollProgressJson, pollBookProgressJson, pollNoteConvertProgress, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
+import { noteHasContent } from '../services/readingDocData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { enqueueBookMineruConvert } from '../services/bookPipeline'
 import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
@@ -869,7 +870,7 @@ export default function ManagementPage() {
       const activeTasks = tq.tasks.filter(
         (t: BackgroundTask) =>
           (t.status === 'pending' || t.status === 'running') &&
-          (t.type === 'paper_convert' || t.type === 'book_convert'),
+          (t.type === 'paper_convert' || t.type === 'book_convert' || t.type === 'note_convert'),
       )
       if (activeTasks.length === 0) return
 
@@ -881,13 +882,16 @@ export default function ManagementPage() {
         const metaSlug = typeof meta?.slug === 'string' ? meta.slug : undefined
         const doiSlug = task.doi ? doiToSlug(task.doi) : undefined
         const isBook = task.type === 'book_convert'
+        const isNote = task.type === 'note_convert'
         const slug = metaSlug || doiSlug || task.book_id
         if (!slug) continue
         try {
-          // 文献进度在 literatures/{slug}/，图书在 textbooks/{书名}/
+          // 文献进度在 literatures/{slug}/，图书在 textbooks/{书名}/，笔记在其所属文档目录下
           const prog = isBook
             ? await pollBookProgressJson(slug, owner, repo.name, token)
-            : await pollProgressJson(slug, owner, repo.name, token)
+            : isNote
+              ? await pollNoteConvertProgress(slug, owner, repo.name, token)
+              : await pollProgressJson(slug, owner, repo.name, token)
 
           if (prog) {
             // 有 progress.json → 正常走后端 stage 驱动的进度更新
@@ -946,6 +950,24 @@ export default function ManagementPage() {
                     message: '转换完成（根据产物文件推断）',
                     updated_at: Date.now(),
                   })
+                }
+                continue
+              }
+              // 笔记：产物是 {base_path}/notes/{note_name}.md，出现即完成
+              if (isNote) {
+                const noteName = typeof meta?.note_name === 'string' ? meta.note_name : undefined
+                if (noteName) {
+                  const hasNote = await noteHasContent(slug, noteName)
+                  if (hasNote === true) {
+                    await tq.update_task(task.id, {
+                      status: 'done',
+                      stage: 'done',
+                      node_index: STAGE_META.done.node,
+                      progress: 100,
+                      message: '转换完成（根据产物文件推断）',
+                      updated_at: Date.now(),
+                    })
+                  }
                 }
                 continue
               }

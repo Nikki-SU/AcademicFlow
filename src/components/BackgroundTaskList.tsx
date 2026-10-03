@@ -154,6 +154,13 @@ function TypeBadge({ type }: { type: BackgroundTask['type'] }) {
       </span>
     )
   }
+  if (type === 'note_convert') {
+    return (
+      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+        转换笔记
+      </span>
+    )
+  }
   return (
     <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 border border-amber-200">
       转换课本

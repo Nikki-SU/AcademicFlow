@@ -59,6 +59,28 @@ export function noteImageDir(ref: DocRef): string {
   return `${notesDir(ref)}/${NOTE_IMAGE_SUBDIR}`
 }
 
+/** 走云端管线的源附件落盘目录（Word / PDF 放这里，与 notes/ 隔离） */
+export function attachmentsDir(ref: DocRef): string {
+  return `${docBasePath(ref)}/attachments`
+}
+
+const WORD_MIME = 'application/msword'
+
+/**
+ * 是否属于「必须先转 PDF 再进管线」的附件（Word / PDF）。
+ * 这类本地读不出可靠的 markdown（丢标题层级 / 图 / 版式），一律走 note 云端管线：
+ *   Word → LibreOffice → PDF → MinerU → markdown；PDF 直通 MinerU。
+ */
+export function isPipelineAttachment(file: File): boolean {
+  const lower = file.name.toLowerCase()
+  if (/\.(docx?|pdf)$/.test(lower)) return true
+  return (
+    file.type === 'application/pdf' ||
+    file.type === DOCX_MIME ||
+    file.type === WORD_MIME
+  )
+}
+
 // ============================================================
 // 笔记（一篇文档可有多个命名笔记）
 // ============================================================
@@ -128,6 +150,21 @@ export async function listNotes(ref: DocRef): Promise<string[]> {
     names.push(rest.slice(0, -3))
   }
   return names.sort((a, b) => a.localeCompare(b, 'zh'))
+}
+
+/**
+ * 判断某篇笔记的产物（.md）是否已生成 —— 供 note_convert 任务完成时兜底。
+ *
+ * 为什么需要：后端跑完先写 `.progress.json {stage:done}` 再**立即删掉**，
+ * 5s 一次的前端轮询基本抓不到那个 done；一旦任务连 run id 都没存住，前端就会
+ * 永远停在最后一帧。所以直接看产物在不在 —— 在 = 转换确实完成了。
+ *
+ * 返回值：true 有产物；false 没有；null = 仓库树没拉到（网络/权限问题，别据此判定）。
+ */
+export async function noteHasContent(basePath: string, noteName: string): Promise<boolean | null> {
+  const paths = await repoTreePaths(true)
+  if (!paths) return null
+  return paths.has(`${basePath}/notes/${noteName}.md`)
 }
 
 export async function loadNote(ref: DocRef, name: string): Promise<string> {
@@ -242,13 +279,15 @@ export function decodeNoteFileRef(s: string): NoteFileRef | null {
 // 从附件导入笔记
 // ============================================================
 //
-// 支持任何「带文字」的附件：
+// 直接可读的附件（本模块负责）：
 //   .md / .markdown / .txt   直接当 markdown
-//   .docx                    zip 内 word/document.xml 抽文本（只依赖 JSZip，不引新库）
 //   .zip                     内含 markdown 各成一篇笔记；图片收进 notes/images/；
-//                            内含 docx 同样抽文本
-// 说明：PDF / 旧版 .doc 本地转不了，明确报可读错误让用户先转成 markdown，
-// 不给"看起来像结果其实是垃圾"的东西（见 project_rules「先约束再容错」）。
+//                            内含 docx 用 JSZip（zip 内文档，只想要文字，走轻量抽取）
+//
+// 读不了的附件（Word / PDF）不在这里硬猜，交给 note 云端管线（Word→PDF→MinerU）：
+//   .doc / .docx / .pdf      isPipelineAttachment() → enqueueNoteConvert()
+//   本地直读只会把 docx 抽成"有字就完事"的降级品——丢标题层级、丢图片、丢版式，
+//   与「先约束再容错」相悖，所以一律走管线。
 //
 // 导入时把图片引用统一改写成**仓库绝对路径**（notes/images/xxx），
 // 与编辑器写图落盘的口径一致（VditorEditor 也是写仓库绝对路径）。
@@ -357,21 +396,16 @@ export async function extractNoteAttachmentsFor(
       out.push({ name: baseNameOf(file.name), markdown: await file.text(), images: [] })
       continue
     }
-    if (/\.docx$/.test(lower) || file.type === DOCX_MIME) {
-      out.push({ name: baseNameOf(file.name), markdown: await docxToMarkdown(file), images: [] })
-      continue
-    }
-    if (/\.doc$/.test(lower)) {
-      throw new Error(`暂不支持旧版 .doc（${file.name}）：请先另存为 .docx 或 markdown 再上传`)
-    }
-    if (/\.pdf$/.test(lower) || file.type === 'application/pdf') {
-      throw new Error(`PDF（${file.name}）不能直接转成笔记：请先用转换管线转出 markdown 再上传`)
-    }
     if (/\.zip$/.test(lower) || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
       out.push(...(await extractFromZip(file, imgDir)))
       continue
     }
-    throw new Error(`不认识的文件类型：${file.name}（支持 .md / .docx / .zip）`)
+    if (isPipelineAttachment(file)) {
+      // 调用方应在进入本函数前把管线附件分流出去。走到这里说明分流漏了，
+      // 显式报错，绝不回退成本地直读给一份"看着像结果"的降级品。
+      throw new Error(`内部错误：${file.name} 属于管线附件，应交给 enqueueNoteConvert 处理`)
+    }
+    throw new Error(`不认识的附件类型：${file.name}（可直接读 .md / .txt / .zip；Word / PDF 走转换管线）`)
   }
   return out.filter((n) => n.markdown.trim() || n.images.length > 0)
 }

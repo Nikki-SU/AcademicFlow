@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  AlertTriangle,
   ChevronDown,
   Download,
   FileText,
@@ -23,15 +24,20 @@ import {
   StickyNote,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 import VditorEditor from './VditorEditor'
 import {
   NOTE_IMAGE_SUBDIR,
   createNote,
   deleteNote,
+  docBasePath,
   extractNoteAttachmentsFor,
+  invalidateNoteTree,
+  isPipelineAttachment,
   listNotes,
   loadNote,
+  noteHasContent,
   notePath,
   renameNote,
   saveImportedNote,
@@ -39,10 +45,22 @@ import {
   sanitizeNoteName,
   type DocRef,
 } from '../services/readingDocData'
+import { enqueueNoteConvert } from '../services/notePipeline'
 
 interface SaveState {
   status: 'saved' | 'saving' | 'idle' | 'error'
   lastSaved: number | null
+}
+
+/** 一篇走云端转换管线（Word / PDF → markdown）的笔记的就地进度 */
+interface NoteConvert {
+  /** 目标笔记名（去扩展名，已去重） */
+  name: string
+  /** 原始附件名（提示用） */
+  sourceName: string
+  status: 'running' | 'done' | 'failed'
+  startedAt: number
+  error?: string
 }
 
 function formatTime(timestamp: number): string {
@@ -83,12 +101,22 @@ export default function ReadingNotesPanel({
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
+  /**
+   * 本地跟踪的管线转换任务（Word / PDF）。
+   * 阅读页不会跑「管理页」那套全局 taskQueue 轮询，所以这里自成一体：
+   * 只盯本 doc 的 {base_path}/notes/{name}.md 产物是否出现，出现即完成。
+   */
+  const [converts, setConverts] = useState<NoteConvert[]>([])
+  const convertsRef = useRef(converts)
+  convertsRef.current = converts
+
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   // docRef 每次渲染都是新对象；用 key 当依赖
   const refKey = `${docRef.kind}:${docRef.id}`
   const docRefRef = useRef(docRef)
   docRefRef.current = docRef
+  const basePath = docBasePath(docRef)
 
   /** 载入某一篇笔记的内容到外部状态 */
   const loadInto = useCallback(async (name: string | null) => {
@@ -115,6 +143,66 @@ export default function ReadingNotesPanel({
     },
     [loadInto],
   )
+
+  // 切换文档时，丢掉上一个文档的转换进度
+  useEffect(() => {
+    setConverts((prev) => (prev.length ? [] : prev))
+  }, [refKey])
+
+  /**
+   * 转换完成 → 文件树缓存失效 + 重拉列表，把新笔记切到前台。
+   * 判据是「产物出现」（noteHasContent / 后端 done），不是 taskQueue 状态，
+   * 因为阅读页不跑全局轮询。
+   */
+  useEffect(() => {
+    const justDone = converts.filter((c) => c.status === 'done')
+    if (justDone.length === 0) return
+    setConverts((prev) => prev.filter((c) => c.status !== 'done'))
+    invalidateNoteTree()
+    const target = justDone[justDone.length - 1].name
+    void reload(target)
+    toast.success(
+      justDone.length === 1 ? `笔记已生成：${justDone[0].name}` : `已生成 ${justDone.length} 篇笔记`,
+    )
+  }, [converts, reload])
+
+  /** 轮询管线产物：{base_path}/notes/{name}.md 出现即转换完成 */
+  useEffect(() => {
+    if (!converts.some((c) => c.status === 'running')) return
+    let cancelled = false
+    const tick = async () => {
+      const running = convertsRef.current.filter((c) => c.status === 'running')
+      for (const c of running) {
+        if (cancelled) return
+        // 后端 runner 失败 / 卡住时产物永远不会出现，给个上限，别让用户干等
+        if (Date.now() - c.startedAt > 20 * 60 * 1000) {
+          setConverts((prev) =>
+            prev.map((x) =>
+              x.name === c.name && x.status === 'running'
+                ? { ...x, status: 'failed', error: '转换超时，请到 GitHub Actions 或「管理 → 后端监控」查看日志' }
+                : x,
+            ),
+          )
+          continue
+        }
+        const has = await noteHasContent(basePath, c.name)
+        if (has === true) {
+          setConverts((prev) =>
+            prev.map((x) => (x.name === c.name && x.status === 'running' ? { ...x, status: 'done' } : x)),
+          )
+        }
+      }
+    }
+    const id = setInterval(() => void tick(), 6000)
+    void tick()
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [converts, basePath])
+
+  const dismissConvert = (name: string) =>
+    setConverts((prev) => prev.filter((c) => c.name !== name))
 
   useEffect(() => {
     let cancelled = false
@@ -255,30 +343,62 @@ export default function ReadingNotesPanel({
   }
 
   /**
-   * 上传附件成为笔记。支持 .md / .txt / .docx / .zip（内含 md、docx 与图片）。
+   * 上传附件成为笔记。两类分流：
+   *   1) 本地直读：.md / .txt / .zip（内含 md 与图片）—— 当场落盘成笔记；
+   *   2) 云端管线：.doc / .docx / .pdf —— 上传私库后触发 note_convert（Word→PDF→MinerU）。
    * 同名笔记自动加 -2/-3 后缀，绝不覆盖已有笔记。
    */
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     setUploading(true)
     try {
-      const imported = await extractNoteAttachmentsFor(docRefRef.current, Array.from(files))
-      if (imported.length === 0) {
-        toast.error('没解析出任何带文字的笔记')
-        return
-      }
+      const all = Array.from(files)
+      const localFiles = all.filter((f) => !isPipelineAttachment(f))
+      const pipelineFiles = all.filter((f) => isPipelineAttachment(f))
+
       const used = new Set(names)
-      let firstName: string | null = null
-      for (const note of imported) {
-        let name = note.name
+      const uniqueName = (raw: string) => {
+        const base = sanitizeNoteName(raw)
+        let name = base
         let n = 2
-        while (used.has(name)) name = `${note.name}-${n++}`
+        while (used.has(name)) name = `${base}-${n++}`
         used.add(name)
-        await saveImportedNote(docRefRef.current, { ...note, name })
-        if (!firstName) firstName = name
+        return name
       }
-      await reload(firstName)
-      toast.success(`已导入 ${imported.length} 篇笔记`)
+
+      // 1) 本地直读附件
+      let importedCount = 0
+      let firstName: string | null = null
+      if (localFiles.length > 0) {
+        const imported = await extractNoteAttachmentsFor(docRefRef.current, localFiles)
+        if (imported.length === 0 && pipelineFiles.length === 0) {
+          toast.error('没解析出任何带文字的笔记')
+          return
+        }
+        for (const note of imported) {
+          const name = uniqueName(note.name)
+          await saveImportedNote(docRefRef.current, { ...note, name })
+          if (!firstName) firstName = name
+          importedCount++
+        }
+      }
+      if (importedCount > 0) {
+        await reload(firstName)
+        toast.success(`已导入 ${importedCount} 篇笔记`)
+      }
+
+      // 2) 云端管线附件（判据是产物出现，见 converts 轮询）
+      if (pipelineFiles.length > 0) {
+        const started: NoteConvert[] = []
+        for (const file of pipelineFiles) {
+          const name = uniqueName(file.name.replace(/\.[^.]+$/, ''))
+          const res = await enqueueNoteConvert(docRefRef.current, file, name)
+          if (res.ok) {
+            started.push({ name, sourceName: file.name, status: 'running', startedAt: Date.now() })
+          }
+        }
+        if (started.length > 0) setConverts((prev) => [...prev, ...started])
+      }
     } catch (err) {
       console.error('[笔记] 上传失败:', err)
       toast.error(err instanceof Error ? err.message : String(err), { duration: 8000 })
@@ -380,7 +500,7 @@ export default function ReadingNotesPanel({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              title="上传笔记（md / docx / zip）"
+              title="上传笔记（md / txt / docx / pdf / zip）"
               className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
             >
               {uploading ? (
@@ -401,7 +521,7 @@ export default function ReadingNotesPanel({
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".md,.markdown,.txt,.docx,.zip"
+              accept=".md,.markdown,.txt,.doc,.docx,.pdf,.zip"
               className="hidden"
               onChange={(e) => {
                 void handleUpload(e.target.files)
@@ -411,6 +531,40 @@ export default function ReadingNotesPanel({
           </div>
         )}
       </div>
+
+      {/* 管线转换进度（Word / PDF → markdown 笔记） */}
+      {converts.length > 0 && (
+        <div className="px-3 py-2 border-b border-ink-100 flex-shrink-0 bg-seal-50/40 space-y-1.5">
+          {converts.map((c) => (
+            <div key={c.name} className="flex items-center gap-2 text-xs">
+              {c.status === 'running' ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-seal-500 flex-shrink-0" />
+              ) : (
+                <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+              )}
+              <span className="truncate flex-1 text-ink-600" title={c.sourceName}>
+                {c.name}
+              </span>
+              {c.status === 'running' ? (
+                <span className="text-seal-600 flex-shrink-0">转换中…</span>
+              ) : (
+                <>
+                  <span className="text-red-500 flex-shrink-0" title={c.error}>
+                    转换失败
+                  </span>
+                  <button
+                    onClick={() => dismissConvert(c.name)}
+                    title={c.error ?? '移除'}
+                    className="p-0.5 text-ink-400 hover:text-ink-700 flex-shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 编辑区 */}
       <div className="flex-1 min-h-0">
@@ -432,7 +586,7 @@ export default function ReadingNotesPanel({
           <div className="h-full flex flex-col items-center justify-center text-center text-ink-400 px-6">
             <StickyNote className="w-10 h-10 mb-3 opacity-30" />
             <p className="text-sm text-ink-500">还没有笔记</p>
-            <p className="text-xs mt-1 mb-4">新建一篇，或上传已有的 md / docx 笔记</p>
+            <p className="text-xs mt-1 mb-4">新建一篇，或上传已有的 md / docx / pdf 笔记</p>
             <div className="flex items-center gap-2">
               <button
                 onClick={beginCreate}

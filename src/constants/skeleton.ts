@@ -14,6 +14,9 @@ import BOOK_CONVERT_MJS from './workflows/book_convert.mjs?raw'
 // 会议/课程照片 → MinerU（一节课一份 board.md）。同上，引原文件。
 import SESSION_IMAGES_YML from './workflows/session_images.yml?raw'
 import SESSION_IMAGES_MJS from './workflows/session_images.mjs?raw'
+// 笔记附件转换：Word(.doc/.docx) → PDF（LibreOffice）→ MinerU → 命名笔记；PDF 直通。
+import NOTE_CONVERT_YML from './workflows/note_convert.yml?raw'
+import NOTE_CONVERT_MJS from './workflows/note_convert.mjs?raw'
 
 export interface SkeletonFile {
   path: string
@@ -681,6 +684,9 @@ export const PIPELINE_FILES = [
   // 会议/课程照片 → 一节课一份 board.md（多张照片 MinerU 识别后合并）
   { path: '.github/workflows/session_images.yml', raw: SESSION_IMAGES_YML },
   { path: '.github/scripts/session_images.mjs', raw: SESSION_IMAGES_MJS },
+  // 笔记附件 → 命名笔记：Word 先转 PDF 再进 MinerU，PDF 直通
+  { path: '.github/workflows/note_convert.yml', raw: NOTE_CONVERT_YML },
+  { path: '.github/scripts/note_convert.mjs', raw: NOTE_CONVERT_MJS },
   // 每日追踪（筛选制）：放进 PIPELINE_FILES 才能被「重装后端」更新到老私库
   { path: '.github/workflows/daily-tracking.yml', raw: DAILY_TRACKING_YML },
   { path: '.github/scripts/daily_tracking.py', raw: DAILY_TRACKING_SCRIPT },

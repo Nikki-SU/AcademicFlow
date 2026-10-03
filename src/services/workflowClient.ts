@@ -37,6 +37,7 @@ export type WorkflowEvent =
   | 'paper_convert'
   | 'book_convert'
   | 'session_images'
+  | 'note_convert'
   | 'ai_call'
   | 'mineru_connectivity_test'
   | 'ai_connectivity_test'
@@ -47,6 +48,7 @@ export const WORKFLOW_FILE_BY_EVENT: Record<WorkflowEvent, string> = {
   paper_convert: 'paper_convert.yml',
   book_convert: 'book_convert.yml',
   session_images: 'session_images.yml',
+  note_convert: 'note_convert.yml',
   ai_call: 'ai_call.yml',
   mineru_connectivity_test: 'mineru_connectivity_test.yml',
   ai_connectivity_test: 'ai_connectivity_test.yml',
@@ -130,6 +132,28 @@ export async function dispatchSessionImages(
   token: string,
 ): Promise<void> {
   await dispatchWorkflow('session_images', { task_id: taskId, session_id: sessionId }, owner, repo, token)
+}
+
+/**
+ * 触发 note_convert：把笔记附件（Word / PDF）转成一篇命名笔记。
+ * 源文件已由前端上传到私库 {base_path}/attachments/，无需随 payload 传内容。
+ *   base_path  = 阅读对象根目录（literatures/{slug} | textbooks/{书名} | documents/{目录名}）
+ *   note_name  = 目标笔记名（不含 .md）
+ *   source_path= 源文件仓库路径
+ */
+export async function dispatchNoteConvert(
+  basePath: string,
+  noteName: string,
+  sourcePath: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<void> {
+  await dispatchWorkflow(
+    'note_convert',
+    { base_path: basePath, note_name: noteName, source_path: sourcePath },
+    owner, repo, token,
+  )
 }
 
 /**
@@ -429,6 +453,16 @@ export async function pollSessionImagesProgress(
     `projects/${taskId}/sessions/${sessionId}/.progress.json`,
     owner, repo, token,
   )
+}
+
+/** 笔记附件转换进度：{basePath}/.progress.json（stage 名与前几套 pipeline 一致） */
+export async function pollNoteConvertProgress(
+  basePath: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<PipelineProgress | null> {
+  return readProgressAt(`${basePath}/.progress.json`, owner, repo, token)
 }
 
 export interface PollOptions {

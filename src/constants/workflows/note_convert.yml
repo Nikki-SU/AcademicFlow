@@ -1,0 +1,80 @@
+name: note_convert
+
+# 笔记附件转换：
+#   Word(.doc / .docx)  → PDF（LibreOffice headless）→ Markdown（MinerU）
+#   PDF                 → 直接走 MinerU
+# 触发：repository_dispatch event_type=note_convert
+#   payload: { base_path, note_name, source_path }
+#     base_path  = 阅读对象的仓库根目录（literatures/{slug} | textbooks/{书名} | documents/{目录名}）
+#     note_name  = 目标笔记名（不含 .md；前端已按已有笔记去重）
+#     source_path= 前端上传到私库的源文件（{base_path}/attachments/{ts}_{文件名}）
+on:
+  repository_dispatch:
+    types: [note_convert]
+  workflow_dispatch:
+    inputs:
+      base_path:
+        description: '对象根目录（手动调试用）'
+        required: false
+        default: ''
+      note_name:
+        description: '笔记名（手动调试用）'
+        required: false
+        default: ''
+      source_path:
+        description: '源文件路径（手动调试用）'
+        required: false
+        default: ''
+
+# 与文献 / 图书 pipeline 共用同一个写 main 的并发组，避免同时 push 打架
+concurrency:
+  group: "pipeline-write-main"
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo (full history for git push)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Word → PDF 靠 LibreOffice headless。装精简版（-nogui，避开交互式组件）
+      # 并带中文字体，避免中文变成方框。runner 是全新 VM，每次现装（约 1~2 分钟）。
+      # qpdf 用于超长 PDF 切段。
+      - name: Install LibreOffice + CJK fonts + qpdf
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libreoffice-writer-nogui libreoffice-core-nogui fonts-noto-cjk qpdf
+          soffice --version
+          qpdf --version
+
+      - name: Configure git
+        run: |
+          git config user.name "AcademicFlow Bot"
+          git config user.email "academicflow@users.noreply.github.com"
+
+      - name: Run note convert pipeline
+        env:
+          MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO:  ${{ github.event.repository.name }}
+          # payload 经环境变量传入，避免文件名含单引号时破坏 shell 引号结构
+          PIPELINE_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          echo "base_path:   ${{ github.event.client_payload.base_path }}"
+          echo "note_name:   ${{ github.event.client_payload.note_name }}"
+          echo "source_path: ${{ github.event.client_payload.source_path }}"
+          node .github/scripts/note_convert.mjs "$PIPELINE_PAYLOAD"
