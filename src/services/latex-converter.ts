@@ -840,11 +840,23 @@ function assembleFullLatex(
   const lines: string[] = []
 
   // documentclass
-  const clsOptions = template.document_options || ''
-  if (clsOptions) {
-    lines.push(`\\documentclass[${clsOptions}]{${template.document_class}}`)
+  // 纸张尺寸必须**显式规定**：LaTeX 的标准类（article / report / book）默认是
+  // letterpaper（北美信纸），交付给国内的人直接就是错的纸型。
+  // 所以：标准类且没写纸张选项时，补 a4paper；期刊类（elsarticle / IEEEtran /
+  // acmart / revtex…）的版式由期刊模板决定，**绝不插手**（乱加选项可能直接编译失败）。
+  const PAPER_OPTS = ['a4paper', 'a5paper', 'b5paper', 'letterpaper', 'legalpaper', 'executivepaper']
+  const cls = template.document_class
+  const optList = (template.document_options || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (['article', 'report', 'book'].includes(cls) && !optList.some((o) => PAPER_OPTS.includes(o))) {
+    optList.push('a4paper')
+  }
+  if (optList.length > 0) {
+    lines.push(`\\documentclass[${optList.join(',')}]{${cls}}`)
   } else {
-    lines.push(`\\documentclass{${template.document_class}}`)
+    lines.push(`\\documentclass{${cls}}`)
   }
   lines.push('')
 
