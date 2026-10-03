@@ -48,6 +48,7 @@ import {
   type ProjectDeleteMode,
   type ProjectType,
 } from '../services/projectData'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import { CourseTable } from '../components/schedule/CourseTable'
 import type { SlotFormValue } from '../components/schedule/CourseFormModal'
 import { DdlList } from '../components/schedule/DdlList'
@@ -170,6 +171,12 @@ export default function SchedulePage() {
 
   const editorProject = editor?.mode === 'edit' ? byId.get(editor.projectId) ?? null : null
 
+  // 编辑目标若从数据里消失（重载 / 被删 / 迁移中间态），主动关掉编辑窗，
+  // 避免渲染出「mode='edit' + project=null」的空壳（看起来像弹窗坏掉 / 闪退）
+  useEffect(() => {
+    if (editor?.mode === 'edit' && !byId.has(editor.projectId)) setEditor(null)
+  }, [editor, byId])
+
   // 编辑时不能把任务挂到自己或自己的子孙下（会成环）——从归属候选里剔除
   const editorParentOptions = useMemo<ParentOption[]>(() => {
     if (!editorProject) return parentOptions
@@ -211,6 +218,14 @@ export default function SchedulePage() {
     return task
   }
 
+  /** 单次时段的结束时刻 = 该任务的截止时间（DDL）；非单次 → null（保持 dueAt 不变） */
+  const onceDueAt = (value: SlotFormValue): number | null => {
+    if (value.repeat !== 'once') return null
+    const s = value.slots[0]
+    if (!s || !s.date) return null
+    return msOfDate(s.date) + timeToMinutes(s.endTime) * 60_000
+  }
+
   const handleCreateSlot = async (
     variant: 'course' | 'timed',
     value: SlotFormValue,
@@ -218,6 +233,8 @@ export default function SchedulePage() {
     try {
       let taskId = value.taskId
       let title = value.title
+      // 单次（如考试）自带结束时间 → 同步为该任务的截止时间，于是也进 DDL 清单
+      const due = onceDueAt(value)
       if (variant === 'course') {
         const task = await resolveCourseTask(value.title.trim())
         taskId = task.projectId
@@ -230,15 +247,17 @@ export default function SchedulePage() {
             return
           }
           title = task.title || value.title
+          // 归属已有任务：单次日期同样要落盘，否则刷新后该任务的 DDL 会「变回去」
+          if (due !== null && due !== task.dueAt) {
+            const next = projects.map((p) =>
+              p.projectId === task.projectId ? { ...p, dueAt: due, updatedAt: Date.now() } : p,
+            )
+            await saveProjects(next)
+            setProjects(next)
+          }
         } else {
           // 归属留空 → 用「任务名称」在所选大类下新建一个顶级任务，时段挂在它下面
           const now = Date.now()
-          // 单次（如考试）自带结束时间 → 直接设为该任务的截止时间，于是也进 DDL 清单
-          const onceSlot = value.repeat === 'once' ? value.slots[0] : undefined
-          const dueAt =
-            onceSlot && onceSlot.date
-              ? msOfDate(onceSlot.date) + timeToMinutes(onceSlot.endTime) * 60_000
-              : 0
           const task: Project = {
             projectId: genId('task'),
             title: value.title.trim(),
@@ -250,7 +269,7 @@ export default function SchedulePage() {
             type: value.type,
             parentId: null,
             startAt: 0,
-            dueAt,
+            dueAt: due ?? 0,
             done: false,
           }
           const next = [...projects, task]
@@ -288,21 +307,37 @@ export default function SchedulePage() {
     const slot = courses.find((c) => c.courseId === courseId)
     if (!slot) return
     try {
+      const now = Date.now()
+      // 本次编辑后时段归属的任务：整门课 = slot.taskId；单时段可改归属为 value.taskId
+      const targetTaskId = all ? slot.taskId : value.taskId || slot.taskId
+      // 把「重命名课程任务」「单次日期 → DDL」合并进同一次 saveProjects，
+      // 否则两次串行 setProjects 会各自基于旧 projects 互相覆盖
+      let nextProjects = projects
+      let projectsChanged = false
+      const patchTask = (taskId: string, patch: Partial<Project>) => {
+        nextProjects = nextProjects.map((p) =>
+          p.projectId === taskId ? { ...p, ...patch, updatedAt: now } : p,
+        )
+        projectsChanged = true
+      }
       // 课程时段：允许改课程名 —— 同步重命名所属课程任务（所有时段跟着变）
       const slotTask = slot.taskId ? byId.get(slot.taskId) : undefined
       const isCourseSlot = !!slotTask && slotTask.type === 'course' && !slotTask.parentId
       if (isCourseSlot && slotTask && value.title.trim() && value.title.trim() !== slotTask.title) {
-        const newName = value.title.trim()
-        const nextProjects = projects.map((p) =>
-          p.projectId === slotTask.projectId ? { ...p, title: newName, updatedAt: Date.now() } : p,
-        )
+        patchTask(slotTask.projectId, { title: value.title.trim() })
+      }
+      // 单次时段的日期 → 该任务的截止时间；不落盘的话刷新后 DDL 会「变回去」
+      const due = onceDueAt(value)
+      if (due !== null && targetTaskId && byId.get(targetTaskId)?.dueAt !== due) {
+        patchTask(targetTaskId, { dueAt: due })
+      }
+      if (projectsChanged) {
         await saveProjects(nextProjects)
         setProjects(nextProjects)
       }
       if (all) {
         // 编辑整门课全部时段：用新列表替换该任务名下的所有时段
         const rest = courses.filter((c) => c.taskId !== slot.taskId)
-        const now = Date.now()
         const rebuilt: Course[] = value.slots.map((s) => ({
           courseId: genId('slot'),
           title: value.title,
@@ -636,22 +671,29 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {editor && (
-        <TaskFormModal
-          mode={editor.mode}
-          project={editorProject}
-          initialType={editor.mode === 'create' ? editor.type : null}
-          initialParentId={editor.mode === 'create' ? editor.parentId : null}
-          parentOptions={editorParentOptions}
+      {editor && (editor.mode === 'create' || editorProject) && (
+        <ErrorBoundary
+          key={editor.mode === 'edit' ? `edit-${editor.projectId}` : 'create'}
           onClose={() => setEditor(null)}
-          onSubmit={(value) => {
-            const done =
-              editor.mode === 'edit'
-                ? handleUpdateTask(editor.projectId, value)
-                : handleCreateTask(value)
-            void done.then(() => setEditor(null)).catch(() => {})
-          }}
-        />
+        >
+          <TaskFormModal
+            mode={editor.mode}
+            project={editorProject}
+            initialType={editor.mode === 'create' ? editor.type : null}
+            initialParentId={editor.mode === 'create' ? editor.parentId : null}
+            parentOptions={editorParentOptions}
+            onClose={() => setEditor(null)}
+            onSubmit={(value) => {
+              const done =
+                editor.mode === 'edit'
+                  ? handleUpdateTask(editor.projectId, value)
+                  : handleCreateTask(value)
+              void done
+                .then(() => setEditor(null))
+                .catch((err) => console.error('[Schedule] 保存任务失败:', err))
+            }}
+          />
+        </ErrorBoundary>
       )}
 
       {deleteTarget && (

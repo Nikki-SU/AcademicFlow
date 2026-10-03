@@ -64,7 +64,10 @@ function Wheel({
   useEffect(() => {
     const el = rootRef.current
     if (!el) return
-    const measure = () => setItemH(el.clientHeight / VISIBLE)
+    const measure = () => {
+      const h = el.clientHeight / VISIBLE
+      if (Number.isFinite(h) && h > 0) setItemH(h)
+    }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
@@ -77,6 +80,7 @@ function Wheel({
   }, [index, n])
 
   const commit = (p: number) => {
+    if (!Number.isFinite(p)) return
     const snapped = Math.round(p)
     posRef.current = snapped
     setPos(snapped)
@@ -95,6 +99,7 @@ function Wheel({
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      if (!Number.isFinite(itemH) || itemH <= 0) return
       commit(posRef.current + e.deltaY / itemH)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
@@ -109,6 +114,7 @@ function Wheel({
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current
     if (!d) return
+    if (!Number.isFinite(itemH) || itemH <= 0) return
     const dy = e.clientY - d.startY
     if (Math.abs(dy) > itemH / 8) d.moved = true
     applyPos(d.startPos - dy / itemH)
@@ -123,8 +129,11 @@ function Wheel({
     }
   }
 
-  const from = Math.floor(pos) - VISIBLE
-  const to = Math.ceil(pos) + VISIBLE
+  // pos 正常只可能是有限数（commit / 拖动 / 测量都已守卫）；这里再兜一层，
+  // 万一非有限就用 index 回退，避免 for 循环因 Infinity 死循环、或 options[NaN] 取空崩溃
+  const safePos = Number.isFinite(pos) ? pos : index
+  const from = Math.floor(safePos) - VISIBLE
+  const to = Math.ceil(safePos) + VISIBLE
   const cells: number[] = []
   for (let i = from; i <= to; i++) cells.push(i)
 
@@ -145,10 +154,11 @@ function Wheel({
         style={{ top: '50%', height: itemH, transform: 'translateY(-50%)' }}
       />
       {cells.map((i) => {
-        const d = i - pos
+        const d = i - safePos
         if (Math.abs(d) > VISIBLE) return null
         const opt = options[mod(i, n)]
-        const selected = mod(Math.round(pos), n) === mod(i, n)
+        if (!opt) return null
+        const selected = mod(Math.round(safePos), n) === mod(i, n)
         return (
           <button
             key={i}
