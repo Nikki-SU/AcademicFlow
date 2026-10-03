@@ -1181,14 +1181,7 @@ export default function LearnPage() {
 
   return (
     <div className="page-container py-8">
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-ink-800 flex items-center gap-2">
-            <GraduationCap className="w-6 h-6 text-seal-600" />
-            学习
-          </h1>
-          <p className="text-ui-sm text-ink-500 mt-1">PDF 入库转换为 Markdown 时自动生成学习内容，也可手动添加</p>
-        </div>
+      <div className="mb-6 flex items-center justify-end">
         <button
           onClick={() => setAiGenOpen(true)}
           className="flex items-center gap-2 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-sm"

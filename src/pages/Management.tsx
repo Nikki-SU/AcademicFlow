@@ -52,7 +52,6 @@ import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
 import { normalizeDoi, getCitationEntries, cleanAbstract } from '../services/citation'
 import { loadJournalAbbrevMap, saveJournalAbbrev, mergeJournalAbbrevs, lookupJournalAbbrevsWithAI } from '../services/journalAbbrev'
 import {
-  FolderCog,
   BookMarked,
   FileText,
   BookOpen,
@@ -2566,47 +2565,34 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="page-container py-8 grid gap-6 items-start grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_clamp(12rem,13vw,15rem)]">
-      {/* ──── 左侧主内容 ──── */}
-      <div className="flex-1 min-w-0">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-ink-800 flex items-center gap-2">
-            <FolderCog className="w-6 h-6 text-seal-600" />
-            管理中心
-          </h1>
-          <p className="text-ui-sm text-ink-500 mt-1">文献库、图书库、期刊模板、数据管理</p>
-        </div>
-      </div>
+    <div className="page-container py-8">
+      {/* 管理页布局：左=功能栏（类型切换 + 分类）｜中=内容｜右=后台监控（1:3:1） */}
+      <div className="grid items-start gap-ui-gap grid-cols-[minmax(0,1fr)] lg:grid-cols-ratio-131">
+        {/* ──── 左：功能栏 ──── */}
+        <aside className="min-w-0 space-y-ui-gap">
+          {/* 类型切换（竖排） */}
+          <nav className="rounded-card border border-ink-200 bg-paper-50 p-1.5 shadow-sm">
+            {subTabs.map((tab) => {
+              const Icon = tab.icon
+              const active = activeTab === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex w-full items-center gap-ui-gap-sm rounded-control-sm px-ui-gap-sm py-2 text-left text-ui-sm font-medium transition ${
+                    active ? 'bg-seal-50 text-seal-600' : 'text-ink-600 hover:bg-paper-100 hover:text-ink-800'
+                  }`}
+                >
+                  <Icon className="h-ui-icon w-ui-icon" />
+                  {tab.label}
+                </button>
+              )
+            })}
+          </nav>
 
-      {/* Tab 切换条 */}
-      <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-control mb-5 w-fit">
-        {subTabs.map((tab) => {
-          const Icon = tab.icon
-          const active = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-                active
-                  ? 'bg-paper-50 text-seal-600 shadow-sm'
-                  : 'text-ink-500 hover:text-ink-700'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* ============ 文献库 Tab ============ */}
-      {activeTab === 'library' && (
-        <div className="flex gap-4">
-          {/* 左侧分类树 */}
-          <div className="w-64 flex-shrink-0">
-            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-3">
+          {/* 文献分类（仅文献库） */}
+          {activeTab === 'library' && (
+            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
               <div className="flex items-center justify-between mb-3 px-1">
                 <h3 className="text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
                   <Library className="w-4 h-4 text-seal-600" />
@@ -2631,10 +2617,78 @@ export default function ManagementPage() {
                 新建分类
               </button>
             </div>
-          </div>
+          )}
 
-          {/* 右侧文献列表 */}
-          <div className="flex-1 space-y-4 min-w-0">
+          {/* 图书分类（仅图书库） */}
+          {activeTab === 'knowledge' && (
+            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
+              <div className="flex items-center justify-between mb-3 px-1">
+                <h3 className="text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
+                  <BookCopy className="w-4 h-4 text-seal-600" />
+                  图书分类
+                </h3>
+                <button
+                  onClick={handleAddBookCategory}
+                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-0.5">
+                {bookCategories.map((cat) => {
+                  const isActive = activeBookCategory === cat.id
+                  const count = bookCategoryCounts[cat.id] || 0
+                  return (
+                    <div
+                      key={cat.id}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer transition group ${
+                        isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                      }`}
+                      onClick={() => setActiveBookCategory(cat.id)}
+                    >
+                      <Folder className="w-3.5 h-3.5 text-ink-400" />
+                      <span className="text-ui-sm flex-1 truncate">{cat.name}</span>
+                      <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
+                        {count}
+                      </span>
+                      {cat.id !== 'all' && (
+                        <div className="hidden group-hover:flex items-center gap-0.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditBookCategory(cat.id, cat.name)
+                            }}
+                            className="p-0.5 text-ink-400 hover:text-seal-600 rounded-control-sm"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (confirm(`确定删除分类「${cat.name}」吗？`)) {
+                                handleDeleteBookCategory(cat.id)
+                              }
+                            }}
+                            className="p-0.5 text-ink-400 hover:text-red-600 rounded-control-sm"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </aside>
+
+        {/* ──── 中：内容 ──── */}
+        <div className="min-w-0">
+
+      {/* ============ 文献库 Tab ============ */}
+      {activeTab === 'library' && (
+        <div className="min-w-0 space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -3180,7 +3234,6 @@ export default function ManagementPage() {
                 </div>
               )}
             </div>
-          </div>
         </div>
       )}
 
@@ -3282,72 +3335,7 @@ export default function ManagementPage() {
 
       {/* ============ 知识库 Tab ============ */}
       {activeTab === 'knowledge' && (
-        <div className="flex gap-4">
-          {/* 左侧分类树 */}
-          <div className="w-64 flex-shrink-0">
-            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-3">
-              <div className="flex items-center justify-between mb-3 px-1">
-                <h3 className="text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
-                  <BookCopy className="w-4 h-4 text-seal-600" />
-                  图书分类
-                </h3>
-                <button
-                  onClick={handleAddBookCategory}
-                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-0.5">
-                {bookCategories.map((cat) => {
-                  const isActive = activeBookCategory === cat.id
-                  const count = bookCategoryCounts[cat.id] || 0
-                  return (
-                    <div
-                      key={cat.id}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer transition group ${
-                        isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
-                      }`}
-                      onClick={() => setActiveBookCategory(cat.id)}
-                    >
-                      <Folder className="w-3.5 h-3.5 text-ink-400" />
-                      <span className="text-ui-sm flex-1 truncate">{cat.name}</span>
-                      <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
-                        {count}
-                      </span>
-                      {cat.id !== 'all' && (
-                        <div className="hidden group-hover:flex items-center gap-0.5">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEditBookCategory(cat.id, cat.name)
-                            }}
-                            className="p-0.5 text-ink-400 hover:text-seal-600 rounded-control-sm"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (confirm(`确定删除分类「${cat.name}」吗？`)) {
-                                handleDeleteBookCategory(cat.id)
-                              }
-                            }}
-                            className="p-0.5 text-ink-400 hover:text-red-600 rounded-control-sm"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* 右侧图书列表 */}
-          <div className="flex-1 space-y-4 min-w-0">
+        <div className="min-w-0 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-ui-sm text-ink-500">
@@ -3457,7 +3445,6 @@ export default function ManagementPage() {
                 </button>
               </div>
             )}
-          </div>
         </div>
       )}
 
@@ -4874,7 +4861,7 @@ export default function ManagementPage() {
       {showImageLightbox && (
         <ImageLightbox src={showImageLightbox} onClose={() => setShowImageLightbox(null)} />
       )}
-      </div>{/* ──── 左侧主内容 END ──── */}
+      </div>{/* ──── 中：内容 END ──── */}
 
       {/* ──── 右侧 sticky 后台监控面板（常驻、不弹窗） ──── */}
       <aside className="hidden lg:block min-w-0">
@@ -4928,6 +4915,7 @@ export default function ManagementPage() {
           )}
         </Modal>
       )}
+      </div>
     </div>
   )
 }

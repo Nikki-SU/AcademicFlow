@@ -19,7 +19,7 @@
  * 数据落库全交给页面（Schedule.tsx），本组件只呈现与收集输入。
  */
 import { useMemo, useState } from 'react'
-import { CalendarPlus, CalendarX, Clock, Repeat, TrendingUp, X } from 'lucide-react'
+import { CalendarPlus, Clock, X } from 'lucide-react'
 import type { Course, ExtraDay, TodayPlan } from '../../services/scheduleData'
 import { timeToMinutes, weekdayOfDate, WEEKDAY_LABELS } from '../../services/scheduleData'
 import type { Project } from '../../services/projectData'
@@ -305,21 +305,6 @@ export function CourseTable({
         </div>
       </div>
 
-      {/* 今日状态条：放假 / 补班待指定。
-          调休日的课表已**直接画在那一天对应的列**里（见 coursesOf / 表头），故不再另加文字条。 */}
-      {todayPlan.holiday && (
-        <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-seal-50 px-ui-gap py-ui-gap-sm text-ui-xs text-seal-700">
-          <CalendarX className="h-ui-icon-sm w-ui-icon-sm" />
-          今天「{todayPlan.holiday}」放假 · 不上课，课程表不排课
-        </div>
-      )}
-      {!todayPlan.holiday && todayPlan.unsetMakeup && (
-        <div className="flex items-center gap-ui-gap-sm border-b border-ink-100 bg-amber-50 px-ui-gap py-ui-gap-sm text-ui-xs text-amber-700">
-          <Repeat className="h-ui-icon-sm w-ui-icon-sm" />
-          今天是官方调休补班日，但还没指定按周几上课 · 点右上「调休」设置
-        </div>
-      )}
-
       <div className="flex min-h-0 flex-1 flex-col overflow-auto p-ui-gap">
         {/* 表头：日期 + 星期（与下方时间轴网格严格对齐） */}
         <div className="flex gap-ui-gap-sm">
@@ -451,12 +436,7 @@ export function CourseTable({
                       </button>
                     )
                   })}
-                  {placed.length === 0 && ddlsOf(w).length === 0 && (
-                    <span className="absolute inset-0 flex items-center justify-center text-ui-2xs text-ink-300">
-                      无课
-                    </span>
-                  )}
-                  {/* DDL 死线：统一红色粗线，默认不写字（不挡课）；悬停 / 点击显示内容并联动高亮 */}
+                  {/* DDL 死线：统一红色粗线，线上直接标「死线」；悬停 / 点击显示内容并联动高亮 */}
                   {ddlsOf(w).map(({ project: dp, min }) => {
                     const active = highlightId === dp.projectId
                     const top = pct(min, rangeStart, rangeEnd)
@@ -474,15 +454,18 @@ export function CourseTable({
                           onClick={() => onPickDdl(dp.projectId)}
                           title={`DDL · ${label} · ${formatDue(dp.dueAt)}`}
                           aria-label={`DDL ${label} ${formatDue(dp.dueAt)}`}
-                          className="absolute inset-x-0 flex h-3 -translate-y-1/2 items-center"
+                          className="absolute inset-x-0 flex h-3 -translate-y-1/2 items-center gap-1"
                         >
                           <span
-                            className={`h-[3px] w-full rounded-full bg-hl-red-deep transition ${
+                            className={`h-[3px] flex-1 rounded-full bg-hl-red-deep transition ${
                               active
                                 ? 'shadow-[0_0_0_2px_rgba(158,58,50,0.30)]'
                                 : 'opacity-80 hover:opacity-100'
                             }`}
                           />
+                          <span className="shrink-0 font-mono text-ui-2xs font-medium leading-none text-hl-red-deep">
+                            死线
+                          </span>
                         </button>
                         {active && (
                           <div
@@ -503,13 +486,6 @@ export function CourseTable({
               )
             })}
           </div>
-        </div>
-
-        <div className="mt-ui-gap flex items-center gap-ui-gap-sm pl-[calc(var(--ui-axis)+var(--ui-gap-sm))] text-ui-2xs text-ink-400">
-          <TrendingUp className="h-ui-icon-sm w-ui-icon-sm" />
-          纵向为时间轴（5 分钟刻度），点色块可改时间 / 归属或删除；
-          <span className="mx-0.5 inline-block h-[3px] w-4 rounded-full bg-hl-red-deep align-middle" />
-          = DDL 死线（默认不写字，悬停 / 点击看详情并联动高亮）
         </div>
       </div>
 

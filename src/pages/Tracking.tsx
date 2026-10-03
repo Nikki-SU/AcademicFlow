@@ -10,7 +10,6 @@
  */
 import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
 import {
-  Bell,
   Globe,
   Search,
   Plus,
@@ -1113,24 +1112,12 @@ export default function TrackingPage() {
 
   return (
     <div className="page-container flex h-full flex-col py-ui-gap-lg">
-      {/* 页头 */}
-      <div className="mb-ui-gap flex shrink-0 items-center justify-between">
-        <h1 className="text-xl font-bold text-ink-800">文献追踪</h1>
-      </div>
-
       <div className="grid gap-ui-gap-lg lg:min-h-0 lg:flex-1 lg:grid-cols-ratio-122">
         {/* ============================================================ */}
         {/* 左①（1）：功能入口 —— 添加关键词 / 添加期刊 / 立即追踪 / DOI 入库 / 搜索 */}
         {/* ============================================================ */}
         <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50 lg:min-h-0">
           <div className="shrink-0 border-b border-ink-100 p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="rounded-control bg-seal-50 p-1.5">
-                <Bell className="h-4 w-4 text-seal-600" />
-              </div>
-              <h2 className="text-ui-sm font-semibold text-ink-800">文献追踪</h2>
-            </div>
-
             {/* 三个动作：添加关键词 / 添加期刊 / 立即追踪（红） */}
             <div className="space-y-2">
               <button

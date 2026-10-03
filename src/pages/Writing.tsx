@@ -3576,6 +3576,13 @@ export default function WritingPage() {
                     </span>
                   </>
                 )}
+                {p.mode === 'editor' && (
+                  <span className={`shrink-0 font-mono text-ui-2xs text-ink-400 ${
+                    isPanelMerged ? '' : 'ml-auto'
+                  }`}>
+                    {wordCount} 字
+                  </span>
+                )}
                 {isPanelMerged && (
                   <button
                     onClick={restoreDualPanels}
@@ -3635,9 +3642,6 @@ export default function WritingPage() {
                 )}
               </div>
 
-              <div className="flex shrink-0 items-center justify-end border-t border-ink-100 bg-paper-100/80 px-ui-gap py-1 text-ui-2xs text-ink-400">
-                <span className="font-mono">{wordCount} 字</span>
-              </div>
             </>
           )}
 

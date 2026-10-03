@@ -67,7 +67,6 @@ export default function SessionPage() {
   //   课程 —— 刚性：每节课是一个定时任务，结课必为「论文」或「考试」；
   //   会议 —— 灵活、非周期，随时可开；转写要判语种、必要时译中。
   const isCourse = current?.type === 'course'
-  const label = isCourse ? '课程' : '会议'
   const kindText = isCourse ? '课时 = 定时任务' : '非周期 · 随时开'
   const hint = isCourse ? '结课：论文 / 考试' : '转写自动判语种，非中文自动译中'
 
@@ -126,7 +125,6 @@ export default function SessionPage() {
       {/* 页头：命名随当前任务 type 走；高度与下面三块面板页头同取 --ui-header */}
       <header className="flex h-ui-header shrink-0 items-center gap-ui-gap-sm border-b border-ink-200 bg-paper-50 px-ui-gap">
         <Mic className="h-ui-icon w-ui-icon shrink-0 text-seal-600" />
-        <h1 className="shrink-0 text-ui-sm font-semibold text-ink-800">{label}</h1>
         <span className="shrink-0 rounded-control-sm bg-ink-100 px-1.5 py-0.5 text-ui-2xs text-ink-500">
           {kindText}
         </span>

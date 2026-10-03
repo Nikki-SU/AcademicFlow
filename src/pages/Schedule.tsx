@@ -16,7 +16,6 @@
  * 全走 business 数据层（md + csv），写失败一律 toast 提示。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarDays } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   loadCourses,
@@ -555,14 +554,9 @@ export default function SchedulePage() {
 
   return (
     <div className="page-container flex h-full flex-col py-ui-gap-lg">
-      <header className="mb-ui-gap shrink-0">
-        <div className="flex items-center justify-between gap-ui-gap-sm">
-          <div className="flex items-center gap-ui-gap-sm">
-            <CalendarDays className="h-ui-icon w-ui-icon text-seal-600" />
-            <h1 className="text-lg font-semibold text-ink-800">日程</h1>
-          </div>
-          {/* 整页开关：一次隐藏 / 显示 DDL 栏与任务栏里的全部已过期 / 已完成任务 */}
-          <div className="flex items-center gap-ui-gap">
+      <header className="mb-ui-gap flex shrink-0 items-center justify-end gap-ui-gap">
+        {/* 整页开关：一次隐藏 / 显示 DDL 栏与任务栏里的全部已过期 / 已完成任务 */}
+        <div className="flex items-center gap-ui-gap">
             {hasExpired && (
               <button
                 type="button"
@@ -609,7 +603,6 @@ export default function SchedulePage() {
                 </span>
               </button>
             )}
-          </div>
         </div>
       </header>
 
