@@ -87,11 +87,11 @@ export function TaskPicker({
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-ink-700 mb-1.5">大类</label>
+        <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">大类</label>
         <select
           value={type}
           onChange={(e) => handleType(e.target.value as ProjectType | '')}
-          className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+          className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
         >
           <option value="">请选择大类…</option>
           <option value="research">研究</option>
@@ -99,7 +99,7 @@ export function TaskPicker({
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-ink-700 mb-1.5">
+        <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
           归属任务{' '}
           <span className="font-normal text-ink-400">
             {type && allowTopLevel ? `（留空即为「${TYPE_LABEL[type]}」下的顶级任务）` : ''}
@@ -109,7 +109,7 @@ export function TaskPicker({
           value={parentId}
           disabled={!type}
           onChange={(e) => onParentChange(e.target.value)}
-          className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 disabled:bg-ink-50 disabled:text-ink-400"
+          className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 disabled:bg-ink-50 disabled:text-ink-400"
         >
           <option value="">
             {!type

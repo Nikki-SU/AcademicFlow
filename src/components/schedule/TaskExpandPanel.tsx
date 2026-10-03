@@ -22,7 +22,7 @@ export function TaskExpandPanel({
   onEdit: () => void
 }) {
   return (
-    <div className="mb-1 ml-ui-indent rounded-lg border border-ink-200 bg-paper-50 p-ui-gap-sm">
+    <div className="mb-1 ml-ui-indent rounded-control border border-ink-200 bg-paper-50 p-ui-gap-sm">
       <TaskRequirementsView project={project} parentTitle={parentTitle} onEdit={onEdit} />
     </div>
   )

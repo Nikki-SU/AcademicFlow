@@ -150,7 +150,7 @@ function Wheel({
     >
       {/* 选中高亮带 */}
       <div
-        className="pointer-events-none absolute inset-x-ui-gap-sm z-0 rounded-lg bg-seal-50 ring-1 ring-seal-200"
+        className="pointer-events-none absolute inset-x-ui-gap-sm z-0 rounded-control bg-seal-50 ring-1 ring-seal-200"
         style={{ top: '50%', height: itemH, transform: 'translateY(-50%)' }}
       />
       {cells.map((i) => {
@@ -216,7 +216,7 @@ export function DateTimeField({
         type="date"
         value={datePart}
         onChange={(e) => emit(e.target.value, timePart)}
-        className="col-span-2 min-w-0 rounded-lg border border-ink-300 px-ui-gap py-ui-gap-sm text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+        className="col-span-2 min-w-0 rounded-control border border-ink-300 px-ui-gap py-ui-gap-sm text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
       />
       {/* 宽度按 2:1 分配：日期占 2/3、时间占 1/3（不让日期独吞整行、时间被挤窄）。
           滚轮是 flex 子项、内部格子又绝对定位（无固有宽度），必须由外层给定宽度。 */}
@@ -262,7 +262,7 @@ export function TimeWheel({
   }, [])
 
   return (
-    <div className="flex items-center gap-ui-gap-sm rounded-lg border border-ink-300 bg-paper-50 px-ui-gap-sm py-ui-gap-sm">
+    <div className="flex items-center gap-ui-gap-sm rounded-control border border-ink-300 bg-paper-50 px-ui-gap-sm py-ui-gap-sm">
       <Wheel
         options={HOURS}
         index={hourIndex}

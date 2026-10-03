@@ -460,8 +460,8 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       <div className="flex-1 flex items-center justify-center text-ink-400 px-6 text-center">
         <div>
           <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">先选择一篇文献或一本书</p>
-          <p className="text-xs mt-1">选中正文里的词句后，可以直接问 AI</p>
+          <p className="text-ui-sm">先选择一篇文献或一本书</p>
+          <p className="text-ui-xs mt-1">选中正文里的词句后，可以直接问 AI</p>
         </div>
       </div>
     )
@@ -470,10 +470,10 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* 可信检索开关 */}
-      <div className="px-3 py-2 border-b border-ink-100 flex-shrink-0 bg-paper-100/50">
+      <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 bg-paper-100/50">
         <button
           onClick={() => setTrusted(!trusted)}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition border ${
+          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-control-sm text-ui-xs transition border ${
             trusted
               ? 'bg-seal-50 border-seal-200 text-seal-700'
               : 'bg-paper-50 border-ink-200 text-ink-500 hover:bg-paper-100'
@@ -488,7 +488,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
           <span className="font-medium">可信检索</span>
           <span className="ml-auto">{trusted ? '开 · 双引擎审阅' : '关 · 联网检索'}</span>
         </button>
-        <div className="mt-1.5 flex items-center justify-between text-[0.625rem] text-ink-400">
+        <div className="mt-1.5 flex items-center justify-between text-ui-2xs text-ink-400">
           <span className="truncate">{docTitle}</span>
           <button
             onClick={clearChat}
@@ -503,14 +503,14 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       </div>
 
       {/* 消息列表 */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-ui-gap py-3 space-y-3">
         {!loaded ? (
-          <div className="text-center py-6 text-ink-400 text-xs">
+          <div className="text-center py-6 text-ink-400 text-ui-xs">
             <div className="w-6 h-6 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
             加载对话记录…
           </div>
         ) : messages.length === 0 ? (
-          <div className="text-center py-6 text-ink-400 text-xs px-2">
+          <div className="text-center py-6 text-ink-400 text-ui-xs px-2">
             <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-30" />
             <p className="text-ink-500 font-medium mb-1">问 AI</p>
             <p className="leading-relaxed">
@@ -522,7 +522,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
           messages.map((m) => (
             <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : ''}>
               <div
-                className={`rounded-lg px-3 py-2 text-sm max-w-full ${
+                className={`rounded-control px-ui-gap py-2 text-ui-sm max-w-full ${
                   m.role === 'user'
                     ? 'bg-seal-600 text-paper-50'
                     : 'bg-paper-100 border border-ink-200 text-ink-700'
@@ -538,7 +538,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
                 )}
                 {m.role === 'assistant' && m.reviewStatus && (
                   <div
-                    className={`mt-1.5 text-[0.625rem] ${
+                    className={`mt-1.5 text-ui-2xs ${
                       m.reviewStatus === 'pass' ? 'text-green-600' : 'text-amber-600'
                     }`}
                   >
@@ -552,12 +552,12 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
           ))
         )}
         {busy && (
-          <div className="flex items-center gap-2 text-xs text-ink-400">
+          <div className="flex items-center gap-2 text-ui-xs text-ink-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span className="flex-1 min-w-0 truncate">{stage || '处理中…'}</span>
             <button
               onClick={stop}
-              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-ink-200 text-ink-500 hover:border-red-300 hover:text-red-600 transition flex-shrink-0"
+              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-control-sm border border-ink-200 text-ink-500 hover:border-red-300 hover:text-red-600 transition flex-shrink-0"
               title="停止：不再接收本次回答，并让后端也停下"
             >
               <Square className="w-3 h-3" />
@@ -570,8 +570,8 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
 
       {/* 快捷问法（有选中文字才出现） */}
       {selectedText.trim() && (
-        <div className="px-3 py-2 border-t border-ink-100 flex-shrink-0 bg-seal-50/40">
-          <div className="flex items-start gap-1.5 text-[0.625rem] text-ink-500 mb-1.5">
+        <div className="px-ui-gap py-2 border-t border-ink-100 flex-shrink-0 bg-seal-50/40">
+          <div className="flex items-start gap-1.5 text-ui-2xs text-ink-500 mb-1.5">
             <Quote className="w-3 h-3 flex-shrink-0 mt-0.5" />
             <span className="line-clamp-2">{selectedText.trim()}</span>
           </div>
@@ -579,7 +579,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             <button
               onClick={askAcademicMeaning}
               disabled={busy}
-              className="flex-1 px-2 py-1.5 text-[0.6875rem] bg-paper-50 border border-ink-200 rounded-md hover:border-seal-400 hover:text-seal-600 transition disabled:opacity-40 text-left"
+              className="flex-1 px-2 py-1.5 text-ui-xs bg-paper-50 border border-ink-200 rounded-control-sm hover:border-seal-400 hover:text-seal-600 transition disabled:opacity-40 text-left"
               title="关闭可信检索，让 AI 联网检索该词的学术含义"
             >
               查学术含义
@@ -587,7 +587,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             <button
               onClick={askExplainInContext}
               disabled={busy}
-              className="flex-1 px-2 py-1.5 text-[0.6875rem] bg-paper-50 border border-ink-200 rounded-md hover:border-seal-400 hover:text-seal-600 transition disabled:opacity-40 text-left"
+              className="flex-1 px-2 py-1.5 text-ui-xs bg-paper-50 border border-ink-200 rounded-control-sm hover:border-seal-400 hover:text-seal-600 transition disabled:opacity-40 text-left"
               title="开启可信检索，结合本文原文与联网检索解释这段文字"
             >
               结合本文解释
@@ -597,7 +597,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       )}
 
       {/* 自由提问 */}
-      <div className="px-3 py-2 border-t border-ink-100 flex-shrink-0">
+      <div className="px-ui-gap py-2 border-t border-ink-100 flex-shrink-0">
         <div className="flex items-end gap-1.5">
           <textarea
             value={input}
@@ -610,18 +610,18 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
             }}
             rows={2}
             placeholder="输入问题，Enter 发送 / Shift+Enter 换行"
-            className="flex-1 px-2 py-1.5 text-xs border border-ink-200 rounded-md resize-none focus:outline-none focus:border-seal-400"
+            className="flex-1 px-2 py-1.5 text-ui-xs border border-ink-200 rounded-control-sm resize-none focus:outline-none focus:border-seal-400"
           />
           <button
             onClick={() => void send(input, trusted, selectedText)}
             disabled={busy || !input.trim()}
-            className="p-2 bg-seal-600 text-paper-50 rounded-md hover:bg-seal-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+            className="p-2 bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
             title="发送"
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
-        <div className="mt-1 text-[0.625rem] text-ink-400">
+        <div className="mt-1 text-ui-2xs text-ink-400">
           {trusted
             ? '可信检索开：先联网检索，回答受「正文 + 检索结果」约束，AI-2 会核查是否编造'
             : '可信检索关：DeepSeek 联网检索后回答并附来源，不核查是否超出原文'}

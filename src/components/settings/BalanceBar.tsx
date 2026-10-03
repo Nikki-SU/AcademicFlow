@@ -56,7 +56,7 @@ function formatFetchedAt(ts: number): string {
 function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
   if (!canFetch) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-paper-100 border border-ink-200 rounded-md text-xs text-ink-500">
+      <div className="flex items-center gap-2 px-ui-gap py-2 bg-paper-100 border border-ink-200 rounded-control-sm text-ui-xs text-ink-500">
         <Wallet className="w-4 h-4" />
         <span>普通模式需先配置硅基流动 API Key 才能显示余额</span>
       </div>
@@ -65,7 +65,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
 
   if (isLoading && !account) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-paper-100 border border-ink-200 rounded-md text-xs text-ink-600">
+      <div className="flex items-center gap-2 px-ui-gap py-2 bg-paper-100 border border-ink-200 rounded-control-sm text-ui-xs text-ink-600">
         <Loader2 className="w-4 h-4 animate-spin text-seal-600" />
         <span>正在查询硅基流动余额…</span>
       </div>
@@ -76,11 +76,11 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
     const deprecated = isDeprecatedEndpointError(error)
     if (deprecated) {
       return (
-        <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-900">
+        <div className="flex items-start gap-2 px-ui-gap py-2 bg-amber-50 border border-amber-200 rounded-control-sm text-ui-xs text-amber-900">
           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <div className="flex-1 min-w-0 leading-relaxed">
             <div className="font-medium">余额查询接口已下线</div>
-            <div className="mt-0.5 text-[0.6875rem] break-all">
+            <div className="mt-0.5 text-ui-xs break-all">
               硅基流动已于 2026-08-14 正式下线 /v1/user/info 接口，官方替代 API 尚未上线，模型调用不受影响。请点击右侧按钮前往官网账户中心查看余额。
             </div>
           </div>
@@ -88,7 +88,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
             href="https://cloud.siliconflow.cn/account/balance"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-paper-50 border border-amber-300 rounded hover:bg-amber-100 text-amber-800 font-medium"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-paper-50 border border-amber-300 rounded-control-sm hover:bg-amber-100 text-amber-800 font-medium"
           >
             前往账户中心
             <ExternalLink className="w-3 h-3" />
@@ -97,18 +97,18 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
       )
     }
     return (
-      <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-xs text-red-800">
+      <div className="flex items-start gap-2 px-ui-gap py-2 bg-red-50 border border-red-200 rounded-control-sm text-ui-xs text-red-800">
         <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="font-medium">余额查询失败</div>
-          <div className="text-[0.6875rem] mt-0.5 text-red-700 leading-relaxed break-all">
+          <div className="text-ui-xs mt-0.5 text-red-700 leading-relaxed break-all">
             {error}
           </div>
         </div>
         <button
           type="button"
           onClick={onRefresh}
-          className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 border border-red-300 rounded hover:bg-red-100"
+          className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 border border-red-300 rounded-control-sm hover:bg-red-100"
         >
           <RefreshCw className="w-3 h-3" />
           重试
@@ -125,25 +125,25 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
     : 'bg-emerald-50 border-emerald-200 text-emerald-800'
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-2 border rounded-md text-xs ${wrapCls}`}>
+    <div className={`flex items-center gap-3 px-ui-gap py-2 border rounded-control-sm text-ui-xs ${wrapCls}`}>
       <Wallet className="w-4 h-4 flex-shrink-0" />
       <div className="flex items-baseline gap-1.5">
         <span className="font-medium">硅基流动余额</span>
-        <span className="font-mono text-sm font-semibold">
+        <span className="font-mono text-ui-sm font-semibold">
           {formatBalance(account.totalBalance)}
         </span>
       </div>
       {account.chargeBalance !== undefined && (
-        <span className="text-[0.6875rem] opacity-70 font-mono">
+        <span className="text-ui-xs opacity-70 font-mono">
           (充值 ¥ {Number(account.chargeBalance).toFixed(2)})
         </span>
       )}
       {account.status && account.status !== 'normal' && (
-        <span className="px-1.5 py-0.5 bg-paper-50/60 border border-current rounded text-[0.6875rem] font-mono">
+        <span className="px-1.5 py-0.5 bg-paper-50/60 border border-current rounded-control-sm text-ui-xs font-mono">
           状态 {account.status}
         </span>
       )}
-      <span className="ml-auto text-[0.6875rem] opacity-60">
+      <span className="ml-auto text-ui-xs opacity-60">
         更新于 {formatFetchedAt(account.fetchedAt)}
       </span>
       <button
@@ -151,7 +151,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
         onClick={onRefresh}
         disabled={isLoading}
         title="刷新余额"
-        className="flex-shrink-0 p-1 rounded hover:bg-paper-50/50 disabled:opacity-50"
+        className="flex-shrink-0 p-1 rounded-control-sm hover:bg-paper-50/50 disabled:opacity-50"
       >
         {isLoading ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -164,7 +164,7 @@ function BalanceBar({ account, isLoading, error, canFetch, onRefresh }: Props) {
           href="https://cloud.siliconflow.cn/account/balance"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-paper-50 border border-red-400 text-red-700 rounded font-medium hover:bg-red-100"
+          className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 bg-paper-50 border border-red-400 text-red-700 rounded-control-sm font-medium hover:bg-red-100"
         >
           去充值
           <ExternalLink className="w-3 h-3" />

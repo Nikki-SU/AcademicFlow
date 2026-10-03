@@ -396,7 +396,7 @@ function StatusBadge({ status }: { status: Paper['mdStatus'] }) {
   }
   const { label, icon: Icon, color } = config[status]
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded-full text-xs font-medium ${color}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded-full text-ui-xs font-medium ${color}`}>
       <Icon className={`w-3 h-3 shrink-0 ${status === 'converting' ? 'animate-spin' : ''}`} />
       {label}
     </span>
@@ -412,7 +412,7 @@ function BookStatusBadge({ status }: { status: BookItem['status'] }) {
   }
   const { label, color } = config[status]
   return (
-    <span className={`inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 rounded-full text-xs font-medium ${color}`}>
+    <span className={`inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 rounded-full text-ui-xs font-medium ${color}`}>
       {label}
     </span>
   )
@@ -421,10 +421,10 @@ function BookStatusBadge({ status }: { status: BookItem['status'] }) {
 function Modal({ title, onClose, children, width = 'max-w-lg' }: { title: string; onClose: () => void; children: React.ReactNode; width?: string }) {
   return (
     <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
-      <div className={`bg-paper-50 rounded-2xl shadow-xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`}>
+      <div className={`bg-paper-50 rounded-card shadow-xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-ink-200">
           <h3 className="font-semibold text-ink-800">{title}</h3>
-          <button onClick={onClose} className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-lg transition">
+          <button onClick={onClose} className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control transition">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -439,8 +439,8 @@ function Modal({ title, onClose, children, width = 'max-w-lg' }: { title: string
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 bg-ink-900/80 flex items-center justify-center z-[60] p-8" onClick={onClose}>
-      <img src={src} alt="" className="max-w-full max-h-full object-contain rounded-lg" onClick={(e) => e.stopPropagation()} />
-      <button onClick={onClose} className="absolute top-4 right-4 p-2 text-paper-50/70 hover:text-paper-50 hover:bg-paper-50/10 rounded-lg transition">
+      <img src={src} alt="" className="max-w-full max-h-full object-contain rounded-control" onClick={(e) => e.stopPropagation()} />
+      <button onClick={onClose} className="absolute top-4 right-4 p-2 text-paper-50/70 hover:text-paper-50 hover:bg-paper-50/10 rounded-control transition">
         <X className="w-6 h-6" />
       </button>
     </div>
@@ -469,13 +469,13 @@ function PaperMorphemeSection({
   )
   const [open, setOpen] = useState(false)
 
-  const label = <label className="block text-sm font-medium text-ink-700">词根词缀</label>
+  const label = <label className="block text-ui-sm font-medium text-ink-700">词根词缀</label>
 
   if (words === null) {
     return (
       <div>
         <div className="mb-1.5">{label}</div>
-        <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50 text-xs text-ink-400">
+        <div className="p-3 border border-ink-200 rounded-control bg-paper-100/50 text-ui-xs text-ink-400">
           正在读取本文提取的字词…
         </div>
       </div>
@@ -485,7 +485,7 @@ function PaperMorphemeSection({
     return (
       <div>
         <div className="mb-1.5">{label}</div>
-        <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50 text-xs text-ink-400">
+        <div className="p-3 border border-ink-200 rounded-control bg-paper-100/50 text-ui-xs text-ink-400">
           这篇文献还没有提取出单词 —— 转换 PDF 时会自动提取并切分。
         </div>
       </div>
@@ -499,13 +499,13 @@ function PaperMorphemeSection({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="text-xs text-seal-600 hover:underline"
+          className="text-ui-xs text-seal-600 hover:underline"
         >
           {open ? '收起' : `展开核对（${splitCount}/${mine.length} 个词已切分）`}
         </button>
       </div>
-      <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50">
-        <p className="text-xs text-ink-400">
+      <div className="p-3 border border-ink-200 rounded-control bg-paper-100/50">
+        <p className="text-ui-xs text-ink-400">
           只有确实能拆成词缀的词才需要切分，拆不开就留空（学习时按整词/逐字母处理）。
           这里改的是 AI 的产出，属于修正而非日常操作。
         </p>
@@ -561,26 +561,26 @@ function MorphemeSplitEditor({
   }
 
   return (
-    <div className="bg-paper-50 border border-ink-200 rounded-lg p-3">
+    <div className="bg-paper-50 border border-ink-200 rounded-control p-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-ink-800 shrink-0">{word}</span>
+        <span className="text-ui-sm font-semibold text-ink-800 shrink-0">{word}</span>
         <input
           type="text"
           value={split}
           onChange={(e) => { setSplit(e.target.value); onChange(derive(e.target.value)) }}
           placeholder="用 · 分隔，如 photo·synth·esis；留空 = 不拆"
-          className="flex-1 min-w-0 px-2 py-1 border border-ink-200 rounded text-xs focus:outline-none focus:border-seal-400"
+          className="flex-1 min-w-0 px-2 py-1 border border-ink-200 rounded-control-sm text-ui-xs focus:outline-none focus:border-seal-400"
         />
       </div>
       {segments.length > 0 && (
         <div className="mt-2 space-y-1.5">
           {segments.map((m, i) => (
             <div key={`${m.text}-${i}`} className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-xs font-medium text-seal-700 truncate">{m.text}</span>
+              <span className="w-24 shrink-0 text-ui-xs font-medium text-seal-700 truncate">{m.text}</span>
               <select
                 value={m.type}
                 onChange={(e) => patch(i, 'type', e.target.value)}
-                className="px-1.5 py-1 border border-ink-200 rounded text-xs bg-paper-50"
+                className="px-1.5 py-1 border border-ink-200 rounded-control-sm text-ui-xs bg-paper-50"
               >
                 {(Object.keys(MORPHEME_TYPE_LABELS) as MorphemeType[]).map((t) => (
                   <option key={t} value={t}>{MORPHEME_TYPE_LABELS[t]}</option>
@@ -591,11 +591,11 @@ function MorphemeSplitEditor({
                 value={m.meaning}
                 onChange={(e) => patch(i, 'meaning', e.target.value)}
                 placeholder="含义，如 光"
-                className="flex-1 min-w-0 px-2 py-1 border border-ink-200 rounded text-xs focus:outline-none focus:border-seal-400"
+                className="flex-1 min-w-0 px-2 py-1 border border-ink-200 rounded-control-sm text-ui-xs focus:outline-none focus:border-seal-400"
               />
             </div>
           ))}
-          <p className={`text-[0.6875rem] ${matched ? 'text-green-600' : 'text-red-500'}`}>
+          <p className={`text-ui-xs ${matched ? 'text-green-600' : 'text-red-500'}`}>
             {matched
               ? '✓ 各段拼起来正好是原词'
               : `各段拼起来是「${segments.map((m) => m.text).join('')}」，跟原词对不上 —— 学习时会当作未切分`}
@@ -2448,7 +2448,7 @@ export default function ManagementPage() {
       return (
         <div key={cat.id}>
           <div
-            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition group ${
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-control cursor-pointer transition group ${
               isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
             }`}
             style={{ paddingLeft: `${level + 0.5}rem` }}
@@ -2475,8 +2475,8 @@ export default function ManagementPage() {
             ) : (
               <Folder className="w-3.5 h-3.5 text-ink-400" />
             )}
-            <span className="text-sm flex-1 truncate">{cat.name}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
+            <span className="text-ui-sm flex-1 truncate">{cat.name}</span>
+            <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
               {count}
             </span>
             {cat.id !== 'all' && (
@@ -2486,7 +2486,7 @@ export default function ManagementPage() {
                     e.stopPropagation()
                     handleEditCategory(cat.id, cat.name, hasChildren ? cat.id : undefined)
                   }}
-                  className="p-0.5 text-ink-400 hover:text-seal-600 rounded"
+                  className="p-0.5 text-ink-400 hover:text-seal-600 rounded-control-sm"
                 >
                   <Edit3 className="w-3 h-3" />
                 </button>
@@ -2497,7 +2497,7 @@ export default function ManagementPage() {
                       handleDeleteCategory(cat.id)
                     }
                   }}
-                  className="p-0.5 text-ink-400 hover:text-red-600 rounded"
+                  className="p-0.5 text-ink-400 hover:text-red-600 rounded-control-sm"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -2510,7 +2510,7 @@ export default function ManagementPage() {
               {cat.id === 'my-categories' && (
                 <button
                   onClick={() => handleAddCategory(cat.id)}
-                  className="flex items-center gap-1 ml-4 mt-1 px-2 py-1 text-xs text-ink-400 hover:text-seal-600 rounded-md hover:bg-seal-50 transition"
+                  className="flex items-center gap-1 ml-4 mt-1 px-2 py-1 text-ui-xs text-ink-400 hover:text-seal-600 rounded-control-sm hover:bg-seal-50 transition"
                   style={{ marginLeft: `${level + 1.5}rem` }}
                 >
                   <Plus className="w-3 h-3" />
@@ -2575,12 +2575,12 @@ export default function ManagementPage() {
             <FolderCog className="w-6 h-6 text-seal-600" />
             管理中心
           </h1>
-          <p className="text-sm text-ink-500 mt-1">文献库、图书库、期刊模板、数据管理</p>
+          <p className="text-ui-sm text-ink-500 mt-1">文献库、图书库、期刊模板、数据管理</p>
         </div>
       </div>
 
       {/* Tab 切换条 */}
-      <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-lg mb-5 w-fit">
+      <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-control mb-5 w-fit">
         {subTabs.map((tab) => {
           const Icon = tab.icon
           const active = activeTab === tab.id
@@ -2588,7 +2588,7 @@ export default function ManagementPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+              className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
                 active
                   ? 'bg-paper-50 text-seal-600 shadow-sm'
                   : 'text-ink-500 hover:text-ink-700'
@@ -2606,15 +2606,15 @@ export default function ManagementPage() {
         <div className="flex gap-4">
           {/* 左侧分类树 */}
           <div className="w-64 flex-shrink-0">
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-3">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-3">
               <div className="flex items-center justify-between mb-3 px-1">
-                <h3 className="text-sm font-semibold text-ink-700 flex items-center gap-1.5">
+                <h3 className="text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
                   <Library className="w-4 h-4 text-seal-600" />
                   文献分类
                 </h3>
                 <button
                   onClick={() => handleAddCategory()}
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-seal-600 hover:bg-seal-50 rounded transition"
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-ui-xs text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   新建
@@ -2625,7 +2625,7 @@ export default function ManagementPage() {
               </div>
               <button
                 onClick={() => handleAddCategory()}
-                className="mt-2 w-full flex items-center justify-center gap-1 py-1.5 text-xs text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-lg transition"
+                className="mt-2 w-full flex items-center justify-center gap-1 py-1.5 text-ui-xs text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control transition"
               >
                 <Plus className="w-3.5 h-3.5" />
                 新建分类
@@ -2654,27 +2654,27 @@ export default function ManagementPage() {
                         runFullTextSearch(searchQuery)
                       }
                     }}
-                    className="pl-9 pr-4 py-2 text-sm border border-ink-200 rounded-lg w-[clamp(12rem,22vw,20rem)] focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50"
+                    className="pl-9 pr-4 py-2 text-ui-sm border border-ink-200 rounded-control w-[clamp(12rem,22vw,20rem)] focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50"
                   />
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 {/* DOI 快捷添加 — inline 紧凑版，优先于批量/手动 */}
-                <div className="flex items-center bg-paper-50 rounded-lg border border-ink-200 overflow-hidden focus-within:border-seal-400 focus-within:ring-2 focus-within:ring-seal-100">
-                  <span className="pl-2.5 text-xs font-medium text-ink-400 whitespace-nowrap">DOI</span>
+                <div className="flex items-center bg-paper-50 rounded-control border border-ink-200 overflow-hidden focus-within:border-seal-400 focus-within:ring-2 focus-within:ring-seal-100">
+                  <span className="pl-2.5 text-ui-xs font-medium text-ink-400 whitespace-nowrap">DOI</span>
                   <input
                     type="text"
                     value={doiQuickInput}
                     onChange={(e) => setDoiQuickInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !isAddingByDoi && handleAddByDoi()}
                     placeholder="输入 DOI 或链接..."
-                    className="w-56 px-2 py-1.5 text-sm bg-transparent focus:outline-none"
+                    className="w-56 px-2 py-1.5 text-ui-sm bg-transparent focus:outline-none"
                     title="快捷 DOI 入库"
                   />
                   <button
                     onClick={handleAddByDoi}
                     disabled={isAddingByDoi || !doiQuickInput.trim()}
-                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-ui-xs font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
                     {isAddingByDoi ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2690,7 +2690,7 @@ export default function ManagementPage() {
                     <button
                       onClick={() => setShowBatchMoveModal(true)}
                       disabled={selectedPapers.size === 0}
-                      className="flex items-center gap-2 px-3 py-2 text-sm text-seal-600 bg-seal-50 border border-seal-200 hover:bg-seal-100 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-seal-600 bg-seal-50 border border-seal-200 hover:bg-seal-100 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <MoveRight className="w-4 h-4" />
                       移动分类 ({selectedPapers.size})
@@ -2698,7 +2698,7 @@ export default function ManagementPage() {
                     <button
                       onClick={handleBatchDelete}
                       disabled={selectedPapers.size === 0}
-                      className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Trash2 className="w-4 h-4" />
                       删除选中
@@ -2710,7 +2710,7 @@ export default function ManagementPage() {
                     setBatchMode(!batchMode)
                     setSelectedPapers(new Set())
                   }}
-                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition ${
+                  className={`flex items-center gap-2 px-ui-gap py-2 text-ui-sm rounded-control border transition ${
                     batchMode
                       ? 'text-seal-600 bg-seal-50 border-seal-200'
                       : 'text-ink-600 bg-paper-50 border-ink-200 hover:bg-paper-100'
@@ -2724,7 +2724,7 @@ export default function ManagementPage() {
                     setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
                     setShowAddPaperModal(true)
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition shadow-md shadow-seal-200"
+                  className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
                 >
                   <Plus className="w-4 h-4" />
                   手动添加文献
@@ -2732,21 +2732,21 @@ export default function ManagementPage() {
               </div>
             </div>
 
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
               <div className="flex items-center gap-1 p-3 border-b border-ink-100 bg-paper-100/50">
                 <button
                   onClick={() => {
                     setTierFilter('all')
                     setLibraryPage(1)
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                  className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
                     tierFilter === 'all'
                       ? 'bg-paper-50 text-seal-600 shadow-sm border border-ink-200'
                       : 'text-ink-500 hover:text-ink-700'
                   }`}
                 >
                   全部
-                  <span className="text-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
+                  <span className="text-ui-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
                     {filteredPapers.length}
                   </span>
                 </button>
@@ -2755,14 +2755,14 @@ export default function ManagementPage() {
                     setTierFilter(1)
                     setLibraryPage(1)
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                  className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
                     tierFilter === 1
                       ? TIER_STYLE[1].tab
                       : TIER_STYLE[1].tabIdle
                   }`}
                 >
                   一级文献
-                  <span className="text-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
+                  <span className="text-ui-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
                     {filteredPapers.filter((p) => p.tier === 1).length}
                   </span>
                 </button>
@@ -2771,21 +2771,21 @@ export default function ManagementPage() {
                     setTierFilter(2)
                     setLibraryPage(1)
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                  className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
                     tierFilter === 2
                       ? TIER_STYLE[2].tab
                       : TIER_STYLE[2].tabIdle
                   }`}
                 >
                   二级文献
-                  <span className="text-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
+                  <span className="text-ui-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
                     {filteredPapers.filter((p) => p.tier === 2).length}
                   </span>
                 </button>
 
                 {/* PDF 筛选：一级 / 二级通用 */}
                 <div className="ml-auto flex items-center gap-1 pl-3 border-l border-ink-200">
-                  <span className="text-xs text-ink-400 px-1">PDF</span>
+                  <span className="text-ui-xs text-ink-400 px-1">PDF</span>
                   {([
                     { v: 'all', label: '全部' },
                     { v: 'has', label: '已导入' },
@@ -2803,14 +2803,14 @@ export default function ManagementPage() {
                           setPdfFilter(o.v)
                           setLibraryPage(1)
                         }}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                        className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
                           pdfFilter === o.v
                             ? 'bg-paper-50 text-seal-600 shadow-sm border border-ink-200'
                             : 'text-ink-500 hover:text-ink-700'
                         }`}
                       >
                         {o.label}
-                        <span className="text-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
+                        <span className="text-ui-xs px-1.5 py-0.5 bg-ink-200 text-ink-600 rounded-full">
                           {count}
                         </span>
                       </button>
@@ -2821,14 +2821,14 @@ export default function ManagementPage() {
 
               {/* 文献表格：一条文献 = 一行，字段横向铺开成列；格子里该换行就换行 */}
               {batchMode && pagedPapers.length > 0 && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-paper-100/50 border-b border-ink-100">
+                <div className="flex items-center gap-2 px-ui-gap py-2 bg-paper-100/50 border-b border-ink-100">
                   <input
                     type="checkbox"
                     checked={selectedPapers.size === pagedPapers.length && pagedPapers.length > 0}
                     onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
+                    className="w-4 h-4 rounded-control-sm border-ink-300 text-seal-600 focus:ring-seal-500"
                   />
-                  <span className="text-xs text-ink-500">全选本页</span>
+                  <span className="text-ui-xs text-ink-500">全选本页</span>
                 </div>
               )}
               {pagedPapers.length > 0 && (
@@ -2838,15 +2838,15 @@ export default function ManagementPage() {
                       格子内该换行就换行 → 行高随内容自适应（每条高度可以不一样）。 */}
                   <table className="w-full table-fixed text-left border-collapse">
                     <thead>
-                      <tr className="bg-paper-100 text-xs text-ink-500">
+                      <tr className="bg-paper-100 text-ui-xs text-ink-500">
                         {batchMode && <th className="w-8 border border-ink-200 px-2 py-2 font-normal" />}
                         <th className="w-[3.75rem] border border-ink-200 px-2 py-2 font-normal" />
-                        <th className="border border-ink-200 px-3 py-2 font-normal">标题</th>
-                        <th className="w-[16%] border border-ink-200 px-3 py-2 font-normal">作者</th>
-                        <th className="w-[11%] border border-ink-200 px-3 py-2 font-normal">期刊 · 年份</th>
-                        <th className="w-[11%] border border-ink-200 px-3 py-2 font-normal">分类</th>
+                        <th className="border border-ink-200 px-ui-gap py-2 font-normal">标题</th>
+                        <th className="w-[16%] border border-ink-200 px-ui-gap py-2 font-normal">作者</th>
+                        <th className="w-[11%] border border-ink-200 px-ui-gap py-2 font-normal">期刊 · 年份</th>
+                        <th className="w-[11%] border border-ink-200 px-ui-gap py-2 font-normal">分类</th>
                         <th className="w-[5.5rem] border border-ink-200 px-2 py-2 font-normal">状态</th>
-                        <th className="w-[14%] border border-ink-200 px-3 py-2 font-normal text-right">操作</th>
+                        <th className="w-[14%] border border-ink-200 px-ui-gap py-2 font-normal text-right">操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2875,7 +2875,7 @@ export default function ManagementPage() {
                               e.stopPropagation()
                               toggleSelectPaper(paper.id)
                             }}
-                            className="w-4 h-4 rounded border-ink-300 text-seal-600 focus:ring-seal-500"
+                            className="w-4 h-4 rounded-control-sm border-ink-300 text-seal-600 focus:ring-seal-500"
                           />
                         </td>
                       )}
@@ -2883,7 +2883,7 @@ export default function ManagementPage() {
                       {/* 题图 */}
                       <td className="border border-ink-200 px-2 py-2.5 align-top">
                         <div
-                          className={`w-10 h-14 rounded-lg overflow-hidden bg-ink-100 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                          className={`w-10 h-14 rounded-control overflow-hidden bg-ink-100 ${paper.coverImage ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                           onClick={(e) => {
                             if (paper.coverImage) {
                               e.stopPropagation()
@@ -2903,15 +2903,15 @@ export default function ManagementPage() {
 
                       {/* 标题：**完整展示、绝不省略**（省略了用户就没法认这篇文献），
                           换行行数随标题长度自适应 → 条目高度可以比其他条更高 */}
-                      <td className="border border-ink-200 px-3 py-2.5 align-top">
-                        <h3 className="text-sm font-medium text-ink-800 break-words">
+                      <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
+                        <h3 className="text-ui-sm font-medium text-ink-800 break-words">
                           {paper.title}
                         </h3>
 
                         {paper.keywords.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
                             {paper.keywords.slice(0, 2).map((kw) => (
-                              <span key={kw} className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-xs rounded">
+                              <span key={kw} className="px-1.5 py-0.5 bg-seal-50 text-seal-600 text-ui-xs rounded-control-sm">
                                 {kw}
                               </span>
                             ))}
@@ -2921,11 +2921,11 @@ export default function ManagementPage() {
 
                       {/* 作者：**一个作者一行**（纵向堆叠，不在横向摊开、不左右滚）；
                           一作标「一作」、通讯标「通讯」 */}
-                      <td className="border border-ink-200 px-3 py-2.5 align-top">
+                      <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
                         {authorList.length === 0 ? (
-                          <div className="text-xs text-ink-500">—</div>
+                          <div className="text-ui-xs text-ink-500">—</div>
                         ) : (
-                          <div className="flex flex-col gap-0.5 text-xs">
+                          <div className="flex flex-col gap-0.5 text-ui-xs">
                             {authorList.map((a, i) => {
                               const isFirst = i === 0
                               const isCorresponding = a.starred || corresponding.has(a.name)
@@ -2943,12 +2943,12 @@ export default function ManagementPage() {
                                     {a.name}
                                   </span>
                                   {isFirst && (
-                                    <span className="px-0.5 py-px rounded bg-ink-100 text-ink-500 text-[0.625rem] leading-none shrink-0">
+                                    <span className="px-0.5 py-px rounded-control-sm bg-ink-100 text-ink-500 text-ui-2xs leading-none shrink-0">
                                       一作
                                     </span>
                                   )}
                                   {isCorresponding && (
-                                    <span className="px-0.5 py-px rounded bg-seal-50 text-seal-600 text-[0.625rem] leading-none shrink-0">
+                                    <span className="px-0.5 py-px rounded-control-sm bg-seal-50 text-seal-600 text-ui-2xs leading-none shrink-0">
                                       通讯
                                     </span>
                                   )}
@@ -2960,8 +2960,8 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 期刊（上）· 年份（下）：同一格内**纵向堆叠**，不横着摊开（横着摊 = 逼出左右滚动） */}
-                      <td className="border border-ink-200 px-3 py-2.5 align-top">
-                        <div className="flex flex-col gap-0.5 text-xs text-ink-400">
+                      <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
+                        <div className="flex flex-col gap-0.5 text-ui-xs text-ink-400">
                           {paper.journal && (
                             <span className="flex items-start gap-1 min-w-0">
                               <span className="min-w-0 break-words">{abbrev}</span>
@@ -2970,7 +2970,7 @@ export default function ManagementPage() {
                                   e.stopPropagation()
                                   void handleEditJournalAbbrev(paper.journal)
                                 }}
-                                className="p-0.5 text-ink-300 hover:text-seal-600 rounded transition shrink-0"
+                                className="p-0.5 text-ink-300 hover:text-seal-600 rounded-control-sm transition shrink-0"
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
@@ -2981,7 +2981,7 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 分类 */}
-                      <td className="border border-ink-200 px-3 py-2.5 align-top">
+                      <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
                         <div className="flex flex-wrap gap-1">
                           {paper.categoryIds.length > 0 ? (
                           paper.categoryIds.map((cid, i) => {
@@ -2994,7 +2994,7 @@ export default function ManagementPage() {
                                   e.stopPropagation()
                                   handleEditPaper(paper)
                                 }}
-                                className={`px-1.5 py-0.5 text-xs rounded whitespace-nowrap hover:opacity-80 transition ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
+                                className={`px-1.5 py-0.5 text-ui-xs rounded-control-sm whitespace-nowrap hover:opacity-80 transition ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
                                 title="修改所属分类"
                               >
                                 <Tag className="w-3 h-3 inline mr-0.5" />
@@ -3003,7 +3003,7 @@ export default function ManagementPage() {
                             )
                           })
                         ) : (
-                          <span className="text-xs text-ink-400">未分类</span>
+                          <span className="text-ui-xs text-ink-400">未分类</span>
                         )}
                         </div>
                       </td>
@@ -3013,7 +3013,7 @@ export default function ManagementPage() {
                         <div className="flex flex-wrap items-center gap-1">
                           <StatusBadge status={paper.mdStatus} />
                           {paper.hasPdf && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 bg-ink-100 text-ink-500 text-[0.625rem] font-medium rounded shrink-0">
+                            <span className="inline-flex items-center px-1.5 py-0.5 bg-ink-100 text-ink-500 text-ui-2xs font-medium rounded-control-sm shrink-0">
                               PDF
                             </span>
                           )}
@@ -3021,12 +3021,12 @@ export default function ManagementPage() {
                       </td>
 
                       {/* 操作 */}
-                      <td className="border border-ink-200 px-3 py-2.5 align-top">
+                      <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
                         <div className="flex flex-wrap items-center justify-end gap-1">
                           {/* Upload PDF 按钮：仅在未转换/转换失败时显示 */}
                           {paper.doi && (paper.mdStatus === 'none' || paper.mdStatus === 'failed') && (
                             <label
-                              className="p-1.5 rounded-md transition cursor-pointer text-seal-500 hover:text-seal-600 hover:bg-seal-50"
+                              className="p-1.5 rounded-control-sm transition cursor-pointer text-seal-500 hover:text-seal-600 hover:bg-seal-50"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Upload className="w-4 h-4" />
@@ -3050,7 +3050,7 @@ export default function ManagementPage() {
                               rel="noopener noreferrer"
                               title="打开原文（DOI 跳转）"
                               onClick={(e) => e.stopPropagation()}
-                              className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                              className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                             >
                               <ExternalLink className="w-4 h-4" />
                             </a>
@@ -3061,7 +3061,7 @@ export default function ManagementPage() {
                               e.stopPropagation()
                               handleOpenReading(paper)
                             }}
-                            className={`p-1.5 rounded-md transition ${
+                            className={`p-1.5 rounded-control-sm transition ${
                               paper.mdStatus === 'converting'
                                 ? 'text-ink-300 cursor-not-allowed'
                                 : 'text-ink-400 hover:text-seal-600 hover:bg-seal-50'
@@ -3075,7 +3075,7 @@ export default function ManagementPage() {
                               e.stopPropagation()
                               handleReconvertPaper(paper)
                             }}
-                            className={`p-1.5 rounded-md transition ${
+                            className={`p-1.5 rounded-control-sm transition ${
                               paper.mdStatus === 'converting' || !paper.doi
                                 ? 'text-ink-300 cursor-not-allowed'
                                 : 'text-ink-400 hover:text-amber-600 hover:bg-amber-50'
@@ -3088,7 +3088,7 @@ export default function ManagementPage() {
                               e.stopPropagation()
                               handleEditPaper(paper)
                             }}
-                            className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                            className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
@@ -3098,7 +3098,7 @@ export default function ManagementPage() {
                               e.stopPropagation()
                               handleDeletePaper(paper.id)
                             }}
-                            className={`p-1.5 rounded-md transition ${
+                            className={`p-1.5 rounded-control-sm transition ${
                               deletingIds.has(paper.id)
                                 ? 'text-red-500 bg-red-50 cursor-not-allowed'
                                 : 'text-ink-400 hover:text-red-600 hover:bg-red-50'
@@ -3128,14 +3128,14 @@ export default function ManagementPage() {
                 <div className="py-16 text-center">
                   <div className="text-ink-400 mb-3">
                     <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">暂无文献数据</p>
+                    <p className="text-ui-sm">暂无文献数据</p>
                   </div>
                   <button
                     onClick={() => {
                       setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
                       setShowAddPaperModal(true)
                     }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+                    className="inline-flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
                   >
                     <Plus className="w-4 h-4" />
                     添加第一篇文献
@@ -3144,15 +3144,15 @@ export default function ManagementPage() {
               )}
 
               {totalPages > 0 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-ink-100 bg-paper-100/50">
-                  <div className="text-sm text-ink-500">
+                <div className="flex items-center justify-between px-ui-gap py-3 border-t border-ink-100 bg-paper-100/50">
+                  <div className="text-ui-sm text-ink-500">
                     共 {filteredPapers.length} 条，第 {libraryPage} / {totalPages} 页
                   </div>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => setLibraryPage(Math.max(1, libraryPage - 1))}
                       disabled={libraryPage === 1}
-                      className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
@@ -3160,7 +3160,7 @@ export default function ManagementPage() {
                       <button
                         key={p}
                         onClick={() => setLibraryPage(p)}
-                        className={`w-8 h-8 text-sm rounded-md transition ${
+                        className={`w-8 h-8 text-ui-sm rounded-control-sm transition ${
                           libraryPage === p
                             ? 'bg-seal-600 text-paper-50'
                             : 'text-ink-500 hover:bg-ink-100 hover:text-ink-700'
@@ -3172,7 +3172,7 @@ export default function ManagementPage() {
                     <button
                       onClick={() => setLibraryPage(Math.min(totalPages, libraryPage + 1))}
                       disabled={libraryPage === totalPages}
-                      className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-md transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -3188,38 +3188,38 @@ export default function ManagementPage() {
       {activeTab === 'templates' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-ink-500">管理期刊投稿模板，支持 AI 提取格式规范，用于提示和规范提取格式</p>
+            <p className="text-ui-sm text-ink-500">管理期刊投稿模板，支持 AI 提取格式规范，用于提示和规范提取格式</p>
             <button
               onClick={() => {
                 setEditingTemplate(null)
                 setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
                 setShowTemplateModal(true)
               }}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition shadow-md shadow-seal-200"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
             >
               <Plus className="w-4 h-4" />
               新建模板
             </button>
           </div>
 
-          <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
+          <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
             {templates.map((tpl) => (
-              <div key={tpl.id} className="flex items-center gap-3 px-4 py-3 hover:bg-paper-100/70 transition">
-                <div className="w-10 h-10 shrink-0 flex items-center justify-center bg-seal-50 rounded-lg">
+              <div key={tpl.id} className="flex items-center gap-3 px-ui-gap py-3 hover:bg-paper-100/70 transition">
+                <div className="w-10 h-10 shrink-0 flex items-center justify-center bg-seal-50 rounded-control">
                   <BookOpen className="w-5 h-5 text-seal-600" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-ink-800 line-clamp-2">{tpl.name}</p>
+                    <p className="text-ui-sm font-medium text-ink-800 line-clamp-2">{tpl.name}</p>
                     {tpl.isDefault && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 text-xs font-medium rounded-full shrink-0">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 text-ui-xs font-medium rounded-full shrink-0">
                         <Star className="w-3 h-3 fill-current" />
                         默认
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-ink-500 truncate">{tpl.publisher} · ISSN: {tpl.issn || '-'}</p>
-                  <p className="text-xs text-ink-400 truncate">最后更新：{tpl.lastUpdated}</p>
+                  <p className="text-ui-xs text-ink-500 truncate">{tpl.publisher} · ISSN: {tpl.issn || '-'}</p>
+                  <p className="text-ui-xs text-ink-400 truncate">最后更新：{tpl.lastUpdated}</p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button
@@ -3228,27 +3228,27 @@ export default function ManagementPage() {
                       setNewTemplate({ name: tpl.name, issn: tpl.issn, publisher: tpl.publisher, guidelines: tpl.guidelinesContent, formatSummary: tpl.formatSummary })
                       setShowTemplateModal(true)
                     }}
-                    className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                    className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                   >
                     <Edit3 className="w-4 h-4" />
                   </button>
                   {!tpl.isDefault && (
                     <button
                       onClick={() => handleSetDefaultTemplate(tpl.id)}
-                      className="p-1.5 text-ink-400 hover:text-amber-500 hover:bg-amber-50 rounded-md transition"
+                      className="p-1.5 text-ink-400 hover:text-amber-500 hover:bg-amber-50 rounded-control-sm transition"
                     >
                       <Star className="w-4 h-4" />
                     </button>
                   )}
                   <button
                     onClick={() => handleDeleteTemplate(tpl.id)}
-                    className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                    className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleApplyTemplate(tpl.id)}
-                    className="ml-1 text-xs text-seal-600 hover:text-seal-700 font-medium flex items-center gap-1 shrink-0"
+                    className="ml-1 text-ui-xs text-seal-600 hover:text-seal-700 font-medium flex items-center gap-1 shrink-0"
                   >
                     应用到项目
                     <ExternalLink className="w-3 h-3" />
@@ -3258,11 +3258,11 @@ export default function ManagementPage() {
             ))}
           </div>
           {templates.length === 0 && (
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-12 text-center">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center">
               <div className="text-ink-400 mb-3">
                 <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">暂无期刊模板</p>
-                <p className="text-xs mt-1">创建期刊模板，用于规范投稿格式</p>
+                <p className="text-ui-sm">暂无期刊模板</p>
+                <p className="text-ui-xs mt-1">创建期刊模板，用于规范投稿格式</p>
               </div>
               <button
                 onClick={() => {
@@ -3270,7 +3270,7 @@ export default function ManagementPage() {
                   setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
                   setShowTemplateModal(true)
                 }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+                className="inline-flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
               >
                 <Plus className="w-4 h-4" />
                 创建第一个模板
@@ -3285,15 +3285,15 @@ export default function ManagementPage() {
         <div className="flex gap-4">
           {/* 左侧分类树 */}
           <div className="w-64 flex-shrink-0">
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-3">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-3">
               <div className="flex items-center justify-between mb-3 px-1">
-                <h3 className="text-sm font-semibold text-ink-700 flex items-center gap-1.5">
+                <h3 className="text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
                   <BookCopy className="w-4 h-4 text-seal-600" />
                   图书分类
                 </h3>
                 <button
                   onClick={handleAddBookCategory}
-                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -3305,14 +3305,14 @@ export default function ManagementPage() {
                   return (
                     <div
                       key={cat.id}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition group ${
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer transition group ${
                         isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
                       }`}
                       onClick={() => setActiveBookCategory(cat.id)}
                     >
                       <Folder className="w-3.5 h-3.5 text-ink-400" />
-                      <span className="text-sm flex-1 truncate">{cat.name}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
+                      <span className="text-ui-sm flex-1 truncate">{cat.name}</span>
+                      <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
                         {count}
                       </span>
                       {cat.id !== 'all' && (
@@ -3322,7 +3322,7 @@ export default function ManagementPage() {
                               e.stopPropagation()
                               handleEditBookCategory(cat.id, cat.name)
                             }}
-                            className="p-0.5 text-ink-400 hover:text-seal-600 rounded"
+                            className="p-0.5 text-ink-400 hover:text-seal-600 rounded-control-sm"
                           >
                             <Edit3 className="w-3 h-3" />
                           </button>
@@ -3333,7 +3333,7 @@ export default function ManagementPage() {
                                 handleDeleteBookCategory(cat.id)
                               }
                             }}
-                            className="p-0.5 text-ink-400 hover:text-red-600 rounded"
+                            className="p-0.5 text-ink-400 hover:text-red-600 rounded-control-sm"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -3350,7 +3350,7 @@ export default function ManagementPage() {
           <div className="flex-1 space-y-4 min-w-0">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-ink-500">
+                <p className="text-ui-sm text-ink-500">
                   图书库存储图书，PDF 上传后自动转换为 Markdown。超过200页按180页切分，多卷管理。
                 </p>
               </div>
@@ -3359,7 +3359,7 @@ export default function ManagementPage() {
                   setUploadBookCategories(activeBookCategory !== 'all' ? [activeBookCategory] : [])
                   setShowUploadBookModal(true)
                 }}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition shadow-md shadow-seal-200"
+                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
               >
                 <Upload className="w-4 h-4" />
                 上传图书
@@ -3367,25 +3367,25 @@ export default function ManagementPage() {
             </div>
 
             {filteredBooks.length > 0 ? (
-              <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
+              <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
                 {filteredBooks.map((book) => (
                   <div
                     key={book.id}
-                    className="flex items-center gap-4 px-4 py-3 hover:bg-paper-100/70 transition cursor-pointer"
+                    className="flex items-center gap-4 px-ui-gap py-3 hover:bg-paper-100/70 transition cursor-pointer"
                     onClick={() => openBookDetail(book)}
                   >
                     {/* 固定尺寸图标块（图书没有封面） */}
-                    <div className="w-12 h-14 shrink-0 flex items-center justify-center bg-ink-100 text-ink-300 rounded-lg">
+                    <div className="w-12 h-14 shrink-0 flex items-center justify-center bg-ink-100 text-ink-300 rounded-control">
                       <Book className="w-5 h-5" />
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium text-ink-800 line-clamp-2">{book.title}</p>
+                        <p className="text-ui-sm font-medium text-ink-800 line-clamp-2">{book.title}</p>
                         <BookStatusBadge status={book.status} />
                       </div>
-                      <p className="text-xs text-ink-500 truncate mt-0.5">{book.author}</p>
-                      <p className="text-xs text-ink-400 truncate">
+                      <p className="text-ui-xs text-ink-500 truncate mt-0.5">{book.author}</p>
+                      <p className="text-ui-xs text-ink-400 truncate">
                         {[book.publisher, book.year ? `${book.year} 年` : ''].filter(Boolean).join(' · ')}
                       </p>
                       {book.categoryIds.length > 0 && (
@@ -3393,7 +3393,7 @@ export default function ManagementPage() {
                           {book.categoryIds.slice(0, 2).map((cid) => {
                             const cat = bookCategories.find((c) => c.id === cid)
                             return cat ? (
-                              <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-xs rounded">
+                              <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-ui-xs rounded-control-sm">
                                 {cat.name}
                               </span>
                             ) : null
@@ -3408,7 +3408,7 @@ export default function ManagementPage() {
                               style={{ width: `${book.progress}%` }}
                             />
                           </div>
-                          <span className="text-xs text-ink-500 shrink-0">{book.progress}%</span>
+                          <span className="text-ui-xs text-ink-500 shrink-0">{book.progress}%</span>
                         </div>
                       )}
                     </div>
@@ -3416,21 +3416,21 @@ export default function ManagementPage() {
                     <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => handleOpenBookReading(book)}
-                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       {(book.status === 'converting' || book.status === 'uploading') && (
                         <button
                           onClick={() => openBookDetail(book)}
-                          className="p-1.5 text-ink-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                          className="p-1.5 text-ink-400 hover:text-blue-600 hover:bg-blue-50 rounded-control-sm transition"
                         >
                           <Loader2 className="w-4 h-4 animate-spin" />
                         </button>
                       )}
                       <button
                         onClick={() => handleDeleteBook(book.id)}
-                        className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                        className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -3439,18 +3439,18 @@ export default function ManagementPage() {
                 ))}
               </div>
             ) : (
-              <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-12 text-center">
+              <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center">
                 <div className="text-ink-400 mb-3">
                   <BookCopy className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">暂无图书数据</p>
-                  <p className="text-xs mt-1">上传 PDF 图书，自动转换为 Markdown</p>
+                  <p className="text-ui-sm">暂无图书数据</p>
+                  <p className="text-ui-xs mt-1">上传 PDF 图书，自动转换为 Markdown</p>
                 </div>
                 <button
                   onClick={() => {
                     setUploadBookCategories(activeBookCategory !== 'all' ? [activeBookCategory] : [])
                     setShowUploadBookModal(true)
                   }}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+                  className="inline-flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
                 >
                   <Upload className="w-4 h-4" />
                   上传第一本图书
@@ -3470,7 +3470,7 @@ export default function ManagementPage() {
                 <FileText className="w-4 h-4 text-seal-600" />
                 其他文档
               </h3>
-              <p className="text-sm text-ink-500 mt-0.5">
+              <p className="text-ui-sm text-ink-500 mt-0.5">
                 导入 markdown，直接阅读
               </p>
             </div>
@@ -3488,12 +3488,12 @@ export default function ManagementPage() {
                       runFullTextSearch(documentSearch)
                     }
                   }}
-                  className="pl-9 pr-4 py-2 text-sm border border-ink-200 rounded-lg w-[clamp(11rem,20vw,18rem)] focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50"
+                  className="pl-9 pr-4 py-2 text-ui-sm border border-ink-200 rounded-control w-[clamp(11rem,20vw,18rem)] focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50"
                 />
               </div>
               <button
                 onClick={() => setShowImportDocModal(true)}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition shadow-md shadow-seal-200"
+                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
               >
                 <Upload className="w-4 h-4" />
                 导入文档
@@ -3502,56 +3502,56 @@ export default function ManagementPage() {
           </div>
 
           {documentsLoading ? (
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-12 text-center text-ink-400 text-sm">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center text-ink-400 text-ui-sm">
               <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
               <p>加载中...</p>
             </div>
           ) : documents.length === 0 ? (
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-12 text-center">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center">
               <div className="text-ink-400 mb-3">
                 <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">还没有其他文档</p>
-                <p className="text-xs mt-1">支持 .md / 粘贴文本 / zip</p>
+                <p className="text-ui-sm">还没有其他文档</p>
+                <p className="text-ui-xs mt-1">支持 .md / 粘贴文本 / zip</p>
               </div>
               <button
                 onClick={() => setShowImportDocModal(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+                className="inline-flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
               >
                 <Upload className="w-4 h-4" />
                 导入第一个文档
               </button>
             </div>
           ) : filteredDocuments.length === 0 ? (
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-12 text-center text-ink-400 text-sm">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center text-ink-400 text-ui-sm">
               <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
               <p>没有找到匹配的文档</p>
             </div>
           ) : (
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
               {filteredDocuments.map((doc) => {
                 const catNames = documentCategories
                   .filter((c) => c.members.includes(doc.id))
                   .map((c) => c.name)
                 return (
-                  <div key={doc.id} className="flex items-center gap-3 px-4 py-3 hover:bg-paper-100 transition">
-                    <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center bg-seal-50 text-seal-600 rounded-lg">
+                  <div key={doc.id} className="flex items-center gap-3 px-ui-gap py-3 hover:bg-paper-100 transition">
+                    <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center bg-seal-50 text-seal-600 rounded-control">
                       <FileText className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-ink-800 truncate">{doc.title}</p>
+                        <p className="text-ui-sm font-medium text-ink-800 truncate">{doc.title}</p>
                         {doc.hasContent ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[0.625rem] font-medium shrink-0">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded-control-sm text-ui-2xs font-medium shrink-0">
                             <CheckCircle2 className="w-3 h-3" />
                             已导入
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded text-[0.625rem] shrink-0">
+                          <span className="inline-flex items-center px-1.5 py-0.5 bg-ink-100 text-ink-500 rounded-control-sm text-ui-2xs shrink-0">
                             无正文
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-ink-500">
+                      <div className="flex items-center gap-3 mt-1 text-ui-xs text-ink-500">
                         <span className="truncate">{doc.author || '未知作者'}</span>
                         {catNames.length > 0 && (
                           <span className="flex items-center gap-1 truncate">
@@ -3564,19 +3564,19 @@ export default function ManagementPage() {
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => handleOpenDocumentReading(doc)}
-                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                       >
                         <BookOpen className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleEditDocument(doc)}
-                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                        className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteDocument(doc)}
-                        className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                        className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -3593,13 +3593,13 @@ export default function ManagementPage() {
       {activeTab === 'import-export' && (
         <div className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-ink-100 bg-paper-100/50">
                 <h3 className="font-semibold text-ink-800 flex items-center gap-2">
                   <Upload className="w-5 h-5 text-seal-600" />
                   导入文献
                 </h3>
-                <p className="text-xs text-ink-500 mt-0.5">从外部文件导入文献到文献库</p>
+                <p className="text-ui-xs text-ink-500 mt-0.5">从外部文件导入文献到文献库</p>
               </div>
               <div className="p-5 space-y-3">
                 {[
@@ -3612,30 +3612,30 @@ export default function ManagementPage() {
                   return (
                     <label
                       key={item.name}
-                      className="flex items-center gap-3 p-3 border border-ink-200 rounded-lg hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer transition"
+                      className="flex items-center gap-3 p-3 border border-ink-200 rounded-control hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer transition"
                     >
-                      <div className="p-2 bg-ink-100 rounded-lg">
+                      <div className="p-2 bg-ink-100 rounded-control">
                         <Icon className="w-5 h-5 text-ink-500" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-ink-700">{item.name}</div>
-                        <div className="text-xs text-ink-500">{item.desc}</div>
+                        <div className="text-ui-sm font-medium text-ink-700">{item.name}</div>
+                        <div className="text-ui-xs text-ink-500">{item.desc}</div>
                       </div>
                       <input type="file" accept={item.ext} className="hidden" />
-                      <span className="text-xs text-seal-600 font-medium shrink-0">选择文件</span>
+                      <span className="text-ui-xs text-seal-600 font-medium shrink-0">选择文件</span>
                     </label>
                   )
                 })}
               </div>
             </div>
 
-            <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-ink-100 bg-paper-100/50">
                 <h3 className="font-semibold text-ink-800 flex items-center gap-2">
                   <Download className="w-5 h-5 text-seal-600" />
                   导出文献
                 </h3>
-                <p className="text-xs text-ink-500 mt-0.5">将文献库导出为各种格式</p>
+                <p className="text-ui-xs text-ink-500 mt-0.5">将文献库导出为各种格式</p>
               </div>
               <div className="p-5 space-y-3">
                 {[
@@ -3647,14 +3647,14 @@ export default function ManagementPage() {
                   return (
                     <button
                       key={item.name}
-                      className="w-full flex items-center gap-3 p-3 border border-ink-200 rounded-lg hover:border-seal-200 hover:bg-seal-50/30 transition text-left"
+                      className="w-full flex items-center gap-3 p-3 border border-ink-200 rounded-control hover:border-seal-200 hover:bg-seal-50/30 transition text-left"
                     >
-                      <div className="p-2 bg-ink-100 rounded-lg">
+                      <div className="p-2 bg-ink-100 rounded-control">
                         <Icon className="w-5 h-5 text-ink-500" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-ink-700">{item.name}</div>
-                        <div className="text-xs text-ink-500">{item.desc}</div>
+                        <div className="text-ui-sm font-medium text-ink-700">{item.name}</div>
+                        <div className="text-ui-xs text-ink-500">{item.desc}</div>
                       </div>
                       <Download className="w-4 h-4 text-seal-500 shrink-0" />
                     </button>
@@ -3664,26 +3664,26 @@ export default function ManagementPage() {
             </div>
           </div>
 
-          <div className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm overflow-hidden">
+          <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-ink-100 bg-paper-100/50">
               <h3 className="font-semibold text-ink-800 flex items-center gap-2">
                 <Github className="w-5 h-5 text-seal-600" />
                 GitHub 同步
               </h3>
-              <p className="text-xs text-ink-500 mt-0.5">与 GitHub 私有仓库同步文献和知识库数据</p>
+              <p className="text-ui-xs text-ink-500 mt-0.5">与 GitHub 私有仓库同步文献和知识库数据</p>
             </div>
             <div className="p-5">
-              <div className="flex items-center gap-4 p-4 bg-seal-50/50 border border-seal-100 rounded-xl">
-                <div className="p-3 bg-seal-100 rounded-xl">
+              <div className="flex items-center gap-4 p-4 bg-seal-50/50 border border-seal-100 rounded-card">
+                <div className="p-3 bg-seal-100 rounded-card">
                   <Github className="w-6 h-6 text-seal-600" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-ink-700">GitHub 私有仓库同步</div>
-                  <div className="text-xs text-ink-500 mt-0.5">
+                  <div className="text-ui-sm font-medium text-ink-700">GitHub 私有仓库同步</div>
+                  <div className="text-ui-xs text-ink-500 mt-0.5">
                     将文献库 Markdown 和知识库图书同步到 GitHub 私有仓库，实现版本管理和备份
                   </div>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition shadow-md shadow-seal-200">
+                <button className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200">
                   <RefreshCw className="w-4 h-4" />
                   立即同步
                 </button>
@@ -3698,8 +3698,8 @@ export default function ManagementPage() {
         <Modal title="手动添加文献" onClose={() => setShowAddPaperModal(false)}>
           <div className="space-y-4">
             {/* Crossref DOI 自动填充工具条 */}
-            <div className="p-3 bg-seal-50 border border-seal-200 rounded-lg space-y-2">
-              <p className="text-xs font-semibold text-seal-700 flex items-center gap-1.5">
+            <div className="p-3 bg-seal-50 border border-seal-200 rounded-control space-y-2">
+              <p className="text-ui-xs font-semibold text-seal-700 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" />
                 从 DOI 自动填充（Crossref）
               </p>
@@ -3710,12 +3710,12 @@ export default function ManagementPage() {
                   onChange={(e) => { setNewPaper({ ...newPaper, doi: e.target.value }); setDoiFetchError(null) }}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !doiFetching) handleFetchFromDoi(newPaper.doi) }}
                   placeholder="粘贴 DOI，例如 10.1038/s41586-024-07500-3 或 https://doi.org/..."
-                  className="flex-1 px-3 py-2 border border-seal-300 rounded-lg text-sm focus:outline-none focus:border-seal-500 focus:ring-2 focus:ring-seal-100 bg-paper-50"
+                  className="flex-1 px-ui-gap py-2 border border-seal-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-500 focus:ring-2 focus:ring-seal-100 bg-paper-50"
                 />
                 <button
                   onClick={() => handleFetchFromDoi(newPaper.doi)}
                   disabled={doiFetching || !newPaper.doi.trim()}
-                  className="px-4 py-2 text-sm font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:bg-ink-400 disabled:cursor-not-allowed rounded-lg transition flex items-center gap-1.5 whitespace-nowrap"
+                  className="px-ui-gap py-2 text-ui-sm font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:bg-ink-400 disabled:cursor-not-allowed rounded-control transition flex items-center gap-1.5 whitespace-nowrap"
                 >
                   {doiFetching ? (
                     <>
@@ -3731,99 +3731,99 @@ export default function ManagementPage() {
                 </button>
               </div>
               {doiFetchError && (
-                <p className="text-xs text-red-600">{doiFetchError}</p>
+                <p className="text-ui-xs text-red-600">{doiFetchError}</p>
               )}
-              <p className="text-[11px] text-seal-500/70">
+              <p className="text-ui-xs text-seal-500/70">
                 DOI 填充后可手动调整标题/作者/期刊/关键词等字段
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">标题 *</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标题 *</label>
               <input
                 type="text"
                 value={newPaper.title}
                 onChange={(e) => setNewPaper({ ...newPaper, title: e.target.value })}
                 placeholder="请输入文献标题"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">作者</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">作者</label>
               <input
                 type="text"
                 value={newPaper.authors}
                 onChange={(e) => setNewPaper({ ...newPaper, authors: e.target.value })}
                 placeholder="多个作者用逗号分隔"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">年份</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">年份</label>
                 <input
                   type="text"
                   value={newPaper.year}
                   onChange={(e) => setNewPaper({ ...newPaper, year: e.target.value })}
                   placeholder="2024"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">期刊</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">期刊</label>
                 <input
                   type="text"
                   value={newPaper.journal}
                   onChange={(e) => setNewPaper({ ...newPaper, journal: e.target.value })}
                   placeholder="期刊名称"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">DOI</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">DOI</label>
               <input
                 type="text"
                 value={newPaper.doi}
                 onChange={(e) => setNewPaper({ ...newPaper, doi: e.target.value })}
                 placeholder="10.1000/sample.00000001"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">关键词</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">关键词</label>
               <input
                 type="text"
                 value={newPaper.keywords}
                 onChange={(e) => setNewPaper({ ...newPaper, keywords: e.target.value })}
                 placeholder="多个关键词用逗号分隔"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">英文摘要</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">英文摘要</label>
                 <textarea
                   value={newPaper.abstractEn}
                   onChange={(e) => setNewPaper({ ...newPaper, abstractEn: e.target.value })}
                   rows={3}
                   placeholder="摘要翻译练习（英译中）的题面。DOI 自动填充会带回来"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">中文摘要</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">中文摘要</label>
                 <textarea
                   value={newPaper.abstractCn}
                   onChange={(e) => setNewPaper({ ...newPaper, abstractCn: e.target.value })}
                   rows={3}
                   placeholder="英译中的参考答案 / 中译英的题面。只靠 DOI 元数据通常只有英文摘要，可在此补齐"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">文献等级</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">文献等级</label>
               <div className="flex items-center gap-3">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -3834,9 +3834,9 @@ export default function ManagementPage() {
                     onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as 'auto' | '1' | '2' })}
                     className="w-4 h-4 text-seal-600 focus:ring-seal-500"
                   />
-                  <span className="text-sm text-ink-700">
+                  <span className="text-ui-sm text-ink-700">
                     ✨ 自动
-                    <span className="text-xs text-ink-400 ml-1">（按标题/期刊推断，综述类为二级）</span>
+                    <span className="text-ui-xs text-ink-400 ml-1">（按标题/期刊推断，综述类为二级）</span>
                   </span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -3848,7 +3848,7 @@ export default function ManagementPage() {
                     onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as 'auto' | '1' | '2' })}
                     className="w-4 h-4 text-seal-600 focus:ring-seal-500"
                   />
-                  <span className="text-sm text-ink-700">📄 一级</span>
+                  <span className="text-ui-sm text-ink-700">📄 一级</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -3859,19 +3859,19 @@ export default function ManagementPage() {
                     onChange={(e) => setNewPaper({ ...newPaper, tier: e.target.value as 'auto' | '1' | '2' })}
                     className="w-4 h-4 text-seal-600 focus:ring-seal-500"
                   />
-                  <span className="text-sm text-ink-700">📖 二级</span>
+                  <span className="text-ui-sm text-ink-700">📖 二级</span>
                 </label>
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">所属分类（可多选）</label>
-              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-lg bg-paper-100/50">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">所属分类（可多选）</label>
+              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
                 {getAllLeafCategories.map((cat) => {
                   const checked = newPaper.categoryIds.includes(cat.id)
                   return (
                     <label
                       key={cat.id}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
                         checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
                       }`}
                     >
@@ -3885,7 +3885,7 @@ export default function ManagementPage() {
                             setNewPaper({ ...newPaper, categoryIds: newPaper.categoryIds.filter((id) => id !== cat.id) })
                           }
                         }}
-                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded"
+                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
                       />
                       {cat.name}
                     </label>
@@ -3894,11 +3894,11 @@ export default function ManagementPage() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">上传 PDF（自动转MD）</label>
-              <div className="border-2 border-dashed border-ink-200 rounded-lg p-6 text-center hover:border-seal-300 transition cursor-pointer">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">上传 PDF（自动转MD）</label>
+              <div className="border-2 border-dashed border-ink-200 rounded-control p-6 text-center hover:border-seal-300 transition cursor-pointer">
                 <Upload className="w-8 h-8 mx-auto mb-2 text-ink-300" />
-                <p className="text-sm text-ink-500">点击或拖拽 PDF 到此处</p>
-                <p className="text-xs text-ink-400 mt-1">PDF 上传后自动转换为 Markdown</p>
+                <p className="text-ui-sm text-ink-500">点击或拖拽 PDF 到此处</p>
+                <p className="text-ui-xs text-ink-400 mt-1">PDF 上传后自动转换为 Markdown</p>
                 <input type="file" accept=".pdf" className="hidden" />
               </div>
             </div>
@@ -3906,13 +3906,13 @@ export default function ManagementPage() {
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => setShowAddPaperModal(false)}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={handleAddPaper}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
             >
               <Plus className="w-4 h-4" />
               添加
@@ -3927,8 +3927,8 @@ export default function ManagementPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">题图</label>
-                <div className="aspect-square rounded-lg overflow-hidden bg-ink-100 border border-ink-200 flex items-center justify-center">
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">题图</label>
+                <div className="aspect-square rounded-control overflow-hidden bg-ink-100 border border-ink-200 flex items-center justify-center">
                   {editingPaper.coverImage ? (
                     <img src={editingPaper.coverImage} alt="" className="w-full h-full object-cover" />
                   ) : (
@@ -3936,7 +3936,7 @@ export default function ManagementPage() {
                   )}
                 </div>
                 <div className="mt-2 space-y-1">
-                  <label className="flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-ink-600 bg-paper-100 border border-ink-200 hover:bg-ink-100 rounded-md cursor-pointer transition">
+                  <label className="flex items-center justify-center gap-1 px-2 py-1.5 text-ui-xs text-ink-600 bg-paper-100 border border-ink-200 hover:bg-ink-100 rounded-control-sm cursor-pointer transition">
                     <Upload className="w-3.5 h-3.5" />
                     上传图片
                     <input type="file" accept="image/*" className="hidden" />
@@ -3948,7 +3948,7 @@ export default function ManagementPage() {
                         setEditingPaper({ ...editingPaper, coverImage: url })
                       }
                     }}
-                    className="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-ink-600 bg-paper-100 border border-ink-200 hover:bg-ink-100 rounded-md transition"
+                    className="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-ui-xs text-ink-600 bg-paper-100 border border-ink-200 hover:bg-ink-100 rounded-control-sm transition"
                   >
                     <LinkIcon className="w-3.5 h-3.5" />
                     从URL添加
@@ -3957,51 +3957,51 @@ export default function ManagementPage() {
               </div>
               <div className="col-span-2 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-ink-700 mb-1.5">标题 *</label>
+                  <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标题 *</label>
                   <input
                     type="text"
                     value={editingPaper.title}
                     onChange={(e) => setEditingPaper({ ...editingPaper, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                    className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-ink-700 mb-1.5">作者</label>
+                  <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">作者</label>
                   <input
                     type="text"
                     value={editingPaper.authors}
                     onChange={(e) => setEditingPaper({ ...editingPaper, authors: e.target.value })}
                     placeholder="多个作者用逗号分隔"
-                    className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                    className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-ink-700 mb-1.5">通讯作者</label>
+                  <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">通讯作者</label>
                   <input
                     type="text"
                     value={editingPaper.correspondingAuthor}
                     onChange={(e) => setEditingPaper({ ...editingPaper, correspondingAuthor: e.target.value })}
                     placeholder="PDF 转换后自动从全文抽取；也可在这里手改"
-                    className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                    className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-ink-700 mb-1.5">年份</label>
+                    <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">年份</label>
                     <input
                       type="text"
                       value={editingPaper.year}
                       onChange={(e) => setEditingPaper({ ...editingPaper, year: e.target.value })}
-                      className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                      className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-ink-700 mb-1.5">期刊</label>
+                    <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">期刊</label>
                     <input
                       type="text"
                       value={editingPaper.journal}
                       onChange={(e) => setEditingPaper({ ...editingPaper, journal: e.target.value })}
-                      className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                      className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                     />
                   </div>
                 </div>
@@ -4009,58 +4009,58 @@ export default function ManagementPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">关键词</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">关键词</label>
               <input
                 type="text"
                 value={editingPaper.keywords.join(', ')}
                 onChange={(e) => setEditingPaper({ ...editingPaper, keywords: e.target.value.split(',').map((k) => k.trim()).filter(Boolean) })}
                 placeholder="多个关键词用逗号分隔"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">英文摘要</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">英文摘要</label>
                 <textarea
                   value={editingPaper.abstractEn}
                   onChange={(e) => setEditingPaper({ ...editingPaper, abstractEn: e.target.value })}
                   rows={4}
                   placeholder="摘要翻译练习（英译中）的题面"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">中文摘要</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">中文摘要</label>
                 <textarea
                   value={editingPaper.abstractCn}
                   onChange={(e) => setEditingPaper({ ...editingPaper, abstractCn: e.target.value })}
                   rows={4}
                   placeholder="英译中的参考答案 / 中译英的题面"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">DOI</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">DOI</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={editingPaper.doi}
                   onChange={(e) => setEditingPaper({ ...editingPaper, doi: e.target.value })}
-                  className="flex-1 px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  className="flex-1 px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
                 <DoiLink
                   doi={editingPaper.doi}
                   showIcon
-                  className="flex items-center gap-1 px-3 py-2 text-sm bg-seal-50 hover:bg-seal-100 rounded-lg transition"
+                  className="flex items-center gap-1 px-ui-gap py-2 text-ui-sm bg-seal-50 hover:bg-seal-100 rounded-control transition"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">文献等级</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">文献等级</label>
               <div className="flex items-center gap-3">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -4071,7 +4071,7 @@ export default function ManagementPage() {
                     onChange={() => setEditingPaper({ ...editingPaper, tier: 1 })}
                     className="w-4 h-4 text-seal-600 focus:ring-seal-500"
                   />
-                  <span className="text-sm text-ink-700">📄 一级文献（原创研究）</span>
+                  <span className="text-ui-sm text-ink-700">📄 一级文献（原创研究）</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -4082,7 +4082,7 @@ export default function ManagementPage() {
                     onChange={() => setEditingPaper({ ...editingPaper, tier: 2 })}
                     className="w-4 h-4 text-seal-600 focus:ring-seal-500"
                   />
-                  <span className="text-sm text-ink-700">📖 二级文献（综述/评述）</span>
+                  <span className="text-ui-sm text-ink-700">📖 二级文献（综述/评述）</span>
                 </label>
                 <button
                   type="button"
@@ -4091,7 +4091,7 @@ export default function ManagementPage() {
                     // 按当前标题/期刊重新自动推断
                     tier: inferPaperTier(editingPaper.title, editingPaper.journal),
                   })}
-                  className="text-xs px-2 py-1 bg-seal-50 text-seal-600 rounded-md hover:bg-seal-100 transition"
+                  className="text-ui-xs px-2 py-1 bg-seal-50 text-seal-600 rounded-control-sm hover:bg-seal-100 transition"
                 >
                   ✨ 按标题重新推断
                 </button>
@@ -4099,14 +4099,14 @@ export default function ManagementPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">所属分类（可多选，可同时属于多个分类）</label>
-              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-lg bg-paper-100/50 max-h-32 overflow-y-auto">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">所属分类（可多选，可同时属于多个分类）</label>
+              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50 max-h-32 overflow-y-auto">
                 {getAllLeafCategories.map((cat) => {
                   const checked = editingPaper.categoryIds.includes(cat.id)
                   return (
                     <label
                       key={cat.id}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
                         checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
                       }`}
                     >
@@ -4120,7 +4120,7 @@ export default function ManagementPage() {
                             setEditingPaper({ ...editingPaper, categoryIds: editingPaper.categoryIds.filter((id) => id !== cat.id) })
                           }
                         }}
-                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded"
+                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
                       />
                       {cat.name}
                     </label>
@@ -4131,15 +4131,15 @@ export default function ManagementPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">Markdown 转换</label>
-                <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50">
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">Markdown 转换</label>
+                <div className="p-3 border border-ink-200 rounded-control bg-paper-100/50">
                   <div className="flex items-center justify-between mb-2">
                     <StatusBadge status={editingPaper.mdStatus} />
                     {editingPaper.mdStatus === 'done' && (
-                      <button className="text-xs text-seal-600 hover:underline">查看</button>
+                      <button className="text-ui-xs text-seal-600 hover:underline">查看</button>
                     )}
                     {editingPaper.mdStatus === 'converting' && (
-                      <span className="text-[10px] text-ink-400">
+                      <span className="text-ui-2xs text-ink-400">
                         {(() => {
                           const t = taskQueue.tasks.find(
                             (x) => x.doi === editingPaper.doi && x.type === 'paper_convert',
@@ -4157,21 +4157,21 @@ export default function ManagementPage() {
                           style={{ width: `${Math.min(100, editingPaper.mdProgress)}%` }}
                         />
                       </div>
-                      <span className="text-xs text-ink-500 font-mono tabular-nums">
+                      <span className="text-ui-xs text-ink-500 font-mono tabular-nums">
                         {Math.round(editingPaper.mdProgress)}%
                       </span>
                     </div>
                   )}
                   {editingPaper.mdStatus === 'done' && (
-                    <div className="text-[11px] text-green-600 italic">✓ 全流程完成</div>
+                    <div className="text-ui-xs text-green-600 italic">✓ 全流程完成</div>
                   )}
                   {editingPaper.mdStatus === 'failed' && (
-                    <div className="text-[11px] text-red-500 italic">
+                    <div className="text-ui-xs text-red-500 italic">
                       转换失败，可重新上传
                     </div>
                   )}
                   {(editingPaper.mdStatus === 'none' || editingPaper.mdStatus === 'failed') && (
-                    <label className="flex items-center justify-center gap-1 mt-2 px-3 py-1.5 text-xs text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-md cursor-pointer transition">
+                    <label className="flex items-center justify-center gap-1 mt-2 px-ui-gap py-1.5 text-ui-xs text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control-sm cursor-pointer transition">
                       <Upload className="w-3.5 h-3.5" />
                       上传PDF转MD
                       <input
@@ -4192,8 +4192,8 @@ export default function ManagementPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">笔记</label>
-                <div className="p-3 border border-ink-200 rounded-lg bg-paper-100/50">
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">笔记</label>
+                <div className="p-3 border border-ink-200 rounded-control bg-paper-100/50">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -4204,7 +4204,7 @@ export default function ManagementPage() {
                               : 'text-ink-300'
                           }`}
                         />
-                        <span className="text-sm text-ink-700">
+                        <span className="text-ui-sm text-ink-700">
                           {paperNoteInfo.loading
                             ? '读取中…'
                             : paperNoteInfo.notes.length > 0 || paperNoteInfo.annotations > 0
@@ -4217,7 +4217,7 @@ export default function ManagementPage() {
                           {paperNoteInfo.notes.map((n) => (
                             <span
                               key={n}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-600 text-xs rounded"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-ink-100 text-ink-600 text-ui-xs rounded-control-sm"
                             >
                               <FileText className="w-3 h-3" />
                               {n}
@@ -4225,7 +4225,7 @@ export default function ManagementPage() {
                           ))}
                         </div>
                       )}
-                      <p className="text-xs text-ink-400 mt-1.5">
+                      <p className="text-ui-xs text-ink-400 mt-1.5">
                         笔记在阅读页维护：一篇文献可以写多篇命名笔记，也可上传 md / docx / zip 的总结文稿。
                       </p>
                     </div>
@@ -4234,7 +4234,7 @@ export default function ManagementPage() {
                         setShowEditPaperModal(false)
                         handleOpenReading(editingPaper)
                       }}
-                      className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 text-xs bg-seal-600 text-paper-50 rounded hover:bg-seal-700 transition"
+                      className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 text-ui-xs bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition"
                     >
                       <StickyNote className="w-3.5 h-3.5" />
                       打开笔记
@@ -4254,13 +4254,13 @@ export default function ManagementPage() {
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => { setShowEditPaperModal(false); setEditingPaper(null); setPaperWords(null); setPaperWordsDirty(false) }}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={handleSavePaper}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
             >
               <CheckCircle2 className="w-4 h-4" />
               保存
@@ -4273,16 +4273,16 @@ export default function ManagementPage() {
       {showBatchMoveModal && (
         <Modal title="批量移动分类" onClose={() => { setShowBatchMoveModal(false); setBatchMoveTargetIds([]) }}>
           <div className="space-y-4">
-            <p className="text-sm text-ink-600">
+            <p className="text-ui-sm text-ink-600">
               已选中 <span className="font-semibold text-seal-600">{selectedPapers.size}</span> 篇文献，选择目标分类（可多选，将添加到现有分类中）：
             </p>
-            <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-lg bg-paper-100/50 max-h-48 overflow-y-auto">
+            <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50 max-h-48 overflow-y-auto">
               {getAllLeafCategories.map((cat) => {
                 const checked = batchMoveTargetIds.includes(cat.id)
                 return (
                   <label
                     key={cat.id}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
                       checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
                     }`}
                   >
@@ -4296,7 +4296,7 @@ export default function ManagementPage() {
                           setBatchMoveTargetIds(batchMoveTargetIds.filter((id) => id !== cat.id))
                         }
                       }}
-                      className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded"
+                      className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
                     />
                     {cat.name}
                   </label>
@@ -4307,14 +4307,14 @@ export default function ManagementPage() {
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => { setShowBatchMoveModal(false); setBatchMoveTargetIds([]) }}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={handleBatchMove}
               disabled={batchMoveTargetIds.length === 0}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <MoveRight className="w-4 h-4" />
               确认移动
@@ -4328,27 +4328,27 @@ export default function ManagementPage() {
         <Modal title={editingCategory.id ? '编辑分类' : '添加分类'} onClose={() => { setShowCategoryModal(false); setEditingCategory(null) }}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">分类名称 *</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">分类名称 *</label>
               <input
                 type="text"
                 value={editingCategory.name}
                 onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
                 placeholder="请输入分类名称"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => { setShowCategoryModal(false); setEditingCategory(null) }}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={handleSaveCategory}
               disabled={!editingCategory.name.trim()}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="w-4 h-4" />
               保存
@@ -4362,27 +4362,27 @@ export default function ManagementPage() {
         <Modal title={editingBookCategory.id ? '编辑分类' : '添加分类'} onClose={() => { setShowBookCategoryModal(false); setEditingBookCategory(null) }}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">分类名称 *</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">分类名称 *</label>
               <input
                 type="text"
                 value={editingBookCategory.name}
                 onChange={(e) => setEditingBookCategory({ ...editingBookCategory, name: e.target.value })}
                 placeholder="请输入分类名称"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => { setShowBookCategoryModal(false); setEditingBookCategory(null) }}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={handleSaveBookCategory}
               disabled={!editingBookCategory.name.trim()}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="w-4 h-4" />
               保存
@@ -4397,41 +4397,41 @@ export default function ManagementPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">期刊名 *</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">期刊名 *</label>
                 <input
                   type="text"
                   value={newTemplate.name}
                   onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
                   placeholder="如：Sample Journal"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">ISSN</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">ISSN</label>
                 <input
                   type="text"
                   value={newTemplate.issn}
                   onChange={(e) => setNewTemplate({ ...newTemplate, issn: e.target.value })}
                   placeholder="如：2058-7546"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">出版社</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">出版社</label>
               <input
                 type="text"
                 value={newTemplate.publisher}
                 onChange={(e) => setNewTemplate({ ...newTemplate, publisher: e.target.value })}
                 placeholder="如：示例出版社"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">投稿须知原文（AI 提取的依据）</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">投稿须知原文（AI 提取的依据）</label>
               <div className="space-y-2">
                 <div className="flex gap-2">
-                  <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-ink-600 bg-paper-100 border border-ink-200 hover:bg-ink-100 rounded-lg cursor-pointer transition">
+                  <label className="flex-1 flex items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-ink-600 bg-paper-100 border border-ink-200 hover:bg-ink-100 rounded-control cursor-pointer transition">
                     <FileText className="w-4 h-4" />
                     上传投稿须知文件（.txt/.md）
                     <input
@@ -4456,7 +4456,7 @@ export default function ManagementPage() {
                   <button
                     onClick={handleExtractFormat}
                     disabled={isExtracting}
-                    className="flex items-center gap-2 px-3 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition disabled:opacity-60"
+                    className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-60"
                   >
                     <Sparkles className={`w-4 h-4 ${isExtracting ? 'animate-spin' : ''}`} />
                     {isExtracting ? '提取中...' : 'AI提取'}
@@ -4467,12 +4467,12 @@ export default function ManagementPage() {
                   onChange={(e) => setNewTemplate({ ...newTemplate, guidelines: e.target.value })}
                   placeholder="直接粘贴投稿须知原文（或上传文件）—— 这是 AI 提取格式规范的唯一依据，请保持与原文一致..."
                   rows={5}
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-none"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 格式规范摘要（可编辑，点「AI提取」生成草稿后请人工确认）
               </label>
               <textarea
@@ -4480,21 +4480,21 @@ export default function ManagementPage() {
                 onChange={(e) => setNewTemplate({ ...newTemplate, formatSummary: e.target.value })}
                 placeholder="点上方「AI提取」生成草稿；这里的内容可在保存前直接修改。它只依据上面的投稿须知原文，不引入外部知识。"
                 rows={5}
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
               />
-              <p className="text-xs text-ink-400 mt-1">保存后写入模板的 meta.md（notes），用于排版时提示写作 AI 统一格式。</p>
+              <p className="text-ui-xs text-ink-400 mt-1">保存后写入模板的 meta.md（notes），用于排版时提示写作 AI 统一格式。</p>
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => { setShowTemplateModal(false); setEditingTemplate(null) }}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={editingTemplate ? handleSaveTemplate : handleAddTemplate}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
             >
               <Plus className="w-4 h-4" />
               {editingTemplate ? '保存修改' : '创建模板'}
@@ -4518,17 +4518,17 @@ export default function ManagementPage() {
                 setIsDragOverBook(false)
                 handleBookUpload(e.dataTransfer.files)
               }}
-              className={`border-2 border-dashed rounded-xl p-8 text-center transition ${
+              className={`border-2 border-dashed rounded-card p-8 text-center transition ${
                 isDragOverBook
                   ? 'border-seal-400 bg-seal-50/50'
                   : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30'
               }`}
             >
               <Upload className="w-10 h-10 mx-auto mb-3 text-ink-400" />
-              <p className="text-sm text-ink-600 font-medium">拖拽或点击上传 PDF 图书</p>
-              <p className="text-xs text-ink-400 mt-1">支持多文件上传，自动转换为 Markdown</p>
-              <p className="text-xs text-seal-500 mt-1">超过200页自动按180页切分</p>
-              <label className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition cursor-pointer">
+              <p className="text-ui-sm text-ink-600 font-medium">拖拽或点击上传 PDF 图书</p>
+              <p className="text-ui-xs text-ink-400 mt-1">支持多文件上传，自动转换为 Markdown</p>
+              <p className="text-ui-xs text-seal-500 mt-1">超过200页自动按180页切分</p>
+              <label className="inline-flex items-center gap-2 mt-4 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition cursor-pointer">
                 <Upload className="w-4 h-4" />
                 选择文件
                 <input
@@ -4541,14 +4541,14 @@ export default function ManagementPage() {
               </label>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">选择分类（可多选）</label>
-              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-lg bg-paper-100/50">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">选择分类（可多选）</label>
+              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
                 {bookCategories.filter((c) => c.id !== 'all').map((cat) => {
                   const checked = uploadBookCategories.includes(cat.id)
                   return (
                     <label
                       key={cat.id}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
                         checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
                       }`}
                     >
@@ -4562,7 +4562,7 @@ export default function ManagementPage() {
                             setUploadBookCategories(uploadBookCategories.filter((id) => id !== cat.id))
                           }
                         }}
-                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded"
+                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
                       />
                       {cat.name}
                     </label>
@@ -4574,7 +4574,7 @@ export default function ManagementPage() {
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => { setShowUploadBookModal(false); setUploadBookCategories([]) }}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
@@ -4591,7 +4591,7 @@ export default function ManagementPage() {
         >
           <div className="space-y-4">
             <div className="flex gap-4">
-              <div className="w-24 h-32 flex-shrink-0 rounded-lg overflow-hidden bg-ink-100">
+              <div className="w-24 h-32 flex-shrink-0 rounded-control overflow-hidden bg-ink-100">
                 {showBookDetail.coverImage ? (
                   <img src={showBookDetail.coverImage} alt="" className="w-full h-full object-cover" />
                 ) : (
@@ -4601,10 +4601,10 @@ export default function ManagementPage() {
                 )}
               </div>
               <div className="flex-1 space-y-1.5">
-                <p className="text-sm text-ink-600"><span className="text-ink-400">作者：</span>{showBookDetail.author}</p>
-                <p className="text-sm text-ink-600"><span className="text-ink-400">出版社：</span>{showBookDetail.publisher}</p>
-                <p className="text-sm text-ink-600"><span className="text-ink-400">年份：</span>{showBookDetail.year || '—'}</p>
-                <p className="text-sm text-ink-600"><span className="text-ink-400">状态：</span>
+                <p className="text-ui-sm text-ink-600"><span className="text-ink-400">作者：</span>{showBookDetail.author}</p>
+                <p className="text-ui-sm text-ink-600"><span className="text-ink-400">出版社：</span>{showBookDetail.publisher}</p>
+                <p className="text-ui-sm text-ink-600"><span className="text-ink-400">年份：</span>{showBookDetail.year || '—'}</p>
+                <p className="text-ui-sm text-ink-600"><span className="text-ink-400">状态：</span>
                   <BookStatusBadge status={showBookDetail.status} />
                 </p>
               </div>
@@ -4613,27 +4613,27 @@ export default function ManagementPage() {
             {/* 给这本图书设置所属分类（主键 = 书名） */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-ink-700 flex items-center gap-1.5">
+                <label className="text-ui-sm font-medium text-ink-700 flex items-center gap-1.5">
                   <Tag className="w-4 h-4 text-seal-600" />
                   所属分类
                 </label>
                 <button
                   onClick={handleSaveBookDetailCategories}
-                  className="text-xs px-2.5 py-1 text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-md transition"
+                  className="text-ui-xs px-2.5 py-1 text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control-sm transition"
                 >
                   保存分类
                 </button>
               </div>
               {bookCategories.filter((c) => c.id !== 'all').length === 0 ? (
-                <p className="text-xs text-ink-400">还没有图书分类，可在左侧「图书分类」里新建后再回来设置</p>
+                <p className="text-ui-xs text-ink-400">还没有图书分类，可在左侧「图书分类」里新建后再回来设置</p>
               ) : (
-                <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-lg bg-paper-100/50">
+                <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
                   {bookCategories.filter((c) => c.id !== 'all').map((cat) => {
                     const checked = bookDetailCategoryIds.includes(cat.id)
                     return (
                       <label
                         key={cat.id}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
                           checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
                         }`}
                       >
@@ -4645,7 +4645,7 @@ export default function ManagementPage() {
                               ? [...bookDetailCategoryIds, cat.id]
                               : bookDetailCategoryIds.filter((id) => id !== cat.id),
                           )}
-                          className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded"
+                          className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
                         />
                         {cat.name}
                       </label>
@@ -4658,13 +4658,13 @@ export default function ManagementPage() {
           <div className="flex items-center justify-between gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
               onClick={() => setShowBookDetail(null)}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               关闭
             </button>
             <div className="flex items-center gap-2">
               {showBookDetail.status === 'done' && (
-                <button className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition">
+                <button className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition">
                   <Book className="w-4 h-4" />
                   开始阅读
                 </button>
@@ -4681,7 +4681,7 @@ export default function ManagementPage() {
           onClose={() => { if (!importing) setShowImportDocModal(false) }}
           width="max-w-2xl"
         >
-          <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-lg mb-5 w-fit">
+          <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-control mb-5 w-fit">
             {([
               { id: 'file', label: '上传 .md 文件' },
               { id: 'paste', label: '粘贴文本' },
@@ -4691,7 +4691,7 @@ export default function ManagementPage() {
                 key={m.id}
                 onClick={() => setImportMode(m.id)}
                 disabled={importing}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition disabled:opacity-60 ${
+                className={`px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition disabled:opacity-60 ${
                   importMode === m.id ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
                 }`}
               >
@@ -4702,15 +4702,15 @@ export default function ManagementPage() {
 
           {importMode === 'file' && (
             <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
                 importing ? 'opacity-60 pointer-events-none' : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
               }`}
             >
               {importing
                 ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" />
                 : <Upload className="w-10 h-10 text-ink-400" />}
-              <p className="text-sm text-ink-600 font-medium">{importing ? '导入中...' : '点击选择 .md / .markdown / .txt 文件'}</p>
-              <p className="text-xs text-ink-400">支持多选，标题取文件名</p>
+              <p className="text-ui-sm text-ink-600 font-medium">{importing ? '导入中...' : '点击选择 .md / .markdown / .txt 文件'}</p>
+              <p className="text-ui-xs text-ink-400">支持多选，标题取文件名</p>
               <input
                 type="file"
                 multiple
@@ -4725,25 +4725,25 @@ export default function ManagementPage() {
           {importMode === 'paste' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">标题 *</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标题 *</label>
                 <input
                   type="text"
                   value={pasteDoc.title}
                   onChange={(e) => setPasteDoc({ ...pasteDoc, title: e.target.value })}
                   placeholder="文档标题"
                   disabled={importing}
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">Markdown 内容 *</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">Markdown 内容 *</label>
                 <textarea
                   value={pasteDoc.content}
                   onChange={(e) => setPasteDoc({ ...pasteDoc, content: e.target.value })}
                   placeholder="在此粘贴 markdown 正文..."
                   rows={10}
                   disabled={importing}
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm font-mono focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm font-mono focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
                 />
               </div>
             </div>
@@ -4751,15 +4751,15 @@ export default function ManagementPage() {
 
           {importMode === 'zip' && (
             <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-8 text-center transition ${
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
                 importing ? 'opacity-60 pointer-events-none' : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
               }`}
             >
               {importing
                 ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" />
                 : <Folder className="w-10 h-10 text-ink-400" />}
-              <p className="text-sm text-ink-600 font-medium">{importing ? '导入中...' : '点击选择 .zip 压缩包'}</p>
-              <p className="text-xs text-ink-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
+              <p className="text-ui-sm text-ink-600 font-medium">{importing ? '导入中...' : '点击选择 .zip 压缩包'}</p>
+              <p className="text-ui-xs text-ink-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
               <input
                 type="file"
                 accept=".zip"
@@ -4775,7 +4775,7 @@ export default function ManagementPage() {
               <button
                 onClick={handlePasteImport}
                 disabled={importing}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 {importing ? '导入中...' : '导入'}
@@ -4784,7 +4784,7 @@ export default function ManagementPage() {
             <button
               onClick={() => { if (!importing) setShowImportDocModal(false) }}
               disabled={importing}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition disabled:opacity-60"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-60"
             >
               取消
             </button>
@@ -4797,37 +4797,37 @@ export default function ManagementPage() {
         <Modal title="编辑文档" onClose={() => { if (!savingDocument) setEditingDocument(null) }}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">标题 *</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标题 *</label>
               <input
                 type="text"
                 value={editDocForm.title}
                 onChange={(e) => setEditDocForm({ ...editDocForm, title: e.target.value })}
                 placeholder="文档标题"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">作者</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">作者</label>
               <input
                 type="text"
                 value={editDocForm.author}
                 onChange={(e) => setEditDocForm({ ...editDocForm, author: e.target.value })}
                 placeholder="作者（可留空）"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">所属分类（可多选）</label>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">所属分类（可多选）</label>
               {documentCategories.length === 0 ? (
-                <p className="text-xs text-ink-400">还没有文档分类</p>
+                <p className="text-ui-xs text-ink-400">还没有文档分类</p>
               ) : (
-                <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-lg bg-paper-100/50">
+                <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
                   {documentCategories.map((cat) => {
                     const checked = editDocForm.categoryIds.includes(cat.id)
                     return (
                       <label
                         key={cat.id}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer text-sm transition ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
                           checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
                         }`}
                       >
@@ -4840,7 +4840,7 @@ export default function ManagementPage() {
                               ? [...editDocForm.categoryIds, cat.id]
                               : editDocForm.categoryIds.filter((id) => id !== cat.id),
                           })}
-                          className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded"
+                          className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
                         />
                         {cat.name}
                       </label>
@@ -4854,14 +4854,14 @@ export default function ManagementPage() {
             <button
               onClick={() => { if (!savingDocument) setEditingDocument(null) }}
               disabled={savingDocument}
-              className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition disabled:opacity-60"
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-60"
             >
               取消
             </button>
             <button
               onClick={handleSaveDocument}
               disabled={savingDocument || !editDocForm.title.trim()}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {savingDocument ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               保存
@@ -4887,38 +4887,38 @@ export default function ManagementPage() {
       {ftOpen && (
         <Modal title={`全文检索 · ${ftQuery}`} onClose={() => setFtOpen(false)} width="max-w-3xl">
           {ftLoading ? (
-            <div className="text-center py-10 text-ink-400 text-sm">
+            <div className="text-center py-10 text-ink-400 text-ui-sm">
               <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
               {getSearchIndex()
                 ? '正在检索…'
                 : `首次检索，正在建立全文索引 ${ftProgress.done}/${ftProgress.total}`}
             </div>
           ) : ftHits.length === 0 ? (
-            <div className="text-center py-10 text-ink-400 text-sm">
+            <div className="text-center py-10 text-ink-400 text-ui-sm">
               <Search className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p>全库正文里没有匹配的词</p>
-              <p className="text-xs mt-1">检索范围：文献 / 图书 / 其他文档的正文</p>
+              <p className="text-ui-xs mt-1">检索范围：文献 / 图书 / 其他文档的正文</p>
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="text-xs text-ink-400">
+              <div className="text-ui-xs text-ink-400">
                 {ftHits.length} 篇命中
               </div>
               {ftHits.map((hit) => (
                 <button
                   key={`${hit.kind}:${hit.id}`}
                   onClick={() => openHitInReader(hit)}
-                  className="w-full text-left p-3 rounded-lg border border-ink-200 hover:border-seal-300 hover:bg-seal-50/40 transition"
+                  className="w-full text-left p-3 rounded-control border border-ink-200 hover:border-seal-300 hover:bg-seal-50/40 transition"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="flex-shrink-0 px-1.5 py-0.5 rounded bg-ink-100 text-ink-500 text-[0.625rem]">
+                    <span className="flex-shrink-0 px-1.5 py-0.5 rounded-control-sm bg-ink-100 text-ink-500 text-ui-2xs">
                       {KIND_LABEL[hit.kind]}
                     </span>
-                    <span className="text-sm font-medium text-ink-700 truncate">{hit.title}</span>
-                    <span className="ml-auto flex-shrink-0 text-[0.6875rem] text-ink-400">{hit.total} 处</span>
+                    <span className="text-ui-sm font-medium text-ink-700 truncate">{hit.title}</span>
+                    <span className="ml-auto flex-shrink-0 text-ui-xs text-ink-400">{hit.total} 处</span>
                   </div>
                   {hit.snippets.map((sn, i) => (
-                    <div key={i} className="mt-1.5 text-xs leading-relaxed text-ink-500 line-clamp-3">
+                    <div key={i} className="mt-1.5 text-ui-xs leading-relaxed text-ink-500 line-clamp-3">
                       {renderHitSnippet(sn.text)}
                     </div>
                   ))}

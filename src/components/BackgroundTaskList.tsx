@@ -95,7 +95,7 @@ function FourNodeProgress({ task }: { task: BackgroundTask }) {
             <NodeIcon state={state} />
             {/* current 节点显示进度百分比 */}
             {state === 'current' && (
-              <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[10px] text-seal-600 font-mono whitespace-nowrap">
+              <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-ui-2xs text-seal-600 font-mono whitespace-nowrap">
                 {Math.round(nodeProgress)}%
               </span>
             )}
@@ -139,7 +139,7 @@ function StatusBadge({ status }: { status: TaskStatus }) {
   }
   const { label, className, icon: Icon } = config[status]
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${className}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-ui-xs font-medium ${className}`}>
       <Icon className={`w-3 h-3 ${status === 'running' ? 'animate-spin' : ''}`} />
       {label}
     </span>
@@ -149,20 +149,20 @@ function StatusBadge({ status }: { status: TaskStatus }) {
 function TypeBadge({ type }: { type: BackgroundTask['type'] }) {
   if (type === 'paper_convert') {
     return (
-      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-seal-50 text-seal-600 border border-seal-200">
+      <span className="px-1.5 py-0.5 text-ui-2xs font-medium rounded-control-sm bg-seal-50 text-seal-600 border border-seal-200">
         转换文献
       </span>
     )
   }
   if (type === 'note_convert') {
     return (
-      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+      <span className="px-1.5 py-0.5 text-ui-2xs font-medium rounded-control-sm bg-emerald-50 text-emerald-700 border border-emerald-200">
         转换笔记
       </span>
     )
   }
   return (
-    <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 border border-amber-200">
+    <span className="px-1.5 py-0.5 text-ui-2xs font-medium rounded-control-sm bg-amber-50 text-amber-700 border border-amber-200">
       转换课本
     </span>
   )
@@ -191,16 +191,16 @@ function TaskRow({
   const canAbort = task.status === 'pending' || task.status === 'running'
 
   return (
-    <div className="flex items-center gap-4 py-3 px-4 bg-paper-50 rounded-lg border border-ink-200 hover:border-ink-300 transition">
+    <div className="flex items-center gap-4 py-3 px-ui-gap bg-paper-50 rounded-control border border-ink-200 hover:border-ink-300 transition">
       {/* 左侧：标题 + 类型 */}
       <div className="flex-1 min-w-0 max-w-[13.75rem]">
         <div className="flex items-center gap-1.5 mb-1">
           <TypeBadge type={task.type} />
-          <span className="font-medium text-ink-800 text-sm truncate" title={task.title}>
+          <span className="font-medium text-ink-800 text-ui-sm truncate" title={task.title}>
             {task.title}
           </span>
         </div>
-        <div className="text-xs text-ink-500 truncate" title={task.message}>
+        <div className="text-ui-xs text-ink-500 truncate" title={task.message}>
           {task.message || STAGE_META[task.stage]?.label || '处理中...'}
         </div>
       </div>
@@ -213,7 +213,7 @@ function TaskRow({
       {/* 右侧：状态 + 时间 + 操作 */}
       <div className="flex items-center gap-3">
         <StatusBadge status={task.status} />
-        <span className="text-xs text-ink-400 whitespace-nowrap">
+        <span className="text-ui-xs text-ink-400 whitespace-nowrap">
           {formatTime(task.created_at)}
         </span>
 
@@ -221,7 +221,7 @@ function TaskRow({
         {canAbort && (
           <button
             onClick={() => on_abort(task.id)}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-ink-500 hover:text-red-600 hover:bg-red-50 rounded transition"
+            className="flex items-center gap-1 px-2 py-1 text-ui-xs text-ink-500 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
             title={task.status === 'running' ? '中止当前任务' : '取消排队'}
           >
             <XCircle className="w-3.5 h-3.5" />
@@ -233,7 +233,7 @@ function TaskRow({
         {on_remove && (task.status === 'done' || task.status === 'failed' || task.status === 'aborted') && (
           <button
             onClick={() => on_remove(task.id)}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+            className="flex items-center gap-1 px-2 py-1 text-ui-xs text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
             title="从列表移除"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -249,7 +249,7 @@ export function BackgroundTaskList({ tasks, on_abort, on_remove }: BackgroundTas
     return (
       <div className="flex flex-col items-center justify-center py-10 text-ink-400">
         <Clock className="w-10 h-10 mb-2 opacity-50" />
-        <p className="text-sm">暂无后台任务</p>
+        <p className="text-ui-sm">暂无后台任务</p>
       </div>
     )
   }
@@ -257,10 +257,10 @@ export function BackgroundTaskList({ tasks, on_abort, on_remove }: BackgroundTas
   return (
     <div className="space-y-2">
       {/* 节点标签行 */}
-      <div className="flex items-center gap-4 px-4 pb-1">
+      <div className="flex items-center gap-4 px-ui-gap pb-1">
         <div className="flex-1 min-w-0 max-w-[13.75rem]" />
         <div className="flex-shrink-0 w-[clamp(9rem,26%,18rem)]">
-          <div className="flex items-center justify-between text-[10px] text-ink-400 px-0">
+          <div className="flex items-center justify-between text-ui-2xs text-ink-400 px-0">
             {NODE_LABELS.map((label, i) => (
               <span key={i} className="text-center" style={{ width: '3.75rem' }}>
                 {label}

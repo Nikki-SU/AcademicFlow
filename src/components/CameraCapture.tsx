@@ -128,7 +128,7 @@ export default function CameraCapture({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-ink-900/95 p-4">
       <div className="mb-3 flex shrink-0 items-center justify-between text-paper-50">
-        <span className="flex items-center gap-2 text-sm font-medium">
+        <span className="flex items-center gap-2 text-ui-sm font-medium">
           <Camera className="h-4 w-4" />
           拍照
         </span>
@@ -136,27 +136,27 @@ export default function CameraCapture({
           type="button"
           onClick={onClose}
           title="关闭"
-          className="rounded-md p-1.5 transition hover:bg-paper-50/10"
+          className="rounded-control-sm p-1.5 transition hover:bg-paper-50/10"
         >
           <X className="h-5 w-5" />
         </button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-black">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-card bg-black">
         <video ref={videoRef} playsInline muted className="max-h-full max-w-full object-contain" />
         {!ready && !error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-paper-100">
             <Loader2 className="h-6 w-6 animate-spin" />
-            <span className="text-sm">正在打开摄像头…</span>
+            <span className="text-ui-sm">正在打开摄像头…</span>
           </div>
         )}
         {error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-paper-100">
-            <p className="text-sm leading-relaxed">{error}</p>
+            <p className="text-ui-sm leading-relaxed">{error}</p>
             <button
               type="button"
               onClick={() => void openCamera(facing)}
-              className="rounded-lg bg-seal-600 px-4 py-2 text-sm font-medium text-paper-50 transition hover:bg-seal-700"
+              className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
             >
               重试
             </button>

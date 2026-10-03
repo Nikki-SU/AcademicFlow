@@ -40,13 +40,33 @@ jobs:
         with:
           node-version: '22'
 
+      # qpdf 只在「超长 PDF 切段」时用；托管 runner 每次都是全新 VM，apt 现装要联网下载。
+      # 这里把 apt 下载的 .deb 缓存进 GitHub Actions 缓存，命中时直接本地安装（秒级）。
+      # key 带本 workflow 文件哈希——改了下方的安装列表就自动换 key，绝不装到旧包。
+      - name: Restore apt package cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.apt-cache/archives
+          key: apt-qpdf-${{ runner.os }}-${{ hashFiles('.github/workflows/book_convert.yml') }}
+          restore-keys: |
+            apt-qpdf-${{ runner.os }}-
+
       # 超过 200 页的 PDF 要按 180 页切段后再交给 MinerU（它单文件页数有上限）。
       # 装不上也不致命：脚本读不到页数就按"单段"处理，整本直接交给 MinerU。
+      # -o Dir::Cache::archives 让 apt 从缓存目录读/写 .deb；
+      # -o APT::Keep-Downloaded-Packages 让装完的 .deb 留在缓存里（apt 默认会删，删了就白缓存了）。
       - name: Install qpdf
         continue-on-error: true
         run: |
+          ARCHIVE_DIR="$HOME/.apt-cache/archives"
+          sudo mkdir -p "$ARCHIVE_DIR/partial"
+          sudo chown -R "$USER" "$HOME/.apt-cache"
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qpdf
+          sudo apt-get \
+            -o Dir::Cache::archives="$ARCHIVE_DIR" \
+            -o APT::Keep-Downloaded-Packages="true" \
+            install -y -qq qpdf
+          sudo chown -R "$USER" "$HOME/.apt-cache"
           qpdf --version
 
       - name: Configure git

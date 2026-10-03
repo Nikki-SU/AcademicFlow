@@ -151,10 +151,10 @@ export function MigrationStatus() {
   if (!running && !failed) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-72 rounded-xl border border-ink-200 bg-paper-50 p-3 shadow-card">
+    <div className="fixed bottom-4 right-4 z-50 w-72 rounded-card border border-ink-200 bg-paper-50 p-3 shadow-card">
       {running ? (
         <>
-          <div className="mb-2 flex items-center justify-between text-xs text-ink-500">
+          <div className="mb-2 flex items-center justify-between text-ui-xs text-ink-500">
             <span className="flex items-center gap-1.5">
               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
               正在更新数据格式…
@@ -166,21 +166,21 @@ export function MigrationStatus() {
             )}
           </div>
           <ProgressBar fraction={ratio} />
-          {current && <p className="mt-2 truncate text-[11px] text-ink-400">{current}</p>}
-          <p className="mt-1 text-[11px] text-ink-400">后台进行，可继续使用其他功能。</p>
+          {current && <p className="mt-2 truncate text-ui-xs text-ink-400">{current}</p>}
+          <p className="mt-1 text-ui-xs text-ink-400">后台进行，可继续使用其他功能。</p>
         </>
       ) : (
         <>
-          <div className="flex items-center gap-1.5 text-xs text-amber-700">
+          <div className="flex items-center gap-1.5 text-ui-xs text-amber-700">
             <AlertTriangle className="h-3.5 w-3.5" />
             数据更新失败
           </div>
-          <p className="mt-1.5 text-[11px] text-ink-400">
+          <p className="mt-1.5 text-ui-xs text-ink-400">
             受影响的功能暂不可用，重试成功即恢复。
           </p>
           <button
             onClick={() => void run()}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-paper-50 transition hover:bg-amber-700"
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-control bg-amber-600 px-ui-gap py-1.5 text-ui-xs font-medium text-paper-50 transition hover:bg-amber-700"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             重试

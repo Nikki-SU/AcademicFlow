@@ -53,9 +53,9 @@ function AttemptHistory({
   return (
     <details
       open={!finalPassed}
-      className="border border-ink-200 rounded-md overflow-hidden"
+      className="border border-ink-200 rounded-control-sm overflow-hidden"
     >
-      <summary className="cursor-pointer px-3 py-2 bg-paper-100 hover:bg-ink-100 text-sm font-medium text-ink-800 flex items-center gap-2">
+      <summary className="cursor-pointer px-ui-gap py-2 bg-paper-100 hover:bg-ink-100 text-ui-sm font-medium text-ink-800 flex items-center gap-2">
         <RotateCcw className="w-4 h-4 text-seal-600" />
         重试历史（共 {attempts.length}/{maxAttempts} 轮
         {finalPassed ? '，最终通过 ✅' : '，最终未通过 ❌'}）
@@ -86,22 +86,22 @@ function AttemptHistory({
             <details
               key={a.attempt}
               open={a.attempt === attempts.length && !a.passed}
-              className="border border-ink-200 rounded overflow-hidden"
+              className="border border-ink-200 rounded-control-sm overflow-hidden"
             >
-              <summary className="cursor-pointer px-2 py-1.5 bg-paper-100 hover:bg-ink-100 text-xs flex items-center gap-2 flex-wrap">
+              <summary className="cursor-pointer px-2 py-1.5 bg-paper-100 hover:bg-ink-100 text-ui-xs flex items-center gap-2 flex-wrap">
                 <ChevronRight className="w-3.5 h-3.5 text-ink-500 flex-shrink-0" />
                 <span
-                  className={`shrink-0 px-1.5 py-0.5 font-mono border rounded ${reasonColor(a.reason)}`}
+                  className={`shrink-0 px-1.5 py-0.5 font-mono border rounded-control-sm ${reasonColor(a.reason)}`}
                 >
                   第 {a.attempt} 轮 · {reasonLabel(a.reason)}
                 </span>
                 {a.passed ? (
-                  <span className="flex items-center gap-1 shrink-0 px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded">
+                  <span className="flex items-center gap-1 shrink-0 px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded-control-sm">
                     <CheckCircle className="w-3 h-3" />
                     通过
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 shrink-0 px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded">
+                  <span className="flex items-center gap-1 shrink-0 px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-control-sm">
                     <AlertTriangle className="w-3 h-3" />
                     未通过
                   </span>
@@ -120,18 +120,18 @@ function AttemptHistory({
                   </span>
                 )}
               </summary>
-              <div className="p-2 space-y-2 bg-paper-50 text-xs">
+              <div className="p-2 space-y-2 bg-paper-50 text-ui-xs">
                 {/* AI-1 输出（本轮版本） */}
                 <div>
                   <div className="font-medium text-ink-700 mb-1">
                     AI-1 输出
                     {!a.ai1Invoked && (
-                      <span className="ml-1 text-[0.6875rem] font-normal text-ink-500">
+                      <span className="ml-1 text-ui-xs font-normal text-ink-500">
                         （本轮 AI-2 自纠，AI-1 输出沿用上一轮）
                       </span>
                     )}
                   </div>
-                  <pre className="p-2 bg-paper-100 border border-ink-200 rounded whitespace-pre-wrap leading-relaxed max-h-[10rem] overflow-y-auto">
+                  <pre className="p-2 bg-paper-100 border border-ink-200 rounded-control-sm whitespace-pre-wrap leading-relaxed max-h-[10rem] overflow-y-auto">
                     {a.ai1Output}
                   </pre>
                 </div>

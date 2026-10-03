@@ -113,7 +113,7 @@ export default function TranscriptEditor({
           key={i}
           onDragOver={(e) => dragOver(e, i)}
           onDrop={() => setDragIdx(null)}
-          className={`group rounded-lg border px-ui-gap py-ui-gap transition ${
+          className={`group rounded-control border px-ui-gap py-ui-gap transition ${
             dragIdx === i ? 'opacity-50' : ''
           } ${
             b.unclear
@@ -133,7 +133,7 @@ export default function TranscriptEditor({
             </span>
             <span className="text-ui-2xs font-mono text-ink-400">#{i + 1}</span>
             {b.unclear && (
-              <span className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-ui-2xs font-medium text-red-600">
+              <span className="inline-flex items-center gap-1 rounded-control-sm bg-red-100 px-1.5 py-0.5 text-ui-2xs font-medium text-red-600">
                 <AlertTriangle className="h-3 w-3" />
                 识别存疑 · 原样保留
               </span>
@@ -144,7 +144,7 @@ export default function TranscriptEditor({
                   type="button"
                   onClick={() => patch(i, { unclear: false })}
                   title="已确认 / 修正，取消存疑标记"
-                  className="rounded p-0.5 text-ink-400 transition hover:text-emerald-600"
+                  className="rounded-control-sm p-0.5 text-ink-400 transition hover:text-emerald-600"
                 >
                   <Check className="h-ui-icon-sm w-ui-icon-sm" />
                 </button>
@@ -154,7 +154,7 @@ export default function TranscriptEditor({
                 onClick={() => mergeUp(i)}
                 disabled={i === 0}
                 title="接进上一段"
-                className="rounded p-0.5 text-ink-400 transition hover:text-seal-600 disabled:opacity-30"
+                className="rounded-control-sm p-0.5 text-ink-400 transition hover:text-seal-600 disabled:opacity-30"
               >
                 <ChevronUp className="h-ui-icon-sm w-ui-icon-sm" />
               </button>
@@ -162,7 +162,7 @@ export default function TranscriptEditor({
                 type="button"
                 onClick={() => insertAfter(i)}
                 title="在下方插入一段"
-                className="rounded p-0.5 text-ink-400 transition hover:text-seal-600"
+                className="rounded-control-sm p-0.5 text-ink-400 transition hover:text-seal-600"
               >
                 <Plus className="h-ui-icon-sm w-ui-icon-sm" />
               </button>
@@ -170,7 +170,7 @@ export default function TranscriptEditor({
                 type="button"
                 onClick={() => remove(i)}
                 title="删除这一段"
-                className="rounded p-0.5 text-ink-400 transition hover:text-red-600"
+                className="rounded-control-sm p-0.5 text-ink-400 transition hover:text-red-600"
               >
                 <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
               </button>

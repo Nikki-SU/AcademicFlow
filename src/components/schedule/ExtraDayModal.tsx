@@ -44,13 +44,13 @@ export function ExtraDayModal({
         <>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+            className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
           >
             取消
           </button>
           <button
             onClick={handleSubmit}
-            className="px-4 py-2 text-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition font-medium"
+            className="px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition font-medium"
           >
             添加
           </button>
@@ -59,24 +59,24 @@ export function ExtraDayModal({
     >
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-ink-700 mb-1.5">
+          <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
             日期（周末 · 周六 / 周日）
           </label>
           <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+            className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-ink-700 mb-1.5">
+          <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
             按周几的课表上课
           </label>
           <select
             value={followWeekday}
             onChange={(e) => setFollowWeekday(Number(e.target.value))}
-            className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+            className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
           >
             <option value={0}>未指定（当天不排课）</option>
             {[1, 2, 3, 4, 5, 6, 7].map((w) => (
@@ -85,18 +85,18 @@ export function ExtraDayModal({
               </option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-ink-400">
+          <p className="mt-1 text-ui-xs text-ink-400">
             调休补班这天实际按哪一天的课表上课（学校通知里通常会写明）。
           </p>
         </div>
         <div>
-          <label className="block text-sm font-medium text-ink-700 mb-1.5">备注</label>
+          <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">备注</label>
           <input
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="如：国庆调休上班（可留空）"
-            className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+            className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
           />
         </div>
       </div>

@@ -87,14 +87,14 @@ export default function AsrTestPanel() {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-xs text-ink-500">
+        <p className="text-ui-xs text-ink-500">
           先在这里测通，再去录音。测试会真录 2.5 秒并真调硅基流动（需要麦克风权限）。
         </p>
         <button
           type="button"
           onClick={run}
           disabled={!canTest}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-seal-400 bg-seal-50 text-seal-700
+          className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-xs font-medium rounded-control-sm border border-seal-400 bg-seal-50 text-seal-700
                      hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
         >
           {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TestTube2 className="w-3.5 h-3.5" />}
@@ -110,7 +110,7 @@ export default function AsrTestPanel() {
               <div key={def.key} className="flex items-start gap-2">
                 <span className="mt-0.5">{statusIcon(s.status)}</span>
                 <div className="flex-1 min-w-0 pb-1">
-                  <div className={`text-[11px] leading-tight ${statusColor(s.status)}`}>
+                  <div className={`text-ui-xs leading-tight ${statusColor(s.status)}`}>
                     {def.label}
                     {s.detail && <span className="ml-1 text-ink-400 font-normal">{s.detail}</span>}
                   </div>
@@ -123,15 +123,15 @@ export default function AsrTestPanel() {
       )}
 
       {verdict === 'ok' && (
-        <p className="text-[11px] text-green-700">这套配置可用：Key、转写端点、翻译端点都真调通了。</p>
+        <p className="text-ui-xs text-green-700">这套配置可用：Key、转写端点、翻译端点都真调通了。</p>
       )}
       {verdict === 'err' && (
-        <p className="text-[11px] text-red-600">
+        <p className="text-ui-xs text-red-600">
           配置不可用 —— 按上面标红的那一步去改（多数是 Key 不对、模型名不对，或浏览器录出的音频容器后端不认）。
         </p>
       )}
       {!asrApiKey.trim() && (
-        <p className="text-[11px] text-amber-600">还没填 API Key，录音会直接失败（不会出字）。</p>
+        <p className="text-ui-xs text-amber-600">还没填 API Key，录音会直接失败（不会出字）。</p>
       )}
     </div>
   )

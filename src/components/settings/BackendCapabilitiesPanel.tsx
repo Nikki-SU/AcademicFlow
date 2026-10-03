@@ -82,7 +82,7 @@ export default function BackendCapabilitiesPanel() {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-ink-500">
+      <p className="text-ui-xs text-ink-500">
         后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上。你需要在私库安装
         <b> paper_convert.yml / book_convert.yml / ai_call.yml </b>
         三个主 workflow（外加两个连通性自测 workflow，以及「云端编译」用的
@@ -90,7 +90,7 @@ export default function BackendCapabilitiesPanel() {
       </p>
 
       {/* 状态条 */}
-      <div className={`flex items-center gap-2 p-3 rounded-md border text-sm ${
+      <div className={`flex items-center gap-2 p-3 rounded-control-sm border text-ui-sm ${
         installed === true ? 'bg-green-50 border-green-200 text-green-800'
         : installed === false ? 'bg-amber-50 border-amber-200 text-amber-800'
         : 'bg-paper-100 border-ink-200 text-ink-600'
@@ -112,7 +112,7 @@ export default function BackendCapabilitiesPanel() {
           type="button"
           onClick={runCheck}
           disabled={checking || !owner || !repo}
-          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-ink-300 rounded-md
+          className="flex items-center justify-center gap-1.5 px-ui-gap py-2 text-ui-sm border border-ink-300 rounded-control-sm
                      hover:bg-paper-100 disabled:text-ink-300 disabled:cursor-not-allowed"
         >
           {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Server className="w-3.5 h-3.5" />}
@@ -122,7 +122,7 @@ export default function BackendCapabilitiesPanel() {
           type="button"
           onClick={runInstall}
           disabled={installing || !owner || !repo}
-          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-seal-300 bg-seal-50 text-seal-700 rounded-md
+          className="flex items-center justify-center gap-1.5 px-ui-gap py-2 text-ui-sm border border-seal-300 bg-seal-50 text-seal-700 rounded-control-sm
                      hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed"
         >
           {installing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -132,7 +132,7 @@ export default function BackendCapabilitiesPanel() {
           href={secretsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-ink-300 rounded-md
+          className="flex items-center justify-center gap-1.5 px-ui-gap py-2 text-ui-sm border border-ink-300 rounded-control-sm
                      hover:bg-paper-100 text-ink-700"
         >
           <Wrench className="w-3.5 h-3.5" />
@@ -143,10 +143,10 @@ export default function BackendCapabilitiesPanel() {
 
       {/* 检测结果详情 */}
       {checkResult && !checkResult.installed && checkResult.missing.length > 0 && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-md space-y-1">
-          <div className="text-xs font-semibold text-amber-800">缺失文件：</div>
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-control-sm space-y-1">
+          <div className="text-ui-xs font-semibold text-amber-800">缺失文件：</div>
           {checkResult.missing.map(p => (
-            <div key={p} className="flex items-center gap-1 text-xs font-mono text-amber-700">
+            <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-amber-700">
               <XCircle className="w-3 h-3" /> {p}
             </div>
           ))}
@@ -154,12 +154,12 @@ export default function BackendCapabilitiesPanel() {
       )}
 
       {checkResult && checkResult.legacy.length > 0 && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md space-y-1">
-          <div className="text-xs font-semibold text-red-800">
+        <div className="p-3 bg-red-50 border border-red-200 rounded-control-sm space-y-1">
+          <div className="text-ui-xs font-semibold text-red-800">
             残留的旧版文件（会与新版重复触发 / 造成 "no jobs were run"），点"重写后端"自动清理：
           </div>
           {checkResult.legacy.map(p => (
-            <div key={p} className="flex items-center gap-1 text-xs font-mono text-red-700">
+            <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-red-700">
               <XCircle className="w-3 h-3" /> {p}
             </div>
           ))}
@@ -167,28 +167,28 @@ export default function BackendCapabilitiesPanel() {
       )}
 
       {/* Secrets 引导模板 */}
-      <details className="border border-ink-200 rounded-md overflow-hidden">
-        <summary className="cursor-pointer px-3 py-2 bg-paper-100 hover:bg-ink-100 text-sm font-medium text-ink-800 flex items-center gap-2">
+      <details className="border border-ink-200 rounded-control-sm overflow-hidden">
+        <summary className="cursor-pointer px-ui-gap py-2 bg-paper-100 hover:bg-ink-100 text-ui-sm font-medium text-ink-800 flex items-center gap-2">
           <Wrench className="w-4 h-4 text-seal-600" />
           8 个必需 Secrets（点击展开查看模板）
         </summary>
         <div className="p-3 space-y-2">
-          <p className="text-xs text-ink-600 leading-relaxed">
+          <p className="text-ui-xs text-ink-600 leading-relaxed">
             上一步"重写后端"只是把 workflow 文件塞进了你的私库。要让 pipeline 真跑起来，必须在 GitHub
             Settings → Secrets and variables → Actions 里创建下面 8 个 Repository Secret。
           </p>
           <div className="grid gap-1.5">
             {REQUIRED_SECRETS.map(s => (
-              <div key={s.name} className="flex items-start gap-2 p-2 bg-paper-100 border border-ink-200 rounded text-xs">
-                <code className="shrink-0 px-1.5 py-0.5 bg-seal-100 text-seal-800 rounded font-mono">{s.name}</code>
+              <div key={s.name} className="flex items-start gap-2 p-2 bg-paper-100 border border-ink-200 rounded-control-sm text-ui-xs">
+                <code className="shrink-0 px-1.5 py-0.5 bg-seal-100 text-seal-800 rounded-control-sm font-mono">{s.name}</code>
                 <div className="flex-1">
                   <div className="text-ink-700">{s.hint}</div>
-                  <div className="text-ink-500 text-[11px]">来源：{s.from}</div>
+                  <div className="text-ink-500 text-ui-xs">来源：{s.from}</div>
                 </div>
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-ink-500 pt-1">
+          <p className="text-ui-xs text-ink-500 pt-1">
             推荐模型：AI-1（生成）Qwen2.5-32B-Instruct · AI-2（审阅）Qwen2.5-72B-Instruct。
             硅基流动的 base URL 是 https://api.siliconflow.cn/v1。
           </p>

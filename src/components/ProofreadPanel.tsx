@@ -80,7 +80,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* tab */}
-      <div className="px-3 pt-2.5 border-b border-ink-100 bg-paper-50">
+      <div className="px-ui-gap pt-2.5 border-b border-ink-100 bg-paper-50">
         <div className="flex gap-1">
           {tabs.map((t) => {
             const Icon = t.icon
@@ -89,20 +89,20 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
               <button
                 key={t.key}
                 onClick={() => setKind(t.key)}
-                className={`px-2.5 py-1.5 text-xs rounded-lg transition flex items-center gap-1.5 ${
+                className={`px-2.5 py-1.5 text-ui-xs rounded-control transition flex items-center gap-1.5 ${
                   active ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
                 {t.label}
-                <span className={`text-[0.625rem] ${active ? 'text-seal-500' : 'text-ink-400'}`}>
+                <span className={`text-ui-2xs ${active ? 'text-seal-500' : 'text-ink-400'}`}>
                   {counts[t.key]}
                 </span>
               </button>
             )
           })}
         </div>
-        <p className="text-[0.6875rem] text-ink-400 py-1.5 leading-snug">
+        <p className="text-ui-xs text-ink-400 py-1.5 leading-snug">
           点条目跳到正文对应位置；勾选只记在当前会话。图片尺寸填百分比（如 60%）或 auto，改完即时生效。
         </p>
       </div>
@@ -127,9 +127,9 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
                   <img
                     src={img.src}
                     alt={img.alt}
-                    className="max-h-32 w-auto max-w-full rounded border border-ink-200 bg-paper-50 object-contain"
+                    className="max-h-32 w-auto max-w-full rounded-control-sm border border-ink-200 bg-paper-50 object-contain"
                   />
-                  <div className="mt-1.5 text-xs text-ink-600">
+                  <div className="mt-1.5 text-ui-xs text-ink-600">
                     <span className="text-ink-400">图注：</span>
                     {img.alt || <span className="text-amber-600">（空 —— 图注缺了？）</span>}
                   </div>
@@ -158,8 +158,8 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
                   badge="表"
                   onJump={() => onJump('table', t.index, t.rows[0]?.join(' ') ?? '')}
                 >
-                  <div className="overflow-x-auto rounded border border-ink-200">
-                    <table className="text-[0.6875rem] border-collapse">
+                  <div className="overflow-x-auto rounded-control-sm border border-ink-200">
+                    <table className="text-ui-xs border-collapse">
                       <tbody>
                         {t.rows.map((row, ri) => (
                           <tr key={ri} className={ri === 0 ? 'bg-paper-100 font-medium' : ''}>
@@ -173,7 +173,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
                       </tbody>
                     </table>
                   </div>
-                  <div className="mt-1 text-[0.6875rem] text-ink-400">
+                  <div className="mt-1 text-ui-xs text-ink-400">
                     {t.rows.length - 1} 行数据 · 原文第 {t.startLine + 1}–{t.endLine + 1} 行
                   </div>
                 </Row>
@@ -202,7 +202,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
                     className="overflow-x-auto py-1 text-center"
                     dangerouslySetInnerHTML={{ __html: renderKatex(f.tex, f.kind === 'block') }}
                   />
-                  <div className="font-mono text-[0.625rem] text-ink-400 mt-1 break-all" title={f.tex}>
+                  <div className="font-mono text-ui-2xs text-ink-400 mt-1 break-all" title={f.tex}>
                     {f.tex}
                   </div>
                 </Row>
@@ -215,7 +215,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
 }
 
 function Empty({ text }: { text: string }) {
-  return <p className="text-center text-sm text-ink-400 py-10">{text}</p>
+  return <p className="text-center text-ui-sm text-ink-400 py-10">{text}</p>
 }
 
 /**
@@ -238,19 +238,19 @@ function ImageSizeControl({
   }
 
   const inputCls =
-    'w-16 rounded border border-ink-200 bg-paper-50 px-1.5 py-0.5 text-[0.6875rem] text-ink-700 ' +
+    'w-16 rounded-control-sm border border-ink-200 bg-paper-50 px-1.5 py-0.5 text-ui-xs text-ink-700 ' +
     'focus:outline-none focus:ring-1 focus:ring-seal-400'
 
   return (
     <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-      <span className="text-[0.625rem] text-ink-400">尺寸</span>
+      <span className="text-ui-2xs text-ink-400">尺寸</span>
       <input
         value={size.width ?? ''}
         onChange={(e) => set({ width: e.target.value })}
         placeholder="宽 auto"
         className={inputCls}
       />
-      <span className="text-[0.625rem] text-ink-300">×</span>
+      <span className="text-ui-2xs text-ink-300">×</span>
       <input
         value={size.height ?? ''}
         onChange={(e) => set({ height: e.target.value })}
@@ -261,7 +261,7 @@ function ImageSizeControl({
         <button
           key={p}
           onClick={() => set({ width: p })}
-          className={`rounded px-1.5 py-0.5 text-[0.625rem] transition ${
+          className={`rounded-control-sm px-1.5 py-0.5 text-ui-2xs transition ${
             size.width === p ? 'bg-seal-100 text-seal-700' : 'text-ink-400 hover:bg-ink-100'
           }`}
         >
@@ -291,27 +291,27 @@ function Row({
 }) {
   return (
     <div
-      className={`p-2.5 rounded-lg border transition ${
+      className={`p-2.5 rounded-control border transition ${
         done ? 'border-emerald-200 bg-emerald-50/40' : 'border-ink-200 bg-paper-50'
       }`}
     >
       <div className="flex items-center gap-1.5 mb-1.5">
         <button
           onClick={onToggle}
-          className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition ${
+          className={`w-4 h-4 rounded-control-sm border-2 flex items-center justify-center flex-shrink-0 transition ${
             done ? 'bg-emerald-500 border-emerald-500' : 'border-ink-300 hover:border-seal-400'
           }`}
           title="标记已核对"
         >
           {done && <Check className="w-3 h-3 text-paper-50" />}
         </button>
-        <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500">
+        <span className="text-ui-2xs px-1.5 py-0.5 rounded-control-sm bg-ink-100 text-ink-500">
           #{index + 1} · {badge}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={onJump}
-            className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
+            className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
             title="跳到正文这一处"
           >
             <Crosshair className="w-3.5 h-3.5" />
@@ -319,7 +319,7 @@ function Row({
           {onEdit && (
             <button
               onClick={onEdit}
-              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
+              className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
               title="就地改这一条"
             >
               <Pencil className="w-3.5 h-3.5" />

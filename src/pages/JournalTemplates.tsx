@@ -319,24 +319,24 @@ function JournalTemplatesPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-paper-100 via-seal-50 to-purple-50">
         <header className="border-b border-ink-200 bg-paper-50/80 backdrop-blur-sm sticky top-0 z-20">
-          <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between">
+          <div className="max-w-5xl mx-auto px-ui-gap md:px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Link
                 to="/management"
-                className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+                className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
               >
                 <ArrowLeft className="w-5 h-5" />
               </Link>
               <div>
                 <span className="font-bold text-ink-800">期刊模板管理</span>
-                <p className="text-xs text-ink-500 hidden sm:block">
+                <p className="text-ui-xs text-ink-500 hidden sm:block">
                   自定义期刊投稿须知，AI 提取格式规范
                 </p>
               </div>
             </div>
             <button
               onClick={openCreate}
-              className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-lg text-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-md shadow-seal-200"
+              className="flex items-center gap-1.5 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-md shadow-seal-200"
             >
               <Plus className="w-4 h-4" />
               新建模板
@@ -344,7 +344,7 @@ function JournalTemplatesPage() {
           </div>
         </header>
 
-        <main className="max-w-5xl mx-auto px-4 md:px-6 py-6">
+        <main className="max-w-5xl mx-auto px-ui-gap md:px-6 py-6">
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 text-seal-600 animate-spin" />
@@ -353,13 +353,13 @@ function JournalTemplatesPage() {
             <div className="text-center py-20">
               <BookMarked className="w-16 h-16 mx-auto text-ink-300 mb-4" />
               <p className="text-ink-600 font-medium">还没有期刊模板</p>
-              <p className="text-sm text-ink-500 mt-1">
+              <p className="text-ui-sm text-ink-500 mt-1">
                 点击右上角「新建模板」，粘贴投稿须知，AI 自动提取格式规范
               </p>
               <div className="mt-6 flex items-center justify-center gap-3">
                 <button
                   onClick={openCreate}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-lg font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-lg shadow-seal-200"
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-lg shadow-seal-200"
                 >
                   <Plus className="w-4 h-4" />
                   创建第一个模板
@@ -381,7 +381,7 @@ function JournalTemplatesPage() {
                       toast.error(`加载失败：${msg}`)
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-paper-50 border border-seal-200 text-seal-600 rounded-lg font-medium hover:bg-seal-50 transition"
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-paper-50 border border-seal-200 text-seal-600 rounded-control font-medium hover:bg-seal-50 transition"
                 >
                   <Sparkles className="w-4 h-4" />
                   加载演示示例
@@ -393,7 +393,7 @@ function JournalTemplatesPage() {
               {templates.map((t) => (
                 <div
                   key={t.id}
-                  className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm hover:shadow-md transition overflow-hidden"
+                  className="bg-paper-50 rounded-card border border-ink-200 shadow-sm hover:shadow-md transition overflow-hidden"
                 >
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-2">
@@ -402,26 +402,26 @@ function JournalTemplatesPage() {
                           {t.name}
                         </h3>
                         {t.short_name && (
-                          <p className="text-sm text-ink-500">{t.short_name}</p>
+                          <p className="text-ui-sm text-ink-500">{t.short_name}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => openEdit(t)}
-                          className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded transition"
+                          className="p-1.5 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(t)}
-                          className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                          className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-ui-xs">
                       <div className="flex items-center gap-1.5 text-ink-600">
                         <FileText className="w-3.5 h-3.5 text-ink-400" />
                         <span className="font-mono">{t.document_class}</span>
@@ -436,13 +436,13 @@ function JournalTemplatesPage() {
                       </div>
                       <div className="flex items-center gap-1.5 text-ink-600">
                         <Palette className="w-3.5 h-3.5 text-ink-400" />
-                        <span className="font-mono text-xs truncate">{t.bibtex_style}</span>
+                        <span className="font-mono text-ui-xs truncate">{t.bibtex_style}</span>
                       </div>
                     </div>
 
                     {t.guidelines_content && (
                       <div className="mt-3 pt-3 border-t border-ink-100">
-                        <div className="flex items-center gap-1.5 text-xs text-ink-500">
+                        <div className="flex items-center gap-1.5 text-ui-xs text-ink-500">
                           <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
                           <span>已上传投稿须知</span>
                           {t.guidelines_last_updated_at && (
@@ -455,10 +455,10 @@ function JournalTemplatesPage() {
                     )}
                   </div>
 
-                  <div className="px-4 py-2.5 bg-paper-100 border-t border-ink-100">
+                  <div className="px-ui-gap py-2.5 bg-paper-100 border-t border-ink-100">
                     <a
                       href="/writing"
-                      className="text-xs text-seal-600 hover:text-seal-800 font-medium"
+                      className="text-ui-xs text-seal-600 hover:text-seal-800 font-medium"
                     >
                       去写作页排版 →
                     </a>
@@ -476,11 +476,11 @@ function JournalTemplatesPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-paper-100 via-seal-50 to-purple-50">
       <header className="border-b border-ink-200 bg-paper-50/80 backdrop-blur-sm sticky top-0 z-20">
-        <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-ui-gap md:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setView('list')}
-              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-md transition"
+              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -490,7 +490,7 @@ function JournalTemplatesPage() {
           </div>
           <button
             onClick={view === 'create' ? handleCreate : handleUpdate}
-            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-lg text-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-md shadow-seal-200"
+            className="flex items-center gap-1.5 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-md shadow-seal-200"
           >
             <Save className="w-4 h-4" />
             保存
@@ -498,16 +498,16 @@ function JournalTemplatesPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 md:px-6 py-6 space-y-6">
+      <main className="max-w-5xl mx-auto px-ui-gap md:px-6 py-6 space-y-6">
         {/* 基本信息 */}
-        <section className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-5">
+        <section className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-5">
           <h2 className="font-semibold text-ink-800 mb-4 flex items-center gap-2">
             <BookMarked className="w-5 h-5 text-seal-600" />
             基本信息
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 期刊名称 <span className="text-red-500">*</span>
               </label>
               <input
@@ -515,11 +515,11 @@ function JournalTemplatesPage() {
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder="如：Sample Journal"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 期刊简称
               </label>
               <input
@@ -527,11 +527,11 @@ function JournalTemplatesPage() {
                 value={formShortName}
                 onChange={(e) => setFormShortName(e.target.value)}
                 placeholder="如：Sample J."
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 出版社
               </label>
               <input
@@ -539,11 +539,11 @@ function JournalTemplatesPage() {
                 value={formPublisher}
                 onChange={(e) => setFormPublisher(e.target.value)}
                 placeholder="如：示例出版社"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 期刊主页
               </label>
               <input
@@ -551,11 +551,11 @@ function JournalTemplatesPage() {
                 value={formJournalUrl}
                 onChange={(e) => setFormJournalUrl(e.target.value)}
                 placeholder="https://..."
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 投稿须知 URL
               </label>
               <input
@@ -563,14 +563,14 @@ function JournalTemplatesPage() {
                 value={formGuidelinesUrl}
                 onChange={(e) => setFormGuidelinesUrl(e.target.value)}
                 placeholder="https://..."
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
           </div>
         </section>
 
         {/* 投稿须知 */}
-        <section className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-5">
+        <section className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-ink-800 flex items-center gap-2">
               <FileText className="w-5 h-5 text-seal-600" />
@@ -579,7 +579,7 @@ function JournalTemplatesPage() {
             <button
               onClick={handleExtract}
               disabled={isExtracting || !formGuidelinesContent.trim()}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-lg text-sm font-medium hover:from-seal-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              className="flex items-center gap-1.5 px-ui-gap py-1.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
               {isExtracting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -602,34 +602,34 @@ function JournalTemplatesPage() {
 - Markdown 格式
 
 粘贴后点击「AI 提取格式规范」自动提取排版参数。"
-            className="w-full h-64 px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono text-sm resize-y"
+            className="w-full h-64 px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono text-ui-sm resize-y"
             spellCheck={false}
           />
 
-          <p className="mt-2 text-xs text-ink-500">
+          <p className="mt-2 text-ui-xs text-ink-500">
             💡 提示：投稿须知一般变化很小，粘贴一次保存后可反复使用。后续排版时系统会基于此文件的规范生成 LaTeX。
           </p>
 
           {/* AI 提取结果概览 */}
           {extracted && (
-            <div className="mt-4 p-4 bg-seal-50 border border-seal-200 rounded-lg">
+            <div className="mt-4 p-4 bg-seal-50 border border-seal-200 rounded-control">
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle2 className="w-5 h-5 text-green-600" />
                 <span className="font-medium text-ink-800">AI 提取结果</span>
               </div>
-              <div className="text-sm text-ink-600 mb-3">
+              <div className="text-ui-sm text-ink-600 mb-3">
                 <span className="font-medium">置信度：</span>
                 {extracted.confidence_note}
               </div>
               <div className="space-y-1.5">
-                <p className="text-sm font-medium text-ink-700">关键格式点：</p>
-                <ul className="text-sm text-ink-600 space-y-1 list-disc list-inside">
+                <p className="text-ui-sm font-medium text-ink-700">关键格式点：</p>
+                <ul className="text-ui-sm text-ink-600 space-y-1 list-disc list-inside">
                   {extracted.key_points.slice(0, 8).map((point, i) => (
                     <li key={i}>{point}</li>
                   ))}
                 </ul>
               </div>
-              <p className="mt-3 text-xs text-seal-600">
+              <p className="mt-3 text-ui-xs text-seal-600">
                 ✓ 已按投稿须知原文填入下方表格；请对照期刊官方模板核对「转写」是否有出入，有出入直接在下方改。
               </p>
             </div>
@@ -637,25 +637,25 @@ function JournalTemplatesPage() {
         </section>
 
         {/* LaTeX 排版参数 */}
-        <section className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-5">
+        <section className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-5">
           <h2 className="font-semibold text-ink-800 mb-4 flex items-center gap-2">
             <Palette className="w-5 h-5 text-seal-600" />
             LaTeX 排版参数
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 文档类 (documentclass)
               </label>
               <input
                 type="text"
                 value={formDocumentClass}
                 onChange={(e) => setFormDocumentClass(e.target.value)}
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 文档选项
               </label>
               <input
@@ -663,28 +663,28 @@ function JournalTemplatesPage() {
                 value={formDocumentOptions}
                 onChange={(e) => setFormDocumentOptions(e.target.value)}
                 placeholder="如：twocolumn,12pt"
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 引用样式 (BibTeX style)
               </label>
               <input
                 type="text"
                 value={formBibtexStyle}
                 onChange={(e) => setFormBibtexStyle(e.target.value)}
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 正文引用命令
               </label>
               <select
                 value={formCitationCommand}
                 onChange={(e) => setFormCitationCommand(e.target.value)}
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               >
                 {CITE_COMMANDS.map((c) => (
                   <option key={c.value} value={c.value}>
@@ -692,7 +692,7 @@ function JournalTemplatesPage() {
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-ink-400">
+              <p className="mt-1 text-ui-xs text-ink-400">
                 只决定正文里引用长什么样；编号与尾处条目格式由上面的 BibTeX style 在编译时决定。
                 选非 cite 的会自动挂上 natbib 宏包。
               </p>
@@ -703,32 +703,32 @@ function JournalTemplatesPage() {
                   type="checkbox"
                   checked={formTwoColumn}
                   onChange={(e) => setFormTwoColumn(e.target.checked)}
-                  className="w-4 h-4 text-seal-600 rounded border-ink-300 focus:ring-seal-500"
+                  className="w-4 h-4 text-seal-600 rounded-control-sm border-ink-300 focus:ring-seal-500"
                 />
-                <span className="text-sm text-ink-700">双栏排版</span>
+                <span className="text-ui-sm text-ink-700">双栏排版</span>
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-ink-700">字号</span>
+                <span className="text-ui-sm text-ink-700">字号</span>
                 <input
                   type="number"
                   value={formFontSize}
                   onChange={(e) => setFormFontSize(Number(e.target.value))}
-                  className="w-16 px-2 py-1.5 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 text-sm"
+                  className="w-16 px-2 py-1.5 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 text-ui-sm"
                   min={8}
                   max={14}
                 />
-                <span className="text-sm text-ink-500">pt</span>
+                <span className="text-ui-sm text-ink-500">pt</span>
               </div>
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 宏包列表（每行一个）
               </label>
               <textarea
                 value={formPackages}
                 onChange={(e) => setFormPackages(e.target.value)}
                 placeholder="amsmath&#10;amssymb&#10;graphicx&#10;booktabs"
-                className="w-full h-24 px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono text-sm resize-y"
+                className="w-full h-24 px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono text-ui-sm resize-y"
                 spellCheck={false}
               />
             </div>
@@ -736,14 +736,14 @@ function JournalTemplatesPage() {
         </section>
 
         {/* 格式说明 */}
-        <section className="bg-paper-50 rounded-xl border border-ink-200 shadow-sm p-5">
+        <section className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-5">
           <h2 className="font-semibold text-ink-800 mb-4 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-seal-600" />
             格式说明（给排版 AI 看）
           </h2>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 标题格式说明
               </label>
               <input
@@ -751,11 +751,11 @@ function JournalTemplatesPage() {
                 value={formTitleNote}
                 onChange={(e) => setFormTitleNote(e.target.value)}
                 placeholder="标题大小写、字体、层级要求..."
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 摘要格式说明
               </label>
               <input
@@ -763,11 +763,11 @@ function JournalTemplatesPage() {
                 value={formAbstractNote}
                 onChange={(e) => setFormAbstractNote(e.target.value)}
                 placeholder="摘要位置、字数限制、格式..."
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 参考文献格式说明
               </label>
               <input
@@ -775,30 +775,30 @@ function JournalTemplatesPage() {
                 value={formRefNote}
                 onChange={(e) => setFormRefNote(e.target.value)}
                 placeholder="排序方式、编号格式、缩写规则..."
-                className="w-full px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 自定义前置代码 (preamble)
               </label>
               <textarea
                 value={formCustomPreamble}
                 onChange={(e) => setFormCustomPreamble(e.target.value)}
                 placeholder="% 特殊宏包定义、命令重定义等..."
-                className="w-full h-20 px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono text-sm resize-y"
+                className="w-full h-20 px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 font-mono text-ui-sm resize-y"
                 spellCheck={false}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-700 mb-1.5">
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                 备注
               </label>
               <textarea
                 value={formNotes}
                 onChange={(e) => setFormNotes(e.target.value)}
                 placeholder="个人备注、特殊注意事项..."
-                className="w-full h-16 px-3 py-2 border border-ink-300 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 text-sm resize-y"
+                className="w-full h-16 px-ui-gap py-2 border border-ink-300 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 text-ui-sm resize-y"
               />
             </div>
           </div>
@@ -808,14 +808,14 @@ function JournalTemplatesPage() {
         <div className="flex items-center justify-between">
           <button
             onClick={() => setView('list')}
-            className="flex items-center gap-1.5 px-4 py-2 text-ink-600 hover:text-ink-800 hover:bg-ink-100 rounded-lg transition"
+            className="flex items-center gap-1.5 px-ui-gap py-2 text-ink-600 hover:text-ink-800 hover:bg-ink-100 rounded-control transition"
           >
             <X className="w-4 h-4" />
             取消
           </button>
           <button
             onClick={view === 'create' ? handleCreate : handleUpdate}
-            className="flex items-center gap-1.5 px-6 py-2.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-lg font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-lg shadow-seal-200"
+            className="flex items-center gap-1.5 px-6 py-2.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-lg shadow-seal-200"
           >
             <Save className="w-4 h-4" />
             保存模板

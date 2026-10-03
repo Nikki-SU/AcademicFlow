@@ -346,16 +346,16 @@ export default function RecorderBall() {
     >
       {expanded && (
         <div
-          className={`max-w-full overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-lift ${
+          className={`max-w-full overflow-hidden rounded-card border border-ink-200 bg-paper-50 shadow-lift ${
             pipWindow ? 'w-full' : 'w-80'
           }`}
         >
-          <div className="flex items-center justify-between border-b border-ink-100 px-3 py-2">
-            <span className="text-xs font-semibold text-ink-700">
+          <div className="flex items-center justify-between border-b border-ink-100 px-ui-gap py-2">
+            <span className="text-ui-xs font-semibold text-ink-700">
               {isRecording ? '本轮转写' : '采集'}
             </span>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-ink-400">
+              <span className="text-ui-xs text-ink-400">
                 {isRecording ? `${segments.length} 条` : '归到「当前任务」'}
               </span>
               {/* 弹出为「始终置顶」悬浮窗：切到别的标签页 / 别的网站也照样录音、照样看得见 */}
@@ -366,7 +366,7 @@ export default function RecorderBall() {
                       type="button"
                       onClick={toggleExpanded}
                       title="收起为小球"
-                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
+                      className="flex items-center gap-1 rounded-control-sm px-1.5 py-0.5 text-ui-xs font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
                       收起为球
@@ -375,7 +375,7 @@ export default function RecorderBall() {
                       type="button"
                       onClick={closePip}
                       title="收回页面"
-                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
+                      className="flex items-center gap-1 rounded-control-sm px-1.5 py-0.5 text-ui-xs font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
                     >
                       <Minimize2 className="h-3.5 w-3.5" />
                       收回
@@ -386,7 +386,7 @@ export default function RecorderBall() {
                     type="button"
                     onClick={() => void openPip(true)}
                     title="弹出为悬浮窗：切到别的标签页 / 别的网站也能继续录音"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-seal-600 transition hover:bg-seal-50"
+                    className="flex items-center gap-1 rounded-control-sm px-1.5 py-0.5 text-ui-xs font-medium text-seal-600 transition hover:bg-seal-50"
                   >
                     <PictureInPicture2 className="h-3.5 w-3.5" />
                     悬浮窗
@@ -397,23 +397,23 @@ export default function RecorderBall() {
 
           {/* 录音中：实时转写列表 */}
           {isRecording && (
-            <div className="max-h-72 overflow-y-auto px-3 py-2">
+            <div className="max-h-72 overflow-y-auto px-ui-gap py-2">
               {segments.length === 0 ? (
-                <p className="py-6 text-center text-xs text-ink-400">等待第一片转写…</p>
+                <p className="py-6 text-center text-ui-xs text-ink-400">等待第一片转写…</p>
               ) : (
                 <ul className="space-y-3">
                   {segments.map((seg) => (
                     <li key={seg.id} className="border-b border-ink-100 pb-2 last:border-0">
-                      <div className="flex items-center gap-2 text-[11px]">
+                      <div className="flex items-center gap-2 text-ui-xs">
                         <span className="font-mono text-ink-400">{formatClock(seg.at)}</span>
-                        <span className="rounded bg-seal-50 px-1.5 py-0.5 text-[10px] font-medium text-seal-700">
+                        <span className="rounded-control-sm bg-seal-50 px-1.5 py-0.5 text-ui-2xs font-medium text-seal-700">
                           {langLabel(seg.language)}
                         </span>
                       </div>
                       {/* 原文一块、译文一块（同文献页）：原文始终保留，译文另起一段 */}
-                      <p className="mt-1 text-sm leading-snug text-ink-800">{seg.text}</p>
+                      <p className="mt-1 text-ui-sm leading-snug text-ink-800">{seg.text}</p>
                       {seg.translation && (
-                        <p className="mt-1 border-l-2 border-seal-300 bg-seal-50/30 py-0.5 pl-2 pr-1.5 text-sm leading-snug text-ink-700">
+                        <p className="mt-1 border-l-2 border-seal-300 bg-seal-50/30 py-0.5 pl-2 pr-1.5 text-ui-sm leading-snug text-ink-700">
                           {seg.translation}
                         </p>
                       )}
@@ -426,7 +426,7 @@ export default function RecorderBall() {
 
           {/* 未录音：简短说明 */}
           {!isRecording && (
-            <p className="px-3 py-2.5 text-xs text-ink-500">
+            <p className="px-ui-gap py-2.5 text-ui-xs text-ink-500">
               录音与拍照都会归到「当前任务」下，随时可切走。
             </p>
           )}
@@ -437,7 +437,7 @@ export default function RecorderBall() {
               type="button"
               onClick={handleRecordToggle}
               disabled={isBusy}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-paper-50 transition disabled:opacity-60 ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-control px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition disabled:opacity-60 ${
                 isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-seal-600 hover:bg-seal-700'
               }`}
             >
@@ -455,7 +455,7 @@ export default function RecorderBall() {
               onClick={handlePickPhoto}
               disabled={uploading}
               title="打开相机拍照，拍完归到当前任务"
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 transition hover:bg-paper-100 disabled:opacity-60"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-control border border-ink-200 px-ui-gap py-2 text-ui-sm font-medium text-ink-700 transition hover:bg-paper-100 disabled:opacity-60"
             >
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
               {uploading ? '上传中…' : '拍照'}
@@ -468,7 +468,7 @@ export default function RecorderBall() {
             <button
               type="button"
               onClick={() => setGuideOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
+              className="flex w-full items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
             >
               <ShieldCheck className="h-3.5 w-3.5 text-seal-500" />
               防休眠说明
@@ -478,7 +478,7 @@ export default function RecorderBall() {
               />
             </button>
             {guideOpen && (
-              <div className="space-y-2.5 border-t border-ink-100 bg-paper-100/60 px-3 py-2.5 text-[11px] leading-relaxed text-ink-600">
+              <div className="space-y-2.5 border-t border-ink-100 bg-paper-100/60 px-ui-gap py-2.5 text-ui-xs leading-relaxed text-ink-600">
                 <p>
                   <span className="font-medium text-ink-700">已内建保活：</span>
                   录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。
@@ -497,7 +497,7 @@ export default function RecorderBall() {
                 <button
                   type="button"
                   onClick={() => void handleCopySite()}
-                  className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-paper-50 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
+                  className="flex items-center gap-1.5 rounded-control-sm border border-ink-200 bg-paper-50 px-2 py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
                 >
                   {copiedSite ? (
                     <Check className="h-3.5 w-3.5 text-green-600" />
@@ -529,7 +529,7 @@ export default function RecorderBall() {
               <span className="absolute h-2.5 w-2.5 animate-ping rounded-full bg-paper-50 opacity-75" />
               <span className="h-2.5 w-2.5 rounded-full bg-paper-50" />
             </span>
-            <span className="font-mono text-[10px] leading-none tabular-nums">{compactElapsed(elapsed)}</span>
+            <span className="font-mono text-ui-2xs leading-none tabular-nums">{compactElapsed(elapsed)}</span>
           </button>
         ) : (
           <button
@@ -553,9 +553,9 @@ export default function RecorderBall() {
             <span className="absolute h-3 w-3 animate-ping rounded-full bg-paper-50 opacity-75" />
             <span className="h-3 w-3 rounded-full bg-paper-50" />
           </span>
-          <span className="font-mono text-sm tabular-nums">{formatElapsed(elapsed)}</span>
+          <span className="font-mono text-ui-sm tabular-nums">{formatElapsed(elapsed)}</span>
           {latest && (
-            <span className="hidden max-w-[10rem] truncate text-xs text-paper-100 sm:block">
+            <span className="hidden max-w-[10rem] truncate text-ui-xs text-paper-100 sm:block">
               {latest}
             </span>
           )}
@@ -574,7 +574,7 @@ export default function RecorderBall() {
       )}
 
       {error && (
-        <span className="max-w-xs truncate rounded bg-red-50 px-2 py-0.5 text-[11px] text-red-600">
+        <span className="max-w-xs truncate rounded-control-sm bg-red-50 px-2 py-0.5 text-ui-xs text-red-600">
           {error}
         </span>
       )}
@@ -586,7 +586,7 @@ export default function RecorderBall() {
           onClick={() => void handleRetryPending()}
           disabled={retrying}
           title="音频仍在内存中，重试后会把新转出的内容补写进私库；重试前别关页面"
-          className="flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1.5 text-[11px] font-medium text-paper-50 shadow-lift transition hover:bg-amber-600 disabled:opacity-60"
+          className="flex items-center gap-1.5 rounded-full bg-amber-500 px-ui-gap py-1.5 text-ui-xs font-medium text-paper-50 shadow-lift transition hover:bg-amber-600 disabled:opacity-60"
         >
           {retrying ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

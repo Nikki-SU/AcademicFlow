@@ -517,13 +517,13 @@ export default function ConnectivityPanel() {
           type="button"
           onClick={runAll}
           disabled={allTesting || !isInitialized}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-seal-400 bg-seal-50 text-seal-700 rounded-md
+          className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm font-medium border border-seal-400 bg-seal-50 text-seal-700 rounded-control-sm
                      hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
         >
           {allTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
           {allTesting ? '全部测试中...' : '🔌 全部测试'}
         </button>
-        <span className="text-xs text-ink-500">
+        <span className="text-ui-xs text-ink-500">
           {greenCount} / 4 通过 · dispatch 目标:{owner}/{repo}
         </span>
       </div>
@@ -586,7 +586,7 @@ export default function ConnectivityPanel() {
           <img
             src={SIMPLETEX_SAMPLE_DATA_URL}
             alt="内置公式样张"
-            className="h-10 rounded border border-ink-200 bg-white px-1 py-0.5 shrink-0"
+            className="h-10 rounded-control-sm border border-ink-200 bg-white px-1 py-0.5 shrink-0"
           />
           <div className="flex-1 min-w-0">
             <StepTimeline steps={stSteps} />
@@ -594,7 +594,7 @@ export default function ConnectivityPanel() {
         </div>
 
         {stLatex && (
-          <div className="rounded-md border border-green-200 bg-green-50 p-2.5 text-[11px] space-y-1">
+          <div className="rounded-control-sm border border-green-200 bg-green-50 p-2.5 text-ui-xs space-y-1">
             <div className="flex items-center gap-1.5 text-green-800 font-semibold">
               <CheckCircle2 className="w-3.5 h-3.5" />
               SimpleTex 返回的 LaTeX（和左边样张对一眼）
@@ -606,7 +606,7 @@ export default function ConnectivityPanel() {
         )}
 
         {stError && (
-          <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-[11px] text-red-700">
+          <div className="rounded-control-sm border border-red-200 bg-red-50 p-2.5 text-ui-xs text-red-700">
             <span className="font-semibold">识别失败：</span>
             {stError}
           </div>
@@ -641,24 +641,24 @@ function TestBlock(props: {
   }
   const toneBadge: Record<BlockTone, React.ReactNode> = {
     idle:    null,
-    running: <span className="text-[10px] px-1.5 py-0.5 rounded bg-seal-100 text-seal-700 font-medium">测试中</span>,
-    ok:      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">✅ 通过</span>,
-    warn:    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">⚠️ 警告</span>,
-    err:     <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">❌ 失败</span>,
+    running: <span className="text-ui-2xs px-1.5 py-0.5 rounded-control-sm bg-seal-100 text-seal-700 font-medium">测试中</span>,
+    ok:      <span className="text-ui-2xs px-1.5 py-0.5 rounded-control-sm bg-green-100 text-green-700 font-medium">✅ 通过</span>,
+    warn:    <span className="text-ui-2xs px-1.5 py-0.5 rounded-control-sm bg-amber-100 text-amber-700 font-medium">⚠️ 警告</span>,
+    err:     <span className="text-ui-2xs px-1.5 py-0.5 rounded-control-sm bg-red-100 text-red-700 font-medium">❌ 失败</span>,
   }
 
   return (
-    <div className={`rounded-md border p-3 space-y-2 ${toneClasses[props.tone]}`}>
+    <div className={`rounded-control-sm border p-3 space-y-2 ${toneClasses[props.tone]}`}>
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <div className="flex items-start gap-2">
           <span className="mt-0.5 text-ink-500">{props.icon}</span>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-ink-800">{props.title}</span>
+              <span className="text-ui-sm font-medium text-ink-800">{props.title}</span>
               {toneBadge[props.tone]}
             </div>
             {props.subtitle && (
-              <p className="text-[11px] text-ink-500 mt-0.5">{props.subtitle}</p>
+              <p className="text-ui-xs text-ink-500 mt-0.5">{props.subtitle}</p>
             )}
           </div>
         </div>
@@ -666,7 +666,7 @@ function TestBlock(props: {
           type="button"
           onClick={props.onButton}
           disabled={props.buttonDisabled}
-          className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-seal-300 bg-seal-50 text-seal-700
+          className="flex items-center gap-1 px-2 py-0.5 text-ui-xs rounded-control-sm border border-seal-300 bg-seal-50 text-seal-700
                      hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
         >
           {props.buttonLabel}
@@ -735,7 +735,7 @@ function StepTimeline({ steps }: { steps: Step[] }) {
               {connector && <div className={`w-px h-4 ${connector}`} />}
             </div>
             <div className="flex-1 min-w-0 pb-1">
-              <div className={`text-[11px] leading-tight ${statusColor(s.status)}`}>
+              <div className={`text-ui-xs leading-tight ${statusColor(s.status)}`}>
                 {s.label}
                 {s.detail && (
                   <span className="ml-1 text-ink-400 font-normal">{s.detail}</span>
@@ -754,14 +754,14 @@ function StepTimeline({ steps }: { steps: Step[] }) {
 function GitHubReportDetail({ report }: { report: FullConnectivityReport }) {
   return (
     <>
-      <div className="flex items-center gap-4 text-[12px] font-mono">
+      <div className="flex items-center gap-4 text-ui-xs font-mono">
         <ModeDot label="Header 模式" ok={report.headerModeOk} />
         <ModeDot label="Query 模式" ok={report.queryModeOk} />
       </div>
-      <div className="border border-ink-200 rounded-md bg-paper-100 overflow-hidden">
-        <div className="divide-y divide-ink-200 text-[11px] font-mono">
+      <div className="border border-ink-200 rounded-control-sm bg-paper-100 overflow-hidden">
+        <div className="divide-y divide-ink-200 text-ui-xs font-mono">
           {report.endpoints.map((ep) => (
-            <div key={ep.key} className="flex items-center gap-2 px-3 py-1.5">
+            <div key={ep.key} className="flex items-center gap-2 px-ui-gap py-1.5">
               <span className="w-4 text-center shrink-0">
                 {ep.ok ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}
               </span>
@@ -776,7 +776,7 @@ function GitHubReportDetail({ report }: { report: FullConnectivityReport }) {
             </div>
           ))}
         </div>
-        <div className="px-3 py-1.5 bg-paper-50 border-t border-ink-200 text-[11px] text-ink-600">
+        <div className="px-ui-gap py-1.5 bg-paper-50 border-t border-ink-200 text-ui-xs text-ink-600">
           {report.summary}
         </div>
       </div>
@@ -835,7 +835,7 @@ function ResultCard(props: {
   const body = props.tone === 'ok' ? 'text-green-600' : 'text-red-600'
 
   return (
-    <div className={`rounded-md border p-2.5 text-[11px] ${outer}`}>
+    <div className={`rounded-control-sm border p-2.5 text-ui-xs ${outer}`}>
       <div className="flex items-start gap-2">
         <span className="mt-0.5">
           {props.tone === 'ok'

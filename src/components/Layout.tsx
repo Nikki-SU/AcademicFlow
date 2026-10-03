@@ -84,7 +84,7 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-2 py-1 rounded-md bg-paper-100 hover:bg-ink-100 transition"
+        className="flex items-center gap-2 px-2 py-1 rounded-control-sm bg-paper-100 hover:bg-ink-100 transition"
       >
         <div
           className="w-6 h-6 rounded-full bg-paper-100 border border-ink-200 flex items-center justify-center text-[14px] leading-none shrink-0"
@@ -93,9 +93,9 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
           🕊️
         </div>
         {orientation === 'landscape' && (
-          <span className="text-xs text-ink-600">@{user?.login}</span>
+          <span className="text-ui-xs text-ink-600">@{user?.login}</span>
         )}
-        <div className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+        <div className={`px-1.5 py-0.5 rounded-control-sm text-ui-xs font-medium ${
           isExpiringSoon && daysUntilExpire !== null && daysUntilExpire >= 0
             ? 'bg-red-100 text-red-700'
             : daysUntilExpire !== null && daysUntilExpire < 0
@@ -105,7 +105,7 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
           {'PAT'}
         </div>
         {daysUntilExpire !== null && (
-          <span className={`text-xs ${isExpiringSoon && daysUntilExpire >= 0 ? 'text-red-600' : 'text-ink-400'}`}>
+          <span className={`text-ui-xs ${isExpiringSoon && daysUntilExpire >= 0 ? 'text-red-600' : 'text-ink-400'}`}>
             {daysUntilExpire >= 0 ? `(${daysUntilExpire}天)` : '(已过期)'}
           </span>
         )}
@@ -113,19 +113,19 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-paper-50 rounded-lg shadow-card border border-ink-200 py-1 z-50">
+        <div className="absolute right-0 top-full mt-1 w-48 bg-paper-50 rounded-control shadow-card border border-ink-200 py-1 z-50">
           <a
             href={authUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3 py-2 text-sm text-ink-600 hover:bg-paper-100"
+            className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-paper-100"
           >
             <ExternalLink className="w-4 h-4" />
             查看/管理 GitHub 授权
           </a>
           <button
             onClick={handleReLogin}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-ink-600 hover:bg-paper-100"
+            className="w-full flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-paper-100"
           >
             <RefreshCw className="w-4 h-4" />
             重新登录
@@ -133,7 +133,7 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
           <div className="border-t border-ink-100 my-1" />
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+            className="w-full flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-red-600 hover:bg-red-50"
           >
             <LogOut className="w-4 h-4" />
             登出
@@ -209,7 +209,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div className="h-screen bg-paper-100 flex flex-col overflow-hidden">
       {/* PAT 过期横幅 */}
       {showExpiryBanner && user && (
-        <div className={`px-4 py-2 text-sm flex items-center justify-center gap-2 ${
+        <div className={`px-ui-gap py-2 text-ui-sm flex items-center justify-center gap-2 ${
           daysUntilExpire < 0 ? 'bg-ink-200 text-ink-600' : 'bg-red-50 text-red-700'
         }`}>
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
@@ -244,7 +244,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <Link
                     key={tab.path}
                     to={tab.path}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition ${
+                    className={`flex items-center gap-1.5 px-ui-gap py-2 rounded-control-sm text-ui-sm font-medium whitespace-nowrap transition ${
                       isActive
                         ? 'bg-seal-50 text-seal-700'
                         : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
@@ -261,7 +261,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2 flex-shrink-0 ml-4">
               <Link
                 to="/settings"
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition ${
+                className={`flex items-center gap-1.5 px-ui-gap py-2 rounded-control-sm text-ui-sm font-medium transition ${
                   currentPath === '/settings'
                     ? 'bg-seal-50 text-seal-700'
                     : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
@@ -284,7 +284,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               ) : (
                 <Link
                   to="/auth"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-seal-600 hover:bg-seal-50 rounded-md transition"
+                  className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-xs font-medium text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
                 >
                   <User className="w-3.5 h-3.5" />
                   登录
@@ -306,15 +306,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* 全局 Token 失效 modal */}
       {authError && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink-900/50">
-          <div className="bg-paper-50 rounded-xl shadow-lift max-w-md w-full mx-4 p-6">
+          <div className="bg-paper-50 rounded-card shadow-lift max-w-md w-full mx-4 p-6">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-red-100 rounded-full">
                 <AlertTriangle className="w-5 h-5 text-red-600" />
               </div>
               <div className="flex-1">
                 <h3 className="text-lg font-semibold text-ink-800">GitHub 授权失败</h3>
-                <p className="mt-2 text-sm text-ink-600">{authError}</p>
-                <p className="mt-2 text-xs text-ink-500">
+                <p className="mt-2 text-ui-sm text-ink-600">{authError}</p>
+                <p className="mt-2 text-ui-xs text-ink-500">
                   在重新登录前，所有写入 GitHub 私库的操作已被冻结，防止数据丢失。
                 </p>
               </div>
@@ -329,13 +329,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={() => clearGlobalAuthError()}
-                className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+                className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
               >
                 稍后处理
               </button>
               <button
                 onClick={handleReLogin}
-                className="px-4 py-2 text-sm bg-seal-600 text-paper-50 hover:bg-seal-700 rounded-lg transition"
+                className="px-ui-gap py-2 text-ui-sm bg-seal-600 text-paper-50 hover:bg-seal-700 rounded-control transition"
               >
                 重新登录
               </button>

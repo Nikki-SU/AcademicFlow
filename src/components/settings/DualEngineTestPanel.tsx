@@ -431,7 +431,7 @@ function DualEngineTestPanel() {
 
       {/* 源材料输入 */}
       <div>
-        <label className="flex items-center gap-1.5 text-sm font-medium text-ink-700 mb-1.5">
+        <label className="flex items-center gap-1.5 text-ui-sm font-medium text-ink-700 mb-1.5">
           <FileText className="w-4 h-4 text-seal-600" />
           源材料（ground truth · AI-1 只能基于这段做总结）
         </label>
@@ -440,7 +440,7 @@ function DualEngineTestPanel() {
           onChange={(e) => setSourceMaterial(e.target.value)}
           disabled={isRunningDualEngine}
           rows={7}
-          className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md
+          className="w-full px-ui-gap py-2 text-ui-sm border border-ink-300 rounded-control-sm
                      focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent
                      disabled:bg-paper-100 disabled:cursor-not-allowed font-mono leading-relaxed"
           placeholder="粘贴一段源材料（文献段落、教材原文、网页正文等），AI-1 将仅基于这段做总结"
@@ -449,7 +449,7 @@ function DualEngineTestPanel() {
 
       {/* AI-1 指令输入 */}
       <div>
-        <label className="flex items-center gap-1.5 text-sm font-medium text-ink-700 mb-1.5">
+        <label className="flex items-center gap-1.5 text-ui-sm font-medium text-ink-700 mb-1.5">
           <BookOpenCheck className="w-4 h-4 text-seal-600" />
           给 AI-1 的指令
         </label>
@@ -458,13 +458,13 @@ function DualEngineTestPanel() {
           onChange={(e) => setAi1Instruction(e.target.value)}
           disabled={isRunningDualEngine}
           rows={2}
-          className="w-full px-3 py-2 text-sm border border-ink-300 rounded-md
+          className="w-full px-ui-gap py-2 text-ui-sm border border-ink-300 rounded-control-sm
                      focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent
                      disabled:bg-paper-100 disabled:cursor-not-allowed leading-relaxed"
           placeholder="如：用 2-3 句话总结上述材料"
         />
         <div className="flex items-center justify-between mt-1">
-          <p className="text-xs text-ink-500">
+          <p className="text-ui-xs text-ink-500">
             AI-1 <span className="font-mono">{displayAI1Model}</span> 生成 → AI-2{' '}
             <span className="font-mono">{displayAI2Model}</span> 核查忠实性（最多 5 轮）
           </p>
@@ -472,7 +472,7 @@ function DualEngineTestPanel() {
             type="button"
             onClick={useSample}
             disabled={isRunningDualEngine}
-            className="text-xs text-seal-600 hover:text-seal-800 disabled:text-ink-300"
+            className="text-ui-xs text-seal-600 hover:text-seal-800 disabled:text-ink-300"
           >
             使用示例
           </button>
@@ -488,8 +488,8 @@ function DualEngineTestPanel() {
           !sourceMaterial.trim() ||
           !ai1Instruction.trim()
         }
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-seal-600 text-paper-50
-                   text-sm font-semibold rounded-md hover:bg-seal-700 transition
+        className="w-full flex items-center justify-center gap-2 px-ui-gap py-2.5 bg-seal-600 text-paper-50
+                   text-ui-sm font-semibold rounded-control-sm hover:bg-seal-700 transition
                    disabled:bg-ink-300 disabled:cursor-not-allowed"
       >
         {isRunningDualEngine ? (
@@ -521,9 +521,9 @@ function DualEngineTestPanel() {
 
       {/* 错误分类顶部条（真·异常，非"5 轮未通过"） */}
       {lastError && (
-        <div className={`p-3 rounded-md border ${lastError.color}`}>
-          <div className="font-semibold text-sm mb-1">{lastError.title}</div>
-          <div className="text-xs leading-relaxed break-words">
+        <div className={`p-3 rounded-control-sm border ${lastError.color}`}>
+          <div className="font-semibold text-ui-sm mb-1">{lastError.title}</div>
+          <div className="text-ui-xs leading-relaxed break-words">
             {lastError.detail}
           </div>
           {lastError.cta && (
@@ -531,7 +531,7 @@ function DualEngineTestPanel() {
               href={lastError.cta.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 mt-2 text-xs font-medium underline hover:no-underline"
+              className="inline-flex items-center gap-1 mt-2 text-ui-xs font-medium underline hover:no-underline"
             >
               {lastError.cta.text}
               <ExternalLink className="w-3 h-3" />
@@ -542,14 +542,14 @@ function DualEngineTestPanel() {
 
       {/* M3.6: 5 轮反复纠错仍未通过 —— 红色显著横幅 */}
       {showFinalFailureBanner && result.attempts.length >= result.maxAttempts && (
-        <div className="p-3 rounded-md border-2 border-red-400 bg-red-50">
+        <div className="p-3 rounded-control-sm border-2 border-red-400 bg-red-50">
           <div className="flex items-start gap-2">
             <XCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-red-900 leading-relaxed">
+            <div className="text-ui-sm text-red-900 leading-relaxed">
               <div className="font-semibold mb-1">
                 ❌ 双引擎 {result.attempts.length}/{result.maxAttempts} 轮反复纠错后仍未通过
               </div>
-              <div className="text-xs leading-relaxed">
+              <div className="text-ui-xs leading-relaxed">
                 AI-1 和 AI-2 都参与了纠错但收敛不到"忠实性通过"。可能原因：源材料存在歧义、AI-1
                 持续加戏、AI-2 引证能力受模型能力限制。<b>下面展示的是第 {result.attempts.length} 轮（最后一版）结果</b>，请人工复核，或换更强的模型重试。
               </div>
@@ -562,9 +562,9 @@ function DualEngineTestPanel() {
       {ai1OutputToShow && (
         <details
           open
-          className="border border-ink-200 rounded-md overflow-hidden"
+          className="border border-ink-200 rounded-control-sm overflow-hidden"
         >
-          <summary className="cursor-pointer px-3 py-2 bg-paper-100 hover:bg-ink-100 text-sm font-medium text-ink-800 flex items-center gap-2">
+          <summary className="cursor-pointer px-ui-gap py-2 bg-paper-100 hover:bg-ink-100 text-ui-sm font-medium text-ink-800 flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-seal-600" />
             AI-1 总结（{ai1ModelToShow}
             {result && result.attempts.length > 1 && showResult
@@ -573,7 +573,7 @@ function DualEngineTestPanel() {
             ）
             {(stage === 'ai2_running' ||
               stage === 'ai2_self_correct_running') && (
-              <span className="ml-auto flex items-center gap-1 text-xs font-normal text-seal-600">
+              <span className="ml-auto flex items-center gap-1 text-ui-xs font-normal text-seal-600">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 {stage === 'ai2_self_correct_running'
                   ? 'AI-2 自纠中…'
@@ -581,7 +581,7 @@ function DualEngineTestPanel() {
               </span>
             )}
           </summary>
-          <pre className="p-3 text-xs bg-paper-50 text-ink-800 whitespace-pre-wrap leading-relaxed max-h-[25rem] overflow-y-auto">
+          <pre className="p-3 text-ui-xs bg-paper-50 text-ink-800 whitespace-pre-wrap leading-relaxed max-h-[25rem] overflow-y-auto">
             {ai1OutputToShow}
           </pre>
         </details>
@@ -591,7 +591,7 @@ function DualEngineTestPanel() {
       {showResult && (
         <div className="space-y-3">
           {/* 概览条 */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2 bg-paper-100 border border-ink-200 rounded-md text-xs">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-ui-gap py-2 bg-paper-100 border border-ink-200 rounded-control-sm text-ui-xs">
             <div className="flex items-center gap-1">
               <span className="text-ink-600">AI-1</span>
               <span className="font-mono text-ink-800">
@@ -629,9 +629,9 @@ function DualEngineTestPanel() {
 
           {/* 引证不实警告（仅当最新一轮引证仍失败） */}
           {evidence && !evidence.ok && (
-            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-control-sm">
               <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-red-800 leading-relaxed">
+              <div className="text-ui-xs text-red-800 leading-relaxed">
                 <div className="font-semibold mb-0.5">
                   ⚠️ AI-2 引证不实（{evidence.failedIndices.length}/
                   {evidence.checked} 条 source_span 无法在源材料中找到）
@@ -645,9 +645,9 @@ function DualEngineTestPanel() {
           {/* AI-2 核查（最新一轮） */}
           <details
             open
-            className="border border-ink-200 rounded-md overflow-hidden"
+            className="border border-ink-200 rounded-control-sm overflow-hidden"
           >
-            <summary className="cursor-pointer px-3 py-2 bg-paper-100 hover:bg-ink-100 text-sm font-medium text-ink-800 flex items-center gap-2">
+            <summary className="cursor-pointer px-ui-gap py-2 bg-paper-100 hover:bg-ink-100 text-ui-sm font-medium text-ink-800 flex items-center gap-2">
               {result.ai2Feedback.passed ? (
                 <CheckCircle className="w-4 h-4 text-green-600" />
               ) : (
@@ -665,12 +665,12 @@ function DualEngineTestPanel() {
             </summary>
             <div className="p-3 space-y-2 bg-paper-50">
               {result.ai2Feedback.summary && (
-                <div className="p-2 bg-paper-100 border-l-2 border-seal-400 text-xs text-ink-700 leading-relaxed">
+                <div className="p-2 bg-paper-100 border-l-2 border-seal-400 text-ui-xs text-ink-700 leading-relaxed">
                   {result.ai2Feedback.summary}
                 </div>
               )}
               {claims.length === 0 ? (
-                <div className="flex items-center gap-2 text-sm text-ink-600">
+                <div className="flex items-center gap-2 text-ui-sm text-ink-600">
                   <AlertTriangle className="w-4 h-4 text-orange-500" />
                   AI-2 未返回可解析的 claims（查看下方原始输出）
                 </div>
@@ -687,32 +687,32 @@ function DualEngineTestPanel() {
                     return (
                       <li
                         key={idx}
-                        className="p-2 border border-ink-200 rounded space-y-1.5"
+                        className="p-2 border border-ink-200 rounded-control-sm space-y-1.5"
                       >
                         <div className="flex items-start gap-2">
                           <span
-                            className={`shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs font-mono border rounded ${style.color}`}
+                            className={`shrink-0 flex items-center gap-1 px-2 py-0.5 text-ui-xs font-mono border rounded-control-sm ${style.color}`}
                           >
                             {style.icon}
                             {style.label}
                           </span>
-                          <span className="text-xs text-ink-800 leading-relaxed font-medium">
+                          <span className="text-ui-xs text-ink-800 leading-relaxed font-medium">
                             {renderClaimText(c.claim)}
                           </span>
                         </div>
                         {c.explanation && (
-                          <div className="text-xs text-ink-600 pl-1 leading-relaxed">
+                          <div className="text-ui-xs text-ink-600 pl-1 leading-relaxed">
                             {renderClaimText(c.explanation)}
                           </div>
                         )}
                         {needsSpan && (
-                          <div className="flex items-start gap-1.5 text-xs pl-1">
+                          <div className="flex items-start gap-1.5 text-ui-xs pl-1">
                             {evidenceFailed ? (
-                              <span className="shrink-0 px-1.5 py-0.5 bg-red-100 text-red-700 border border-red-300 rounded font-mono">
+                              <span className="shrink-0 px-1.5 py-0.5 bg-red-100 text-red-700 border border-red-300 rounded-control-sm font-mono">
                                 引证 ❌ 不实
                               </span>
                             ) : (
-                              <span className="shrink-0 px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded font-mono">
+                              <span className="shrink-0 px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded-control-sm font-mono">
                                 引证 ✅ 命中
                               </span>
                             )}
@@ -733,8 +733,8 @@ function DualEngineTestPanel() {
               {/* omitted 提示区：源材料里有、AI-1 没写的内容。
                   只作参考，不算问题、不影响通过（总结天然有损，漏内容本身不是错）。 */}
               {omittedCount > 0 && (
-                <div className="p-2 border border-ink-200 rounded bg-paper-100">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-ink-600 mb-1">
+                <div className="p-2 border border-ink-200 rounded-control-sm bg-paper-100">
+                  <div className="flex items-center gap-1.5 text-ui-xs font-medium text-ink-600 mb-1">
                     <ClipboardList className="w-3.5 h-3.5" />
                     源材料中未被覆盖的内容（{omittedCount} 条 · 仅供参考，不影响通过）
                   </div>
@@ -743,7 +743,7 @@ function DualEngineTestPanel() {
                       c.verdict !== 'omitted' ? null : (
                         <li
                           key={idx}
-                          className="text-xs text-ink-600 leading-relaxed flex items-start gap-1.5"
+                          className="text-ui-xs text-ink-600 leading-relaxed flex items-start gap-1.5"
                         >
                           <span className="shrink-0 font-mono text-ink-400">○</span>
                           <span className="break-words">
@@ -762,11 +762,11 @@ function DualEngineTestPanel() {
                 </div>
               )}
               {/* 原始 JSON */}
-              <details className="text-xs text-ink-500">
+              <details className="text-ui-xs text-ink-500">
                 <summary className="cursor-pointer hover:text-ink-700">
                   查看 AI-2 原始输出（JSON）
                 </summary>
-                <pre className="mt-1 p-2 bg-paper-100 border border-ink-200 rounded whitespace-pre-wrap font-mono max-h-[12.5rem] overflow-y-auto">
+                <pre className="mt-1 p-2 bg-paper-100 border border-ink-200 rounded-control-sm whitespace-pre-wrap font-mono max-h-[12.5rem] overflow-y-auto">
                   {result.ai2RawOutput}
                 </pre>
               </details>
@@ -783,11 +783,11 @@ function DualEngineTestPanel() {
           {/* 未通过提示（非 5 轮全失败场景 —— 5 轮场景由上方红色横幅覆盖） */}
           {!result.finalPassed &&
             result.attempts.length < result.maxAttempts && (
-              <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-md">
+              <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-control-sm">
                 <XCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-orange-800 leading-relaxed">
+                <div className="text-ui-xs text-orange-800 leading-relaxed">
                   双引擎未通过审阅。按 SPEC §9.2 设计，M4 起 AI 结果将只放入
-                  <code className="mx-1 px-1 py-0.5 bg-orange-100 rounded">
+                  <code className="mx-1 px-1 py-0.5 bg-orange-100 rounded-control-sm">
                     :::ai-output
                   </code>
                   折叠块由用户 review，不自动合并到笔记正文。

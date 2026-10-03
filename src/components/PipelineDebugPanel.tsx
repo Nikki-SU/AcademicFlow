@@ -35,26 +35,26 @@ function StageRow({ stage, index }: { stage: StageTrace; index: number }) {
     stage.error ? '❌' : stage.passed === false ? '⚠️' : stage.passed === true ? '✅' : '⏱️'
 
   return (
-    <div className="border border-ink-200 rounded-lg bg-paper-50 overflow-hidden">
+    <div className="border border-ink-200 rounded-control bg-paper-50 overflow-hidden">
       {/* 标题行 */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-paper-100 transition-colors text-left"
+        className="w-full flex items-center gap-3 px-ui-gap py-2.5 hover:bg-paper-100 transition-colors text-left"
       >
-        <span className="text-xs font-mono text-ink-400 w-5">#{index + 1}</span>
+        <span className="text-ui-xs font-mono text-ink-400 w-5">#{index + 1}</span>
         <span className="text-base">{statusIcon}</span>
         <span className="font-medium text-ink-800 flex-1">{stage.label}</span>
         {stage.aiEngine && (
-          <span className={`text-[10px] px-2 py-0.5 rounded border ${engineCls}`}>
+          <span className={`text-ui-2xs px-2 py-0.5 rounded-control-sm border ${engineCls}`}>
             {stage.aiEngine}
           </span>
         )}
         {stage.aiModel && (
-          <span className="text-[0.625rem] text-ink-500 font-mono max-w-[7.5rem] truncate">
+          <span className="text-ui-2xs text-ink-500 font-mono max-w-[7.5rem] truncate">
             {stage.aiModel}
           </span>
         )}
-        <span className="text-xs text-ink-500 font-mono tabular-nums w-14 text-right">
+        <span className="text-ui-xs text-ink-500 font-mono tabular-nums w-14 text-right">
           {formatDuration(stage.durationMs)}
         </span>
         <span
@@ -68,11 +68,11 @@ function StageRow({ stage, index }: { stage: StageTrace; index: number }) {
       {expanded && (
         <div className="border-t border-ink-200 bg-paper-100/50">
           {/* Tab 切换 */}
-          <div className="flex gap-1 px-4 pt-3">
+          <div className="flex gap-1 px-ui-gap pt-3">
             {stage.prompt && (
               <button
                 onClick={() => setTab('prompt')}
-                className={`px-3 py-1 text-xs font-medium rounded-t ${
+                className={`px-ui-gap py-1 text-ui-xs font-medium rounded-t ${
                   tab === 'prompt'
                     ? 'bg-paper-50 text-ink-800 border border-ink-200 border-b-transparent'
                     : 'text-ink-500 hover:text-ink-700'
@@ -83,7 +83,7 @@ function StageRow({ stage, index }: { stage: StageTrace; index: number }) {
             )}
             <button
               onClick={() => setTab('input')}
-              className={`px-3 py-1 text-xs font-medium rounded-t ${
+              className={`px-ui-gap py-1 text-ui-xs font-medium rounded-t ${
                 tab === 'input'
                   ? 'bg-paper-50 text-ink-800 border border-ink-200 border-b-transparent'
                   : 'text-ink-500 hover:text-ink-700'
@@ -93,7 +93,7 @@ function StageRow({ stage, index }: { stage: StageTrace; index: number }) {
             </button>
             <button
               onClick={() => setTab('output')}
-              className={`px-3 py-1 text-xs font-medium rounded-t ${
+              className={`px-ui-gap py-1 text-ui-xs font-medium rounded-t ${
                 tab === 'output'
                   ? 'bg-paper-50 text-ink-800 border border-ink-200 border-b-transparent'
                   : 'text-ink-500 hover:text-ink-700'
@@ -104,21 +104,21 @@ function StageRow({ stage, index }: { stage: StageTrace; index: number }) {
           </div>
 
           {/* 内容 */}
-          <div className="px-4 pb-3 pt-2">
+          <div className="px-ui-gap pb-3 pt-2">
             {stage.error ? (
-              <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-700 font-mono whitespace-pre-wrap">
+              <div className="bg-red-50 border border-red-200 rounded-control-sm p-3 text-ui-sm text-red-700 font-mono whitespace-pre-wrap">
                 {stage.error}
               </div>
             ) : tab === 'prompt' ? (
-              <pre className="bg-ink-900 text-ink-100 rounded-md p-3 text-xs leading-relaxed overflow-auto max-h-96 whitespace-pre-wrap break-words font-mono">
+              <pre className="bg-ink-900 text-ink-100 rounded-control-sm p-3 text-ui-xs leading-relaxed overflow-auto max-h-96 whitespace-pre-wrap break-words font-mono">
                 {stage.prompt}
               </pre>
             ) : tab === 'input' ? (
-              <pre className="bg-paper-50 border border-ink-200 rounded-md p-3 text-xs leading-relaxed overflow-auto max-h-96 whitespace-pre-wrap break-words font-mono text-ink-700">
+              <pre className="bg-paper-50 border border-ink-200 rounded-control-sm p-3 text-ui-xs leading-relaxed overflow-auto max-h-96 whitespace-pre-wrap break-words font-mono text-ink-700">
                 {stage.inputPreview ?? '(无输入预览)'}
               </pre>
             ) : (
-              <pre className="bg-paper-50 border border-ink-200 rounded-md p-3 text-xs leading-relaxed overflow-auto max-h-96 whitespace-pre-wrap break-words font-mono text-ink-700">
+              <pre className="bg-paper-50 border border-ink-200 rounded-control-sm p-3 text-ui-xs leading-relaxed overflow-auto max-h-96 whitespace-pre-wrap break-words font-mono text-ink-700">
                 {stage.outputPreview ?? '(无输出预览)'}
               </pre>
             )}
@@ -150,7 +150,7 @@ function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () => void 
         <div className="mt-4">
           <button
             onClick={onBack}
-            className="text-seal-600 hover:underline text-sm"
+            className="text-seal-600 hover:underline text-ui-sm"
           >
             ← 返回列表
           </button>
@@ -172,18 +172,18 @@ function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () => void 
           <h3 className="text-lg font-semibold text-ink-800 truncate">
             {trace.title || trace.doi}
           </h3>
-          <div className="text-xs text-ink-500 font-mono mt-0.5">
+          <div className="text-ui-xs text-ink-500 font-mono mt-0.5">
             DOI: {trace.doi} · ID: {trace.id.slice(0, 8)} ·{' '}
             {new Date(trace.startedAt).toLocaleString()}
           </div>
         </div>
         <span
-          className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_BADGE[trace.status]?.cls}`}
+          className={`text-ui-xs px-2.5 py-1 rounded-full font-medium ${STATUS_BADGE[trace.status]?.cls}`}
         >
           {STATUS_BADGE[trace.status]?.label}
         </span>
         {trace.totalMs != null && (
-          <span className="text-xs text-ink-500 font-mono tabular-nums">
+          <span className="text-ui-xs text-ink-500 font-mono tabular-nums">
             总耗时 {formatDuration(trace.totalMs)}
           </span>
         )}
@@ -191,16 +191,16 @@ function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () => void 
 
       {/* 失败错误 */}
       {trace.error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-          <div className="text-xs font-semibold text-red-600 mb-1">❌ 失败原因</div>
-          <div className="text-sm text-red-800 font-mono">{trace.error}</div>
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-control px-ui-gap py-3">
+          <div className="text-ui-xs font-semibold text-red-600 mb-1">❌ 失败原因</div>
+          <div className="text-ui-sm text-red-800 font-mono">{trace.error}</div>
         </div>
       )}
 
       {/* 阶段列表 */}
       <div className="space-y-2">
         {trace.stages.length === 0 ? (
-          <div className="text-center py-10 text-ink-400 text-sm">
+          <div className="text-center py-10 text-ink-400 text-ui-sm">
             还没有阶段数据（可能刚开始运行）
           </div>
         ) : (
@@ -209,7 +209,7 @@ function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () => void 
       </div>
 
       {/* 汇总 */}
-      <div className="mt-4 flex items-center justify-between text-xs text-ink-400">
+      <div className="mt-4 flex items-center justify-between text-ui-xs text-ink-400">
         <span>{totalStages} 个阶段</span>
         <span>数据存储在浏览器 localStorage（key: af_pipeline_traces_v1）</span>
       </div>
@@ -250,7 +250,7 @@ export function PipelineDebugPanel() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-ink-800">🔧 Pipeline 调试看板</h2>
-          <p className="text-sm text-ink-500 mt-1">
+          <p className="text-ui-sm text-ink-500 mt-1">
             记录每次 PDF 转换的完整链路：每一步的 Prompt、输入、AI 输出、耗时
           </p>
         </div>
@@ -269,7 +269,7 @@ export function PipelineDebugPanel() {
                 clearAllTraces()
                 setRefreshKey((k) => k + 1)
               }}
-              className="text-xs text-red-500 hover:text-red-700 hover:underline"
+              className="text-ui-xs text-red-500 hover:text-red-700 hover:underline"
             >
               清空全部
             </button>
@@ -289,11 +289,11 @@ export function PipelineDebugPanel() {
               <div className="text-5xl mb-4 opacity-30">📋</div>
               <div className="text-ink-500 mb-3">还没有运行记录</div>
               <PdfQuickUploadButton onSuccess={handleUploadSuccess}>
-                <span className="flex items-center gap-2 px-4 py-2">
+                <span className="flex items-center gap-2 px-ui-gap py-2">
                   🧪 直接上传 PDF 跑一次测试
                 </span>
               </PdfQuickUploadButton>
-              <div className="text-xs text-ink-400 mt-4">
+              <div className="text-ui-xs text-ink-400 mt-4">
                 或去"管理"页上传，转换完成后这里会自动记录每个阶段
               </div>
             </div>
@@ -308,24 +308,24 @@ export function PipelineDebugPanel() {
                   <div
                     key={t.id}
                     onClick={() => setSelectedId(t.id)}
-                    className="border border-ink-200 rounded-lg p-4 hover:border-seal-300 hover:shadow-sm cursor-pointer transition-all bg-paper-50"
+                    className="border border-ink-200 rounded-control p-4 hover:border-seal-300 hover:shadow-sm cursor-pointer transition-all bg-paper-50"
                   >
                     <div className="flex items-center gap-4">
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${badge.cls}`}>
+                      <span className={`text-ui-xs px-2.5 py-1 rounded-full font-medium ${badge.cls}`}>
                         {badge.label}
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-ink-800 truncate">
                           {t.title || t.doi}
                         </div>
-                        <div className="text-xs text-ink-500 mt-0.5">
+                        <div className="text-ui-xs text-ink-500 mt-0.5">
                           {new Date(t.startedAt).toLocaleString()} ·{' '}
                           {t.stages.length} 阶段 · 最后: {latestLabel}
                           {hasFailedStages && <span className="text-red-500"> · 有报错</span>}
                         </div>
                       </div>
                       {t.totalMs != null && (
-                        <span className="text-xs text-ink-500 font-mono tabular-nums">
+                        <span className="text-ui-xs text-ink-500 font-mono tabular-nums">
                           {formatDuration(t.totalMs)}
                         </span>
                       )}
@@ -335,7 +335,7 @@ export function PipelineDebugPanel() {
                           deleteTrace(t.id)
                           setRefreshKey((k) => k + 1)
                         }}
-                        className="text-xs text-ink-400 hover:text-red-500 px-2"
+                        className="text-ui-xs text-ink-400 hover:text-red-500 px-2"
                       >
                         删除
                       </button>
@@ -346,7 +346,7 @@ export function PipelineDebugPanel() {
             </div>
           )}
 
-          <div className="mt-8 text-center text-xs text-ink-400">
+          <div className="mt-8 text-center text-ui-xs text-ink-400">
             最多保留最近 20 条 · 数据存在浏览器本地（localStorage）· 关闭浏览器不会丢
           </div>
         </div>

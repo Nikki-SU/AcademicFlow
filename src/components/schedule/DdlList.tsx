@@ -80,7 +80,7 @@ export function DdlList({
     const urgent = !gray && isDueSoon(p.dueAt, now)
     return (
       <div
-        className={`flex items-center gap-ui-gap rounded-lg border px-ui-gap py-ui-gap-sm transition ${
+        className={`flex items-center gap-ui-gap rounded-control border px-ui-gap py-ui-gap-sm transition ${
           gray
             ? 'border-ink-100 bg-paper-100 opacity-60 grayscale'
             : urgent
@@ -140,7 +140,7 @@ export function DdlList({
   )
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
       <div className="flex items-center gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
         <h2 className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800">
           <CalendarClock className="h-ui-icon w-ui-icon text-seal-600" />
@@ -161,7 +161,7 @@ export function DdlList({
                 type="button"
                 onClick={() => onNewRoot(t)}
                 title={`新建${t === 'research' ? '研究' : '课程'}任务`}
-                className="rounded p-0.5 text-ink-300 transition hover:bg-seal-50 hover:text-seal-600"
+                className="rounded-control-sm p-0.5 text-ink-300 transition hover:bg-seal-50 hover:text-seal-600"
               >
                 <Plus className="h-ui-icon-sm w-ui-icon-sm" />
               </button>

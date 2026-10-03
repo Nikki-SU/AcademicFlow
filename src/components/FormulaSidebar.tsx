@@ -170,7 +170,7 @@ function FormulaBoard({
       onMouseDown={onActivate}
     >
       {empty ? (
-        <span className="text-xs text-ink-400">
+        <span className="text-ui-xs text-ink-400">
           在下面的输入框里写公式：直接打字，或点底部的符号 / 结构
         </span>
       ) : (
@@ -519,16 +519,16 @@ export default function FormulaSidebar({
     >
       {/* 拖拽时的投放提示：pointer-events-none，别把 drop 事件挡掉 */}
       {dragOver && (
-        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center m-1 rounded-lg border-2 border-dashed border-seal-400 bg-seal-50/85">
-          <span className="text-xs font-medium text-seal-700">松手，把这张图识别成公式</span>
+        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center m-1 rounded-control border-2 border-dashed border-seal-400 bg-seal-50/85">
+          <span className="text-ui-xs font-medium text-seal-700">松手，把这张图识别成公式</span>
         </div>
       )}
       {/* 头部 */}
-      <div className="px-3 py-2 border-b border-ink-200 flex items-center justify-between bg-paper-50">
+      <div className="px-ui-gap py-2 border-b border-ink-200 flex items-center justify-between bg-paper-50">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setTab('create')}
-            className={`px-2.5 py-1 text-xs rounded-lg transition ${
+            className={`px-2.5 py-1 text-ui-xs rounded-control transition ${
               tab === 'create' ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
             }`}
           >
@@ -536,7 +536,7 @@ export default function FormulaSidebar({
           </button>
           <button
             onClick={() => setTab('find')}
-            className={`px-2.5 py-1 text-xs rounded-lg transition ${
+            className={`px-2.5 py-1 text-ui-xs rounded-control transition ${
               tab === 'find' ? 'bg-seal-100 text-seal-700 font-medium' : 'text-ink-500 hover:bg-ink-100'
             }`}
           >
@@ -545,7 +545,7 @@ export default function FormulaSidebar({
         </div>
         <button
           onClick={onClose}
-          className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded transition"
+          className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control-sm transition"
           title="关闭公式栏"
         >
           <X className="w-4 h-4" />
@@ -556,7 +556,7 @@ export default function FormulaSidebar({
         <>
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {editingIndex !== null && (
-              <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[0.6875rem] text-amber-700">
+              <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-control bg-amber-50 border border-amber-200 text-ui-xs text-amber-700">
                 <Pencil className="w-3.5 h-3.5 flex-shrink-0" />
                 <span className="min-w-0">
                   正在改正文第 {editingIndex + 1} 个公式
@@ -585,7 +585,7 @@ export default function FormulaSidebar({
                 <button
                   onClick={() => fileRef.current?.click()}
                   disabled={ocrLoading}
-                  className="flex-1 min-w-0 px-2 py-2 text-xs border border-dashed border-ink-300 rounded-lg text-ink-500 hover:border-seal-300 hover:text-seal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  className="flex-1 min-w-0 px-2 py-2 text-ui-xs border border-dashed border-ink-300 rounded-control text-ink-500 hover:border-seal-300 hover:text-seal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
                   title="选图片文件识别成公式（也可以直接截图后 Ctrl+V，或把图片拖进来）"
                 >
                   {ocrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
@@ -594,7 +594,7 @@ export default function FormulaSidebar({
                 <select
                   value={ocrModel}
                   onChange={(e) => setOcrModel(e.target.value as SimpleTexModel)}
-                  className="text-[0.6875rem] border border-ink-200 rounded px-1 py-1.5 bg-paper-50 text-ink-500"
+                  className="text-ui-xs border border-ink-200 rounded-control-sm px-1 py-1.5 bg-paper-50 text-ink-500"
                   title="识别精度 / 速度"
                 >
                   <option value="standard">标准</option>
@@ -602,9 +602,9 @@ export default function FormulaSidebar({
                 </select>
               </div>
               {/* 把「截图 → Ctrl+V」写在脸上：藏起来的快捷键等于没有 */}
-              <p className="mt-1 text-[0.6875rem] text-ink-400">
-                截图后直接 <kbd className="px-1 rounded border border-ink-200 bg-paper-50 text-ink-500">Ctrl</kbd>
-                +<kbd className="px-1 rounded border border-ink-200 bg-paper-50 text-ink-500">V</kbd>{' '}
+              <p className="mt-1 text-ui-xs text-ink-400">
+                截图后直接 <kbd className="px-1 rounded-control-sm border border-ink-200 bg-paper-50 text-ink-500">Ctrl</kbd>
+                +<kbd className="px-1 rounded-control-sm border border-ink-200 bg-paper-50 text-ink-500">V</kbd>{' '}
                 贴进来就能识别，也可以把图片拖到这块栏里
               </p>
             </div>
@@ -612,14 +612,14 @@ export default function FormulaSidebar({
             {/* 输入框 —— 唯一的编辑入口。看板只是它的渲染结果，别把编辑藏进「高级」里 */}
             <section>
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xs font-medium text-ink-600">输入框</span>
-                <span className="text-[0.6875rem] text-ink-400 truncate">直接打字，或点底部的符号 / 结构</span>
-                <div className="ml-auto flex rounded-lg border border-ink-200 overflow-hidden flex-shrink-0">
+                <span className="text-ui-xs font-medium text-ink-600">输入框</span>
+                <span className="text-ui-xs text-ink-400 truncate">直接打字，或点底部的符号 / 结构</span>
+                <div className="ml-auto flex rounded-control border border-ink-200 overflow-hidden flex-shrink-0">
                   {(['inline', 'block'] as const).map((k) => (
                     <button
                       key={k}
                       onClick={() => setKind(k)}
-                      className={`px-2.5 py-0.5 text-[0.6875rem] transition ${
+                      className={`px-2.5 py-0.5 text-ui-xs transition ${
                         kind === k ? 'bg-seal-600 text-paper-50' : 'bg-paper-50 text-ink-600 hover:bg-paper-100'
                       }`}
                     >
@@ -635,17 +635,17 @@ export default function FormulaSidebar({
                 rows={3}
                 spellCheck={false}
                 placeholder="\frac{\partial u}{\partial t} = \alpha \nabla^2 u"
-                className="w-full px-2 py-1.5 text-xs font-mono border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
+                className="w-full px-2 py-1.5 text-ui-xs font-mono border border-ink-200 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
               />
             </section>
 
             {/* 看板 = 真 KaTeX 渲染：与正文同一个引擎、同一个版本，所以「输入什么、看到什么」天生一致 */}
             <section>
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xs font-medium text-ink-600">公式</span>
-                <span className="text-[0.6875rem] text-ink-400 truncate">与插入正文后完全一致</span>
+                <span className="text-ui-xs font-medium text-ink-600">公式</span>
+                <span className="text-ui-xs text-ink-400 truncate">与插入正文后完全一致</span>
               </div>
-              <div className="af-formula-boardwrap rounded-lg border border-ink-200 bg-paper-50 px-2 py-3 cursor-text">
+              <div className="af-formula-boardwrap rounded-control border border-ink-200 bg-paper-50 px-2 py-3 cursor-text">
                 <FormulaBoard tex={tex} display={kind === 'block'} onActivate={focusSource} />
               </div>
             </section>
@@ -655,7 +655,7 @@ export default function FormulaSidebar({
               {editingIndex === null ? (
                 <button
                   onClick={handleInsert}
-                  className="w-full px-3 py-2 bg-seal-600 text-paper-50 rounded-lg text-sm font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1.5"
+                  className="w-full px-ui-gap py-2 bg-seal-600 text-paper-50 rounded-control text-ui-sm font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1.5"
                 >
                   <ClipboardPaste className="w-4 h-4" />
                   插入到正文光标处
@@ -664,7 +664,7 @@ export default function FormulaSidebar({
                 <div className="flex gap-1.5">
                   <button
                     onClick={() => handleReplace(false)}
-                    className="flex-1 px-2 py-2 bg-seal-600 text-paper-50 rounded-lg text-xs font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1"
+                    className="flex-1 px-2 py-2 bg-seal-600 text-paper-50 rounded-control text-ui-xs font-medium hover:bg-seal-700 transition flex items-center justify-center gap-1"
                     title="只替换正文里这一处"
                   >
                     <span className="relative inline-flex">
@@ -676,7 +676,7 @@ export default function FormulaSidebar({
                   <button
                     onClick={() => handleReplace(true)}
                     disabled={duplicateCount <= 1}
-                    className="flex-1 px-2 py-2 bg-paper-50 border border-seal-300 text-seal-700 rounded-lg text-xs font-medium hover:bg-seal-50 transition flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 px-2 py-2 bg-paper-50 border border-seal-300 text-seal-700 rounded-control text-ui-xs font-medium hover:bg-seal-50 transition flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     title={duplicateCount > 1 ? `全文 ${duplicateCount} 处相同公式一起改` : '全文只有这一处'}
                   >
                     <Pencil className="w-3.5 h-3.5" />
@@ -697,17 +697,17 @@ export default function FormulaSidebar({
                 value={findQuery}
                 onChange={(e) => setFindQuery(e.target.value)}
                 placeholder="按公式源码筛选…"
-                className="w-full pl-8 pr-2 py-1.5 text-xs border border-ink-200 rounded-lg focus:outline-none focus:border-seal-400"
+                className="w-full pl-8 pr-2 py-1.5 text-ui-xs border border-ink-200 rounded-control focus:outline-none focus:border-seal-400"
               />
             </div>
-            <div className="mt-1.5 flex items-center gap-2 text-[0.6875rem] text-ink-400">
+            <div className="mt-1.5 flex items-center gap-2 text-ui-xs text-ink-400">
               <label className="flex items-center gap-1 cursor-pointer select-none text-ink-500 hover:text-ink-700">
                 <input
                   type="checkbox"
                   checked={allVisiblePicked}
                   disabled={visibleIndexes.length === 0}
                   onChange={toggleSelectAllVisible}
-                  className="w-3.5 h-3.5 rounded border-ink-300 accent-seal-600 focus:ring-seal-500 disabled:opacity-40"
+                  className="w-3.5 h-3.5 rounded-control-sm border-ink-300 accent-seal-600 focus:ring-seal-500 disabled:opacity-40"
                   title="全选当前列表（筛选后就是筛选结果），然后可以一次删掉"
                 />
                 全选{findQuery.trim() ? '筛选结果' : ''}（{visibleIndexes.length}）
@@ -722,7 +722,7 @@ export default function FormulaSidebar({
           <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
             {favorites.length > 0 && (
               <>
-                <div className="text-[0.625rem] text-amber-600 flex items-center gap-1">
+                <div className="text-ui-2xs text-amber-600 flex items-center gap-1">
                   <Star className="w-3 h-3" />
                   我的收藏（跨项目 · {favorites.length}）
                 </div>
@@ -737,13 +737,13 @@ export default function FormulaSidebar({
                     onToggleStar={() => handleFavoriteToggle(f.latex, f.display)}
                   />
                 ))}
-                <div className="text-[0.625rem] text-ink-500 pt-1.5">
+                <div className="text-ui-2xs text-ink-500 pt-1.5">
                   正文里的公式（{projectFormulas.length}）
                 </div>
               </>
             )}
             {filteredFind.length === 0 ? (
-              <p className="text-center text-xs text-ink-400 py-8">
+              <p className="text-center text-ui-xs text-ink-400 py-8">
                 {projectFormulas.length === 0 ? '正文里还没有公式' : '没有匹配的公式'}
               </p>
             ) : (
@@ -769,16 +769,16 @@ export default function FormulaSidebar({
 
           {picked.size > 0 && (
             <div className="px-2.5 py-2 border-t border-ink-200 bg-amber-50 flex items-center gap-2">
-              <span className="text-[0.6875rem] text-amber-700">已选 {picked.size} 个</span>
+              <span className="text-ui-xs text-amber-700">已选 {picked.size} 个</span>
               <button
                 onClick={() => setPicked(new Set())}
-                className="ml-auto px-2 py-1 text-[0.6875rem] text-ink-500 hover:text-ink-700"
+                className="ml-auto px-2 py-1 text-ui-xs text-ink-500 hover:text-ink-700"
               >
                 取消选择
               </button>
               <button
                 onClick={deletePicked}
-                className="px-2 py-1 text-[0.6875rem] rounded bg-rose-600 text-paper-50 hover:bg-rose-700 flex items-center gap-1"
+                className="px-2 py-1 text-ui-xs rounded-control-sm bg-rose-600 text-paper-50 hover:bg-rose-700 flex items-center gap-1"
               >
                 <Trash2 className="w-3 h-3" />
                 删除选中
@@ -797,7 +797,7 @@ export default function FormulaSidebar({
                 <button
                   key={s.label}
                   onClick={() => insertStructure(s)}
-                  className="px-1.5 py-1 text-[0.6875rem] rounded border border-ink-200 hover:bg-seal-50 hover:text-seal-700 hover:border-seal-300 text-ink-600 transition"
+                  className="px-1.5 py-1 text-ui-xs rounded-control-sm border border-ink-200 hover:bg-seal-50 hover:text-seal-700 hover:border-seal-300 text-ink-600 transition"
                 >
                   {s.label}
                 </button>
@@ -809,7 +809,7 @@ export default function FormulaSidebar({
                 <button
                   key={c}
                   onClick={() => insertSymbol(c)}
-                  className="w-6 h-6 text-sm rounded hover:bg-seal-50 hover:text-seal-700 text-ink-600 transition"
+                  className="w-6 h-6 text-ui-sm rounded-control-sm hover:bg-seal-50 hover:text-seal-700 text-ink-600 transition"
                 >
                   {c}
                 </button>
@@ -822,7 +822,7 @@ export default function FormulaSidebar({
             <button
               key={label}
               onClick={() => setCharGroup(label)}
-              className={`flex-1 min-w-0 px-1 py-1 text-[0.625rem] rounded transition truncate ${
+              className={`flex-1 min-w-0 px-1 py-1 text-ui-2xs rounded-control-sm transition truncate ${
                 charGroup === label
                   ? 'bg-seal-100 text-seal-700 font-medium'
                   : 'text-ink-500 hover:bg-ink-100'
@@ -870,20 +870,20 @@ function FormulaRow({
   starred: boolean
   onToggleStar: () => void
 }) {
-  const iconBtn = 'p-1 rounded transition hover:bg-seal-50 text-ink-400 hover:text-seal-600'
+  const iconBtn = 'p-1 rounded-control-sm transition hover:bg-seal-50 text-ink-400 hover:text-seal-600'
   return (
-    <div className={`rounded-lg border p-2 transition ${checked ? 'border-seal-400 bg-seal-50/50' : 'border-ink-200 bg-paper-50'}`}>
+    <div className={`rounded-control border p-2 transition ${checked ? 'border-seal-400 bg-seal-50/50' : 'border-ink-200 bg-paper-50'}`}>
       <div className="flex items-center gap-1 mb-1">
         {onToggleCheck && (
           <input
             type="checkbox"
             checked={!!checked}
             onChange={onToggleCheck}
-            className="rounded accent-seal-600 flex-shrink-0"
+            className="rounded-control-sm accent-seal-600 flex-shrink-0"
             title="勾选后可批量删除"
           />
         )}
-        <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-ink-100 text-ink-500 truncate">
+        <span className="text-ui-2xs px-1.5 py-0.5 rounded-control-sm bg-ink-100 text-ink-500 truncate">
           {badge}
         </span>
         <div className="ml-auto flex items-center gap-0.5 flex-shrink-0">
@@ -915,7 +915,7 @@ function FormulaRow({
           )}
           <button
             onClick={onToggleStar}
-            className={`p-1 rounded transition hover:bg-amber-50 ${starred ? 'text-amber-500' : 'text-ink-400'}`}
+            className={`p-1 rounded-control-sm transition hover:bg-amber-50 ${starred ? 'text-amber-500' : 'text-ink-400'}`}
             title={starred ? '取消收藏' : '收藏（跨项目可用）'}
           >
             {starred ? <Star className="w-3.5 h-3.5 fill-amber-400" /> : <StarOff className="w-3.5 h-3.5" />}
@@ -926,7 +926,7 @@ function FormulaRow({
         className="overflow-x-auto py-1 text-center"
         dangerouslySetInnerHTML={{ __html: renderKatex(tex, kind === 'block') }}
       />
-      <div className="font-mono text-[0.625rem] text-ink-400 truncate" title={tex}>
+      <div className="font-mono text-ui-2xs text-ink-400 truncate" title={tex}>
         {tex}
       </div>
     </div>

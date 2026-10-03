@@ -151,7 +151,7 @@ function Node({
   const marker = ['①', '②', '③', '④'][index - 1] ?? ''
   return (
     <div
-      className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 px-2 py-2 rounded-md border text-xs transition-colors ${styleByStatus[status]}`}
+      className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 px-2 py-2 rounded-control-sm border text-ui-xs transition-colors ${styleByStatus[status]}`}
     >
       <div className="flex items-center gap-1.5">
         {iconByStatus[status]}
@@ -159,7 +159,7 @@ function Node({
           {marker} {label}
         </span>
       </div>
-      <span className="font-mono text-[0.6875rem] leading-tight min-h-[0.875rem]">
+      <span className="font-mono text-ui-xs leading-tight min-h-[0.875rem]">
         {text ?? '\u00A0'}
       </span>
     </div>
@@ -190,7 +190,7 @@ function StageTimeline({
       {showBadge && (
         <div className="flex items-center gap-2">
           <span
-            className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono border rounded ${reasonColor(reason)}`}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 text-ui-xs font-mono border rounded-control-sm ${reasonColor(reason)}`}
           >
             {(reason === 'ai1_rewrite' || reason === 'ai2_self_correct') && (
               <RotateCcw className="w-3 h-3" />
@@ -198,7 +198,7 @@ function StageTimeline({
             第 {attempt}/{maxAttempts} 轮 · {reasonLabel(reason)}
           </span>
           {maxAttempts > 1 && attempt < maxAttempts && (
-            <span className="text-[0.6875rem] text-ink-500">
+            <span className="text-ui-xs text-ink-500">
               未通过将自动进入下一轮（最多 {maxAttempts} 轮）
             </span>
           )}

@@ -78,14 +78,14 @@ export function TaskDeleteModal({
           <button
             onClick={onClose}
             disabled={working}
-            className="rounded-lg px-4 py-2 text-sm text-ink-600 transition hover:bg-ink-100 disabled:opacity-50"
+            className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100 disabled:opacity-50"
           >
             取消
           </button>
           <button
             onClick={handleConfirm}
             disabled={!canConfirm}
-            className="rounded-lg bg-seal-600 px-4 py-2 text-sm font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-40"
+            className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-40"
           >
             {working ? '删除中…' : '确认删除'}
           </button>
@@ -93,20 +93,20 @@ export function TaskDeleteModal({
       }
     >
       <div className="space-y-4">
-        <div className="flex items-start gap-2 rounded-lg border border-seal-300 bg-seal-50 p-3">
+        <div className="flex items-start gap-2 rounded-control border border-seal-300 bg-seal-50 p-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-seal-600" />
-          <p className="text-xs leading-relaxed text-seal-800">
+          <p className="text-ui-xs leading-relaxed text-seal-800">
             删除后不可撤销。将删除任务「<span className="font-medium">{expected}</span>」。
           </p>
         </div>
 
         {/* 删除模式：不预选，必须主动选一种 */}
         <div className="space-y-2">
-          <div className="text-sm font-medium text-ink-700">
+          <div className="text-ui-sm font-medium text-ink-700">
             请选择材料处理方式 <span className="font-normal text-ink-500">（必选）</span>
           </div>
           <label
-            className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 transition hover:bg-paper-100 ${
+            className={`flex cursor-pointer items-start gap-2 rounded-control border p-3 transition hover:bg-paper-100 ${
               mode === 'detach' ? 'border-seal-400 bg-seal-50' : 'border-ink-200'
             }`}
           >
@@ -120,15 +120,15 @@ export function TaskDeleteModal({
               }}
               className="mt-0.5"
             />
-            <span className="text-sm text-ink-700">
+            <span className="text-ui-sm text-ink-700">
               仅删除任务本身
-              <span className="mt-0.5 block text-xs text-ink-500">
+              <span className="mt-0.5 block text-ui-xs text-ink-500">
                 任务引用的文献 / 图书全部保留在库里，可能仍被其他任务共享。
               </span>
             </span>
           </label>
           <label
-            className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 transition hover:bg-paper-100 ${
+            className={`flex cursor-pointer items-start gap-2 rounded-control border p-3 transition hover:bg-paper-100 ${
               mode === 'purge' ? 'border-seal-400 bg-seal-50' : 'border-ink-200'
             }`}
           >
@@ -139,9 +139,9 @@ export function TaskDeleteModal({
               onChange={() => setMode('purge')}
               className="mt-0.5"
             />
-            <span className="text-sm text-ink-700">
+            <span className="text-ui-sm text-ink-700">
               删除任务及其独占材料
-              <span className="mt-0.5 block text-xs text-ink-500">
+              <span className="mt-0.5 block text-ui-xs text-ink-500">
                 仅删掉「只被本任务引用」的文献 / 图书，被其他任务共享的材料不受影响。
               </span>
             </span>
@@ -149,7 +149,7 @@ export function TaskDeleteModal({
         </div>
 
         {loading ? (
-          <p className="flex items-center gap-2 text-xs text-ink-400">
+          <p className="flex items-center gap-2 text-ui-xs text-ink-400">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             正在计算删除影响…
           </p>
@@ -157,11 +157,11 @@ export function TaskDeleteModal({
           <>
             {/* 子任务去留 */}
             {children.length > 0 && (
-              <div className="rounded-lg border border-ink-200 bg-paper-100 p-3">
-                <div className="mb-1 text-xs font-semibold text-ink-600">
+              <div className="rounded-control border border-ink-200 bg-paper-100 p-3">
+                <div className="mb-1 text-ui-xs font-semibold text-ink-600">
                   将提升为顶级的子任务（{children.length}）
                 </div>
-                <ul className="space-y-0.5 text-xs text-ink-600">
+                <ul className="space-y-0.5 text-ui-xs text-ink-600">
                   {children.map((c) => (
                     <li key={c.projectId} className="truncate">
                       · {c.title || '(未命名任务)'}
@@ -173,14 +173,14 @@ export function TaskDeleteModal({
 
             {/* 独占材料预览（仅 purge 相关） */}
             {mode === 'purge' && (
-              <div className="rounded-lg border border-ink-200 bg-paper-100 p-3">
-                <div className="mb-1 text-xs font-semibold text-ink-600">
+              <div className="rounded-control border border-ink-200 bg-paper-100 p-3">
+                <div className="mb-1 text-ui-xs font-semibold text-ink-600">
                   将一并删除的独占材料（{exclusive.length}）
                 </div>
                 {exclusive.length === 0 ? (
-                  <p className="text-xs text-ink-500">没有独占材料，本任务引用的材料都被其他任务共享。</p>
+                  <p className="text-ui-xs text-ink-500">没有独占材料，本任务引用的材料都被其他任务共享。</p>
                 ) : (
-                  <ul className="max-h-40 space-y-0.5 overflow-y-auto text-xs text-ink-600">
+                  <ul className="max-h-40 space-y-0.5 overflow-y-auto text-ui-xs text-ink-600">
                     {exclusive.map((m) => (
                       <li key={`${m.kind}:${m.key}`} className="truncate">
                         · [{m.kind === 'literature' ? '文献' : '图书'}] {m.title}
@@ -196,7 +196,7 @@ export function TaskDeleteModal({
         {/* 二次确认：仅「连材料一起删」需逐字输入任务名 */}
         {needsTyping && (
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink-700">
+            <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">
               请输入任务名以确认：<span className="font-normal text-ink-500">{expected}</span>
             </label>
             <input
@@ -204,7 +204,7 @@ export function TaskDeleteModal({
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               placeholder={expected}
-              className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+              className="w-full rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
             />
           </div>
         )}

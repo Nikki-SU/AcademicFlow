@@ -136,20 +136,20 @@ function TimeSection({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-lg border border-ink-200">
+    <div className="rounded-control border border-ink-200">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-ui-gap-sm px-3 py-2 text-left"
+        className="flex w-full items-center gap-ui-gap-sm px-ui-gap py-2 text-left"
       >
         {open ? (
           <ChevronDown className="h-4 w-4 shrink-0 text-ink-400" />
         ) : (
           <ChevronRight className="h-4 w-4 shrink-0 text-ink-400" />
         )}
-        <span className="text-sm font-medium text-ink-700">{label}</span>
-        <span className="text-xs font-normal text-ink-400">{hint}</span>
-        {!open && <span className="ml-auto text-xs text-ink-500">{valueText}</span>}
+        <span className="text-ui-sm font-medium text-ink-700">{label}</span>
+        <span className="text-ui-xs font-normal text-ink-400">{hint}</span>
+        {!open && <span className="ml-auto text-ui-xs text-ink-500">{valueText}</span>}
       </button>
       {open && <div className="border-t border-ink-100 p-3">{children}</div>}
     </div>
@@ -485,13 +485,13 @@ export function TaskFormModal({
         <>
           <button
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-sm text-ink-600 transition hover:bg-ink-100"
+            className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
           >
             取消
           </button>
           <button
             onClick={handleSubmit}
-            className="rounded-lg bg-seal-600 px-4 py-2 text-sm font-medium text-paper-50 transition hover:bg-seal-700"
+            className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
           >
             {mode === 'create' ? '创建' : '保存'}
           </button>
@@ -509,14 +509,14 @@ export function TaskFormModal({
           />
         )}
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-ink-700">任务名称</label>
+          <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">任务名称</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="如：完成第三章初稿"
             autoFocus
-            className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+            className="w-full rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
           />
         </div>
         <div className="space-y-3">
@@ -541,7 +541,7 @@ export function TaskFormModal({
         </div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-ink-700">
+          <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">
             详细描述（材料）
           </label>
           <textarea
@@ -554,7 +554,7 @@ export function TaskFormModal({
                 : '粘贴这份任务的要求 / 说明（如期刊格式要求原文）；也是 AI 总结 / 提炼要求的唯一材料'
             }
             disabled={loadingBrief}
-            className="w-full resize-y rounded-lg border border-ink-300 px-3 py-2 text-sm leading-relaxed focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+            className="w-full resize-y rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm leading-relaxed focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
           />
         </div>
 
@@ -563,7 +563,7 @@ export function TaskFormModal({
             <button
               onClick={handleSummarize}
               disabled={aiRunning || reqAiRunning || loadingBrief}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-seal-200 bg-seal-50 px-3 py-2 text-sm text-seal-700 transition hover:bg-seal-100 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-control border border-seal-200 bg-seal-50 px-ui-gap py-2 text-ui-sm text-seal-700 transition hover:bg-seal-100 disabled:opacity-50"
             >
               {aiRunning ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -575,13 +575,13 @@ export function TaskFormModal({
             {aiRunning && (
               <button
                 onClick={() => abortRef.current?.abort()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-ink-100 px-3 py-2 text-sm text-ink-600 transition hover:bg-ink-200"
+                className="inline-flex items-center gap-1.5 rounded-control bg-ink-100 px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-200"
               >
                 <Square className="h-3.5 w-3.5" />
                 停止
               </button>
             )}
-            {aiRunning && <span className="text-xs text-ink-500">{aiStage}</span>}
+            {aiRunning && <span className="text-ui-xs text-ink-500">{aiStage}</span>}
           </div>
 
           {!aiRunning && aiResult && <AiSummaryResult result={aiResult} />}
@@ -590,13 +590,13 @@ export function TaskFormModal({
         {/* 要求 / 注意事项：蓝点 = 要求，红点 = 注意事项，都是待办条件 */}
         <div>
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <label className="text-sm font-medium text-ink-700">要求 / 注意事项</label>
+            <label className="text-ui-sm font-medium text-ink-700">要求 / 注意事项</label>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleExtractNotes}
                 disabled={reqAiRunning || aiRunning || loadingBrief}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-seal-200 bg-seal-50 px-2.5 py-1.5 text-xs text-seal-700 transition hover:bg-seal-100 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-control border border-seal-200 bg-seal-50 px-2.5 py-1.5 text-ui-xs text-seal-700 transition hover:bg-seal-100 disabled:opacity-50"
               >
                 {reqAiRunning ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -609,7 +609,7 @@ export function TaskFormModal({
                 <button
                   type="button"
                   onClick={() => reqAbortRef.current?.abort()}
-                  className="inline-flex items-center gap-1 rounded-lg bg-ink-100 px-2 py-1.5 text-xs text-ink-600 transition hover:bg-ink-200"
+                  className="inline-flex items-center gap-1 rounded-control bg-ink-100 px-2 py-1.5 text-ui-xs text-ink-600 transition hover:bg-ink-200"
                 >
                   <Square className="h-3 w-3" />
                   停止
@@ -617,13 +617,13 @@ export function TaskFormModal({
               )}
             </div>
           </div>
-          {reqAiRunning && <p className="mb-1.5 text-xs text-ink-500">{reqAiStage}</p>}
-          <p className="mb-2 text-xs text-ink-400">
+          {reqAiRunning && <p className="mb-1.5 text-ui-xs text-ink-500">{reqAiStage}</p>}
+          <p className="mb-2 text-ui-xs text-ink-400">
             蓝点 = 要求，红点 = 注意事项；点圆点可切换类型。
           </p>
 
           {notesLoading ? (
-            <p className="text-xs text-ink-400">读取中…</p>
+            <p className="text-ui-xs text-ink-400">读取中…</p>
           ) : (
             <>
               {notes.length > 0 && (
@@ -646,13 +646,13 @@ export function TaskFormModal({
                         value={n.text}
                         onChange={(e) => updateNoteText(i, e.target.value)}
                         placeholder={n.kind === 'caution' ? '注意事项' : '要求'}
-                        className="min-w-0 flex-1 rounded-lg border border-ink-300 px-2.5 py-1.5 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                        className="min-w-0 flex-1 rounded-control border border-ink-300 px-2.5 py-1.5 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
                       />
                       <button
                         type="button"
                         onClick={() => removeNote(i)}
                         title="删除"
-                        className="shrink-0 rounded p-1 text-ink-400 transition hover:text-rose-600"
+                        className="shrink-0 rounded-control-sm p-1 text-ink-400 transition hover:text-rose-600"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -664,7 +664,7 @@ export function TaskFormModal({
                 <button
                   type="button"
                   onClick={() => addNote('requirement')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-ink-300 px-2.5 py-1.5 text-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-700"
+                  className="inline-flex items-center gap-1.5 rounded-control border border-ink-300 px-2.5 py-1.5 text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-700"
                 >
                   <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
                   要求
@@ -672,7 +672,7 @@ export function TaskFormModal({
                 <button
                   type="button"
                   onClick={() => addNote('caution')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-ink-300 px-2.5 py-1.5 text-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-700"
+                  className="inline-flex items-center gap-1.5 rounded-control border border-ink-300 px-2.5 py-1.5 text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-700"
                 >
                   <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
                   注意事项
@@ -685,17 +685,17 @@ export function TaskFormModal({
         {/* 附件：仅编辑已有任务时可增删（新建时还没有 projectId） */}
         <div>
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <label className="inline-flex items-center gap-1 text-sm font-medium text-ink-700">
+            <label className="inline-flex items-center gap-1 text-ui-sm font-medium text-ink-700">
               <Paperclip className="h-4 w-4 text-ink-500" />
               附件
-              {project && <span className="text-xs font-normal text-ink-400">（{attachments.length}）</span>}
+              {project && <span className="text-ui-xs font-normal text-ink-400">（{attachments.length}）</span>}
             </label>
             {project && (
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={attBusy !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-ink-300 px-2.5 py-1.5 text-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-700 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-control border border-ink-300 px-2.5 py-1.5 text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-700 disabled:opacity-50"
               >
                 <Upload className="h-3.5 w-3.5" />
                 添加文件
@@ -707,35 +707,35 @@ export function TaskFormModal({
           )}
 
           {!project ? (
-            <p className="text-xs text-ink-400">
+            <p className="text-ui-xs text-ink-400">
               附件（格式要求、参考资料等）可在创建任务后，从任务的「编辑」窗里添加。
             </p>
           ) : (
             <>
-              <p className="mb-2 text-xs text-ink-400">
+              <p className="mb-2 text-ui-xs text-ink-400">
                 文本类附件（.txt / .md / .tex 等）可被 AI 读取，用于提炼要求。
               </p>
               {attLoading ? (
-                <p className="text-xs text-ink-400">读取附件中…</p>
+                <p className="text-ui-xs text-ink-400">读取附件中…</p>
               ) : attachments.length === 0 ? (
-                <p className="text-xs text-ink-400">还没有附件</p>
+                <p className="text-ui-xs text-ink-400">还没有附件</p>
               ) : (
                 <ul className="space-y-1.5">
                   {attachments.map((a) => (
                     <li
                       key={a.path}
-                      className="flex items-center gap-2 rounded-lg border border-ink-200 px-2.5 py-1.5"
+                      className="flex items-center gap-2 rounded-control border border-ink-200 px-2.5 py-1.5"
                     >
                       <FileText className="h-4 w-4 shrink-0 text-ink-400" />
-                      <span className="min-w-0 flex-1 truncate text-sm text-ink-700" title={a.name}>
+                      <span className="min-w-0 flex-1 truncate text-ui-sm text-ink-700" title={a.name}>
                         {a.name}
                       </span>
-                      <span className="shrink-0 text-xs text-ink-400">{formatSize(a.size)}</span>
+                      <span className="shrink-0 text-ui-xs text-ink-400">{formatSize(a.size)}</span>
                       <button
                         type="button"
                         onClick={() => void handleDownloadAttachment(a)}
                         title="下载"
-                        className="shrink-0 rounded p-1 text-ink-400 transition hover:text-seal-600"
+                        className="shrink-0 rounded-control-sm p-1 text-ink-400 transition hover:text-seal-600"
                       >
                         <Download className="h-4 w-4" />
                       </button>
@@ -743,7 +743,7 @@ export function TaskFormModal({
                         type="button"
                         onClick={() => void handleRemoveAttachment(a)}
                         title="删除"
-                        className="shrink-0 rounded p-1 text-ink-400 transition hover:text-rose-600"
+                        className="shrink-0 rounded-control-sm p-1 text-ink-400 transition hover:text-rose-600"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -752,7 +752,7 @@ export function TaskFormModal({
                 </ul>
               )}
               {attBusy && (
-                <p className="mt-1 inline-flex items-center gap-1 text-xs text-ink-400">
+                <p className="mt-1 inline-flex items-center gap-1 text-ui-xs text-ink-400">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   {attBusy}
                 </p>
@@ -771,24 +771,24 @@ function AiSummaryResult({ result }: { result: DualEngineResult }) {
   return (
     <div className="mt-3 space-y-2">
       {failed && (
-        <div className="flex items-start gap-2 rounded-lg border border-seal-300 bg-seal-50 p-3">
+        <div className="flex items-start gap-2 rounded-control border border-seal-300 bg-seal-50 p-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-seal-600" />
-          <p className="text-xs leading-relaxed text-seal-800">
+          <p className="text-ui-xs leading-relaxed text-seal-800">
             AI-2 忠实性核查未通过，可能含不忠实 / 编造内容，请以材料为准。
           </p>
         </div>
       )}
       {result.ai2Silent && (
-        <div className="flex items-start gap-2 rounded-lg border border-ink-200 bg-paper-100 p-3">
+        <div className="flex items-start gap-2 rounded-control border border-ink-200 bg-paper-100 p-3">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-ink-500" />
-          <p className="text-xs leading-relaxed text-ink-600">
+          <p className="text-ui-xs leading-relaxed text-ink-600">
             本轮 AI-2 未给出复核结论（可能输出为空），以下内容**未经忠实性核查**，请自行核对材料。
           </p>
         </div>
       )}
-      <div className="rounded-lg border border-ink-200 bg-paper-100 p-3">
-        <div className="mb-1.5 text-xs font-semibold text-ink-600">AI-1 总结</div>
-        <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-ink-800">
+      <div className="rounded-control border border-ink-200 bg-paper-100 p-3">
+        <div className="mb-1.5 text-ui-xs font-semibold text-ink-600">AI-1 总结</div>
+        <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-800">
           {result.ai1Output || '（AI 没有返回内容）'}
         </pre>
       </div>

@@ -94,7 +94,7 @@ export default function TaskSwitcher({
           type="button"
           onClick={() => handlePick(p.projectId)}
           style={{ paddingLeft: depth * 12 + 8 }}
-          className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm transition ${
+          className={`flex w-full items-center gap-2 rounded-control-sm py-1.5 pr-2 text-left text-ui-sm transition ${
             isCur ? 'bg-seal-50 text-seal-700' : 'text-ink-600 hover:bg-paper-100'
           }`}
         >
@@ -113,37 +113,37 @@ export default function TaskSwitcher({
         type="button"
         onClick={toggle}
         title={current ? `当前任务：${current.title || '(未命名任务)'}` : '选择当前任务'}
-        className="flex w-[10rem] sm:w-[15rem] lg:w-[19rem] items-center gap-2 rounded-md px-1 py-1 transition hover:bg-paper-100"
+        className="flex w-[10rem] sm:w-[15rem] lg:w-[19rem] items-center gap-2 rounded-control-sm px-1 py-1 transition hover:bg-paper-100"
       >
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-seal-600">
-          <span className="text-xs font-bold text-paper-50">AF</span>
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-seal-600">
+          <span className="text-ui-xs font-bold text-paper-50">AF</span>
         </div>
         <span className={`h-2 w-2 shrink-0 rounded-full ${currentColor?.bg ?? 'bg-ink-200'}`} />
-        <span className="min-w-0 truncate text-sm font-semibold text-ink-800">
+        <span className="min-w-0 truncate text-ui-sm font-semibold text-ink-800">
           {current ? current.title || '(未命名任务)' : '未选任务'}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-lift">
-          <div className="border-b border-ink-100 px-3 py-2">
-            <p className="text-[11px] font-medium text-ink-400">当前任务</p>
-            <p className="mt-0.5 truncate text-sm text-ink-800">
+        <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-card border border-ink-200 bg-paper-50 shadow-lift">
+          <div className="border-b border-ink-100 px-ui-gap py-2">
+            <p className="text-ui-xs font-medium text-ink-400">当前任务</p>
+            <p className="mt-0.5 truncate text-ui-sm text-ink-800">
               {current ? current.title || '(未命名任务)' : '未选择'}
             </p>
           </div>
 
           <div className="max-h-80 overflow-y-auto p-2">
             {roots.length === 0 ? (
-              <p className="px-2 py-6 text-center text-xs text-ink-400">还没有任务</p>
+              <p className="px-2 py-6 text-center text-ui-xs text-ink-400">还没有任务</p>
             ) : (
               TYPE_ORDER.map((type) => {
                 const group = roots.filter((r) => r.type === type)
                 if (group.length === 0) return null
                 return (
                   <div key={type} className="mb-1.5 last:mb-0">
-                    <p className="px-2 py-1 text-[11px] font-semibold text-ink-400">{TYPE_LABEL[type]}</p>
+                    <p className="px-2 py-1 text-ui-xs font-semibold text-ink-400">{TYPE_LABEL[type]}</p>
                     {group.map((r) => renderNode(r, 0))}
                   </div>
                 )
@@ -155,7 +155,7 @@ export default function TaskSwitcher({
             <Link
               to="/schedule"
               onClick={() => setOpen(false)}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-seal-600 transition hover:bg-seal-50"
+              className="flex items-center gap-1.5 rounded-control-sm px-2 py-1.5 text-ui-xs text-seal-600 transition hover:bg-seal-50"
             >
               <FolderTree className="h-3.5 w-3.5" />
               在日程页管理任务 →

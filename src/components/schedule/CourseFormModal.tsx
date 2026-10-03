@@ -227,20 +227,20 @@ export function CourseFormModal({
           {isEdit && onDelete && !editScope?.all && (
             <button
               onClick={onDelete}
-              className="mr-auto px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
+              className="mr-auto px-ui-gap py-2 text-ui-sm text-red-600 hover:bg-red-50 rounded-control transition"
             >
               删除时段
             </button>
           )}
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-ink-600 hover:bg-ink-100 rounded-lg transition"
+            className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
           >
             取消
           </button>
           <button
             onClick={handleSubmit}
-            className="px-4 py-2 text-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-lg transition font-medium"
+            className="px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition font-medium"
           >
             {isEdit ? '保存' : '添加'}
           </button>
@@ -250,7 +250,7 @@ export function CourseFormModal({
       <div className="space-y-4">
         {/* 编辑范围：单时段 / 整门课全部时段（需勾选） */}
         {editScope?.canToggle && (
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-200 bg-paper-100 px-3 py-2 text-sm text-ink-700">
+          <label className="flex cursor-pointer items-center gap-2 rounded-control border border-ink-200 bg-paper-100 px-ui-gap py-2 text-ui-sm text-ink-700">
             <input
               type="checkbox"
               checked={editScope.all}
@@ -272,15 +272,15 @@ export function CourseFormModal({
             />
             {!isEdit && !taskId && (
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1.5">任务名称</label>
+                <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">任务名称</label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="如：每周组会"
-                  className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
-                <p className="mt-1 text-xs text-ink-400">
+                <p className="mt-1 text-ui-xs text-ink-400">
                   归属任务留空时，将用此名在所选大类下新建一个顶级任务；定时任务（如每周组会）即挂在它下面。
                 </p>
               </div>
@@ -288,17 +288,17 @@ export function CourseFormModal({
           </>
         ) : (
           <div>
-            <label className="block text-sm font-medium text-ink-700 mb-1.5">课程名称</label>
+            <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">课程名称</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="如：高等数学"
               autoFocus
-              className="w-full px-3 py-2 border border-ink-300 rounded-lg text-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+              className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
             />
             {!isEdit && (
-              <p className="mt-1 text-xs text-ink-400">
+              <p className="mt-1 text-ui-xs text-ink-400">
                 同名课程会自动归到同一个「课程任务」，可一次添加多个时段（如周二、周四）。
               </p>
             )}
@@ -308,7 +308,7 @@ export function CourseFormModal({
         {/* 重复方式：每周固定 / 单次（考试等一次性事项）。课程天然每周，不显示此开关。 */}
         {canPickRepeat && (
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink-700">重复方式</label>
+            <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">重复方式</label>
             <div className="grid grid-cols-2 gap-2">
               {([
                 { value: 'weekly' as const, label: '每周重复', hint: '如每周组会' },
@@ -318,19 +318,19 @@ export function CourseFormModal({
                   key={o.value}
                   type="button"
                   onClick={() => setRepeat(o.value)}
-                  className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                  className={`rounded-control border px-ui-gap py-2 text-left text-ui-sm transition ${
                     repeat === o.value
                       ? 'border-seal-400 bg-seal-50 text-seal-700'
                       : 'border-ink-200 text-ink-600 hover:border-seal-300'
                   }`}
                 >
                   <div className="font-medium">{o.label}</div>
-                  <div className="text-xs text-ink-400">{o.hint}</div>
+                  <div className="text-ui-xs text-ink-400">{o.hint}</div>
                 </button>
               ))}
             </div>
             {repeat === 'once' && (
-              <p className="mt-1 text-xs text-ink-400">
+              <p className="mt-1 text-ui-xs text-ink-400">
                 单次任务只在这一天出现；新建顶级任务时会自动把它设为 DDL。
               </p>
             )}
@@ -340,11 +340,11 @@ export function CourseFormModal({
         {/* 时段列表 */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-ink-700">{repeat === 'once' ? '日期' : '时段'}</span>
+            <span className="text-ui-sm font-medium text-ink-700">{repeat === 'once' ? '日期' : '时段'}</span>
             <button
               type="button"
               onClick={addSlot}
-              className="flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1 text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-600"
+              className="flex items-center gap-1 rounded-control border border-ink-200 px-2.5 py-1 text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-600"
             >
               <Plus className="h-3.5 w-3.5" />
               {repeat === 'once' ? '添加日期' : '添加时段'}
@@ -352,9 +352,9 @@ export function CourseFormModal({
           </div>
 
           {slots.map((row, i) => (
-            <div key={i} className="space-y-3 rounded-lg border border-ink-200 bg-paper-50 p-3">
+            <div key={i} className="space-y-3 rounded-control border border-ink-200 bg-paper-50 p-3">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-ink-400">{repeat === 'once' ? `日期 ${i + 1}` : `时段 ${i + 1}`}</span>
+                <span className="text-ui-xs text-ink-400">{repeat === 'once' ? `日期 ${i + 1}` : `时段 ${i + 1}`}</span>
                 {slots.length > 1 && (
                   <button
                     type="button"
@@ -372,11 +372,11 @@ export function CourseFormModal({
                     type="date"
                     value={row.date}
                     onChange={(e) => updateSlot(i, { date: e.target.value })}
-                    className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                    className="w-full rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-2 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
                   />
                   {/* 也可以不查日历：直接点「最近的周几」，自动落到最近的那一天 */}
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs text-ink-400">最近的</span>
+                    <span className="text-ui-xs text-ink-400">最近的</span>
                     {WEEKDAYS.map((w) => {
                       const d = nearestDateOfWeekday(w)
                       return (
@@ -385,7 +385,7 @@ export function CourseFormModal({
                           type="button"
                           onClick={() => updateSlot(i, { date: d })}
                           title={d}
-                          className={`rounded-md border px-2 py-0.5 text-xs transition ${
+                          className={`rounded-control-sm border px-2 py-0.5 text-ui-xs transition ${
                             row.date === d
                               ? 'border-seal-400 bg-seal-50 text-seal-700'
                               : 'border-ink-200 text-ink-600 hover:border-seal-300'
@@ -399,7 +399,7 @@ export function CourseFormModal({
                       <button
                         type="button"
                         onClick={() => updateSlot(i, { date: todayStr() })}
-                        className="rounded-md border border-ink-200 px-2 py-0.5 text-xs text-ink-600 transition hover:border-seal-300"
+                        className="rounded-control-sm border border-ink-200 px-2 py-0.5 text-ui-xs text-ink-600 transition hover:border-seal-300"
                       >
                         今天
                       </button>
@@ -412,7 +412,7 @@ export function CourseFormModal({
                   onChange={(e) =>
                     updateSlot(i, { weekday: e.target.value ? Number(e.target.value) : '' })
                   }
-                  className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-1.5 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  className="w-full rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-1.5 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
                 >
                   <option value="">选择星期…</option>
                   {WEEKDAYS.map((w) => (
@@ -422,16 +422,16 @@ export function CourseFormModal({
               )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-ink-700">开始时间</label>
+                  <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">开始时间</label>
                   <TimeWheel value={row.startTime} onChange={(v) => updateSlot(i, { startTime: v })} />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-ink-700">结束时间</label>
+                  <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">结束时间</label>
                   <TimeWheel value={row.endTime} onChange={(v) => updateSlot(i, { endTime: v })} />
                 </div>
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-ink-700">地点</label>
+                <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">地点</label>
                 <input
                   type="text"
                   value={row.location}
@@ -441,14 +441,14 @@ export function CourseFormModal({
                       ? slots[0].location.trim() || '留空则同第一个时段'
                       : '如：三教 201（可留空）'
                   }
-                  className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
                 />
               </div>
             </div>
           ))}
 
           {slots.length > 1 && (
-            <p className="text-xs text-ink-400">
+            <p className="text-ui-xs text-ink-400">
               新增项默认沿用第一个的时间；地点留空则沿用第一个的地点。
             </p>
           )}

@@ -17,10 +17,10 @@ function ProtectedRoute({ children }: Props) {
   if (!isInitialized) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-paper-100 via-seal-50 to-purple-50">
-        <div className="p-3 bg-seal-100 rounded-lg mb-4 animate-pulse">
+        <div className="p-3 bg-seal-100 rounded-control mb-4 animate-pulse">
           <BookOpen className="w-8 h-8 text-seal-600" />
         </div>
-        <div className="text-ink-500 text-sm">正在加载 AcademicFlow…</div>
+        <div className="text-ink-500 text-ui-sm">正在加载 AcademicFlow…</div>
       </div>
     )
   }

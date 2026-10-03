@@ -33,20 +33,20 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.err === null) return this.props.children
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4">
-        <div className="w-full max-w-md rounded-xl bg-paper-50 p-5 shadow-xl">
+        <div className="w-full max-w-md rounded-card bg-paper-50 p-5 shadow-xl">
           <h3 className="font-semibold text-ink-800">这个窗口出错了</h3>
-          <p className="mt-2 break-all font-mono text-xs text-red-600">{this.state.err}</p>
+          <p className="mt-2 break-all font-mono text-ui-xs text-red-600">{this.state.err}</p>
           <div className="mt-4 flex justify-end gap-2">
             <button
               onClick={() => this.setState({ err: null })}
-              className="rounded-lg px-4 py-2 text-sm text-ink-600 transition hover:bg-ink-100"
+              className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
             >
               重试
             </button>
             {this.props.onClose && (
               <button
                 onClick={this.props.onClose}
-                className="rounded-lg bg-seal-600 px-4 py-2 text-sm font-medium text-paper-50 transition hover:bg-seal-700"
+                className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
               >
                 关闭
               </button>

@@ -126,18 +126,18 @@ function SettingsGroup(props: {
 }) {
   const { icon: Icon, title, summary, badge, open, onToggle, children } = props
   return (
-    <section className="overflow-hidden rounded-xl border border-ink-200 bg-paper-50 shadow-card">
+    <section className="overflow-hidden rounded-card border border-ink-200 bg-paper-50 shadow-card">
       <button
         type="button"
         onClick={onToggle}
         className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-paper-100"
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-paper-100">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-paper-100">
           <Icon className="h-4 w-4 text-ink-600" strokeWidth={1.75} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-ink-900">{title}</div>
-          <div className="truncate text-xs text-ink-500">{summary}</div>
+          <div className="truncate text-ui-xs text-ink-500">{summary}</div>
         </div>
         {badge}
         <ChevronDown
@@ -157,8 +157,8 @@ function SubBlock(props: { title: string; hint?: string; children: ReactNode }) 
   return (
     <div className="space-y-3 pt-5 first:pt-0">
       <div>
-        <h3 className="text-sm font-semibold text-ink-800">{title}</h3>
-        {hint && <p className="mt-0.5 text-xs text-ink-500">{hint}</p>}
+        <h3 className="text-ui-sm font-semibold text-ink-800">{title}</h3>
+        {hint && <p className="mt-0.5 text-ui-xs text-ink-500">{hint}</p>}
       </div>
       {children}
     </div>
@@ -426,7 +426,7 @@ function Settings() {
       <div className="flex min-h-screen items-center justify-center bg-paper-100">
         <div className="flex items-center gap-3 text-ink-600">
           <Loader2 className="h-5 w-5 animate-spin text-seal-600" />
-          <span className="text-sm">正在加载设置…</span>
+          <span className="text-ui-sm">正在加载设置…</span>
         </div>
       </div>
     )
@@ -464,12 +464,12 @@ function Settings() {
   // AI 服务组头的同步状态徽章：一眼确认 key 已生效，明细在诊断组
   const syncOkCount = secretItems.filter((it) => it.putOk).length
   const syncBadge = secretSyncing ? (
-    <span className="flex shrink-0 items-center gap-1 text-xs text-ink-400">
+    <span className="flex shrink-0 items-center gap-1 text-ui-xs text-ink-400">
       <Loader2 className="h-3 w-3 animate-spin" />同步中
     </span>
   ) : secretItems.length > 0 ? (
     <span
-      className={`shrink-0 text-xs ${
+      className={`shrink-0 text-ui-xs ${
         syncOkCount === secretItems.length ? 'text-green-600' : 'text-amber-600'
       }`}
     >
@@ -482,13 +482,13 @@ function Settings() {
       {/* 顶栏 */}
       <header className="sticky top-0 z-10 border-b border-ink-200 bg-paper-50">
         <div className="page-container flex items-center justify-between py-2.5">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-ink-900">
+          <span className="flex items-center gap-1.5 text-ui-sm font-medium text-ink-900">
             <SettingsIcon className="h-4 w-4 text-ink-400" />
             设置
           </span>
           <Link
             to="/tracking"
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-ink-600 transition hover:bg-seal-50 hover:text-seal-600"
+            className="flex items-center gap-1 rounded-control px-2.5 py-1.5 text-ui-sm text-ink-600 transition hover:bg-seal-50 hover:text-seal-600"
           >
             <ArrowLeft className="w-4 h-4" />
             返回追踪页
@@ -510,8 +510,8 @@ function Settings() {
             {/* 高级模式 */}
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h3 className="text-sm font-semibold text-ink-800">高级模式</h3>
-                <p className="mt-0.5 text-xs text-ink-500">解锁自定义 OpenAI 兼容端点</p>
+                <h3 className="text-ui-sm font-semibold text-ink-800">高级模式</h3>
+                <p className="mt-0.5 text-ui-xs text-ink-500">解锁自定义 OpenAI 兼容端点</p>
               </div>
               <button
                 type="button"
@@ -612,13 +612,13 @@ function Settings() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {THINKING_ROWS.map(({ field, label, desc }) => (
                   <div key={field} className="space-y-1">
-                    <label className="block text-sm font-medium text-ink-700">{label}</label>
+                    <label className="block text-ui-sm font-medium text-ink-700">{label}</label>
                     <select
                       value={store[field]}
                       onChange={(e) =>
                         store.updateSettings({ [field]: e.target.value as AIThinkingMode })
                       }
-                      className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      className="w-full rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-2 text-ui-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
                     >
                       {THINKING_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
@@ -626,11 +626,11 @@ function Settings() {
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-ink-400">{desc}</p>
+                    <p className="text-ui-xs text-ink-400">{desc}</p>
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-ink-400">
+              <p className="text-ui-xs text-ink-400">
                 只管文献处理管线；问 AI / 双引擎走各槽位自己的「推理模式」。
               </p>
             </SubBlock>
@@ -653,9 +653,9 @@ function Settings() {
                 placeholder="eyJ...（MinerU JWT token）"
                 value={mineruToken}
                 onChange={(e) => updateSettings({ mineruToken: e.target.value })}
-                className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
               />
-              <p className="text-xs text-ink-400">
+              <p className="text-ui-xs text-ink-400">
                 在{' '}
                 <a href="https://op.mineru.ai" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
                   MinerU 用户中心
@@ -673,9 +673,9 @@ function Settings() {
                 placeholder="用户授权令牌（UAT）"
                 value={simpletexToken}
                 onChange={(e) => updateSettings({ simpletexToken: e.target.value })}
-                className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
               />
-              <p className="text-xs text-ink-400">
+              <p className="text-ui-xs text-ink-400">
                 在{' '}
                 <a href="https://simpletex.cn/user/center" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
                   SimpleTex 用户中心
@@ -692,7 +692,7 @@ function Settings() {
               hint="PDF 转换成功后自动生成全文翻译与核心单词"
             >
               <div className="flex items-center gap-4">
-                <label className="text-sm font-medium text-ink-700 whitespace-nowrap">单词生成数量</label>
+                <label className="text-ui-sm font-medium text-ink-700 whitespace-nowrap">单词生成数量</label>
                 <input
                   type="range"
                   min={10}
@@ -700,14 +700,14 @@ function Settings() {
                   step={1}
                   value={store.wordGenCount ?? 15}
                   onChange={(e) => store.updateSettings({ wordGenCount: parseInt(e.target.value, 10) })}
-                  className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
+                  className="flex-1 h-2 bg-ink-200 rounded-control appearance-none cursor-pointer accent-seal-600"
                 />
-                <span className="text-sm font-semibold text-seal-600 w-12 text-center">
+                <span className="text-ui-sm font-semibold text-seal-600 w-12 text-center">
                   {store.wordGenCount ?? 15}
                 </span>
               </div>
               <div className="flex items-center gap-4">
-                <label className="text-sm font-medium text-ink-700 whitespace-nowrap">长难句提取数量</label>
+                <label className="text-ui-sm font-medium text-ink-700 whitespace-nowrap">长难句提取数量</label>
                 <input
                   type="range"
                   min={3}
@@ -715,13 +715,13 @@ function Settings() {
                   step={1}
                   value={store.sentenceGenCount ?? 8}
                   onChange={(e) => store.updateSettings({ sentenceGenCount: parseInt(e.target.value, 10) })}
-                  className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
+                  className="flex-1 h-2 bg-ink-200 rounded-control appearance-none cursor-pointer accent-seal-600"
                 />
-                <span className="text-sm font-semibold text-seal-600 w-12 text-center">
+                <span className="text-ui-sm font-semibold text-seal-600 w-12 text-center">
                   {store.sentenceGenCount ?? 8}
                 </span>
               </div>
-              <p className="text-xs text-ink-400">数量越多，耗时与 token 消耗越大。例句必须逐字来自原文献。</p>
+              <p className="text-ui-xs text-ink-400">数量越多，耗时与 token 消耗越大。例句必须逐字来自原文献。</p>
             </SubBlock>
 
             <SubBlock
@@ -729,7 +729,7 @@ function Settings() {
               hint="摘要翻译与长难句翻译判分后，低分时弹出学习卡片复盘"
             >
               <div className="flex items-center gap-4">
-                <label className="text-sm font-medium text-ink-700 whitespace-nowrap">低分线</label>
+                <label className="text-ui-sm font-medium text-ink-700 whitespace-nowrap">低分线</label>
                 <input
                   type="range"
                   min={50}
@@ -737,13 +737,13 @@ function Settings() {
                   step={5}
                   value={store.translationLowScore ?? 70}
                   onChange={(e) => store.updateSettings({ translationLowScore: parseInt(e.target.value, 10) })}
-                  className="flex-1 h-2 bg-ink-200 rounded-lg appearance-none cursor-pointer accent-seal-600"
+                  className="flex-1 h-2 bg-ink-200 rounded-control appearance-none cursor-pointer accent-seal-600"
                 />
-                <span className="text-sm font-semibold text-seal-600 w-12 text-center">
+                <span className="text-ui-sm font-semibold text-seal-600 w-12 text-center">
                   {store.translationLowScore ?? 70}
                 </span>
               </div>
-              <p className="text-xs text-ink-400">
+              <p className="text-ui-xs text-ink-400">
                 得分低于 {store.translationLowScore ?? 70} 分才弹卡片（参考译文 / 难点 / 踩分点 / 每点扣分）；
                 达到或超过就只给结果，不打断做题节奏。
               </p>
@@ -751,13 +751,13 @@ function Settings() {
 
             <SubBlock title="编辑器偏好" hint="写作页与阅读笔记共用">
               <div className="flex items-center gap-3">
-                <label className="whitespace-nowrap text-sm font-medium text-ink-700">
+                <label className="whitespace-nowrap text-ui-sm font-medium text-ink-700">
                   代码块默认语言
                 </label>
                 <select
                   value={store.defaultCodeLang ?? 'python'}
                   onChange={(e) => updateSettings({ defaultCodeLang: e.target.value })}
-                  className="flex-1 rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                  className="flex-1 rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-2 text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 >
                   {CODE_LANGS.map((l) => (
                     <option key={l.value} value={l.value}>
@@ -766,7 +766,7 @@ function Settings() {
                   ))}
                 </select>
               </div>
-              <p className="text-xs text-ink-400">
+              <p className="text-ui-xs text-ink-400">
                 点工具栏「代码块」时预选的语言；插入前还可以改成别的。
               </p>
 
@@ -778,8 +778,8 @@ function Settings() {
                   onChange={(e) => updateSettings({ editorZebra: e.target.checked })}
                 />
                 <span>
-                  <span className="block text-sm font-medium text-ink-700">间隔上色</span>
-                  <span className="block text-xs text-ink-400">
+                  <span className="block text-ui-sm font-medium text-ink-700">间隔上色</span>
+                  <span className="block text-ui-xs text-ink-400">
                     逐行交替极淡绿条纹（一行有色、一行无色），长文里不容易看串行。写作页正文、阅读页侧栏笔记与阅读页正文一致生效。
                   </span>
                 </span>
@@ -793,7 +793,7 @@ function Settings() {
             title="校历"
             summary="学期开始 / 期末周开始 / 学期结束 —— 课程的结束时间默认取「期末周第一天」"
             badge={
-              savingCalendar ? <span className="text-xs text-ink-400">保存中…</span> : undefined
+              savingCalendar ? <span className="text-ui-xs text-ink-400">保存中…</span> : undefined
             }
             open={openGroups.calendar}
             onToggle={() => toggleGroup('calendar')}
@@ -811,12 +811,12 @@ function Settings() {
                   ]
                 ).map(({ key, label }) => (
                   <div key={key} className="space-y-2">
-                    <label className="block text-sm font-medium text-ink-700">{label}</label>
+                    <label className="block text-ui-sm font-medium text-ink-700">{label}</label>
                     <input
                       type="date"
                       value={calendar[key]}
                       onChange={(e) => void updateCalendar({ [key]: e.target.value })}
-                      className="w-full rounded-lg border border-ink-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                      className="w-full rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                     />
                   </div>
                 ))}
@@ -851,29 +851,29 @@ function Settings() {
 
             <SubBlock title="转写端点与模型" hint="OpenAI 兼容端点，默认硅基流动">
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-ink-700">Base URL</label>
+                <label className="block text-ui-sm font-medium text-ink-700">Base URL</label>
                 <input
                   type="text"
                   value={asrBaseUrl}
                   onChange={(e) => updateSettings({ asrBaseUrl: e.target.value })}
                   placeholder="https://api.siliconflow.cn/v1"
                   spellCheck={false}
-                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />
-                <p className="text-xs text-ink-400">
+                <p className="text-ui-xs text-ink-400">
                   末尾不带斜杠；固定拼 <code className="font-mono">/audio/transcriptions</code> 与{' '}
                   <code className="font-mono">/chat/completions</code>。
                 </p>
               </div>
               <div className="space-y-2 pt-4">
-                <label className="block text-sm font-medium text-ink-700">转写模型</label>
+                <label className="block text-ui-sm font-medium text-ink-700">转写模型</label>
                 <input
                   type="text"
                   value={asrModel}
                   onChange={(e) => updateSettings({ asrModel: e.target.value })}
                   placeholder="TeleAI/TeleSpeechASR"
                   spellCheck={false}
-                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />
               </div>
             </SubBlock>
@@ -887,23 +887,23 @@ function Settings() {
                   onChange={(e) => updateSettings({ asrTranslateToZh: e.target.checked })}
                 />
                 <span>
-                  <span className="block text-sm font-medium text-ink-700">非中文自动译成中文</span>
-                  <span className="block text-xs text-ink-400">
+                  <span className="block text-ui-sm font-medium text-ink-700">非中文自动译成中文</span>
+                  <span className="block text-ui-xs text-ink-400">
                     转写返回的语种不是中文时，再调 chat 端点翻译一遍，附在原文下方。
                   </span>
                 </span>
               </label>
               <div className="mt-4 space-y-2">
-                <label className="block text-sm font-medium text-ink-700">翻译模型</label>
+                <label className="block text-ui-sm font-medium text-ink-700">翻译模型</label>
                 <input
                   type="text"
                   value={asrTranslateModel}
                   onChange={(e) => updateSettings({ asrTranslateModel: e.target.value })}
                   placeholder="留空 = 不翻译"
                   spellCheck={false}
-                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />
-                <p className="text-xs text-ink-400">
+                <p className="text-ui-xs text-ink-400">
                   留空表示不翻译；填模型 id 才启用（如 <code className="font-mono">tencent/Hunyuan-MT-7B</code>，免费）。
                 </p>
               </div>
@@ -914,16 +914,16 @@ function Settings() {
               hint="把口语化的原始转写整理成分段书面稿：去掉口头禅、重新分段，但不压缩信息"
             >
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-ink-700">修饰模型</label>
+                <label className="block text-ui-sm font-medium text-ink-700">修饰模型</label>
                 <input
                   type="text"
                   value={asrPolishModel}
                   onChange={(e) => updateSettings({ asrPolishModel: e.target.value })}
                   placeholder="留空 = 不启用（如 Qwen/Qwen2.5-7B-Instruct）"
                   spellCheck={false}
-                  className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />
-                <p className="text-xs text-ink-400">
+                <p className="text-ui-xs text-ink-400">
                   填一个通用对话模型 id 才启用（与上面的端点 / Key 共用）。留空时，会议页不显示「AI 修饰」按钮。
                 </p>
               </div>
@@ -933,9 +933,9 @@ function Settings() {
               title="长时间录音不中断"
               hint="浏览器会冻结 / 回收后台空闲页面，录音页一旦被回收就会中断"
             >
-              <div className="flex items-start gap-2.5 rounded-lg border border-ink-200 bg-paper-100/60 px-3 py-2.5">
+              <div className="flex items-start gap-2.5 rounded-control border border-ink-200 bg-paper-100/60 px-ui-gap py-2.5">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-seal-500" />
-                <div className="space-y-2 text-xs leading-relaxed text-ink-600">
+                <div className="space-y-2 text-ui-xs leading-relaxed text-ink-600">
                   <p>
                     <span className="font-medium text-ink-700">已内建保活：</span>
                     录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。
@@ -954,7 +954,7 @@ function Settings() {
                   <button
                     type="button"
                     onClick={() => void handleCopySite()}
-                    className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
+                    className="flex items-center gap-1.5 rounded-control-sm border border-ink-200 bg-paper-50 px-2 py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
                   >
                     {copiedSite ? (
                       <Check className="h-3.5 w-3.5 text-green-600" />
@@ -1008,23 +1008,23 @@ function Settings() {
               title="Secrets 同步状态"
               hint={`写入 ${owner}/${repoName}，配置变更后自动同步`}
             >
-              <div className="overflow-hidden rounded-lg border border-ink-200 bg-paper-100">
-                <div className="flex items-center justify-between px-3 py-1.5 bg-ink-100 border-b border-ink-200 text-xs">
+              <div className="overflow-hidden rounded-control border border-ink-200 bg-paper-100">
+                <div className="flex items-center justify-between px-ui-gap py-1.5 bg-ink-100 border-b border-ink-200 text-ui-xs">
                   <span className="font-medium text-ink-700">同步明细</span>
                   <button
                     type="button"
                     onClick={runSync}
                     disabled={secretSyncing}
-                    className="flex items-center gap-1 rounded-lg border border-ink-300 bg-paper-50 px-2 py-0.5 text-[11px] hover:bg-paper-100 disabled:text-ink-400"
+                    className="flex items-center gap-1 rounded-control border border-ink-300 bg-paper-50 px-2 py-0.5 text-ui-xs hover:bg-paper-100 disabled:text-ink-400"
                   >
                     {secretSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                     手动同步
                   </button>
                 </div>
                 {secretItems.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-ink-400">等待首次同步…</div>
+                  <div className="px-ui-gap py-2 text-ui-xs text-ink-400">等待首次同步…</div>
                 ) : (
-                  <div className="divide-y divide-ink-200 text-[11px] font-mono">
+                  <div className="divide-y divide-ink-200 text-ui-xs font-mono">
                     {secretItems.map((it) => {
                       const isSkipped = !it.valueWanted && it.putStatus === 0
                       const isFailed = !it.putOk
@@ -1049,7 +1049,7 @@ function Settings() {
                       })()
 
                       return (
-                        <div key={it.name} className="flex items-center gap-2 px-3 py-1.5">
+                        <div key={it.name} className="flex items-center gap-2 px-ui-gap py-1.5">
                           <span className={`${color} w-4 text-center shrink-0`}>{icon}</span>
                           <span className="text-ink-700 w-40 shrink-0 truncate" title={it.name}>{it.name}</span>
                           {valPreview && (
@@ -1071,7 +1071,7 @@ function Settings() {
             </SubBlock>
           </SettingsGroup>
 
-          <div className="pt-2 text-center text-xs text-ink-400">
+          <div className="pt-2 text-center text-ui-xs text-ink-400">
             所有凭据仅存本机 IndexedDB · License AGPL-3.0-or-later
           </div>
         </div>
@@ -1167,18 +1167,18 @@ function AISlotSection(props: {
     <div className="space-y-4 pt-5 first:pt-0">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-800">
+          <h3 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
             <Sparkles className="h-4 w-4 text-seal-600" />
             {title}
           </h3>
-          <p className="mt-0.5 text-xs text-ink-500">{desc}</p>
+          <p className="mt-0.5 text-ui-xs text-ink-500">{desc}</p>
         </div>
         {!isCustom && cfg.apiKeyUrl && (
           <a
             href={cfg.apiKeyUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-seal-600 hover:text-seal-800 whitespace-nowrap"
+            className="text-ui-xs text-seal-600 hover:text-seal-800 whitespace-nowrap"
           >
             去获取 API Key →
           </a>
@@ -1193,7 +1193,7 @@ function AISlotSection(props: {
             type="button"
             disabled={mode === 'custom' && !advancedMode}
             onClick={() => onProviderChange(mode)}
-            className={`rounded-lg border px-3 py-2 text-sm transition ${
+            className={`rounded-control border px-ui-gap py-2 text-ui-sm transition ${
               providerMode === mode
                 ? 'bg-seal-50 border-seal-400 text-seal-800 font-medium'
                 : 'bg-paper-50 border-ink-300 text-ink-600 hover:border-ink-400'
@@ -1204,17 +1204,17 @@ function AISlotSection(props: {
         ))}
       </div>
       {!isCustom && (
-        <p className="text-xs text-ink-500">{cfg.note}</p>
+        <p className="text-ui-xs text-ink-500">{cfg.note}</p>
       )}
 
       {isCustom ? (
-        <div className="space-y-2 rounded-lg border border-ink-200 bg-paper-100 p-3">
+        <div className="space-y-2 rounded-control border border-ink-200 bg-paper-100 p-3">
           <input
             type="text"
             value={customBaseUrl}
             onChange={(e) => onCustomBaseUrlChange(e.target.value)}
             placeholder="Base URL，如 https://api.openai.com/v1"
-            className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm
+            className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm
                        focus:outline-none focus:ring-2 focus:ring-seal-500"
           />
           <APIKeyInput
@@ -1228,7 +1228,7 @@ function AISlotSection(props: {
             value={customModel}
             onChange={(e) => onCustomModelChange(e.target.value)}
             placeholder="Model ID，如 gpt-4o-mini"
-            className="w-full rounded-lg border border-ink-300 px-3 py-2 font-mono text-sm
+            className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm
                        focus:outline-none focus:ring-2 focus:ring-seal-500"
           />
         </div>
@@ -1242,12 +1242,12 @@ function AISlotSection(props: {
             hint="仅存本机"
           />
           {fallbackKeyNote && (
-            <p className="text-xs text-amber-600 -mt-2">{fallbackKeyNote}</p>
+            <p className="text-ui-xs text-amber-600 -mt-2">{fallbackKeyNote}</p>
           )}
 
           {/* 拉取真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */}
           <div className="flex items-center justify-between">
-            <div className="text-xs text-ink-500">
+            <div className="text-ui-xs text-ink-500">
               模型清单：
               {hasFetched
                 ? `${fetchedModels.length} 个`
@@ -1260,7 +1260,7 @@ function AISlotSection(props: {
               type="button"
               onClick={onFetch}
               disabled={isFetching || !canFetch}
-              className="flex items-center gap-1 rounded-lg border border-ink-300 px-2.5 py-1 text-xs
+              className="flex items-center gap-1 rounded-control border border-ink-300 px-2.5 py-1 text-ui-xs
                          hover:bg-paper-100 disabled:cursor-not-allowed disabled:text-ink-300"
             >
               {isFetching ? (
@@ -1273,11 +1273,11 @@ function AISlotSection(props: {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-ink-700">模型</label>
+            <label className="block text-ui-sm font-medium text-ink-700">模型</label>
             <select
               value={shownModel}
               onChange={(e) => onModelChange(e.target.value)}
-              className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 font-mono text-sm
+              className="w-full rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-2 font-mono text-ui-sm
                          focus:border-transparent focus:outline-none focus:ring-2 focus:ring-seal-500"
             >
               {recs.length > 0 && (
@@ -1304,12 +1304,12 @@ function AISlotSection(props: {
           {/* 官方价目：空闲 / 高峰双价 + 缓存命中价。
               重试/复核会命中前缀缓存，输入按缓存价计（约为未命中的 1/50）。 */}
           {selectedPricing && (
-            <div className="rounded-lg border border-ink-200 bg-paper-100/70 p-3 space-y-2">
+            <div className="rounded-control border border-ink-200 bg-paper-100/70 p-3 space-y-2">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs font-medium text-ink-600">官方价目</span>
-                <span className="text-[11px] font-mono text-ink-400 truncate">{shownModel}</span>
+                <span className="text-ui-xs font-medium text-ink-600">官方价目</span>
+                <span className="text-ui-xs font-mono text-ink-400 truncate">{shownModel}</span>
               </div>
-              <table className="w-full text-[11px] tabular-nums">
+              <table className="w-full text-ui-xs tabular-nums">
                 <thead>
                   <tr className="text-ink-400">
                     <th className="text-left font-normal">时段</th>
@@ -1333,7 +1333,7 @@ function AISlotSection(props: {
                   </tr>
                 </tbody>
               </table>
-              <p className="text-[11px] text-ink-400">
+              <p className="text-ui-xs text-ink-400">
                 元 / 百万 tokens · 高峰 = 工作日 9–12 / 14–18 时 · 重写复核命中前缀缓存，输入按缓存价计
               </p>
             </div>
@@ -1343,14 +1343,14 @@ function AISlotSection(props: {
 
       {/* 推理模式 —— 本槽位的交互式调用：问 AI / 双引擎 / 联网检索 */}
       <div className="space-y-1.5">
-        <label className="flex items-center gap-1.5 text-sm font-medium text-ink-700">
+        <label className="flex items-center gap-1.5 text-ui-sm font-medium text-ink-700">
           <Brain className="w-3.5 h-3.5 text-violet-500" />
           推理模式
         </label>
         <select
           value={thinking}
           onChange={(e) => onThinkingChange(e.target.value as AISlotThinking)}
-          className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm
+          className="w-full rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-2 text-ui-sm
                      focus:border-transparent focus:outline-none focus:ring-2 focus:ring-violet-500"
         >
           {SLOT_THINKING_OPTIONS.map((o) => (
@@ -1359,7 +1359,7 @@ function AISlotSection(props: {
             </option>
           ))}
         </select>
-        <p className="text-[11px] text-ink-400">{thinkingHint}</p>
+        <p className="text-ui-xs text-ink-400">{thinkingHint}</p>
       </div>
     </div>
   )

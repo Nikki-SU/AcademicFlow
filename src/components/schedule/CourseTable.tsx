@@ -275,7 +275,7 @@ export function CourseTable({
   const dayCols = `repeat(${days.length}, minmax(0, 1fr))`
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
       <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
         <h2 className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800">
           <Clock className="h-ui-icon w-ui-icon text-seal-600" />
@@ -284,21 +284,21 @@ export function CourseTable({
         <div className="flex items-center gap-ui-gap-sm">
           <button
             onClick={() => setForm({ mode: 'create', variant: 'course' })}
-            className="flex items-center gap-ui-gap-sm rounded bg-seal-600 px-ui-gap-sm py-ui-gap-sm text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
+            className="flex items-center gap-ui-gap-sm rounded-control-sm bg-seal-600 px-ui-gap-sm py-ui-gap-sm text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
           >
             <CalendarPlus className="h-ui-icon-sm w-ui-icon-sm" />
             加课
           </button>
           <button
             onClick={() => setForm({ mode: 'create', variant: 'timed' })}
-            className="rounded border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-600"
+            className="rounded-control-sm border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-600"
             title="把组会等定时任务加进课表"
           >
             定时任务
           </button>
           <button
             onClick={() => setShowExtra(true)}
-            className="rounded border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
+            className="rounded-control-sm border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
           >
             调休
           </button>
@@ -334,7 +334,7 @@ export function CourseTable({
               return (
                 <div
                   key={w}
-                  className={`rounded-md py-1 text-center font-mono text-ui-xs leading-tight ${
+                  className={`rounded-control-sm py-1 text-center font-mono text-ui-xs leading-tight ${
                     isTodayCol
                       ? 'bg-seal-600 font-semibold text-paper-50 shadow-card'
                       : ed
@@ -391,7 +391,7 @@ export function CourseTable({
               return (
                 <div
                   key={w}
-                  className={`relative overflow-hidden rounded border ${
+                  className={`relative overflow-hidden rounded-control-sm border ${
                     isToday
                       ? 'border-seal-300 bg-seal-50 ring-1 ring-inset ring-seal-200'
                       : 'border-ink-100 bg-paper-100'
@@ -431,13 +431,13 @@ export function CourseTable({
                           left: `${left}%`,
                           width: `${width}%`,
                         }}
-                        className={`absolute z-10 flex flex-col items-start overflow-hidden rounded px-ui-gap-sm py-0.5 text-left ${color.bg} ${
+                        className={`absolute z-10 flex flex-col items-start overflow-hidden rounded-control-sm px-ui-gap-sm py-0.5 text-left ${color.bg} ${
                           isCurrent ? 'ring-2 ring-ink-800' : ''
                         }`}
                       >
                         <span className="w-full text-ui-xs font-medium leading-tight text-paper-50 [overflow-wrap:anywhere]">
                           {once && (
-                            <span className="mr-1 rounded bg-paper-50/25 px-1 text-ui-2xs font-normal">
+                            <span className="mr-1 rounded-control-sm bg-paper-50/25 px-1 text-ui-2xs font-normal">
                               单次
                             </span>
                           )}
@@ -486,7 +486,7 @@ export function CourseTable({
                         </button>
                         {active && (
                           <div
-                            className={`absolute z-40 w-max max-w-full rounded border border-hl-red bg-paper-50 px-1.5 py-1 text-ui-2xs shadow-lg ${
+                            className={`absolute z-40 w-max max-w-full rounded-control-sm border border-hl-red bg-paper-50 px-1.5 py-1 text-ui-2xs shadow-lg ${
                               top > 80 ? 'bottom-1.5' : 'top-1.5'
                             }`}
                           >

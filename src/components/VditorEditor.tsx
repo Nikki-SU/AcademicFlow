@@ -301,7 +301,7 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
   const menu = document.createElement('div')
   menu.id = 'af-formula-menu'
   menu.className =
-    'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl py-1 text-sm min-w-[8.75rem]'
+    'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-control shadow-xl py-1 text-ui-sm min-w-[8.75rem]'
   const rect = anchor.getBoundingClientRect()
   menu.style.top = `${Math.round(rect.bottom + 6)}px`
   menu.style.left = `${Math.round(rect.left)}px`
@@ -313,8 +313,8 @@ function openFormulaMenu(anchor: HTMLElement, onPick: (kind: 'inline' | 'block')
   for (const it of items) {
     const btn = document.createElement('button')
     btn.type = 'button'
-    btn.className = 'w-full flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-seal-50 text-ink-700'
-    btn.innerHTML = `<span>${it.label}</span><span class="text-xs text-ink-400 font-mono">${it.hint}</span>`
+    btn.className = 'w-full flex items-center justify-between gap-3 px-ui-gap py-1.5 hover:bg-seal-50 text-ink-700'
+    btn.innerHTML = `<span>${it.label}</span><span class="text-ui-xs text-ink-400 font-mono">${it.hint}</span>`
     // 菜单挂在 document.body 上，不在编辑器容器里 —— 容器上那条「点工具栏时别抢焦点」的
     // 拦截（见 mousedown 那个 effect）管不到这里。不挡的话，这点一下就把正文的选区丢了，
     // 「选中一段文字 → 插入公式」就会插到别处去。
@@ -386,10 +386,10 @@ function openTableGridMenu(anchor: HTMLElement, onPick: (rows: number, cols: num
 
   const wrap = document.createElement('div')
   wrap.id = 'af-table-grid'
-  wrap.className = 'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl p-2.5'
+  wrap.className = 'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-control shadow-xl p-2.5'
 
   const tip = document.createElement('div')
-  tip.className = 'text-xs text-ink-600 mb-2 text-center whitespace-nowrap'
+  tip.className = 'text-ui-xs text-ink-600 mb-2 text-center whitespace-nowrap'
   tip.textContent = '滑过选择行列'
   wrap.appendChild(tip)
 
@@ -483,7 +483,7 @@ function openCodeLangMenu(anchor: HTMLElement, current: string, onPick: (lang: s
   const menu = document.createElement('div')
   menu.id = 'af-code-lang-menu'
   menu.className =
-    'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-lg shadow-xl py-1 text-sm ' +
+    'fixed z-[9999] bg-paper-50 border border-ink-200 rounded-control shadow-xl py-1 text-ui-sm ' +
     'max-h-[18rem] overflow-y-auto min-w-[9.5rem]'
   const rect = anchor.getBoundingClientRect()
   menu.style.top = `${Math.round(rect.bottom + 6)}px`
@@ -493,10 +493,10 @@ function openCodeLangMenu(anchor: HTMLElement, current: string, onPick: (lang: s
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className =
-      'w-full flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-seal-50 text-ink-700'
+      'w-full flex items-center justify-between gap-3 px-ui-gap py-1.5 hover:bg-seal-50 text-ink-700'
     btn.innerHTML =
       `<span>${it.label}</span>` +
-      (it.value === current ? '<span class="text-[0.625rem] text-seal-500">默认</span>' : '')
+      (it.value === current ? '<span class="text-ui-2xs text-seal-500">默认</span>' : '')
     // 同 openFormulaMenu：菜单在 body 上，得自己挡住 mousedown，否则选语言这一下就丢了选区
     btn.addEventListener('mousedown', (e) => e.preventDefault())
     btn.addEventListener('click', (e) => {
@@ -1222,7 +1222,7 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
         btn.title = tip
         btn.className =
           'absolute flex items-center justify-center w-[1.375rem] h-[1.375rem] rounded-full ' +
-          'bg-paper-50 border border-ink-200 text-ink-500 shadow-sm text-xs leading-none ' +
+          'bg-paper-50 border border-ink-200 text-ink-500 shadow-sm text-ui-xs leading-none ' +
           'hover:bg-seal-600 hover:border-seal-600 hover:text-paper-50 transition'
         if (label === 'trash') btn.innerHTML = TRASH_ICON
         else btn.textContent = label

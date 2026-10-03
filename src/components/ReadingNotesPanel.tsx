@@ -457,7 +457,7 @@ export default function ReadingNotesPanel({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* 顶栏：笔记切换 + 新建 / 重命名 / 删除 / 上传 / 导出 */}
-      <div className="px-3 py-2 border-b border-ink-100 flex-shrink-0 bg-paper-100/50">
+      <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 bg-paper-100/50">
         {editing ? (
           <div className="flex items-center gap-1.5">
             <input
@@ -470,17 +470,17 @@ export default function ReadingNotesPanel({
                 if (e.key === 'Enter') void commitEditing()
                 if (e.key === 'Escape') setEditing(null)
               }}
-              className="flex-1 min-w-0 px-2 py-1 text-xs border border-ink-300 rounded focus:outline-none focus:border-seal-400"
+              className="flex-1 min-w-0 px-2 py-1 text-ui-xs border border-ink-300 rounded-control-sm focus:outline-none focus:border-seal-400"
             />
             <button
               onClick={() => void commitEditing()}
-              className="px-2 py-1 text-xs bg-seal-600 text-paper-50 rounded hover:bg-seal-700 transition"
+              className="px-2 py-1 text-ui-xs bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition"
             >
               确定
             </button>
             <button
               onClick={() => setEditing(null)}
-              className="px-2 py-1 text-xs text-ink-500 hover:bg-ink-100 rounded transition"
+              className="px-2 py-1 text-ui-xs text-ink-500 hover:bg-ink-100 rounded-control-sm transition"
             >
               取消
             </button>
@@ -492,7 +492,7 @@ export default function ReadingNotesPanel({
               <button
                 onClick={() => setListOpen((v) => !v)}
                 disabled={names.length === 0}
-                className="w-full flex items-center gap-1 px-2 py-1 text-xs text-ink-700 bg-paper-50 border border-ink-200 rounded hover:border-seal-300 transition disabled:opacity-50"
+                className="w-full flex items-center gap-1 px-2 py-1 text-ui-xs text-ink-700 bg-paper-50 border border-ink-200 rounded-control-sm hover:border-seal-300 transition disabled:opacity-50"
               >
                 <FileText className="w-3.5 h-3.5 flex-shrink-0 text-seal-500" />
                 <span className="truncate flex-1 text-left">
@@ -501,12 +501,12 @@ export default function ReadingNotesPanel({
                 <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-ink-400" />
               </button>
               {listOpen && names.length > 0 && (
-                <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-paper-50 border border-ink-200 rounded-lg shadow-xl py-1 max-h-64 overflow-y-auto">
+                <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-paper-50 border border-ink-200 rounded-control shadow-xl py-1 max-h-64 overflow-y-auto">
                   {names.map((name) => (
                     <button
                       key={name}
                       onClick={() => void selectNote(name)}
-                      className={`w-full text-left px-3 py-1.5 text-xs truncate transition ${
+                      className={`w-full text-left px-ui-gap py-1.5 text-ui-xs truncate transition ${
                         name === active
                           ? 'bg-seal-50 text-seal-700 font-medium'
                           : 'text-ink-600 hover:bg-paper-100'
@@ -522,7 +522,7 @@ export default function ReadingNotesPanel({
             <button
               onClick={beginCreate}
               title="新建笔记"
-              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded transition"
+              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -530,7 +530,7 @@ export default function ReadingNotesPanel({
               onClick={beginRename}
               disabled={!active}
               title="重命名当前笔记"
-              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
+              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition disabled:opacity-40"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
@@ -538,7 +538,7 @@ export default function ReadingNotesPanel({
               onClick={() => void removeActive()}
               disabled={!active}
               title="删除当前笔记"
-              className="p-1.5 text-ink-500 hover:text-red-600 hover:bg-red-50 rounded transition disabled:opacity-40"
+              className="p-1.5 text-ink-500 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition disabled:opacity-40"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -546,7 +546,7 @@ export default function ReadingNotesPanel({
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
               title="上传笔记（md / txt / docx / pdf / zip）"
-              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
+              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition disabled:opacity-40"
             >
               {uploading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -558,7 +558,7 @@ export default function ReadingNotesPanel({
               onClick={onExport}
               disabled={!value.trim()}
               title="导出当前笔记"
-              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded transition disabled:opacity-40"
+              className="p-1.5 text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition disabled:opacity-40"
             >
               <Download className="w-3.5 h-3.5" />
             </button>
@@ -579,9 +579,9 @@ export default function ReadingNotesPanel({
 
       {/* 管线转换进度（Word / PDF → markdown 笔记） */}
       {converts.length > 0 && (
-        <div className="px-3 py-2 border-b border-ink-100 flex-shrink-0 bg-seal-50/40 space-y-1.5">
+        <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 bg-seal-50/40 space-y-1.5">
           {converts.map((c) => (
-            <div key={c.name} className="flex items-center gap-2 text-xs">
+            <div key={c.name} className="flex items-center gap-2 text-ui-xs">
               {c.status === 'running' ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-seal-500 flex-shrink-0" />
               ) : (
@@ -630,19 +630,19 @@ export default function ReadingNotesPanel({
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center text-ink-400 px-6">
             <StickyNote className="w-10 h-10 mb-3 opacity-30" />
-            <p className="text-sm text-ink-500">还没有笔记</p>
-            <p className="text-xs mt-1 mb-4">新建一篇，或上传已有的 md / docx / pdf 笔记</p>
+            <p className="text-ui-sm text-ink-500">还没有笔记</p>
+            <p className="text-ui-xs mt-1 mb-4">新建一篇，或上传已有的 md / docx / pdf 笔记</p>
             <div className="flex items-center gap-2">
               <button
                 onClick={beginCreate}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-seal-600 text-paper-50 rounded hover:bg-seal-700 transition"
+                className="flex items-center gap-1 px-ui-gap py-1.5 text-ui-xs bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition"
               >
                 <Plus className="w-3.5 h-3.5" />
                 新建笔记
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs border border-ink-200 text-ink-600 rounded hover:bg-paper-100 transition"
+                className="flex items-center gap-1 px-ui-gap py-1.5 text-ui-xs border border-ink-200 text-ink-600 rounded-control-sm hover:bg-paper-100 transition"
               >
                 <Upload className="w-3.5 h-3.5" />
                 上传笔记
@@ -653,8 +653,8 @@ export default function ReadingNotesPanel({
       </div>
 
       {/* 底栏：保存状态 + 字数 */}
-      <div className="px-3 py-2 border-t border-ink-100 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
-        <div className="flex items-center gap-1.5 text-xs text-ink-400">
+      <div className="px-ui-gap py-2 border-t border-ink-100 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
+        <div className="flex items-center gap-1.5 text-ui-xs text-ink-400">
           {saveState.status === 'saving' && (
             <>
               <span className="w-2.5 h-2.5 border border-ink-300 border-t-seal-500 rounded-full animate-spin" />
@@ -678,7 +678,7 @@ export default function ReadingNotesPanel({
           )}
           {saveState.status === 'error' && <span className="text-red-500">保存失败</span>}
         </div>
-        <span className="text-xs text-ink-400 font-mono">{wordCount} 字</span>
+        <span className="text-ui-xs text-ink-400 font-mono">{wordCount} 字</span>
       </div>
     </div>
   )

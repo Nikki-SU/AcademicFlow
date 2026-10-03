@@ -242,7 +242,7 @@ export function TaskTree({
 
   /** 渲染一个大类的竖列（列头 + 可滚动的层级列表） */
   const renderColumn = (label: string, type: ProjectType, rows: Row[]) => (
-    <div className="flex min-h-0 flex-col rounded-lg border border-ink-100 bg-paper-100/40">
+    <div className="flex min-h-0 flex-col rounded-control border border-ink-100 bg-paper-100/40">
       <div className="flex items-center justify-between border-b border-ink-100 px-ui-gap-sm py-1">
         <span className="text-ui-xs font-medium text-ink-500">
           {label} <span className="text-ui-2xs font-normal text-ink-300">{rows.length}</span>
@@ -251,7 +251,7 @@ export function TaskTree({
           type="button"
           onClick={() => onNewRoot(type)}
           title={`新建${label}任务`}
-          className="inline-flex shrink-0 items-center gap-0.5 rounded p-0.5 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
+          className="inline-flex shrink-0 items-center gap-0.5 rounded-control-sm p-0.5 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
         >
           <Plus className="h-ui-icon-sm w-ui-icon-sm" />
           <span className="text-ui-2xs">任务</span>
@@ -282,7 +282,7 @@ export function TaskTree({
                     e.preventDefault()
                     setMenu({ project, x: e.clientX, y: e.clientY })
                   }}
-                  className={`group flex items-center gap-ui-gap-sm rounded-md pr-1 transition ${
+                  className={`group flex items-center gap-ui-gap-sm rounded-control-sm pr-1 transition ${
                     struck ? 'opacity-60 grayscale' : ''
                   } ${
                     isHighlight
@@ -304,7 +304,7 @@ export function TaskTree({
                           else if (e.key === 'Escape') setEditingId(null)
                         }}
                         onBlur={() => void commitEdit(project)}
-                        className="min-w-0 flex-1 rounded border border-seal-400 bg-paper-50 px-1.5 py-0.5 text-ui-sm text-ink-800 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                        className="min-w-0 flex-1 rounded-control-sm border border-seal-400 bg-paper-50 px-1.5 py-0.5 text-ui-sm text-ink-800 focus:outline-none focus:ring-2 focus:ring-seal-100"
                       />
                     </div>
                   ) : (
@@ -360,7 +360,7 @@ export function TaskTree({
                     type="button"
                     onClick={() => onAddChild(project)}
                     title="加子任务"
-                    className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
+                    className="shrink-0 rounded-control-sm p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
                   >
                     <Plus className="h-ui-icon-sm w-ui-icon-sm" />
                   </button>
@@ -368,7 +368,7 @@ export function TaskTree({
                     type="button"
                     onClick={() => onEdit(project)}
                     title="编辑任务（名称 / 归属 / 时间 / 描述 / 要求 / 附件）"
-                    className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
+                    className="shrink-0 rounded-control-sm p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
                   >
                     <Pencil className="h-ui-icon-sm w-ui-icon-sm" />
                   </button>
@@ -376,7 +376,7 @@ export function TaskTree({
                     type="button"
                     onClick={() => onDelete(project)}
                     title="删除任务"
-                    className="shrink-0 rounded p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
+                    className="shrink-0 rounded-control-sm p-1 text-ink-300 opacity-0 transition hover:text-seal-600 group-hover:opacity-100"
                   >
                     <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
                   </button>
@@ -397,7 +397,7 @@ export function TaskTree({
   )
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-ink-200 bg-paper-50">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
       <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
         <button
           onClick={() => setCollapsed((v) => !v)}
@@ -429,7 +429,7 @@ export function TaskTree({
         <div
           onMouseDown={(e) => e.stopPropagation()}
           style={{ left: menu.x, top: menu.y }}
-          className="fixed z-50 min-w-36 overflow-hidden rounded-lg border border-ink-200 bg-paper-50 py-1 shadow-xl"
+          className="fixed z-50 min-w-36 overflow-hidden rounded-control border border-ink-200 bg-paper-50 py-1 shadow-xl"
         >
           <button
             type="button"
@@ -437,7 +437,7 @@ export function TaskTree({
               onAddChild(menu.project)
               setMenu(null)
             }}
-            className="flex w-full items-center gap-ui-gap-sm px-3 py-1.5 text-left text-ui-sm text-ink-700 transition hover:bg-paper-100"
+            className="flex w-full items-center gap-ui-gap-sm px-ui-gap py-1.5 text-left text-ui-sm text-ink-700 transition hover:bg-paper-100"
           >
             <Plus className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
             加子任务
@@ -448,7 +448,7 @@ export function TaskTree({
               onEdit(menu.project)
               setMenu(null)
             }}
-            className="flex w-full items-center gap-ui-gap-sm px-3 py-1.5 text-left text-ui-sm text-ink-700 transition hover:bg-paper-100"
+            className="flex w-full items-center gap-ui-gap-sm px-ui-gap py-1.5 text-left text-ui-sm text-ink-700 transition hover:bg-paper-100"
           >
             <Pencil className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
             编辑任务
@@ -459,7 +459,7 @@ export function TaskTree({
               onDelete(menu.project)
               setMenu(null)
             }}
-            className="flex w-full items-center gap-ui-gap-sm px-3 py-1.5 text-left text-ui-sm text-seal-700 transition hover:bg-seal-50"
+            className="flex w-full items-center gap-ui-gap-sm px-ui-gap py-1.5 text-left text-ui-sm text-seal-700 transition hover:bg-seal-50"
           >
             <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
             删除任务

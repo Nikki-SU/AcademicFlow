@@ -159,7 +159,7 @@ export function TaskRequirementsView({
           type="button"
           onClick={onEdit}
           title="在编辑窗里修改名称 / 归属 / 时间 / 描述 / 要求 / 附件"
-          className="inline-flex shrink-0 items-center gap-1 rounded border border-ink-200 px-ui-gap-sm py-0.5 text-ui-2xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
+          className="inline-flex shrink-0 items-center gap-1 rounded-control-sm border border-ink-200 px-ui-gap-sm py-0.5 text-ui-2xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
         >
           <Pencil className="h-ui-icon-sm w-ui-icon-sm" />
           编辑
@@ -172,7 +172,7 @@ export function TaskRequirementsView({
         {briefLoading ? (
           <p className="text-ui-2xs text-ink-400">读取中…</p>
         ) : brief.trim() ? (
-          <p className="whitespace-pre-wrap break-words rounded border border-ink-100 bg-paper-100/60 px-2 py-1.5 text-ui-xs leading-relaxed text-ink-700">
+          <p className="whitespace-pre-wrap break-words rounded-control-sm border border-ink-100 bg-paper-100/60 px-2 py-1.5 text-ui-xs leading-relaxed text-ink-700">
             {brief}
           </p>
         ) : (
@@ -243,7 +243,7 @@ export function TaskRequirementsView({
             {attachments.map((a) => (
               <li
                 key={a.path}
-                className="flex items-center gap-1.5 rounded border border-ink-100 bg-paper-100/60 px-1.5 py-1"
+                className="flex items-center gap-1.5 rounded-control-sm border border-ink-100 bg-paper-100/60 px-1.5 py-1"
               >
                 <span className="min-w-0 flex-1 truncate text-ui-2xs text-ink-700" title={a.name}>
                   {a.name}
@@ -253,7 +253,7 @@ export function TaskRequirementsView({
                   type="button"
                   onClick={() => void handleDownload(a)}
                   title="下载"
-                  className="shrink-0 rounded p-0.5 text-ink-400 transition hover:text-seal-600"
+                  className="shrink-0 rounded-control-sm p-0.5 text-ink-400 transition hover:text-seal-600"
                 >
                   <Download className="h-ui-icon-sm w-ui-icon-sm" />
                 </button>
