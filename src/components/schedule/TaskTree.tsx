@@ -32,6 +32,21 @@ import { TaskExpandPanel } from './TaskExpandPanel'
 function slotTiming(c: Course, now: number): { next: number; ongoing: boolean } {
   const start = timeToMinutes(c.startTime)
   const end = timeToMinutes(c.endTime)
+  // 单次时段：只在它自己那一天出现；过了就不再参与排序（不会每周重复）
+  if (c.repeat === 'once') {
+    if (!c.date || start < 0 || end <= start) return { next: Infinity, ongoing: false }
+    const target = new Date(`${c.date}T00:00:00`)
+    if (Number.isNaN(target.getTime())) return { next: Infinity, ongoing: false }
+    const d = new Date(now)
+    const nowMin = d.getHours() * 60 + d.getMinutes()
+    const sameDay =
+      d.getFullYear() === target.getFullYear() &&
+      d.getMonth() === target.getMonth() &&
+      d.getDate() === target.getDate()
+    const ongoing = sameDay && nowMin >= start && nowMin < end
+    const nextStart = target.getTime() + start * 60000
+    return { next: nextStart > now ? nextStart : Infinity, ongoing }
+  }
   if (start < 0 || c.weekday < 1 || c.weekday > 7) return { next: Infinity, ongoing: false }
   const d = new Date(now)
   const pad = (n: number) => String(n).padStart(2, '0')

@@ -22,14 +22,22 @@ import { Modal } from './Modal'
 import { TimeWheel } from './TimeWheel'
 import { TaskPicker, buildParentOptions } from './TaskPicker'
 import type { Project, ProjectType } from '../../services/projectData'
-import { WEEKDAY_LABELS } from '../../services/scheduleData'
+import {
+  WEEKDAY_LABELS,
+  nearestDateOfWeekday,
+  todayStr,
+  weekdayOfDate,
+  type RepeatMode,
+} from '../../services/scheduleData'
 
-/** 单个时段输入（星期几 + 起止 + 地点），weekday ∈ 1..7 */
+/** 单个时段输入：每周固定用 weekday；单次用 date（YYYY-MM-DD），起止 + 地点共用 */
 export interface SlotInput {
   weekday: number
   startTime: string
   endTime: string
   location: string
+  /** 单次时段的日期 YYYY-MM-DD；每周时段为空串 */
+  date: string
 }
 
 export interface SlotFormValue {
@@ -41,14 +49,17 @@ export interface SlotFormValue {
   taskId: string
   /** 定时任务新建顶级任务时用的大类；课程时段恒为 'course' */
   type: ProjectType
+  /** 重复方式：weekly=每周固定；once=单次（考试等） */
+  repeat: RepeatMode
 }
 
-/** 表单内部行：星期未选时用 '' */
+/** 表单内部行：星期未选时用 ''；单次时 date 承载日期 */
 interface SlotRow {
   weekday: number | ''
   startTime: string
   endTime: string
   location: string
+  date: string
 }
 
 /** 把分钟数按 5 分钟取整后转 HH:MM，作为时间输入的默认值 */
@@ -77,7 +88,7 @@ export function CourseFormModal({
   /** 归属任务是否锁死：课程时段锁在自己的课程任务上（改归属会破坏「一门课一个任务」） */
   lockTask?: boolean
   /** 编辑：初始时段（单时段编辑 = 1 个；整门课编辑 = 该任务全部时段） */
-  initial?: { title: string; taskId: string; slots: SlotInput[] }
+  initial?: { title: string; taskId: string; slots: SlotInput[]; repeat: RepeatMode }
   /** 编辑：是否显示「整门课一起编辑」勾选框 */
   editScope?: { canToggle: boolean; all: boolean; onToggle: (all: boolean) => void }
   onClose: () => void
@@ -87,9 +98,14 @@ export function CourseFormModal({
   const isEdit = variant === 'edit'
   // 归属任务可选 = 非课程（加定时任务、或编辑一个挂在普通任务下的时段）
   const canPickTask = variant === 'timed' || (isEdit && !lockTask)
+  // 只有「定时任务」可切每周 / 单次；课程天然每周重复，恒为 weekly
+  const canPickRepeat = canPickTask
 
   const [title, setTitle] = useState(initial?.title ?? '')
   const [taskId, setTaskId] = useState(initial?.taskId ?? '')
+  const [repeat, setRepeat] = useState<RepeatMode>(() =>
+    canPickRepeat ? initial?.repeat ?? 'weekly' : 'weekly',
+  )
   const [slots, setSlots] = useState<SlotRow[]>(() =>
     initial && initial.slots.length > 0
       ? initial.slots.map((s) => ({
@@ -97,8 +113,9 @@ export function CourseFormModal({
           startTime: snapTime(s.startTime),
           endTime: snapTime(s.endTime),
           location: s.location,
+          date: s.date || '',
         }))
-      : [{ weekday: '', startTime: '08:00', endTime: '09:00', location: '' }],
+      : [{ weekday: '', startTime: '08:00', endTime: '09:00', location: '', date: '' }],
   )
 
   // 归属用两层选择：大类 + 该大类下的任务（TaskPicker）。编辑时初始大类取自现挂任务
@@ -116,8 +133,17 @@ export function CourseFormModal({
   const addSlot = () =>
     setSlots((prev) => {
       const first = prev[0]
-      // 时间沿用第一个时段（可见、可改）；地点留空 → 提交时沿用第一个
-      return [...prev, { weekday: '', startTime: first.startTime, endTime: first.endTime, location: '' }]
+      // 时间沿用第一个时段（可见、可改）；地点留空 → 提交时沿用第一个；单次从第二个起默认沿用首日
+      return [
+        ...prev,
+        {
+          weekday: '',
+          startTime: first.startTime,
+          endTime: first.endTime,
+          location: '',
+          date: repeat === 'once' ? first.date : '',
+        },
+      ]
     })
 
   const removeSlot = (i: number) => setSlots((prev) => prev.filter((_, idx) => idx !== i))
@@ -143,11 +169,16 @@ export function CourseFormModal({
         return
       }
     }
-    // 每个时段都要有星期与合法时间
+    // 每个时段都要有「星期 / 日期」与合法时间
     for (let i = 0; i < slots.length; i++) {
       const r = slots[i]
-      if (!r.weekday) {
-        toast.warning(`请为第 ${i + 1} 个时段选择星期`)
+      if (repeat === 'weekly') {
+        if (!r.weekday) {
+          toast.warning(`请为第 ${i + 1} 个时段选择星期`)
+          return
+        }
+      } else if (!r.date) {
+        toast.warning(`请为第 ${i + 1} 个时段选择日期`)
         return
       }
       if (!r.startTime || !r.endTime) {
@@ -162,11 +193,13 @@ export function CourseFormModal({
 
     const first = slots[0]
     const outSlots: SlotInput[] = slots.map((r) => ({
-      weekday: r.weekday as number,
+      // 单次的 weekday 由日期推出，写一份保持一致；每周用选中的星期
+      weekday: repeat === 'once' ? weekdayOfDate(r.date) : (r.weekday as number),
       startTime: r.startTime,
       endTime: r.endTime,
       // 地点留空 → 沿用第一个时段的地点
       location: r.location.trim() || first.location.trim(),
+      date: repeat === 'once' ? r.date : '',
     }))
 
     const name = canPickTask
@@ -180,6 +213,7 @@ export function CourseFormModal({
       slots: outSlots,
       taskId,
       type: canPickTask ? (type as ProjectType) : 'course',
+      repeat: canPickRepeat ? repeat : 'weekly',
     })
   }
 
@@ -271,47 +305,121 @@ export function CourseFormModal({
           </div>
         )}
 
+        {/* 重复方式：每周固定 / 单次（考试等一次性事项）。课程天然每周，不显示此开关。 */}
+        {canPickRepeat && (
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink-700">重复方式</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { value: 'weekly' as const, label: '每周重复', hint: '如每周组会' },
+                { value: 'once' as const, label: '仅一次', hint: '如考试' },
+              ]).map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setRepeat(o.value)}
+                  className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                    repeat === o.value
+                      ? 'border-seal-400 bg-seal-50 text-seal-700'
+                      : 'border-ink-200 text-ink-600 hover:border-seal-300'
+                  }`}
+                >
+                  <div className="font-medium">{o.label}</div>
+                  <div className="text-xs text-ink-400">{o.hint}</div>
+                </button>
+              ))}
+            </div>
+            {repeat === 'once' && (
+              <p className="mt-1 text-xs text-ink-400">
+                单次任务只在这一天出现；新建顶级任务时会自动把它设为 DDL。
+              </p>
+            )}
+          </div>
+        )}
+
         {/* 时段列表 */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-ink-700">时段</span>
+            <span className="text-sm font-medium text-ink-700">{repeat === 'once' ? '日期' : '时段'}</span>
             <button
               type="button"
               onClick={addSlot}
               className="flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1 text-ui-xs text-ink-600 transition hover:border-seal-300 hover:text-seal-600"
             >
               <Plus className="h-3.5 w-3.5" />
-              添加时段
+              {repeat === 'once' ? '添加日期' : '添加时段'}
             </button>
           </div>
 
           {slots.map((row, i) => (
             <div key={i} className="space-y-3 rounded-lg border border-ink-200 bg-paper-50 p-3">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-ink-400">时段 {i + 1}</span>
+                <span className="text-xs text-ink-400">{repeat === 'once' ? `日期 ${i + 1}` : `时段 ${i + 1}`}</span>
+                {slots.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeSlot(i)}
+                    className="ml-auto p-1 text-ink-400 transition hover:text-red-500"
+                    aria-label={`删除${repeat === 'once' ? '日期' : '时段'} ${i + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              {repeat === 'once' ? (
+                <div className="space-y-2">
+                  <input
+                    type="date"
+                    value={row.date}
+                    onChange={(e) => updateSlot(i, { date: e.target.value })}
+                    className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-2 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  />
+                  {/* 也可以不查日历：直接点「最近的周几」，自动落到最近的那一天 */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-ink-400">最近的</span>
+                    {WEEKDAYS.map((w) => {
+                      const d = nearestDateOfWeekday(w)
+                      return (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => updateSlot(i, { date: d })}
+                          title={d}
+                          className={`rounded-md border px-2 py-0.5 text-xs transition ${
+                            row.date === d
+                              ? 'border-seal-400 bg-seal-50 text-seal-700'
+                              : 'border-ink-200 text-ink-600 hover:border-seal-300'
+                          }`}
+                        >
+                          {WEEKDAY_LABELS[w]}
+                        </button>
+                      )
+                    })}
+                    {!row.date && (
+                      <button
+                        type="button"
+                        onClick={() => updateSlot(i, { date: todayStr() })}
+                        className="rounded-md border border-ink-200 px-2 py-0.5 text-xs text-ink-600 transition hover:border-seal-300"
+                      >
+                        今天
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
                 <select
                   value={row.weekday}
                   onChange={(e) =>
                     updateSlot(i, { weekday: e.target.value ? Number(e.target.value) : '' })
                   }
-                  className="ml-auto rounded-lg border border-ink-300 bg-paper-50 px-3 py-1.5 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  className="w-full rounded-lg border border-ink-300 bg-paper-50 px-3 py-1.5 text-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
                 >
                   <option value="">选择星期…</option>
                   {WEEKDAYS.map((w) => (
                     <option key={w} value={w}>{WEEKDAY_LABELS[w]}</option>
                   ))}
                 </select>
-                {slots.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeSlot(i)}
-                    className="p-1 text-ink-400 transition hover:text-red-500"
-                    aria-label={`删除时段 ${i + 1}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-ink-700">开始时间</label>
@@ -341,7 +449,7 @@ export function CourseFormModal({
 
           {slots.length > 1 && (
             <p className="text-xs text-ink-400">
-              新时段默认沿用第一个时段的时间；地点留空则沿用第一个时段的地点。
+              新增项默认沿用第一个的时间；地点留空则沿用第一个的地点。
             </p>
           )}
         </div>

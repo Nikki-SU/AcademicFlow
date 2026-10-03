@@ -211,10 +211,25 @@ export function DateTimeField({
       {/* 宽度按 2:1 分配：日期占 2/3、时间占 1/3（不让日期独吞整行、时间被挤窄）。
           滚轮是 flex 子项、内部格子又绝对定位（无固有宽度），必须由外层给定宽度。 */}
       <div className="col-span-1 min-w-0">
-        <TimeWheel value={timePart} onChange={(t) => emit(datePart, t)} />
+        {/*
+          只转时分滚轮、还没选日期时：默认落到「今天」，别把用户刚拨的时分丢掉。
+          （原先这里 emit('', t) 会把整个值变成 ''，于是「我只给了个时间」提交时是空的 —— 用户踩过。）
+          只有日期框被清空时才允许回到「未设」。
+        */}
+        <TimeWheel
+          value={timePart}
+          onChange={(t) => onChange(`${datePart || todayStr()}T${t}`)}
+        />
       </div>
     </div>
   )
+}
+
+/** 本地时区的今天，YYYY-MM-DD */
+function todayStr(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 /** 时分滚轮组合：值以 `HH:MM` 进出 */

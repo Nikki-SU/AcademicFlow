@@ -19,7 +19,7 @@
 import { useMemo, useState } from 'react'
 import { CalendarPlus, CalendarX, Clock, Repeat, TrendingUp, X } from 'lucide-react'
 import type { Course, ExtraDay, TodayPlan } from '../../services/scheduleData'
-import { timeToMinutes, WEEKDAY_LABELS } from '../../services/scheduleData'
+import { timeToMinutes, weekdayOfDate, WEEKDAY_LABELS } from '../../services/scheduleData'
 import type { Project } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
 import { CourseFormModal, snapTime, type SlotFormValue } from './CourseFormModal'
@@ -202,16 +202,34 @@ export function CourseTable({
   // ---------- 要显示的天：周一~周五恒显；周末有课 / 有调休才出现 ----------
   const days = useMemo(() => {
     const active = new Set<number>()
-    for (const c of courses) if (c.weekday >= 1 && c.weekday <= 7) active.add(c.weekday)
+    for (const c of courses) {
+      if (c.repeat === 'once') {
+        // 单次只落在它那一天：只有正好在本周才占一列
+        if (!c.date) continue
+        const wd = weekdayOfDate(c.date)
+        const col = weekDates.get(wd)
+        if (col && isSameDay(new Date(`${c.date}T00:00:00`), col)) active.add(wd)
+      } else if (c.weekday >= 1 && c.weekday <= 7) {
+        active.add(c.weekday)
+      }
+    }
     // 调休按它「指定的周几」占列（补周六可能上的是周三的课）
     for (const d of extraDays) if (d.followWeekday >= 1 && d.followWeekday <= 7) active.add(d.followWeekday)
     const list = [1, 2, 3, 4, 5]
     for (const w of [6, 7]) if (active.has(w)) list.push(w)
     return list
-  }, [courses, extraDays])
+  }, [courses, extraDays, weekDates])
 
-  const coursesOf = (weekday: number) =>
-    courses.filter((c) => c.weekday === weekday)
+  // 某一天（周几）要排的课：每周时段按 weekday 归列；单次时段只归到它日期所在的那一列
+  const coursesOf = (weekday: number) => {
+    const col = weekDates.get(weekday)
+    return courses.filter((c) => {
+      if (c.repeat === 'once') {
+        return !!c.date && !!col && isSameDay(new Date(`${c.date}T00:00:00`), col)
+      }
+      return c.weekday === weekday
+    })
+  }
 
   // 某一天（周几）要画的 DDL 红线：只画**到期日正好是这一列日期**的那几条
   const ddlsOf = (weekday: number) => {
@@ -386,11 +404,12 @@ export function CourseTable({
                     const color = colorForRoot(slotRootId(c, byId))
                     const isCurrent = !!c.taskId && c.taskId === currentId
                     const label = byId.get(c.taskId)?.title || c.title || '(未命名)'
+                    const once = c.repeat === 'once'
                     return (
                       <button
                         key={c.courseId}
                         onClick={() => setForm({ mode: 'edit', courseId: c.courseId, all: false })}
-                        title={`${label}  ${c.startTime}–${c.endTime}${
+                        title={`${label}${once ? `（单次 · ${c.date}）` : ''}  ${c.startTime}–${c.endTime}${
                           c.location ? `  @${c.location}` : ''
                         }`}
                         style={{
@@ -404,6 +423,11 @@ export function CourseTable({
                         }`}
                       >
                         <span className="w-full text-ui-xs font-medium leading-tight text-paper-50 [overflow-wrap:anywhere]">
+                          {once && (
+                            <span className="mr-1 rounded bg-paper-50/25 px-1 text-ui-2xs font-normal">
+                              单次
+                            </span>
+                          )}
                           {label}
                         </span>
                         {c.location && (
@@ -504,11 +528,13 @@ export function CourseTable({
           initial={{
             title: byId.get(editCourse.taskId)?.title || editCourse.title,
             taskId: editCourse.taskId,
+            repeat: editCourse.repeat,
             slots: (form.all ? editSiblings : [editCourse]).map((c) => ({
               weekday: c.weekday,
               startTime: snapTime(c.startTime),
               endTime: snapTime(c.endTime),
               location: c.location,
+              date: c.date,
             })),
           }}
           onClose={() => setForm(null)}

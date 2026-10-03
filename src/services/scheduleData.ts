@@ -9,7 +9,8 @@
  * 表头字符串必须与 src/constants/skeleton.ts 的 CSV_HEADERS 完全一致（顺序也一致）。
  */
 
-import { readCsvFile, writeCsvFile } from './userData'
+import { readCsvFile, writeCsvFile, readMdFile, writeMdFile } from './userData'
+import type { Project } from './projectData'
 
 /**
  * 时段（课程表条目）
@@ -19,11 +20,14 @@ import { readCsvFile, writeCsvFile } from './userData'
  * - 定时任务（如每周组会）：归属任意任务（可挂在「研究」大类下），时段即它的重复规则
  * 渲染时按 taskId 找到任务、按任务所在族的根色着色，课程表 / 任务列表 / DDL 全局同色。
  */
+/** 时段重复方式：weekly=每周固定（课程 / 每周组会）；once=单次（考试等一次性事项，用 date 定位） */
+export type RepeatMode = 'weekly' | 'once'
+
 export interface Course {
   courseId: string
   /** 时段标题（展示以所属任务标题为准，此处保留一份冗余副本） */
   title: string
-  /** 1..7（1=周一 … 7=周日） */
+  /** 1..7（1=周一 … 7=周日）；单次时段由 date 推出，仍写一份保持一致 */
   weekday: number
   /** HH:MM */
   startTime: string
@@ -33,6 +37,30 @@ export interface Course {
   createdAt: number
   /** 所属任务 id（课程任务 or 定时任务）；一律由迁移保证非空 */
   taskId: string
+  /** 重复方式（迁移保证存在）：weekly / once */
+  repeat: RepeatMode
+  /** 单次时段的日期 YYYY-MM-DD；weekly 恒为空串 */
+  date: string
+}
+
+/** 本地的今天，YYYY-MM-DD */
+export function todayStr(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/**
+ * 「离现在最近的某个星期几」对应的日期（YYYY-MM-DD）。
+ * 含今天：今天正好是该周几就返回今天，否则返回本周（或下周）最近的那一天。
+ */
+export function nearestDateOfWeekday(weekday: number): string {
+  const d = new Date()
+  const todayWd = d.getDay() === 0 ? 7 : d.getDay()
+  const delta = (((weekday - todayWd) % 7) + 7) % 7
+  d.setDate(d.getDate() + delta)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 /** HH:MM → 当日分钟数（非法返回 0） */
@@ -63,9 +91,11 @@ export interface ExtraDay {
 
 const COURSES_PATH = 'schedule/courses.csv'
 // ⚠️ 必须与 src/constants/skeleton.ts 的 CSV_HEADERS.courses 完全一致（顺序也一致）
-//    task_id 为本轮新增（时段归属的任务），追加末尾（守「新列一律追加末尾」）。
+//    task_id 为上一轮新增（时段归属的任务）；repeat / date 为本轮新增（单次定时任务），
+//    一律追加末尾（守「新列一律追加末尾」）。
 const COURSE_HEADERS = [
   'course_id', 'title', 'weekday', 'start_time', 'end_time', 'location', 'created_at', 'task_id',
+  'repeat', 'date',
 ]
 
 const EXTRA_DAYS_PATH = 'schedule/extra_days.csv'
@@ -98,6 +128,9 @@ export async function loadCourses(force = false): Promise<Course[]> {
         location: r[5] || '',
         createdAt: parseInt(r[6] || '0', 10),
         taskId: r[7] || '',
+        // repeat / date 列由迁移（services/migrations.ts）保证存在，这里不做旧格式兜底
+        repeat: (r[8] as RepeatMode) || 'weekly',
+        date: r[9] || '',
       }))
     },
     force,
@@ -118,6 +151,8 @@ export async function saveCourses(courses: Course[]): Promise<void> {
       c.location,
       String(c.createdAt),
       c.taskId || '',
+      c.repeat || 'weekly',
+      c.date || '',
     ],
   )
 }
@@ -190,4 +225,77 @@ export function resolveToday(
   }
   // 普通工作日：按当天真实周几
   return { weekday: wd, holiday: null, makeup: false, unsetMakeup: false }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// 校历（学期开始 / 期末周开始 / 学期结束）
+// -------------------------------------------------
+// 用户要求：加一个校历 —— 这个学期什么时候开学、什么时候进入期末周、什么时候结束。
+// 它是「课程的结束时间」的默认来源：一门课的结束时间 = 期末周第一天（可单门覆盖）。
+// 落 `schedule/calendar.md`（业务数据只准 md + csv），与课程表同域，换设备即同步。
+// ═════════════════════════════════════════════════════════════════════
+export interface SchoolCalendar {
+  /** YYYY-MM-DD，空串 = 未设 */
+  semesterStart: string
+  /** YYYY-MM-DD，空串 = 未设；课程的结束时间默认取它 */
+  examWeekStart: string
+  /** YYYY-MM-DD，空串 = 未设 */
+  semesterEnd: string
+}
+
+export const EMPTY_CALENDAR: SchoolCalendar = {
+  semesterStart: '',
+  examWeekStart: '',
+  semesterEnd: '',
+}
+
+const CALENDAR_PATH = 'schedule/calendar.md'
+
+export async function loadCalendar(): Promise<SchoolCalendar> {
+  const doc = await readMdFile(CALENDAR_PATH)
+  const content = doc?.content || ''
+  const out: SchoolCalendar = { ...EMPTY_CALENDAR }
+  for (const line of content.split('\n')) {
+    const t = line.trim()
+    if (!t.startsWith('- ')) continue
+    const body = t.slice(2)
+    const idx = body.indexOf(': ')
+    if (idx < 0) continue
+    const key = body.slice(0, idx).trim()
+    const value = body.slice(idx + 2).trim()
+    if (key === 'semester_start') out.semesterStart = value
+    else if (key === 'exam_week_start') out.examWeekStart = value
+    else if (key === 'semester_end') out.semesterEnd = value
+  }
+  return out
+}
+
+export async function saveCalendar(c: SchoolCalendar): Promise<void> {
+  const body = [
+    '- semester_start: ' + c.semesterStart,
+    '- exam_week_start: ' + c.examWeekStart,
+    '- semester_end: ' + c.semesterEnd,
+  ].join('\n')
+  const md = `# 校历\n\n${body}\n\n---\n`
+  await writeMdFile(CALENDAR_PATH, md, 'Update school calendar')
+}
+
+/** YYYY-MM-DD → 本地时区当日 00:00（endOfDay= 当日 23:59）的 Unix ms；非法 / 空 → 0 */
+export function msOfDate(dateStr: string, endOfDay = false): number {
+  if (!dateStr) return 0
+  const d = new Date(`${dateStr}T${endOfDay ? '23:59' : '00:00'}:00`)
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime()
+}
+
+/**
+ * 一个任务的「有效结束时间」—— 判断它是不是 DDL 的唯一标准。
+ * - 显式设了 `dueAt` → 就用它；
+ * - 否则，如果是「课程」，默认取校历的**期末周第一天**（一门课上到期末周结束）；
+ * - 其余 → 0（无结束时间，不是 DDL）。
+ * 不落库、只用于展示与筛选，故改校历能立刻反映到所有课程。
+ */
+export function effectiveDueAt(p: Project, cal: SchoolCalendar): number {
+  if (p.dueAt > 0) return p.dueAt
+  if (p.type === 'course' && cal.examWeekStart) return msOfDate(cal.examWeekStart, true)
+  return 0
 }

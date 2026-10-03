@@ -272,6 +272,28 @@ const extraDaysFollowWeekday: Migration = {
   },
 }
 
+/**
+ * v4 → v5：课程表补 repeat / date 列
+ * 新增「单次定时任务」——定时任务可以只是某一天的一次性事项（考试等），而非每周重复。
+ * 旧表只有每周时段，故一律补 repeat='weekly'、date=''。之后 loadCourses 便可直接假定这两列存在。
+ */
+const coursesRepeatField: Migration = {
+  id: 'courses-repeat-field-v1',
+  affects: ['schedule'],
+  since: 5,
+  label: '升级课程表（新增 repeat / date：支持单次定时任务）',
+  detect: async () => {
+    const header = await readCsvHeader('schedule/courses.csv')
+    return !!header && !header.includes('repeat')
+  },
+  run: async () => {
+    const courses = await loadCourses(true)
+    // 直迁（ADJ-60）下 run 会无条件执行：没有课程数据就什么都不做，不凭空建表
+    if (courses.length === 0) return
+    await saveCourses(courses.map((c) => ({ ...c, repeat: 'weekly', date: '' })))
+  },
+}
+
 // ============================================================
 // 文档级迁移工具（遍历仓库文件 → 探测 → 就地改名 / 重写）
 // ============================================================
@@ -743,6 +765,7 @@ export const MIGRATIONS: Migration[] = [
   docImagesV1,
   annotationAnchorsV2,
   projectsDoneField,
+  coursesRepeatField,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
@@ -786,7 +809,7 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
  * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 4
+export const DATA_VERSION = 5
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']

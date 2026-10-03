@@ -23,10 +23,16 @@ import {
   saveCourses,
   loadExtraDays,
   saveExtraDays,
+  loadCalendar,
+  effectiveDueAt,
   resolveToday,
   weekdayOfDate,
+  msOfDate,
+  timeToMinutes,
+  EMPTY_CALENDAR,
   type Course,
   type ExtraDay,
+  type SchoolCalendar,
 } from '../services/scheduleData'
 import { loadYearHolidays, todayDateStr, type HolidayMap } from '../services/holidays'
 import {
@@ -68,6 +74,7 @@ export default function SchedulePage() {
   const [courses, setCourses] = useState<Course[]>([])
   const [extraDays, setExtraDays] = useState<ExtraDay[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [calendar, setCalendar] = useState<SchoolCalendar>(EMPTY_CALENDAR)
   const [holidays, setHolidays] = useState<HolidayMap>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [editor, setEditor] = useState<EditorState | null>(null)
@@ -88,15 +95,17 @@ export default function SchedulePage() {
   const repo = useWorkspaceStore((s) => s.repo)
 
   const loadAll = useCallback(async () => {
-    const [cs, eds, ps, hs] = await Promise.all([
+    const [cs, eds, ps, cal, hs] = await Promise.all([
       loadCourses(),
       loadExtraDays(),
       loadProjects(),
+      loadCalendar(),
       loadYearHolidays(new Date().getFullYear()),
     ])
     setCourses(cs)
     setExtraDays(eds)
     setProjects(ps)
+    setCalendar(cal)
     setHolidays(hs)
   }, [])
 
@@ -125,16 +134,32 @@ export default function SchedulePage() {
     return m
   }, [projects])
 
-  // 只保留有截止时间的节点，按 dueAt 升序（filter/sort 会新建数组，不改 projects）
+  /**
+   * 展示用的任务表：把「有效结束时间」写进 dueAt 的**副本**（不改库里的 projects）。
+   * 判定「是不是 DDL」只有一条标准 —— 有没有结束时间（effectiveDueAt）：
+   * - 任务显式设了截止时间 → 用它；
+   * - 课程没显式设 → 默认用校历的「期末周第一天」（一门课上到期末周结束）。
+   * 于是所有课程都会带着结束时间进入右栏 DDL，和用户的心智模型一致。
+   */
+  const displayProjects = useMemo(
+    () =>
+      projects.map((p) => {
+        const eff = effectiveDueAt(p, calendar)
+        return eff === p.dueAt ? p : { ...p, dueAt: eff }
+      }),
+    [projects, calendar],
+  )
+
+  // 只保留有结束时间的节点，按 dueAt 升序（filter/sort 会新建数组，不改 displayProjects）
   const ddlItems = useMemo(
-    () => projects.filter((p) => p.dueAt > 0).sort((a, b) => a.dueAt - b.dueAt),
-    [projects],
+    () => displayProjects.filter((p) => p.dueAt > 0).sort((a, b) => a.dueAt - b.dueAt),
+    [displayProjects],
   )
 
   // 页面里是否存在过期任务（未完成且已过点）—— 决定页头「显示过期」开关要不要出现
-  const hasExpired = useMemo(() => projects.some((p) => !p.done && isOverdue(p)), [projects])
+  const hasExpired = useMemo(() => displayProjects.some((p) => !p.done && isOverdue(p)), [displayProjects])
   // 页面里是否存在已完成任务 —— 决定页头「显示已完成」开关要不要出现
-  const hasDone = useMemo(() => projects.some((p) => p.done), [projects])
+  const hasDone = useMemo(() => displayProjects.some((p) => p.done), [displayProjects])
 
   // 「新建任务」时可指定归属父任务（与大类一起构成两层选择）；不选归属即该大类下的顶级任务
   const parentOptions = useMemo<ParentOption[]>(() => buildParentOptions(projects), [projects])
@@ -204,6 +229,12 @@ export default function SchedulePage() {
         } else {
           // 归属留空 → 用「任务名称」在所选大类下新建一个顶级任务，时段挂在它下面
           const now = Date.now()
+          // 单次（如考试）自带结束时间 → 直接设为该任务的截止时间，于是也进 DDL 清单
+          const onceSlot = value.repeat === 'once' ? value.slots[0] : undefined
+          const dueAt =
+            onceSlot && onceSlot.date
+              ? msOfDate(onceSlot.date) + timeToMinutes(onceSlot.endTime) * 60_000
+              : 0
           const task: Project = {
             projectId: genId('task'),
             title: value.title.trim(),
@@ -215,7 +246,7 @@ export default function SchedulePage() {
             type: value.type,
             parentId: null,
             startAt: 0,
-            dueAt: 0,
+            dueAt,
             done: false,
           }
           const next = [...projects, task]
@@ -236,6 +267,8 @@ export default function SchedulePage() {
         location: s.location,
         createdAt: now,
         taskId,
+        repeat: value.repeat,
+        date: value.repeat === 'once' ? s.date : '',
       }))
       const next = [...courses, ...newCourses]
       await saveCourses(next)
@@ -275,6 +308,8 @@ export default function SchedulePage() {
           location: s.location,
           createdAt: now,
           taskId: slot.taskId,
+          repeat: value.repeat,
+          date: value.repeat === 'once' ? s.date : '',
         }))
         const next = [...rest, ...rebuilt]
         await saveCourses(next)
@@ -291,6 +326,8 @@ export default function SchedulePage() {
                 endTime: s0.endTime,
                 location: s0.location,
                 taskId: value.taskId || c.taskId,
+                repeat: value.repeat,
+                date: value.repeat === 'once' ? s0.date : '',
               }
             : c,
         )
@@ -544,7 +581,7 @@ export default function SchedulePage() {
             <CourseTable
               courses={courses}
               extraDays={extraDays}
-              projects={projects}
+              projects={displayProjects}
               byId={byId}
               currentId={currentId}
               todayPlan={todayPlan}
@@ -561,7 +598,7 @@ export default function SchedulePage() {
           </div>
           <div className={columnBox}>
             <TaskTree
-              projects={projects}
+              projects={displayProjects}
               courses={courses}
               currentId={currentId}
               isLoading={isLoading}

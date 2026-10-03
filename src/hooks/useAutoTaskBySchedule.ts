@@ -22,11 +22,19 @@ import { useTaskStore } from '../stores/task'
 const TICK_MS = 60_000
 const RELOAD_MS = 5 * 60_000
 
-/** 当前时刻命中的时段任务 id；同刻重叠取「开始最早」的那个 */
-function activeSlotTask(courses: Course[], weekday: number, min: number): string | null {
+/**
+ * 当前时刻命中的时段任务 id；同刻重叠取「开始最早」的那个。
+ * 每周时段按 weekday 命中；单次时段只在它自己那一天命中（过了就不再出现）。
+ */
+function activeSlotTask(courses: Course[], weekday: number, min: number, today: string): string | null {
   let best: Course | null = null
   for (const c of courses) {
-    if (c.weekday !== weekday || !c.taskId) continue
+    if (!c.taskId) continue
+    if (c.repeat === 'once') {
+      if (c.date !== today) continue
+    } else if (c.weekday !== weekday) {
+      continue
+    }
     const s = timeToMinutes(c.startTime)
     const e = timeToMinutes(c.endTime)
     if (e <= s || min < s || min >= e) continue
@@ -73,12 +81,16 @@ export function useAutoTaskBySchedule(): void {
       if (Date.now() - lastLoadRef.current > RELOAD_MS) reload()
 
       const now = new Date()
+      const today = todayDateStr()
       // 假期 → 不上课；调休 → 按指定周几；周末 → 无课（见 resolveToday）
-      const plan = resolveToday(todayDateStr(), extraDaysRef.current, holidaysRef.current)
-      const slotTask =
-        plan.weekday === null
-          ? null
-          : activeSlotTask(coursesRef.current, plan.weekday, now.getHours() * 60 + now.getMinutes())
+      const plan = resolveToday(today, extraDaysRef.current, holidaysRef.current)
+      // 每周时段只在「今天确实要上课」时命中；单次时段按自己的日期命中（考试可能就在周末）
+      const slotTask = activeSlotTask(
+        coursesRef.current,
+        plan.weekday ?? 0,
+        now.getHours() * 60 + now.getMinutes(),
+        today,
+      )
       const prev = autoRef.current
       if (slotTask === prev.slotTaskId) return
 
