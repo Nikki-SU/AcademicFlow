@@ -7,17 +7,19 @@
  *
  * 三块只读内容：
  * - 详细描述：任务材料原文（brief.md）
- * - 要求 / 注意事项：从材料提炼的待办条件，蓝点 = 要求、红点 = 注意事项
+ * - 要求 / 注意事项：从材料提炼的待办条件，蓝点 = 要求、红点 = 注意事项；
+ *   点圆点即标记完成（变绿勾），与任务条目「点圈完成」一致（ADJ-77）
  * - 附件：projects/{id}/attachments/ 下的文件，仅可下载
  */
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Paperclip, Download, Loader2, Pencil } from 'lucide-react'
+import { Paperclip, Download, Loader2, Pencil, CheckCircle2 } from 'lucide-react'
 import {
   loadBrief,
   loadTaskAttachments,
   downloadTaskAttachment,
   loadTaskRequirements,
+  saveTaskRequirements,
   type Project,
   type TaskAttachment,
   type TaskNote,
@@ -127,6 +129,20 @@ export function TaskRequirementsView({
     }
   }
 
+  // 点圆点即切换完成：先乐观更新，落库失败则回滚并报错。
+  const handleToggleDone = async (index: number) => {
+    const prev = notes
+    const next = notes.map((n, i) => (i === index ? { ...n, done: !n.done } : n))
+    setNotes(next)
+    try {
+      await saveTaskRequirements(project.projectId, next)
+    } catch (err) {
+      console.error('[Schedule] 保存任务要求失败:', err)
+      toast.error('保存失败，请重试')
+      setNotes(prev)
+    }
+  }
+
   const doneCount = notes.filter((n) => n.done).length
 
   return (
@@ -182,11 +198,22 @@ export function TaskRequirementsView({
           <ul className="space-y-1">
             {notes.map((n, i) => (
               <li key={i} className="flex items-start gap-1.5">
-                <span
-                  className={`mt-1 h-ui-dot w-ui-dot shrink-0 rounded-full ${
-                    n.kind === 'caution' ? 'bg-rose-500' : 'bg-blue-500'
-                  }`}
-                />
+                <button
+                  type="button"
+                  onClick={() => void handleToggleDone(i)}
+                  title={n.done ? '标记为未完成' : '标记为已完成'}
+                  className="grid h-ui-icon-sm w-ui-icon-sm shrink-0 place-items-center rounded-full transition hover:scale-110"
+                >
+                  {n.done ? (
+                    <CheckCircle2 className="h-ui-icon-sm w-ui-icon-sm text-emerald-500" />
+                  ) : (
+                    <span
+                      className={`h-ui-dot w-ui-dot rounded-full ${
+                        n.kind === 'caution' ? 'bg-rose-500' : 'bg-blue-500'
+                      }`}
+                    />
+                  )}
+                </button>
                 <span
                   className={`min-w-0 flex-1 break-words text-ui-2xs ${
                     n.done ? 'text-ink-400 line-through' : 'text-ink-700'
