@@ -2496,8 +2496,9 @@ export default function ReadingPage() {
       const el = readerGridRef.current
       if (!el) return
       // 三栏总量恒为 5fr，1fr ≈ 容器宽 / 5；右栏每移动 1fr 就吃掉中栏 1fr
+      // 光标右移 = 中缝右移 = 中栏变宽、右栏变窄 → 右栏 fr 减少（分隔条始终跟手）
       const fr = el.clientWidth / 5
-      const deltaFr = (e.clientX - readerDragStartX.current) / fr
+      const deltaFr = (readerDragStartX.current - e.clientX) / fr
       const next = Math.max(1, Math.min(3, readerDragStartFr.current + deltaFr))
       setReaderRightFr(next)
     }
@@ -3856,7 +3857,7 @@ export default function ReadingPage() {
         )}
       </section>
 
-      {/* 中缝拖动柄：宽屏专用（<1100px 抽屉模式隐藏）。左右拉可把右栏在 1:3:1 ↔ 1:2:2 间切换 */}
+      {/* 中缝拖动柄：宽屏专用（<1100px 抽屉模式隐藏）。左右拉可把右栏在三档 1:3:1 / 1:2:2 / 1:1:3 自由切换 */}
       <div
         className={`hidden min-[1101px]:flex items-center justify-center cursor-col-resize bg-ink-100 hover:bg-seal-100 transition-colors z-10 ${
           readerDragging ? 'bg-seal-200' : ''

@@ -3074,8 +3074,9 @@ export default function WritingPage() {
       const navWidth = navCollapsed ? 0 : Math.max(container.clientWidth * 0.2, 240)
       const usableWidth = container.clientWidth - navWidth - 6
       // 窗格区总量恒 4fr：右窗格每移动 1fr 就吃掉中窗格 1fr
+      // 光标右移 = 中缝右移 = 中窗格变宽、右窗格变窄 → 右窗格 fr 减少（分隔条始终跟手）
       const fr = usableWidth / 4
-      const deltaFr = (e.clientX - dragStartX.current) / fr
+      const deltaFr = (dragStartX.current - e.clientX) / fr
       const next = Math.max(1, Math.min(3, dragStartFr.current + deltaFr))
       setRightFr(next)
     }

@@ -99,8 +99,9 @@ export default function SessionPage() {
       const el = sessionGridRef.current
       if (!el) return
       // 三栏总量恒为 5fr，1fr ≈ 容器宽 / 5；右栏每移动 1fr 就吃掉中栏 1fr
+      // 光标右移 = 中缝右移 = 中栏变宽、右栏变窄 → 右栏 fr 减少（分隔条始终跟手）
       const fr = el.clientWidth / 5
-      const deltaFr = (e.clientX - dragStartX.current) / fr
+      const deltaFr = (dragStartX.current - e.clientX) / fr
       const next = Math.max(1, Math.min(3, dragStartFr.current + deltaFr))
       setRightFr(next)
     }
