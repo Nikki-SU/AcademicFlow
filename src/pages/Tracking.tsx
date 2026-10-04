@@ -25,6 +25,7 @@ import {
   Settings,
   Play,
   Newspaper,
+  Radar,
   FileText,
   Upload,
   ExternalLink,
@@ -173,6 +174,8 @@ export default function TrackingPage() {
 
   // ---------- 立即追踪 / 候选 ----------
   const [isTracking, setIsTracking] = useState(false)
+  /** 本次（本会话内）追踪结果摘要：追踪了多少期刊 / 关键词组、命中多少新文献 */
+  const [trackRun, setTrackRun] = useState<{ groups: number; journals: number; found: number } | null>(null)
   /** 追踪候选（tracking/inbox.csv）：含「待裁决」与「已忽略」两类，页面只显示待裁决 */
   const [inbox, setInbox] = useState<TrackingCandidate[]>([])
 
@@ -734,6 +737,8 @@ export default function TrackingPage() {
 
     setIsTracking(true)
     try {
+      // 跑之前先记下现有候选的 DOI，跑完用差集算「本次新增」——确定、不靠猜时间戳
+      const beforeDois = new Set((await loadTrackingInbox()).map((r) => r.doi))
       const sinceIso = new Date().toISOString()
       await dispatchDailyTracking(user.login, repo.name, token)
       toast.message('已触发追踪，等待后端返回…')
@@ -747,9 +752,11 @@ export default function TrackingPage() {
 
       const rows = await loadTrackingInbox(true)
       setInbox(rows)
-      const n = pendingCandidates(rows).length
+      const pending = pendingCandidates(rows)
+      const found = pending.filter((r) => !beforeDois.has(r.doi)).length
+      setTrackRun({ groups: enabledGroups.length, journals: enabledJournals.length, found })
       if (result === 'success') {
-        toast.success(n > 0 ? `追踪完成：${n} 篇待裁决` : '追踪完成：没有新的候选文献')
+        toast.success(found > 0 ? `追踪完成：新增 ${found} 篇待裁决` : '追踪完成：没有新的候选文献')
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -1105,48 +1112,70 @@ export default function TrackingPage() {
     <div className="page-container flex h-full flex-col py-ui-page">
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] gap-ui-gap-lg lg:grid-cols-ratio-122 lg:grid-rows-[minmax(0,1fr)]">
         {/* ============================================================ */}
-        {/* 左①（1）：功能入口 —— 添加关键词 / 添加期刊 / 立即追踪 / DOI 入库 / 搜索 */}
+        {/* 左①（1）：工具入口列 —— 三张互相独立的卡片：
+            ① 文献追踪（关键词组 / 期刊追踪 + 立即追踪 + 结果摘要）
+            ② DOI 入库
+            ③ 学术搜索
+            三张同级功能块：头部 / 内边距 / 字号统一口径，各自是独立卡片。 */}
         {/* ============================================================ */}
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
-          <div className="af-line-b shrink-0 p-4">
-            {/* 关键词组 / 期刊追踪：两个入口并排，点开弹窗查看与管理 */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setShowKeywordGroupsModal(true)}
-                className="flex items-center justify-center gap-2 rounded-control border border-ink-200 px-ui-gap py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
-              >
-                <Tag className="h-4 w-4 text-ink-500" />
-                关键词组
-                <span className="text-ink-400">({keywordGroups.length})</span>
-              </button>
-              <button
-                onClick={() => setShowJournalsModal(true)}
-                className="flex items-center justify-center gap-2 rounded-control border border-ink-200 px-ui-gap py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
-              >
-                <Newspaper className="h-4 w-4 text-ink-500" />
-                期刊追踪
-                <span className="text-ink-400">({journals.length})</span>
-              </button>
+        <section className="flex min-h-0 flex-col gap-ui-gap-lg">
+          {/* ---------- ① 文献追踪 ---------- */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
+            <div className="af-line-b shrink-0 px-ui-gap py-3">
+              <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
+                <Radar className="h-4 w-4 text-seal-600" />
+                文献追踪
+              </h2>
             </div>
-            {/* 立即追踪单独一行 */}
-            <button
-              onClick={handleTrackNow}
-              disabled={isTracking}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
-            >
-              {isTracking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              立即追踪
-            </button>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+              {/* 关键词组 / 期刊追踪：两个入口并排，点开弹窗查看与管理 */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setShowKeywordGroupsModal(true)}
+                  className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-control border border-ink-200 px-2 py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
+                >
+                  <Tag className="h-4 w-4 shrink-0 text-ink-500" />
+                  关键词组
+                  <span className="text-ink-400">({keywordGroups.length})</span>
+                </button>
+                <button
+                  onClick={() => setShowJournalsModal(true)}
+                  className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-control border border-ink-200 px-2 py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
+                >
+                  <Newspaper className="h-4 w-4 shrink-0 text-ink-500" />
+                  期刊追踪
+                  <span className="text-ink-400">({journals.length})</span>
+                </button>
+              </div>
+              {/* 立即追踪单独一行 */}
+              <button
+                onClick={handleTrackNow}
+                disabled={isTracking}
+                className="flex w-full items-center justify-center gap-2 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
+              >
+                {isTracking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                立即追踪
+              </button>
+              {/* 结果摘要：只报「本次追了几个刊 / 关键词组、命中几篇」，不做逐刊明细 */}
+              <p className="text-ui-2xs leading-relaxed text-ink-500">
+                {isTracking
+                  ? '追踪中，后端跑完即出候选…'
+                  : trackRun
+                    ? `上次追踪：${trackRun.journals} 个期刊 · ${trackRun.groups} 个关键词组，命中 ${trackRun.found} 篇新文献`
+                    : '尚未发起追踪'}
+              </p>
+            </div>
           </div>
 
-          {/* DOI 入库 / 学术搜索 —— 关键词组 / 期刊追踪已改为上方按钮 + 弹窗 */}
-          <div className="flex min-h-0 flex-1 flex-col gap-ui-gap p-4">
-            {/* ---------- DOI 入库 ---------- */}
-            <div className="rounded-control border border-ink-200 p-3">
-              <h3 className="mb-2 flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
-                <Plus className="h-3.5 w-3.5 text-seal-600" />
+          {/* ---------- ② DOI 入库 ---------- */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
+            <div className="af-line-b shrink-0 px-ui-gap py-3">
+              <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
+                <Plus className="h-4 w-4 text-seal-600" />
                 DOI 入库
-              </h3>
+              </h2>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -1166,13 +1195,18 @@ export default function TrackingPage() {
                 </button>
               </div>
             </div>
+          </div>
 
-            {/* ---------- 学术搜索 ---------- */}
-            <div className="rounded-control border border-ink-200 p-3">
-              <h3 className="mb-2 flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
-                <Globe className="h-3.5 w-3.5 text-seal-600" />
+          {/* ---------- ③ 学术搜索 ---------- */}
+          {/* 不带 overflow-hidden：底部下拉要向上弹、需溢出卡片顶部才不被裁掉 */}
+          <div className="flex min-h-0 flex-1 flex-col rounded-card border border-ink-200 bg-paper-50">
+            <div className="af-line-b shrink-0 px-ui-gap py-3">
+              <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
+                <Globe className="h-4 w-4 text-seal-600" />
                 学术搜索
-              </h3>
+              </h2>
+            </div>
+            <div className="min-h-0 flex-1 p-4">
               <div className="space-y-2" ref={searchDropdownRef}>
                 <div className="relative">
                   <button
