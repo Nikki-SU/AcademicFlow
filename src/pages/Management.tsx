@@ -2653,32 +2653,30 @@ export default function ManagementPage() {
             </div>
           )}
 
-          {/* 期刊模板：检索 + 新建（按钮贴底，填满整列） */}
+          {/* 期刊模板：检索 + 新建（同卡片相邻，与文献/图书/文档一致） */}
           {activeTab === 'templates' && (
-            <>
-              <div className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                  <input
-                    type="text"
-                    placeholder="模板名称、出版社、ISSN…"
-                    value={templateSearch}
-                    onChange={(e) => {
-                      setTemplateSearch(e.target.value)
-                      setTemplatePage(1)
-                    }}
-                    className="w-full pl-8 pr-3 py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-                  />
-                </div>
+            <div className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                <input
+                  type="text"
+                  placeholder="模板名称、出版社、ISSN…"
+                  value={templateSearch}
+                  onChange={(e) => {
+                    setTemplateSearch(e.target.value)
+                    setTemplatePage(1)
+                  }}
+                  className="w-full pl-8 pr-3 py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                />
               </div>
               <button
                 onClick={openNewTemplate}
-                className="mt-auto flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
+                className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
               >
                 <Plus className="w-4 h-4" />
                 新建模板
               </button>
-            </>
+            </div>
           )}
 
           {/* 导入导出：功能全收进左栏 */}
