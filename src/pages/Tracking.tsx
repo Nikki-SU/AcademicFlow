@@ -54,7 +54,7 @@ import {
   type TrackingCandidate,
 } from '../services/trackingData'
 import { dispatchDailyTracking, waitForDailyTracking } from '../services/workflowClient'
-import { resolveJournals, type JournalCandidate } from '../services/journalResolve'
+import { resolveJournals, findJournalRss, type JournalCandidate } from '../services/journalResolve'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 
@@ -163,8 +163,10 @@ export default function TrackingPage() {
   const [journalFormRssUrl, setJournalFormRssUrl] = useState('')
   /** 智能匹配出的期刊候选（点选即填名称/ISSN/出版社） */
   const [journalMatches, setJournalMatches] = useState<JournalCandidate[]>([])
-  /** 智能匹配请求中（AI 归一化 + OpenAlex 回查可能较慢，需要 loading 反馈） */
+  /** 智能匹配请求中（AI 归一化 + Crossref/OpenAlex 回查可能较慢，需要 loading 反馈） */
   const [isResolvingJournal, setIsResolvingJournal] = useState(false)
+  /** RSS 联网检索中（后端 AI 联网较慢，需要 loading 反馈） */
+  const [isFindingRss, setIsFindingRss] = useState(false)
 
   // ---------- 搜索 ----------
   const [searchSites, setSearchSites] = useState<SearchSite[]>(DEFAULT_SEARCH_SITES)
@@ -572,6 +574,7 @@ export default function TrackingPage() {
     setJournalFormPublisher('')
     setJournalFormRssUrl('')
     setJournalMatches([])
+    setIsFindingRss(false)
     setShowJournalModal(true)
   }
 
@@ -582,6 +585,7 @@ export default function TrackingPage() {
     setJournalFormPublisher(journal.publisher || '')
     setJournalFormRssUrl(journal.rssUrl || '')
     setJournalMatches([])
+    setIsFindingRss(false)
     setShowJournalModal(true)
   }
 
@@ -633,8 +637,9 @@ export default function TrackingPage() {
   }
 
   /**
-   * 智能匹配：把用户填的模糊输入（中文名 / 简称 / 记不清的片段）解析成期刊候选。
-   * AI 未配置时 getDualEngineConfig 会抛错 —— 这里兜成可读提示，不把异常甩到界面。
+   * 智能匹配：把用户填的模糊输入（中文名 / 简称 / 大小写随意的英文 / 记不清的片段）
+   * 解析成期刊候选。走 Crossref（刊名 / ISSN / 出版社的权威源）+ OpenAlex（能否追踪的验证源），
+   * 中文等模糊输入才动用 AI 归一化；全程无需用户在本机配 AI Key。
    */
   const handleResolveJournal = async () => {
     const q = journalFormName.trim()
@@ -642,17 +647,10 @@ export default function TrackingPage() {
       toast.error('请先输入期刊名称或关键词')
       return
     }
-    let ai: { baseUrl: string; apiKey: string; model: string }
-    try {
-      ai = useSettingsStore.getState().getDualEngineConfig().ai1
-    } catch {
-      toast.error('智能匹配需要先在设置里配置 AI-1，或直接手动填写 ISSN')
-      return
-    }
     setIsResolvingJournal(true)
     setJournalMatches([])
     try {
-      const matches = await resolveJournals(q, ai)
+      const matches = await resolveJournals(q)
       if (matches.length === 0) {
         toast.error('没找到匹配的期刊，换个写法或直接手动填写')
       } else {
@@ -671,6 +669,35 @@ export default function TrackingPage() {
     if (m.issn) setJournalFormIssn(m.issn)
     if (m.publisher) setJournalFormPublisher(m.publisher)
     setJournalMatches([])
+    if (m.trackable === false) {
+      toast.warning('该刊未见后端检索库收录，可能追踪不到新文章')
+    }
+  }
+
+  /**
+   * 自动找 RSS：期刊 feed 不带 CORS 头，浏览器直连不了，交给后端 AI 联网检索。
+   * 检索到的地址只做预填，仍需用户确认后保存。
+   */
+  const handleFindRss = async () => {
+    const name = journalFormName.trim()
+    if (!name) {
+      toast.error('请先填写期刊名称')
+      return
+    }
+    setIsFindingRss(true)
+    try {
+      const rss = await findJournalRss(name, journalFormIssn.trim() || undefined)
+      if (!rss) {
+        toast.error('没找到官方 RSS 地址，可手动填写或留空')
+      } else {
+        setJournalFormRssUrl(rss)
+        toast.success('已填入检索到的 RSS 地址，保存前请确认')
+      }
+    } catch {
+      toast.error('RSS 检索失败，可手动填写或留空')
+    } finally {
+      setIsFindingRss(false)
+    }
   }
 
   // ============================================================
@@ -1856,7 +1883,7 @@ export default function TrackingPage() {
                   </button>
                 </div>
                 <p className="mt-1.5 text-ui-xs text-ink-400">
-                  不确定期刊的正式全名？输入中文名 / 简称后点「智能匹配」，自动补全正式刊名与 ISSN。
+                  不确定正式刊名？输入中文名 / 简称 / 大小写随意的英文，点「智能匹配」按 Crossref 权威数据补全正式刊名、ISSN 与出版社。
                 </p>
                 {journalMatches.length > 0 && (
                   <div className="mt-2 border border-ink-200 rounded-control divide-y divide-ink-100 max-h-52 overflow-auto">
@@ -1867,7 +1894,19 @@ export default function TrackingPage() {
                         onClick={() => applyJournalMatch(m)}
                         className="w-full text-left px-3 py-2 hover:bg-seal-50 transition"
                       >
-                        <div className="text-ui-sm text-ink-800 font-medium">{m.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-ui-sm text-ink-800 font-medium">{m.name}</span>
+                          {m.trackable === true && (
+                            <span className="shrink-0 px-1.5 py-0.5 rounded-control-sm text-ui-xs text-emerald-700 bg-emerald-50">
+                              已验证可追踪
+                            </span>
+                          )}
+                          {m.trackable === false && (
+                            <span className="shrink-0 px-1.5 py-0.5 rounded-control-sm text-ui-xs text-amber-700 bg-amber-50">
+                              后端恐追踪不到
+                            </span>
+                          )}
+                        </div>
                         <div className="text-ui-xs text-ink-400 mt-0.5">
                           {m.issn ? `ISSN ${m.issn}` : '无 ISSN'}
                           {m.publisher ? ` · ${m.publisher}` : ''}
@@ -1908,13 +1947,31 @@ export default function TrackingPage() {
                 <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                   RSS 地址
                 </label>
-                <input
-                  type="text"
-                  value={journalFormRssUrl}
-                  onChange={(e) => setJournalFormRssUrl(e.target.value)}
-                  placeholder="可选，用于RSS订阅追踪"
-                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={journalFormRssUrl}
+                    onChange={(e) => setJournalFormRssUrl(e.target.value)}
+                    placeholder="可选，用于RSS订阅追踪"
+                    className="flex-1 min-w-0 px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleFindRss}
+                    disabled={isFindingRss}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-ui-sm rounded-control border border-seal-200 text-seal-700 bg-seal-50 hover:bg-seal-100 transition disabled:opacity-60"
+                  >
+                    {isFindingRss ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4" />
+                    )}
+                    自动查找
+                  </button>
+                </div>
+                <p className="mt-1.5 text-ui-xs text-ink-400">
+                  期刊 feed 不允许浏览器直连，这里由 AI 联网检索；填入的地址请在保存前确认。
+                </p>
               </div>
             </div>
             <div className="af-line-t flex items-center justify-end gap-2 p-5">
