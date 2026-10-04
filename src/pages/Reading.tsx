@@ -3152,7 +3152,7 @@ export default function ReadingPage() {
               <div className="absolute right-0 top-full mt-1 w-60 bg-paper-50 border border-ink-200 rounded-control shadow-xl z-40 p-3">
                 {/* 维度 1：任务（统一三类口径：全部 / 研究·课程 / 当前任务及其子任务，子任务默认折叠） */}
                 <div className="text-ui-xs font-semibold text-ink-500 mb-1.5">任务</div>
-                <div className="space-y-0.5">
+                <div className="max-h-72 -mr-1 space-y-0.5 overflow-y-auto pr-1">
                   {(() => {
                     const collapsed = new Set<string>()
                     const visible: TaskFilterOption[] = []

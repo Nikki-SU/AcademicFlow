@@ -66,7 +66,7 @@ function LiveTaskList({ taskQueue }: { taskQueue: TaskQueue }) {
   const tasks = taskQueue.tasks
   if (tasks.length === 0) {
     return (
-      <div className="py-8 text-center text-ink-400 text-ui-xs">
+      <div className="flex h-full flex-col items-center justify-center py-8 text-center text-ink-400 text-ui-xs">
         <ListTodo className="w-8 h-8 mx-auto mb-2 opacity-50" />
         暂无后台任务
       </div>
@@ -118,9 +118,9 @@ export default function BackendMonitorPanel({ taskQueue }: { taskQueue: TaskQueu
   const pendingCount = taskQueue.tasks.filter((t: any) => t.status === 'pending').length
 
   return (
-    <div className="bg-paper-50 border border-ink-200 rounded-card shadow-sm overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col bg-paper-50 border border-ink-200 rounded-card shadow-sm overflow-hidden">
       {/* 面板标题 */}
-      <div className="af-line-b px-2.5 py-2 bg-paper-100">
+      <div className="af-line-b px-2.5 py-2 bg-paper-100 shrink-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <Activity className="w-4 h-4 text-seal-600 shrink-0" />
           <span className="font-medium text-ui-sm text-ink-800">后台监控</span>
@@ -136,8 +136,8 @@ export default function BackendMonitorPanel({ taskQueue }: { taskQueue: TaskQueu
         </div>
       </div>
 
-      {/* 内容 */}
-      <div className="p-2.5">
+      {/* 内容：拉满剩余高度，任务多时在面板内部滚动，不带动整页 */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
         <LiveTaskList taskQueue={taskQueue} />
       </div>
     </div>

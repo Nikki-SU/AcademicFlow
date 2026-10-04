@@ -4448,8 +4448,8 @@ export default function ManagementPage() {
       )}
       </div>{/* ──── 中：内容 END ──── */}
 
-      {/* ──── 右侧 后台监控面板（常驻、不弹窗；栏内自滚，不带动整页） ──── */}
-      <aside className="hidden min-w-0 min-h-0 overflow-y-auto lg:block">
+      {/* ──── 右侧 后台监控面板（常驻、不弹窗；拉满整列高，滚动由面板内部承担） ──── */}
+      <aside className="hidden min-w-0 min-h-0 lg:block">
         <BackendMonitorPanel taskQueue={taskQueue} />
       </aside>
 
