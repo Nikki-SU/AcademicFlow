@@ -1,114 +1,61 @@
 /**
- * 会议/课程页 · 左栏：任务层级树（固定，不可移动）
+ * 会议/课程页 · 左栏：本页「会话归属」选择器（固定，不可移动）
  * -------------------------------------------------
- * 用 loadProjects() 的结果按 parentId 串成树；根任务按根 id 着色（同根同色）。
- * 点击节点 = 切换「当前任务」（useTaskStore.setCurrentProject）。
+ * 统一口径（同管理页，见 架构.md ADJ-105 / ADJ-110）只给三类：
+ *   ① 全部（全局）
+ *   ② 当前任务所属大类（研究 / 课程）
+ *   ③ 当前任务及其全部分支（可逐级展开子任务）
+ * 关键：**在这里选分支不会改变全局「当前任务」**——只改本页会话的归属，
+ * 把这边record下的东西（转写 / 图片）真实落到所选分支任务层级里。
+ * 选项结构由 buildTaskFilterOptions 统一生成（全站同一真源）。
  */
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ListTree } from 'lucide-react'
-import type { Project } from '../../services/projectData'
-import { colorForRoot, getRootId } from '../../services/taskColors'
+import { ChevronRight, ListTree } from 'lucide-react'
+import { buildTaskFilterOptions, type Project, type TaskFilterOption } from '../../services/projectData'
 import { Panel, PanelHeader, PanelBody, EmptyState } from '../ui/Panel'
-
-/** 排序：有 DDL 的按 dueAt 升序在前，无 DDL 的排后，再按标题 */
-function sortProjects(list: Project[]): Project[] {
-  return [...list].sort((a, b) => {
-    const da = a.dueAt || Number.MAX_SAFE_INTEGER
-    const db = b.dueAt || Number.MAX_SAFE_INTEGER
-    if (da !== db) return da - db
-    return (a.title || '').localeCompare(b.title || '')
-  })
-}
-
-function TreeNode({
-  project,
-  depth,
-  byId,
-  childrenByParent,
-  currentId,
-  onSelect,
-  seen,
-}: {
-  project: Project
-  depth: number
-  byId: Map<string, Project>
-  childrenByParent: Map<string, Project[]>
-  currentId: string | null
-  onSelect: (id: string) => void
-  seen: Set<string>
-}) {
-  if (seen.has(project.projectId)) return null
-  seen.add(project.projectId)
-
-  const color = colorForRoot(getRootId(project, byId))
-  const children = childrenByParent.get(project.projectId) ?? []
-  const isCurrent = project.projectId === currentId
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => onSelect(project.projectId)}
-        style={{ paddingLeft: `calc(${depth} * var(--ui-indent) + var(--ui-gap-sm))` }}
-        className={`flex w-full items-center gap-ui-gap-sm rounded-control-sm py-1 pr-ui-gap-sm text-left transition ${
-          isCurrent ? 'bg-seal-50 ring-1 ring-seal-300' : 'hover:bg-paper-100'
-        }`}
-      >
-        <span className={`h-ui-dot w-ui-dot shrink-0 rounded-full ${color.bg}`} />
-        <span className={`min-w-0 flex-1 truncate text-ui-sm ${color.text} ${isCurrent ? 'font-medium' : ''}`}>
-          {project.title || '(未命名任务)'}
-        </span>
-      </button>
-      {children.map((c) => (
-        <TreeNode
-          key={c.projectId}
-          project={c}
-          depth={depth + 1}
-          byId={byId}
-          childrenByParent={childrenByParent}
-          currentId={currentId}
-          onSelect={onSelect}
-          seen={seen}
-        />
-      ))}
-    </div>
-  )
-}
 
 export default function SessionTaskTree({
   projects,
   currentId,
+  selectedScope,
   isLoading,
   onSelect,
 }: {
   projects: Project[]
   currentId: string | null
+  /** 本页当前选中的归属 value：'all' | 'cat:research' | 'cat:course' | 'node:<projectId>' */
+  selectedScope: string
   isLoading: boolean
-  onSelect: (id: string) => void
+  onSelect: (scope: string) => void
 }) {
-  const byId = new Map<string, Project>()
-  for (const p of projects) byId.set(p.projectId, p)
+  const options = buildTaskFilterOptions(projects, currentId)
 
-  const childrenByParent = new Map<string, Project[]>()
-  const roots: Project[] = []
-  for (const p of projects) {
-    if (!p.parentId || !byId.has(p.parentId)) {
-      roots.push(p)
-    } else {
-      const arr = childrenByParent.get(p.parentId)
-      if (arr) arr.push(p)
-      else childrenByParent.set(p.parentId, [p])
+  // 第三类（当前任务及其分支）默认展开，方便直接选到某节课 / 某个子任务
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (currentId) setExpanded(new Set([`node:${currentId}`]))
+  }, [currentId])
+
+  // 只渲染展开链路上的选项（与管理页任务面板同一套折叠算法）
+  const visible: TaskFilterOption[] = []
+  const collapsed = new Set<string>()
+  for (const opt of options) {
+    if (opt.parent && collapsed.has(opt.parent)) {
+      if (opt.hasChildren) collapsed.add(opt.value)
+      continue
     }
+    visible.push(opt)
+    if (opt.hasChildren && !expanded.has(opt.value)) collapsed.add(opt.value)
   }
-  for (const [k, arr] of childrenByParent) childrenByParent.set(k, sortProjects(arr))
 
   return (
     <Panel>
-      <PanelHeader icon={<ListTree />} title="任务" />
+      <PanelHeader icon={<ListTree />} title="会话归属" />
       <PanelBody>
         {isLoading ? (
           <p className="py-6 text-center text-ui-xs text-ink-400">加载中…</p>
-        ) : roots.length === 0 ? (
+        ) : projects.length === 0 ? (
           <EmptyState
             icon={<ListTree />}
             title="还没有任务"
@@ -120,18 +67,46 @@ export default function SessionTaskTree({
           />
         ) : (
           <div className="space-y-0.5">
-            {sortProjects(roots).map((p) => (
-              <TreeNode
-                key={p.projectId}
-                project={p}
-                depth={0}
-                byId={byId}
-                childrenByParent={childrenByParent}
-                currentId={currentId}
-                onSelect={onSelect}
-                seen={new Set()}
-              />
-            ))}
+            {visible.map((opt) => {
+              const isActive = selectedScope === opt.value
+              const isExpanded = expanded.has(opt.value)
+              return (
+                <div
+                  key={opt.value}
+                  className="flex items-center gap-0.5"
+                  style={{ paddingLeft: `${opt.depth * 0.75}rem` }}
+                >
+                  {opt.hasChildren ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpanded((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(opt.value)) next.delete(opt.value)
+                          else next.add(opt.value)
+                          return next
+                        })
+                      }
+                      title={isExpanded ? '折叠子任务' : '展开子任务'}
+                      className="shrink-0 rounded-control-sm p-0.5 text-ink-400 transition hover:bg-paper-100 hover:text-ink-600"
+                    >
+                      <ChevronRight className={`h-3.5 w-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                    </button>
+                  ) : (
+                    <span className="w-4 shrink-0" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onSelect(opt.value)}
+                    className={`flex min-w-0 flex-1 items-center rounded-control px-2 py-1.5 text-left transition ${
+                      isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                    }`}
+                  >
+                    <span className="flex-1 truncate text-ui-sm">{opt.label}</span>
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
       </PanelBody>

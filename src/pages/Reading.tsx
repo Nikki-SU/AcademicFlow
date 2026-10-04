@@ -31,11 +31,21 @@ import {
   Square,
   Headphones,
   GripVertical,
+  Check,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
-import { loadMaterialMeta, taskOf, tagsOf, type MaterialMeta } from '../services/materialMeta'
+import {
+  loadMaterialMeta,
+  saveMaterialMeta,
+  setMeta,
+  taskOf,
+  tagsOf,
+  metaKey,
+  type MaterialMeta,
+  type MaterialType,
+} from '../services/materialMeta'
 import {
   loadProjects,
   buildTaskFilterOptions,
@@ -761,8 +771,10 @@ export default function ReadingPage() {
   const [tasks, setTasks] = useState<Project[]>([])
   /** 材料元数据单一真源：任务归属 + 标签 */
   const [materialMeta, setMaterialMeta] = useState<MaterialMeta[]>([])
-  /** 'all' | 'cat:research' | 'cat:course' | 'node:<projectId>'；切换阅读对象时重置，避免留下不可见筛选 */
-  const [taskFilter, setTaskFilter] = useState('all')
+  /** 本页默认只看全局当前任务下的材料（没选任务时才看全部） */
+  const scopedTaskFilter = currentProjectId ? `node:${currentProjectId}` : 'all'
+  /** 'all' | 'cat:research' | 'cat:course' | 'node:<projectId>'；默认 = 当前任务 */
+  const [taskFilter, setTaskFilter] = useState(scopedTaskFilter)
   /** 选中的标签过滤（空串 = 不过滤） */
   const [tagFilter, setTagFilter] = useState('')
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
@@ -808,6 +820,13 @@ export default function ReadingPage() {
   const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
   const [pasteDoc, setPasteDoc] = useState({ title: '', content: '' })
   const [importing, setImporting] = useState(false)
+
+  // ── 从全局添加材料：把全局已有的文献 / 图书 / 文档归入当前任务（写 MaterialMeta，全站可见，非临时） ──
+  const [showAddMaterialModal, setShowAddMaterialModal] = useState(false)
+  const [addMaterialTab, setAddMaterialTab] = useState<DocType>('paper')
+  const [addMaterialSearch, setAddMaterialSearch] = useState('')
+  const [addMaterialSelected, setAddMaterialSelected] = useState<Set<string>>(new Set())
+  const [addMaterialSaving, setAddMaterialSaving] = useState(false)
 
   const readerRef = useRef<HTMLDivElement>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -877,9 +896,8 @@ export default function ReadingPage() {
         : docLoading
       : false
 
-  /** 切换阅读对象时把任务 / 标签筛选清掉（各类型可选任务 / 标签不同，避免留下不可见筛选） */
+  /** 切换阅读对象时清掉标签 / 级别筛选（任务维度始终跟随全局当前任务，不在这里重置） */
   useEffect(() => {
-    setTaskFilter('all')
     setTagFilter('')
     setTierFilter('all')
   }, [docType])
@@ -1088,9 +1106,9 @@ export default function ReadingPage() {
     setFilterOpen(false)
   }
 
-  /** 重置（只清草稿，点确定才生效） */
+  /** 重置（只清草稿，点确定才生效）—— 回到本页默认口径（当前任务） */
   const resetFilterDraft = () => {
-    setDraftTask('all')
+    setDraftTask(scopedTaskFilter)
     setDraftTag('')
     setDraftMd('all')
     setDraftTier('all')
@@ -1120,6 +1138,72 @@ export default function ReadingPage() {
     }
   }, [])
 
+  // ── 从全局添加材料：把选中的全局材料归入当前任务（落盘 MaterialMeta，全站可见） ──
+  const persistMaterialMeta = async (next: MaterialMeta[]) => {
+    setMaterialMeta(next)
+    try {
+      await saveMaterialMeta(next)
+    } catch (err) {
+      console.error('[Reading] 保存材料元数据失败:', err)
+      toast.error('保存失败，请检查仓库权限')
+    }
+  }
+
+  /** 全局材料里、尚未归入当前任务的那些（按类型各一份，弹层列表与确认落盘共用） */
+  const globalPapers = papers.filter((p) => taskOf(materialMeta, 'paper', p.doi) !== currentProjectId)
+  const globalBooks = books.filter((b) => taskOf(materialMeta, 'book', b.id) !== currentProjectId)
+  const globalDocuments = documents.filter((d) => taskOf(materialMeta, 'document', d.id) !== currentProjectId)
+
+  /** 某材料当前归属的任务名（已在本任务 / 未归属时为空串） */
+  const currentOwnerTitle = (type: MaterialType, id: string) => {
+    const t = taskOf(materialMeta, type, id)
+    if (!t || t === currentProjectId) return ''
+    return tasks.find((p) => p.projectId === t)?.title ?? ''
+  }
+
+  const openAddMaterial = () => {
+    if (!currentProjectId) {
+      toast.error('请先在日程页选择一个任务')
+      return
+    }
+    setAddMaterialTab(docType)
+    setAddMaterialSearch('')
+    setAddMaterialSelected(new Set())
+    setShowAddMaterialModal(true)
+  }
+
+  const toggleAddMaterial = (type: MaterialType, id: string) => {
+    const key = metaKey(type, id)
+    setAddMaterialSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const confirmAddMaterial = async () => {
+    if (!currentProjectId || addMaterialSelected.size === 0) return
+    setAddMaterialSaving(true)
+    try {
+      let next = materialMeta
+      for (const p of globalPapers) {
+        if (addMaterialSelected.has(metaKey('paper', p.doi))) next = setMeta(next, 'paper', p.doi, { taskId: currentProjectId })
+      }
+      for (const b of globalBooks) {
+        if (addMaterialSelected.has(metaKey('book', b.id))) next = setMeta(next, 'book', b.id, { taskId: currentProjectId })
+      }
+      for (const d of globalDocuments) {
+        if (addMaterialSelected.has(metaKey('document', d.id))) next = setMeta(next, 'document', d.id, { taskId: currentProjectId })
+      }
+      await persistMaterialMeta(next)
+      toast.success(`已添加 ${addMaterialSelected.size} 项材料`)
+      setShowAddMaterialModal(false)
+    } finally {
+      setAddMaterialSaving(false)
+    }
+  }
+
   /** 三种导入方式的公共出口：写仓库 → 刷新列表 → 直接打开刚导入的那份 */
   const runImport = async (items: ImportItem[]) => {
     if (importing) return
@@ -1138,6 +1222,12 @@ export default function ReadingPage() {
       if (added[0]) {
         setSelectedNote(null)
         setSelectedDocumentId(added[0].id)
+      }
+      // 导入即归入当前任务：材料只要进了项目就不是临时的
+      if (currentProjectId && added.length > 0) {
+        let next = materialMeta
+        for (const a of added) next = setMeta(next, 'document', a.id, { taskId: currentProjectId })
+        await persistMaterialMeta(next)
       }
     } catch (err) {
       toast.error(`导入失败：${err instanceof Error ? err.message : String(err)}`)
@@ -1512,10 +1602,15 @@ export default function ReadingPage() {
   /** 筛选菜单任务维度可选项（统一三类口径） */
   const taskOptions = useMemo(() => buildTaskFilterOptions(tasks, currentProjectId), [tasks, currentProjectId])
 
-  // 选中的任务过滤项若已失效（如切换了全局当前任务），回落到「全部」，避免列表被清空
+  // 全局当前任务一变，本页就跟着切到该任务（默认只看当前任务的材料）
   useEffect(() => {
-    if (!taskOptions.some((o) => o.value === taskFilter)) setTaskFilter('all')
-  }, [taskOptions, taskFilter])
+    setTaskFilter(scopedTaskFilter)
+  }, [scopedTaskFilter])
+
+  // 选中的任务过滤项若已失效（如切换了全局当前任务），回落到默认口径，避免列表被清空
+  useEffect(() => {
+    if (!taskOptions.some((o) => o.value === taskFilter)) setTaskFilter(scopedTaskFilter)
+  }, [taskOptions, taskFilter, scopedTaskFilter])
 
   /** 标签筛选：空串不过滤 */
   const matchTag = (tags: string[]) => !tagFilter || tags.includes(tagFilter)
@@ -1591,10 +1686,11 @@ export default function ReadingPage() {
     return documents.find((d) => d.id === ref.parentId)?.title ?? ref.parentId
   }
 
-  /** 「其他文档」列表里的笔记：按名字 / 来源标题过滤同一套搜索词 */
-  const filteredNoteFiles = noteFiles.filter(
-    (n) => matchSearch(n.name) || matchSearch(noteParentTitle(n)),
-  )
+  /** 「其他文档」列表里的笔记：按搜索词过滤，并跟着父材料走（父材料归当前任务，笔记才出现在这里） */
+  const filteredNoteFiles = noteFiles.filter((n) => {
+    if (!matchSearch(n.name) && !matchSearch(noteParentTitle(n))) return false
+    return matchTask(taskOf(materialMeta, n.parentKind, n.parentId))
+  })
 
   /** 当前阅读对象的标题（导出文件名、问 AI 面板都用它） */
   const docTitle = isNote
@@ -3030,8 +3126,16 @@ export default function ReadingPage() {
       }`}
         style={{ fontSize: '1rem' }}
       >
-        {/* 固定：阅读对象切换（文献 / 图书 / 其他文档） */}
-        <div className="af-line-b p-2 flex-shrink-0">
+        {/* 固定：从全局添加材料 + 阅读对象切换（文献 / 图书 / 其他文档） */}
+        <div className="af-line-b p-2 flex-shrink-0 space-y-1.5">
+          {/* 从全局把已有材料归入当前任务（列表默认只显示当前任务的材料，这里是入口） */}
+          <button
+            onClick={openAddMaterial}
+            className="w-full flex items-center justify-center gap-1 rounded-control-sm border border-dashed border-ink-300 px-2 py-1 text-ui-2xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600 hover:bg-seal-50"
+          >
+            <Plus className="h-ui-icon-sm w-ui-icon-sm flex-shrink-0" />
+            <span className="truncate">从全局添加材料</span>
+          </button>
           <div className="flex gap-0.5 rounded-control bg-ink-100 p-0.5">
             {([
               { type: 'paper' as DocType, label: '文献', Icon: BookOpen },
@@ -3371,6 +3475,13 @@ export default function ReadingPage() {
               <div className="text-center py-8 text-ink-400 text-ui-sm">
                 <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p>没有找到匹配的图书</p>
+                <button
+                  onClick={openAddMaterial}
+                  className="mt-3 inline-flex items-center gap-1 px-ui-gap py-1.5 text-seal-600 border border-dashed border-seal-300 rounded-control-sm hover:bg-seal-50 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  从全局添加材料
+                </button>
               </div>
             ) : (
               filteredBooks.map((b) => (
@@ -3420,6 +3531,13 @@ export default function ReadingPage() {
               <div className="text-center py-8 text-ink-400 text-ui-sm">
                 <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p>没有找到匹配的文档</p>
+                <button
+                  onClick={openAddMaterial}
+                  className="mt-3 inline-flex items-center gap-1 px-ui-gap py-1.5 text-seal-600 border border-dashed border-seal-300 rounded-control-sm hover:bg-seal-50 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  从全局添加材料
+                </button>
               </div>
             ) : (
               <>
@@ -3520,6 +3638,13 @@ export default function ReadingPage() {
             <div className="text-center py-8 text-ink-400 text-ui-sm">
               <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
               <p>没有找到匹配的文献</p>
+              <button
+                onClick={openAddMaterial}
+                className="mt-3 inline-flex items-center gap-1 px-ui-gap py-1.5 text-seal-600 border border-dashed border-seal-300 rounded-control-sm hover:bg-seal-50 transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                从全局添加材料
+              </button>
             </div>
           ) : (
             filteredPapers.map((p) => (
@@ -4307,6 +4432,129 @@ export default function ReadingPage() {
           margin: 1rem 0;
         }
       `}</style>
+
+      {/* 从全局添加材料：把全局已有材料归入当前任务 */}
+      {showAddMaterialModal && (
+        <Modal title="从全局添加材料" onClose={() => { if (!addMaterialSaving) setShowAddMaterialModal(false) }}>
+          <p className="text-ui-xs text-ink-400 mb-3">选中的材料会归入当前任务，之后在各处都看得到（不是临时引用）。</p>
+          <div className="flex items-center gap-0.5 rounded-control bg-ink-100 p-0.5 mb-3 w-fit">
+            {([
+              { type: 'paper' as DocType, label: '文献' },
+              { type: 'book' as DocType, label: '图书' },
+              { type: 'document' as DocType, label: '其他文档' },
+            ]).map(({ type, label }) => (
+              <button
+                key={type}
+                onClick={() => setAddMaterialTab(type)}
+                disabled={addMaterialSaving}
+                className={`px-ui-gap py-1.5 rounded-control-sm text-ui-xs font-medium transition disabled:opacity-60 ${
+                  addMaterialTab === type ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="relative mb-2">
+            <Search className="w-3.5 h-3.5 text-ink-400 absolute left-2 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={addMaterialSearch}
+              onChange={(e) => setAddMaterialSearch(e.target.value)}
+              placeholder="搜索标题…"
+              disabled={addMaterialSaving}
+              className="w-full pl-7 pr-2 py-1.5 text-ui-xs border border-ink-200 rounded-control-sm focus:outline-none focus:border-seal-400"
+            />
+          </div>
+          <div className="max-h-80 overflow-y-auto border border-ink-200 rounded-control p-1">
+            {(() => {
+              const q = addMaterialSearch.trim().toLowerCase()
+              const items: Array<{ type: MaterialType; id: string; title: string; subtitle: string }> = []
+              if (addMaterialTab === 'paper') {
+                for (const p of globalPapers) {
+                  if (q && !p.title.toLowerCase().includes(q) && !p.authors.toLowerCase().includes(q)) continue
+                  const owner = currentOwnerTitle('paper', p.doi)
+                  items.push({
+                    type: 'paper',
+                    id: p.doi,
+                    title: p.title,
+                    subtitle: [p.authors, p.year, owner && `现属「${owner}」`].filter(Boolean).join(' · '),
+                  })
+                }
+              } else if (addMaterialTab === 'book') {
+                for (const b of globalBooks) {
+                  if (q && !b.title.toLowerCase().includes(q)) continue
+                  const owner = currentOwnerTitle('book', b.id)
+                  items.push({ type: 'book', id: b.id, title: b.title, subtitle: owner ? `现属「${owner}」` : '图书' })
+                }
+              } else {
+                for (const d of globalDocuments) {
+                  if (q && !d.title.toLowerCase().includes(q) && !d.author.toLowerCase().includes(q)) continue
+                  const owner = currentOwnerTitle('document', d.id)
+                  items.push({
+                    type: 'document',
+                    id: d.id,
+                    title: d.title,
+                    subtitle: [d.author, owner && `现属「${owner}」`].filter(Boolean).join(' · '),
+                  })
+                }
+              }
+              if (items.length === 0) {
+                return (
+                  <div className="text-center py-8 text-ink-400 text-ui-xs">
+                    全局里没有可添加的{addMaterialTab === 'paper' ? '文献' : addMaterialTab === 'book' ? '图书' : '文档'}
+                  </div>
+                )
+              }
+              return items.map((it) => {
+                const selected = addMaterialSelected.has(metaKey(it.type, it.id))
+                return (
+                  <button
+                    key={`${it.type}:${it.id}`}
+                    onClick={() => toggleAddMaterial(it.type, it.id)}
+                    disabled={addMaterialSaving}
+                    className={`w-full flex items-start gap-2 rounded-control-sm px-2 py-1.5 text-left transition disabled:opacity-60 ${
+                      selected ? 'bg-seal-50' : 'hover:bg-paper-100'
+                    }`}
+                  >
+                    <span
+                      className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded border flex items-center justify-center ${
+                        selected ? 'bg-seal-600 border-seal-600 text-paper-50' : 'border-ink-300'
+                      }`}
+                    >
+                      {selected && <Check className="h-2.5 w-2.5" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-ui-sm text-ink-700 line-clamp-2 leading-snug">{it.title}</span>
+                      {it.subtitle && <span className="block text-ui-xs text-ink-400 truncate">{it.subtitle}</span>}
+                    </span>
+                  </button>
+                )
+              })
+            })()}
+          </div>
+          <div className="af-line-t flex items-center justify-between gap-2 mt-4 pt-3">
+            <span className="text-ui-xs text-ink-400">已选 {addMaterialSelected.size} 项</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { if (!addMaterialSaving) setShowAddMaterialModal(false) }}
+                disabled={addMaterialSaving}
+                className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-60"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => void confirmAddMaterial()}
+                disabled={addMaterialSaving || addMaterialSelected.size === 0}
+                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {addMaterialSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                {addMaterialSaving ? '添加中…' : '添加'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* 导入其他文档：和管理页是同一套入口（.md 多选 / 粘贴 / zip），落到同一处 documents/ */}
       {showImportDocModal && (

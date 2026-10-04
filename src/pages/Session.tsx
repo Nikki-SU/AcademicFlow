@@ -7,9 +7,9 @@
  * 两者本质是同一种东西：实时记录一场「正在发生的事」（会议 / 一节课）。
  *
  * 三栏（见 架构.md §2.4 / ADJ-30；比例默认 1:3:1，可拖成 1:2:2 / 1:1:3）：
- *   最左 任务层级树（点一下切换「当前任务」）
+ *   最左 会话归属（全部 / 所属大类 / 当前任务及其分支；选分支不改全局当前任务，只把会话落到该分支）
  *   中间 AI 录音 / 转写（绑 stores/recorder.ts，全局悬浮球同一个 store）
- *   右侧 传图片 · 材料采集（挂当前任务分支下）
+ *   右侧 传图片 · 材料采集（挂本页所选分支任务下）
  *
  * 录音 / 转写不绑架用户：真正的录音入口是挂在 Layout 顶层的**全局悬浮录音球**，
  * 切页面、切任务都不中断（ADJ-46）。本页中栏只是同一份状态的另一种呈现。
@@ -28,8 +28,18 @@ const RIGHT_FR_SNAPS = [1, 2, 3]
 
 export default function SessionPage() {
   const currentProjectId = useTaskStore((s) => s.currentProjectId)
-  const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
   const loadCurrent = useTaskStore((s) => s.loadCurrent)
+
+  // 本页会话归属：默认 = 全局当前任务。在这里选分支**不改全局当前任务**，
+  // 只把本页会话（转写 / 图片）真实落到所选分支任务层级里。
+  const [sessionScope, setSessionScope] = useState<string>(
+    currentProjectId ? `node:${currentProjectId}` : 'all',
+  )
+  useEffect(() => {
+    setSessionScope(currentProjectId ? `node:${currentProjectId}` : 'all')
+  }, [currentProjectId])
+  // 大类 / 全部这些非具体任务的归属，锚定到全局当前任务（一条会话必须落到某个真实任务下）
+  const sessionTaskId = sessionScope.startsWith('node:') ? sessionScope.slice(5) : currentProjectId
 
   const [projects, setProjects] = useState<Project[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -124,13 +134,14 @@ export default function SessionPage() {
           <SessionTaskTree
             projects={projects}
             currentId={currentProjectId}
+            selectedScope={sessionScope}
             isLoading={isLoading}
-            onSelect={(id) => void setCurrentProject(id)}
+            onSelect={setSessionScope}
           />
         </div>
 
         <div className="relative min-w-0">
-          <SessionTranscript taskId={currentProjectId} />
+          <SessionTranscript taskId={sessionTaskId} />
 
           {/* 中缝拖动柄：**叠加**在「中↔右」的缝隙上（不再单独占一条栅格轨），
               全高可拖（按住从上到下任意位置都能拖），圆心落在缝正中 → 左右留白对称。
@@ -151,7 +162,7 @@ export default function SessionPage() {
         </div>
 
         <div className="min-w-0">
-          <SessionImages taskId={currentProjectId} />
+          <SessionImages taskId={sessionTaskId} />
         </div>
       </div>
     </div>

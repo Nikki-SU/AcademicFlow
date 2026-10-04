@@ -75,6 +75,7 @@ import {
 import { compileOnGitHub } from '../services/latex-cloud'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useTaskStore } from '../stores/task'
 import type { JournalTemplate } from '../types'
 import { DoiLink } from '../components/DoiLink'
 import { runDualEngine } from '../services/ai/dual-engine'
@@ -99,11 +100,16 @@ import {
   saveMemory,
   loadQuickActions,
   saveQuickActions,
+  buildTaskFilterOptions,
+  taskFilterMatches,
   type Project,
   type QuickAction,
+  type TaskFilterOption,
   type CitationRef as ServiceCitationRef,
 } from '../services/projectData'
 import { loadLiteratures, loadTitleCns, type Literature } from '../services/literatureData'
+import { listBooks, type BookSummary } from '../services/textbookData'
+import { loadMaterialMeta, saveMaterialMeta, setMeta } from '../services/materialMeta'
 import { callAI } from '../services/ai/client'
 import {
   searchCrossref,
@@ -823,6 +829,8 @@ function memoryToMessages(md: string): AIMessage[] {
 
 export default function WritingPage() {
   const { repo } = useWorkspaceStore()
+  /** 全局当前任务：本页默认就在它上面写作；只在左栏「任务范围」里下钻分支，不改全局 */
+  const currentProjectId = useTaskStore((s) => s.currentProjectId)
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [mdContent, setMdContent] = useState('')
@@ -860,6 +868,14 @@ export default function WritingPage() {
    * 实在放不下就让整栏滚动，而不是牺牲掉其中一块。
    */
   const [projectsExpanded, setProjectsExpanded] = useState(true)
+  /**
+   * 左栏「任务范围」：统一三类口径（全部 / 研究·课程大类 / 当前任务及其全部分支）。
+   * 默认落在「当前任务及其分支」——写作页只围绕当前任务，不再平铺一堆不相关的项目。
+   * 在这里下钻分支只改本页的写作工作区，**不改全局当前任务**。
+   */
+  const [writingTaskFilter, setWritingTaskFilter] = useState('all')
+  const [expandedWritingTasks, setExpandedWritingTasks] = useState<Set<string>>(new Set())
+  const [writingTaskMenuOpen, setWritingTaskMenuOpen] = useState(false)
   /** 大纲面板是否展开（收起时只剩「大纲」标题行） */
   const [outlineExpanded, setOutlineExpanded] = useState(true)
   const [leftPanelMode, setLeftPanelMode] = useState<PanelMode>('editor')
@@ -979,8 +995,10 @@ export default function WritingPage() {
   /** 自定义指令被选中后可现场微调的 prompt */
   const [customPromptDraft, setCustomPromptDraft] = useState('')
 
-  // ── 项目文献（项目内临时知识库）──
+  // ── 项目文献（写进本任务引用库；研究任务只收期刊，课程任务可加期刊 / 图书）──
   const [availablePapers, setAvailablePapers] = useState<Literature[]>([])
+  const [availableBooks, setAvailableBooks] = useState<BookSummary[]>([])
+  const [projectLitTab, setProjectLitTab] = useState<'paper' | 'book'>('paper')
   const [showProjectLitModal, setShowProjectLitModal] = useState(false)
   const [projectLitSearch, setProjectLitSearch] = useState('')
   const [projectLitSelected, setProjectLitSelected] = useState<string[]>([])
@@ -1005,8 +1023,6 @@ export default function WritingPage() {
   const [isSummarizingOnline, setIsSummarizingOnline] = useState(false)
   const [importedDois, setImportedDois] = useState<string[]>([])
 
-  void saveBookReferences
-
   /** 编辑区可能落在左边或右边，两个 ref 都留着；插入引用/跳转时取已挂载的那个 */
   const leftEditorRef = useRef<VditorEditorHandle>(null)
   const rightEditorRef = useRef<VditorEditorHandle>(null)
@@ -1019,6 +1035,7 @@ export default function WritingPage() {
   const leftDropdownRef = useRef<HTMLDivElement>(null)
   const rightDropdownRef = useRef<HTMLDivElement>(null)
   const citationScopeRef = useRef<HTMLDivElement>(null)
+  const writingTaskMenuRef = useRef<HTMLDivElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const packageFileInputRef = useRef<HTMLInputElement>(null)
   const packageFolderInputRef = useRef<HTMLInputElement>(null)
@@ -1036,6 +1053,42 @@ export default function WritingPage() {
   const memoryLoadingRef = useRef(false)
 
   const activeProject = projects.find((p) => p.projectId === activeProjectId)
+
+  /** 左栏「任务范围」可选项（统一三类口径，全站同一真源） */
+  const writingTaskOptions = useMemo(
+    () => buildTaskFilterOptions(projects, currentProjectId),
+    [projects, currentProjectId],
+  )
+
+  /** 只列出落在当前「任务范围」内的项目（默认 = 当前任务及其分支） */
+  const scopedProjects = useMemo(
+    () => projects.filter((p) => taskFilterMatches(projects, writingTaskFilter, p.projectId)),
+    [projects, writingTaskFilter],
+  )
+
+  /**
+   * 全局当前任务一切换，写作工作区与「任务范围」就落到它上面。
+   * 用 ref 记住已应用的任务，避免之后项目表变化时把用户手动下钻的分支冲掉。
+   */
+  const appliedGlobalTaskRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!currentProjectId || !projects.some((p) => p.projectId === currentProjectId)) return
+    if (appliedGlobalTaskRef.current === currentProjectId) return
+    appliedGlobalTaskRef.current = currentProjectId
+    setActiveProjectId(currentProjectId)
+    setWritingTaskFilter(`node:${currentProjectId}`)
+  }, [currentProjectId, projects])
+
+  /** 选中的任务范围若已失效（项目被删等），回落到当前任务分支 */
+  useEffect(() => {
+    if (!writingTaskOptions.some((o) => o.value === writingTaskFilter)) {
+      setWritingTaskFilter(
+        currentProjectId && projects.some((p) => p.projectId === currentProjectId)
+          ? `node:${currentProjectId}`
+          : 'all',
+      )
+    }
+  }, [writingTaskOptions, writingTaskFilter, currentProjectId, projects])
 
   const getProjectLitCount = useCallback((projectId: string) => {
     return citations.filter((c) => c.projectId === projectId).length
@@ -1332,6 +1385,9 @@ export default function WritingPage() {
       if (citationScopeRef.current && !citationScopeRef.current.contains(e.target as Node)) {
         setShowCitationScopeDropdown(false)
       }
+      if (writingTaskMenuRef.current && !writingTaskMenuRef.current.contains(e.target as Node)) {
+        setWritingTaskMenuOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -1428,16 +1484,17 @@ export default function WritingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, activeProjectId])
 
-  // 自定义快捷指令（全局）+ 文献库清单（供"项目文献"选择用）
+  // 自定义快捷指令（全局）+ 文献库 / 图书库清单（供「添加项目材料」选择用）
   useEffect(() => {
     if (!repo) return
     let cancelled = false
     async function loadAux() {
       try {
-        const [actions, papers] = await Promise.all([loadQuickActions(), loadLiteratures()])
+        const [actions, papers, books] = await Promise.all([loadQuickActions(), loadLiteratures(), listBooks()])
         if (cancelled) return
         setCustomActions(actions)
         setAvailablePapers(papers)
+        setAvailableBooks(books)
       } catch (err) {
         console.warn('[Writing] 加载快捷指令 / 文献库失败:', err)
       }
@@ -2052,9 +2109,11 @@ export default function WritingPage() {
     }
   }
 
-  // ── 项目文献（项目内临时知识库）──
+  // ── 项目材料（写进本任务的引用库：是正式加入、全站可见，不是临时挂载）──
   const openProjectLitModal = (projectId: string) => {
     setProjectLitTargetId(projectId)
+    // 默认落在「文献」；课程任务可在弹层里切「图书」，研究任务则被锁死在「文献」
+    setProjectLitTab('paper')
     setProjectLitSearch('')
     setProjectLitSelected([])
     setShowProjectLitModal(true)
@@ -2066,7 +2125,11 @@ export default function WritingPage() {
       setShowProjectLitModal(false)
       return
     }
-    const picked: CitationRef[] = availablePapers
+    const target = projects.find((p) => p.projectId === projectId)
+    // 研究任务只收期刊（图书 / 其他很难引用）；课程任务期刊、图书都能收
+    const researchOnly = target?.type === 'research'
+
+    const pickedPapers: CitationRef[] = availablePapers
       .filter((p) => projectLitSelected.includes(p.doi))
       .map((p) => ({
         id: p.doi,
@@ -2078,18 +2141,56 @@ export default function WritingPage() {
         type: 'paper' as const,
         projectId,
       }))
+    const pickedBooks: CitationRef[] = researchOnly
+      ? []
+      : availableBooks
+          .filter((b) => projectLitSelected.includes(b.id))
+          .map((b) => ({
+            id: b.id,
+            doi: '',
+            title: b.title,
+            authors: '',
+            year: 0,
+            journal: '',
+            type: 'book' as const,
+            projectId,
+          }))
 
     setCitations((prev) => {
-      const existing = prev.filter((c) => c.projectId === projectId && c.type === 'paper')
-      const existDois = new Set(existing.map((c) => c.doi))
-      const merged = [...existing, ...picked.filter((p) => !existDois.has(p.doi))]
-      savePaperReferences(projectId, merged).catch((err) => {
+      const existingPapers = prev.filter((c) => c.projectId === projectId && c.type === 'paper')
+      const existDois = new Set(existingPapers.map((c) => c.doi))
+      const mergedPapers = [...existingPapers, ...pickedPapers.filter((p) => !existDois.has(p.doi))]
+      const existingBooks = prev.filter((c) => c.projectId === projectId && c.type === 'book')
+      const existBookIds = new Set(existingBooks.map((c) => c.id))
+      const mergedBooks = [...existingBooks, ...pickedBooks.filter((b) => !existBookIds.has(b.id))]
+
+      savePaperReferences(projectId, mergedPapers).catch((err) => {
         console.error('[Writing] 保存项目文献失败:', err)
         toast.error('保存项目文献失败，请检查仓库权限')
       })
+      saveBookReferences(projectId, mergedBooks).catch((err) => {
+        console.error('[Writing] 保存项目图书失败:', err)
+        toast.error('保存项目图书失败，请检查仓库权限')
+      })
       // 只影响本项目：其余引用原样保留
-      return [...prev.filter((c) => !(c.projectId === projectId && c.type === 'paper')), ...merged]
+      return [
+        ...prev.filter((c) => !(c.projectId === projectId && (c.type === 'paper' || c.type === 'book'))),
+        ...mergedPapers,
+        ...mergedBooks,
+      ]
     })
+
+    // 同步材料归属到 materials/meta.csv：这些材料从此算作本任务的材料，
+    // 在阅读页 / 管理页都能按任务看到 —— 是正式加入，不是只挂在本页的临时引用
+    try {
+      let meta = await loadMaterialMeta()
+      for (const p of pickedPapers) meta = setMeta(meta, 'paper', p.doi, { taskId: projectId })
+      for (const b of pickedBooks) meta = setMeta(meta, 'book', b.id, { taskId: projectId })
+      await saveMaterialMeta(meta)
+    } catch (err) {
+      console.error('[Writing] 同步材料归属失败:', err)
+      toast.error('同步材料归属失败，请检查仓库权限')
+    }
 
     setShowProjectLitModal(false)
     setProjectLitSelected([])
@@ -3127,7 +3228,7 @@ export default function WritingPage() {
       setActiveProjectId(projectId)
       setNewProjectName('')
       setShowNewProjectInput(false)
-      // 新建项目 → 立刻选项目文献（这个项目的临时知识库）；可跳过，之后也能随时补
+      // 新建项目 → 立刻挑这个任务要用的材料（正式加入其引用库）；可跳过，之后也能随时补
       openProjectLitModal(projectId)
     }
   }
@@ -3186,6 +3287,11 @@ export default function WritingPage() {
 
   const LeftPanelIcon = PANEL_MODES.find((m) => m.value === leftPanelMode)?.icon || PenTool
   const RightPanelIcon = PANEL_MODES.find((m) => m.value === rightPanelMode)?.icon || Sparkles
+
+  /** 「添加项目材料」弹层：研究任务只收期刊；课程任务期刊 / 图书都能收 */
+  const projectLitTarget = projects.find((p) => p.projectId === projectLitTargetId)
+  const projectLitResearchOnly = projectLitTarget?.type === 'research'
+  const projectLitActiveTab: 'paper' | 'book' = projectLitResearchOnly ? 'paper' : projectLitTab
 
   /**
    * 两侧选了同一个功能 → 合成一栏。
@@ -3270,6 +3376,92 @@ export default function WritingPage() {
 
             {projectsExpanded && (
               <>
+                {/*
+                 * 任务范围：统一三类口径（全部 / 研究·课程大类 / 当前任务及其全部分支）。
+                 * 写作页默认围绕「当前任务及其分支」，不再平铺一堆不相关的项目；
+                 * 在这里下钻分支只改本页的工作区，**不改全局当前任务**。
+                 */}
+                <div className="af-line-b relative flex-shrink-0 px-ui-gap py-1.5" ref={writingTaskMenuRef}>
+                  <button
+                    onClick={() => setWritingTaskMenuOpen((v) => !v)}
+                    className={`w-full flex items-center gap-1.5 px-1.5 py-1 rounded-control-sm text-ui-xs transition ${
+                      writingTaskMenuOpen ? 'bg-seal-50 text-seal-700' : 'text-ink-600 hover:bg-paper-100'
+                    }`}
+                  >
+                    <ListTree className="h-ui-icon-sm w-ui-icon-sm text-seal-600 flex-shrink-0" />
+                    <span className="flex-1 min-w-0 truncate text-left">
+                      {writingTaskOptions.find((o) => o.value === writingTaskFilter)?.label || '全部'}
+                    </span>
+                    <ChevronDown
+                      className={`h-ui-icon-sm w-ui-icon-sm text-ink-400 flex-shrink-0 transition-transform ${
+                        writingTaskMenuOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+                  {writingTaskMenuOpen && (
+                    <div className="absolute left-2 right-2 top-full z-40 mt-1 rounded-control border border-ink-200 bg-paper-50 p-2 shadow-xl">
+                      <div className="max-h-72 -mr-1 space-y-0.5 overflow-y-auto pr-1">
+                        {(() => {
+                          const collapsed = new Set<string>()
+                          const visible: TaskFilterOption[] = []
+                          for (const opt of writingTaskOptions) {
+                            if (opt.parent && collapsed.has(opt.parent)) {
+                              if (opt.hasChildren) collapsed.add(opt.value)
+                              continue
+                            }
+                            visible.push(opt)
+                            if (opt.hasChildren && !expandedWritingTasks.has(opt.value)) collapsed.add(opt.value)
+                          }
+                          return visible
+                        })().map((opt) => {
+                          const active = writingTaskFilter === opt.value
+                          const expanded = expandedWritingTasks.has(opt.value)
+                          return (
+                            <div
+                              key={opt.value}
+                              className="flex items-center gap-0.5"
+                              style={{ paddingLeft: `${opt.depth * 0.75}rem` }}
+                            >
+                              {opt.hasChildren ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedWritingTasks((prev) => {
+                                      const next = new Set(prev)
+                                      if (next.has(opt.value)) next.delete(opt.value)
+                                      else next.add(opt.value)
+                                      return next
+                                    })
+                                  }
+                                  title={expanded ? '折叠子任务' : '展开子任务'}
+                                  className="shrink-0 rounded-control-sm p-0.5 text-ink-400 transition hover:bg-paper-100 hover:text-ink-600"
+                                >
+                                  <ChevronRight
+                                    className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+                                  />
+                                </button>
+                              ) : (
+                                <span className="w-4 shrink-0" />
+                              )}
+                              <button
+                                onClick={() => {
+                                  setWritingTaskFilter(opt.value)
+                                  setWritingTaskMenuOpen(false)
+                                }}
+                                className={`min-w-0 flex-1 truncate rounded-control-sm px-2 py-1 text-left text-ui-xs transition ${
+                                  active ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {(showNewProjectInput || activeProject) && (
                   <div className="af-line-b px-ui-gap py-2 flex-shrink-0 space-y-2">
                     {showNewProjectInput && (
@@ -3303,7 +3495,7 @@ export default function WritingPage() {
                         className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-ui-xs text-seal-600 bg-seal-50/60 hover:bg-seal-100 rounded-control-sm transition"
                       >
                         <BookPlus className="h-ui-icon-sm w-ui-icon-sm" />
-                        添加项目文献
+                        添加项目材料
                       </button>
                     )}
                   </div>
@@ -3320,7 +3512,12 @@ export default function WritingPage() {
                       </button>
                     </div>
                   )}
-                  {projects.map((p) => (
+                  {projects.length > 0 && scopedProjects.length === 0 && (
+                    <div className="p-4 text-center text-ui-xs text-ink-400 leading-snug">
+                      当前任务范围下暂无项目
+                    </div>
+                  )}
+                  {scopedProjects.map((p) => (
                     <button
                       key={p.projectId}
                       onClick={() => setActiveProjectId(p.projectId)}
@@ -5333,9 +5530,9 @@ export default function WritingPage() {
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
             <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-semibold text-ink-800">选择项目文献</h3>
+                <h3 className="text-base font-semibold text-ink-800">添加项目材料</h3>
                 <p className="text-ui-xs text-ink-400 mt-0.5">
-                  这些文献会成为该项目的临时知识库，随时可以再加
+                  加入本任务的材料库，随时可以再补
                 </p>
               </div>
               <button
@@ -5350,72 +5547,158 @@ export default function WritingPage() {
               </button>
             </div>
 
-            <div className="af-line-b px-ui-gap py-2">
+            <div className="af-line-b px-ui-gap py-2 space-y-2">
+              {projectLitResearchOnly ? (
+                <div className="text-ui-xs text-ink-400">
+                  研究任务只能引用期刊文献（图书 / 其他很难引用）
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 bg-paper-100 rounded-control p-0.5">
+                  {([
+                    ['paper', '文献'],
+                    ['book', '图书'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => {
+                        setProjectLitTab(value)
+                        setProjectLitSelected([])
+                        setProjectLitSearch('')
+                      }}
+                      className={`flex-1 rounded-control-sm px-2 py-1 text-ui-xs transition ${
+                        projectLitActiveTab === value
+                          ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
+                          : 'text-ink-500 hover:text-ink-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-ui-icon-sm w-ui-icon-sm text-ink-400" />
                 <input
                   type="text"
                   value={projectLitSearch}
                   onChange={(e) => setProjectLitSearch(e.target.value)}
-                  placeholder="搜索文献库（标题 / 作者 / 期刊 / DOI）..."
+                  placeholder={
+                    projectLitActiveTab === 'book'
+                      ? '搜索图书库（书名）...'
+                      : '搜索文献库（标题 / 作者 / 期刊 / DOI）...'
+                  }
                   className="w-full pl-8 pr-3 py-1.5 text-ui-sm border border-ink-200 rounded-control focus:outline-none focus:border-seal-400"
                 />
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {availablePapers.length === 0 && (
-                <div className="text-center py-8 text-ui-sm text-ink-400">
-                  文献库为空，请先到文献管理页添加文献
-                </div>
-              )}
-              {availablePapers
-                .filter((p) => {
-                  const q = projectLitSearch.trim().toLowerCase()
-                  if (!q) return true
-                  return `${p.title} ${p.authors} ${p.journal} ${p.doi}`.toLowerCase().includes(q)
-                })
-                .map((p) => {
-                  const isSelected = projectLitSelected.includes(p.doi)
-                  return (
-                    <div
-                      key={p.doi}
-                      onClick={() => {
-                        if (isSelected) {
-                          setProjectLitSelected((prev) => prev.filter((d) => d !== p.doi))
-                        } else {
-                          setProjectLitSelected((prev) => [...prev, p.doi])
-                        }
-                      }}
-                      className={`p-2.5 rounded-control border cursor-pointer transition ${
-                        isSelected
-                          ? 'border-seal-400 bg-seal-50/60'
-                          : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        <div className={`h-ui-icon w-ui-icon rounded-control-sm border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                          isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
-                        }`}>
-                          {isSelected && <Check className="w-3 h-3 text-paper-50" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-ui-xs font-semibold text-ink-700 line-clamp-2 leading-snug">
-                            {p.title}
-                          </div>
-                          <div className="text-ui-xs text-ink-500 mt-1 truncate">
-                            {p.journal} ({p.year})
-                          </div>
-                        </div>
-                      </div>
+              {projectLitActiveTab === 'paper' ? (
+                <>
+                  {availablePapers.length === 0 && (
+                    <div className="text-center py-8 text-ui-sm text-ink-400">
+                      文献库为空，请先到文献管理页添加文献
                     </div>
-                  )
-                })}
+                  )}
+                  {availablePapers
+                    .filter((p) => {
+                      const q = projectLitSearch.trim().toLowerCase()
+                      if (!q) return true
+                      return `${p.title} ${p.authors} ${p.journal} ${p.doi}`.toLowerCase().includes(q)
+                    })
+                    .map((p) => {
+                      const isSelected = projectLitSelected.includes(p.doi)
+                      return (
+                        <div
+                          key={p.doi}
+                          onClick={() => {
+                            if (isSelected) {
+                              setProjectLitSelected((prev) => prev.filter((d) => d !== p.doi))
+                            } else {
+                              setProjectLitSelected((prev) => [...prev, p.doi])
+                            }
+                          }}
+                          className={`p-2.5 rounded-control border cursor-pointer transition ${
+                            isSelected
+                              ? 'border-seal-400 bg-seal-50/60'
+                              : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className={`h-ui-icon w-ui-icon rounded-control-sm border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                              isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
+                            }`}>
+                              {isSelected && <Check className="w-3 h-3 text-paper-50" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-ui-xs font-semibold text-ink-700 line-clamp-2 leading-snug">
+                                {p.title}
+                              </div>
+                              <div className="text-ui-xs text-ink-500 mt-1 truncate">
+                                {p.journal} ({p.year})
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </>
+              ) : (
+                <>
+                  {availableBooks.length === 0 && (
+                    <div className="text-center py-8 text-ui-sm text-ink-400">
+                      图书库为空，请先到管理页添加图书
+                    </div>
+                  )}
+                  {availableBooks
+                    .filter((b) => {
+                      const q = projectLitSearch.trim().toLowerCase()
+                      if (!q) return true
+                      return b.title.toLowerCase().includes(q)
+                    })
+                    .map((b) => {
+                      const isSelected = projectLitSelected.includes(b.id)
+                      return (
+                        <div
+                          key={b.id}
+                          onClick={() => {
+                            if (isSelected) {
+                              setProjectLitSelected((prev) => prev.filter((d) => d !== b.id))
+                            } else {
+                              setProjectLitSelected((prev) => [...prev, b.id])
+                            }
+                          }}
+                          className={`p-2.5 rounded-control border cursor-pointer transition ${
+                            isSelected
+                              ? 'border-seal-400 bg-seal-50/60'
+                              : 'border-ink-200 hover:border-seal-200 hover:bg-paper-100'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className={`h-ui-icon w-ui-icon rounded-control-sm border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                              isSelected ? 'bg-seal-600 border-seal-600' : 'border-ink-300'
+                            }`}>
+                              {isSelected && <Check className="w-3 h-3 text-paper-50" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-ui-xs font-semibold text-ink-700 line-clamp-2 leading-snug">
+                                {b.title}
+                              </div>
+                              <div className="text-ui-xs text-ink-500 mt-1 truncate">
+                                {b.hasContent ? '有正文' : '无正文'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </>
+              )}
             </div>
 
             <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex items-center justify-between">
               <span className="text-ui-xs text-ink-500">
-                已选 <span className="font-semibold text-seal-600">{projectLitSelected.length}</span> 篇
+                已选 <span className="font-semibold text-seal-600">{projectLitSelected.length}</span> 项
               </span>
               <div className="flex gap-2">
                 <button
