@@ -89,3 +89,29 @@ export function getSessionRightFr(): number | null {
 export function setSessionRightFr(v: number): void {
   write(SESSION_RATIO_KEY, String(v))
 }
+
+/**
+ * 左栏内部堆叠模块的高度占比偏好：记住用户把「搜索/列表 与 大纲」这类相邻模块拖到哪一档，
+ * 下次打开自动回到那一档。存的是各块的权重数组（归一化前的相对值），各页各记各的。
+ * 记的是「左栏内部模块之间」的占比，跟上面的「左栏 : 中栏 : 右栏」互不相干。
+ */
+export const READING_LEFT_STACK_KEY = 'af:reading-left-stack'
+export const WRITING_LEFT_STACK_KEY = 'af:writing-left-stack'
+
+export function getPanelWeights(key: string): number[] | null {
+  const raw = read(key)
+  if (!raw) return null
+  try {
+    const a = JSON.parse(raw) as unknown
+    if (Array.isArray(a) && a.length > 0 && a.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0)) {
+      return a as number[]
+    }
+  } catch {
+    // 脏数据 / 老格式：忽略，由调用方回落默认占比
+  }
+  return null
+}
+
+export function setPanelWeights(key: string, weights: number[]): void {
+  write(key, JSON.stringify(weights))
+}

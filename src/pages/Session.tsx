@@ -25,11 +25,11 @@ import SessionImages from '../components/session/SessionImages'
 import { getSessionRightFr, setSessionRightFr } from '../services/uiState'
 
 /**
- * 整页比例对应的「右栏 fr」五档：中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3
- * （右栏 = 1 / 4/3 / 2 / 8/3 / 3，左栏恒 1fr，总量恒 5fr）。
- * 松手吸附到最近一档；选中的档位存本机，下次打开自动回到这一档。
+ * 整页比例对应的「右栏 fr」三档：1→1:3:1、2→1:2:2、3→1:1:3
+ * （左栏恒 1fr，总量恒 5fr）。
+ * 松手吸附到最近一档；选中的档位存本机，下次打开自动回到这一档（尊重用户调好的工作台）。
  */
-const RIGHT_FR_SNAPS = [1, 4 / 3, 2, 8 / 3, 3]
+const RIGHT_FR_SNAPS = [1, 2, 3]
 
 export default function SessionPage() {
   const currentProjectId = useTaskStore((s) => s.currentProjectId)
@@ -131,7 +131,7 @@ export default function SessionPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper-100">
-      {/* 三栏默认 1:3:1，拖中缝可切换五档（中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3）；窄屏塌成三行堆叠。
+      {/* 三栏默认 1:3:1，拖中缝可在 1:3:1 / 1:2:2 / 1:1:3 间切换；窄屏塌成三行堆叠。
           栅格**只有三列、等 gap**——拖动柄是叠加在缝隙上的绝对定位层（不占栏位），
           所以左↔中、中↔右的留白严格相等，最左栏与最右栏视觉对称。 */}
       <div

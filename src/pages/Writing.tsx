@@ -81,7 +81,13 @@ import { DoiLink } from '../components/DoiLink'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { abortError, isAbortError } from '../services/ai/abort'
 import { loadAiSourceText } from '../services/literatureData'
-import { getLastProjectId, setLastProjectId, getWritingRightFr, setWritingRightFr } from '../services/uiState'
+import {
+  getLastProjectId,
+  setLastProjectId,
+  getWritingRightFr,
+  setWritingRightFr,
+  WRITING_LEFT_STACK_KEY,
+} from '../services/uiState'
 import {
   loadProjects,
   saveProjects,
@@ -126,7 +132,7 @@ import FormulaSidebar, { type FormulaEditTarget } from '../components/FormulaSid
 import ProofreadPanel from '../components/ProofreadPanel'
 import CitationPanel from '../components/CitationPanel'
 import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, deleteFormulas, setImageSize } from '../services/formula'
-import { usePanelStack, StackHandle } from '../components/ui/StackedPanels'
+import { usePanelStack, StackHandle, STACK_SNAP_RATIOS } from '../components/ui/StackedPanels'
 
 /**
  * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边，互不干涉。
@@ -485,13 +491,15 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
 }
 
 /**
- * 整页三栏比例（左导航 : 中窗格 : 右窗格），拖动松手即吸附到五档：
- *   中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3  →  右窗格 rightFr = 1 / 4/3 / 2 / 8/3 / 3
+ * 整页三栏比例（左导航 : 中窗格 : 右窗格），拖动松手即吸附到这三档（与改造前一致）：
+ *   1 : 3 : 1  → 右窗格 rightFr = 1（默认）
+ *   1 : 2 : 2  → rightFr = 2
+ *   1 : 1 : 3  → rightFr = 3
  * 左导航恒占整页 1/5；中 / 右在剩下的 4fr 里分：中 = 4 − rightFr，右 = rightFr。
  * 与阅读页、会议页共用同一套口径（总量恒 5fr），换页不会忽宽忽窄。
- * 选中的档位存本机（localStorage），下次打开自动回到这一档。
+ * 选中的档位存本机（localStorage），下次打开自动回到这一档（尊重用户调好的工作台）。
  */
-const RIGHT_FR_SNAPS = [1, 4 / 3, 2, 8 / 3, 3]
+const RIGHT_FR_SNAPS = [1, 2, 3]
 
 interface BookChapter {
   id: string
@@ -3190,7 +3198,7 @@ export default function WritingPage() {
       setIsDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-      // 松手即吸附：只允许 中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3 五档
+      // 松手即吸附：只允许 1:3:1 / 1:2:2 / 1:1:3 三档
       setRightFr((cur) =>
         RIGHT_FR_SNAPS.reduce((best, v) => (Math.abs(v - cur) < Math.abs(best - cur) ? v : best)),
       )
@@ -3334,8 +3342,15 @@ export default function WritingPage() {
   }
   const panelEntries = isPanelMerged ? [leftPanelEntry] : [leftPanelEntry, rightPanelEntry]
 
-  /** 左栏三块（项目导航 / 文献检索 / 大纲）各自卡片 + 可拖拽分段 */
-  const navStack = usePanelStack(3, [0.4, 0.3, 0.3])
+  /**
+   * 左栏三块（项目导航 / 文献检索 / 大纲）各自卡片 + 可拖拽分段。
+   * 相邻两块拖动松手吸附到五档（a:b = 3:1 / 2:1 / 1:1 / 1:2 / 1:3），整列占比存本机，
+   * 下次打开自动回到这一档（各页各记各的，见 UX_DETAILS.md「左栏内部模块」）。
+   */
+  const navStack = usePanelStack(3, [0.4, 0.3, 0.3], {
+    snapRatios: STACK_SNAP_RATIOS,
+    persistKey: WRITING_LEFT_STACK_KEY,
+  })
 
   return (
     <div

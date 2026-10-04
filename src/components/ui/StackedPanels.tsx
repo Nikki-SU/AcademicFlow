@@ -19,15 +19,53 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import { getPanelWeights, setPanelWeights } from '../../services/uiState'
 
 /** 相邻两块之间手柄的拖动上限：任一块最小不低于总高的 10% */
 const MIN_RATIO = 0.1
 
-export function usePanelStack(count: number, initial?: number[]) {
+/**
+ * 相邻两块松手吸附的五档比例 a:b = 3:1 / 2:1 / 1:1 / 1:2 / 1:3
+ * —— 左栏内部模块（如「搜索/列表 与 大纲」「项目导航 与 文献检索 与 大纲」）之间用这套。
+ */
+export const STACK_SNAP_RATIOS = [3, 2, 1, 1 / 2, 1 / 3]
+
+/** 把第 i / i+1 两块按比例吸附到最近一档，两块合计高度不变 */
+function snapPair(w: number[], i: number, ratios: number[]): number[] {
+  const pair = w[i] + w[i + 1]
+  const cur = w[i] / pair
+  let best = ratios[0]
+  for (const cand of ratios) {
+    const rc = cand / (1 + cand)
+    const rb = best / (1 + best)
+    if (Math.abs(rc - cur) < Math.abs(rb - cur)) best = cand
+  }
+  const a = pair * (best / (1 + best))
+  const next = [...w]
+  next[i] = a
+  next[i + 1] = pair - a
+  return next
+}
+
+export function usePanelStack(
+  count: number,
+  initial?: number[],
+  options?: { snapRatios?: number[]; persistKey?: string },
+) {
+  const snapRatios = options?.snapRatios
+  const persistKey = options?.persistKey
   const containerRef = useRef<HTMLDivElement>(null)
-  const [weights, setWeights] = useState<number[]>(
-    () => initial ?? Array.from({ length: count }, () => 1 / count),
-  )
+  const [weights, setWeights] = useState<number[]>(() => {
+    // 有记住的堆叠占比（且块数与当前一致）就回到那一档，否则用默认
+    if (persistKey) {
+      const saved = getPanelWeights(persistKey)
+      if (saved && saved.length === count) return saved
+    }
+    return initial ?? Array.from({ length: count }, () => 1 / count)
+  })
+  // 拖动过程中持续更新，供松手时读取「当前」占比来吸附
+  const weightsRef = useRef(weights)
+  weightsRef.current = weights
   const dragRef = useRef<{
     index: number
     startY: number
@@ -65,11 +103,17 @@ export function usePanelStack(count: number, initial?: number[]) {
         dragRef.current = null
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', up)
+        // 松手吸附到最近一档；拖动过程中的中间值不停留，也不落盘
+        const cur = weightsRef.current
+        const next =
+          snapRatios && snapRatios.length ? snapPair(cur, index, snapRatios) : cur
+        if (next !== cur) setWeights(next)
+        if (persistKey) setPanelWeights(persistKey, next)
       }
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)
     },
-    [weights],
+    [weights, snapRatios, persistKey],
   )
 
   /** 展开时按占比分配高度；收起时只占内容高（标题行） */

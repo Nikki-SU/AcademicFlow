@@ -67,7 +67,13 @@ import {
   type NoteFileRef,
   type ReadingProgress,
 } from '../services/readingDocData'
-import { getLastRead, setLastRead, getReadingRightFr, setReadingRightFr } from '../services/uiState'
+import {
+  getLastRead,
+  setLastRead,
+  getReadingRightFr,
+  setReadingRightFr,
+  READING_LEFT_STACK_KEY,
+} from '../services/uiState'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { useTaskStore } from '../stores/task'
@@ -86,7 +92,7 @@ import {
 } from '../services/librarySearch'
 import ReadingAskPanel from '../components/ReadingAskPanel'
 import ReadingNotesPanel from '../components/ReadingNotesPanel'
-import { usePanelStack, StackHandle } from '../components/ui/StackedPanels'
+import { usePanelStack, StackHandle, STACK_SNAP_RATIOS } from '../components/ui/StackedPanels'
 import { PillTabs } from '../components/ui/Tabs'
 import { toast } from 'sonner'
 
@@ -804,12 +810,13 @@ export default function ReadingPage() {
   const [rightDrawer, setRightDrawer] = useState(false)
 
   /**
-   * 宽屏阅读页「中栏 : 右栏」比例拖动。
-   * 左栏恒为 1fr，右栏在五档间滑动（中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3）：
-   * 右 = 1 / 4/3 / 2 / 8/3 / 3，中栏 = 4 − 右，总量恒为 5fr，拖动时其余栏不会跳。
-   * 松手吸附到最近一档；选中的档位存本机（localStorage），下次打开自动回到这一档。
+   * 宽屏阅读页「中栏 : 右栏」比例拖动（三档，与改造前一致）。
+   * 左栏恒为 1fr，右栏在 1fr / 2fr / 3fr 三档间滑动：
+   * 右=1 是 1:3:1、右=2 是 1:2:2、右=3 是 1:1:3，
+   * 中栏 = 5 − 1 − 右，所以总量恒为 5fr，拖动时其余栏不会跳。
+   * 松手吸附到这三档；选中的档位存本机（localStorage），下次打开自动回到这一档（尊重用户调好的工作台）。
    */
-  const RIGHT_FR_SNAPS = [1, 4 / 3, 2, 8 / 3, 3]
+  const RIGHT_FR_SNAPS = [1, 2, 3]
   const [readerRightFr, setReaderRightFr] = useState(() => {
     const saved = getReadingRightFr()
     return saved !== null && RIGHT_FR_SNAPS.includes(saved) ? saved : 1
@@ -2627,9 +2634,9 @@ export default function ReadingPage() {
   }, [docKey, paperRenderedHtml, bookRenderedHtml])
 
   /**
-   * 阅读页中缝拖动：改「中栏 : 右栏」比例（中:右 = 3:1 ↔ 2:1 ↔ 1:1 ↔ 1:2 ↔ 1:3）。
+   * 阅读页中缝拖动：改「中栏 : 右栏」比例（1:3:1 ↔ 1:2:2 ↔ 1:1:3）。
    * 左栏恒 1fr，右栏 1fr→3fr，中栏自动 3fr→1fr（总量恒 5fr）。
-   * 松手吸附到五档（中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3），避免停在不上不下的中间比例。
+   * 松手吸附到三档，避免停在不上不下的中间比例。
    */
   const handleReaderDividerDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -3060,8 +3067,15 @@ export default function ReadingPage() {
     </div>
   ) : null
 
-  /** 左栏两块（列表 / 大纲）各自卡片 + 可拖拽分段 */
-  const listStack = usePanelStack(2, [0.58, 0.42])
+  /**
+   * 左栏两块（列表/搜索 与 大纲）各自卡片 + 可拖拽分段。
+   * 拖动松手吸附到五档（列表:大纲 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3），选中的档位存本机，
+   * 下次打开自动回到这一档（各页各记各的，见 UX_DETAILS.md「左栏内部模块」）。
+   */
+  const listStack = usePanelStack(2, [0.58, 0.42], {
+    snapRatios: STACK_SNAP_RATIOS,
+    persistKey: READING_LEFT_STACK_KEY,
+  })
 
   return (
     /*
