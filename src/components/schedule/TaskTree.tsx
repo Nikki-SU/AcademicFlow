@@ -349,9 +349,6 @@ export function TaskTree({
                         >
                           {project.title || '(未命名任务)'}
                         </span>
-                        {project.dueAt > 0 && (
-                          <span className="shrink-0 text-ui-2xs text-ink-400">DDL</span>
-                        )}
                       </button>
                     </>
                   )}

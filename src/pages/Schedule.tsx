@@ -72,6 +72,9 @@ function genId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
+/** DDL 清单只看「未来一个月内」的交付项（≈30 天）；更远的完全不紧急，不必让用户平添恐慌 */
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000
+
 export default function SchedulePage() {
   const [courses, setCourses] = useState<Course[]>([])
   const [extraDays, setExtraDays] = useState<ExtraDay[]>([])
@@ -87,7 +90,8 @@ export default function SchedulePage() {
   const [hoverDdlId, setHoverDdlId] = useState<string | null>(null)
   const [pinnedDdlId, setPinnedDdlId] = useState<string | null>(null)
   const highlightDdlId = pinnedDdlId ?? hoverDdlId
-  // 「显示过期」是**整页**开关：同时管 DDL 栏与任务栏里的过期任务（隐藏 / 显示）
+  // 「显示过期」：收起 / 展示**任务栏**里的过期任务。DDL 栏已不再展示过期项（用户要求），
+  // 故这个开关只作用于任务栏。
   const [showExpired, setShowExpired] = useState(true)
   // 「显示已完成」是**整页**开关：同时管 DDL 栏与任务栏里的已完成任务（隐藏 / 显示）
   const [showCompleted, setShowCompleted] = useState(true)
@@ -140,10 +144,10 @@ export default function SchedulePage() {
 
   /**
    * 展示用的任务表：把「有效结束时间」写进 dueAt 的**副本**（不改库里的 projects）。
-   * 判定「是不是 DDL」只有一条标准 —— 有没有结束时间（effectiveDueAt）：
+   * 判定「有没有结束时间」只有一条标准 —— effectiveDueAt：
    * - 任务显式设了截止时间 → 用它；
    * - 课程没显式设 → 默认用校历的「期末周第一天」（一门课上到期末周结束）。
-   * 于是所有课程都会带着结束时间进入右栏 DDL，和用户的心智模型一致。
+   * 注意：有结束时间 ≠ 进右栏 DDL —— 课程 / 每周定时这类周期任务会被 ddlItems 再滤掉。
    */
   const displayProjects = useMemo(
     () =>
@@ -154,11 +158,30 @@ export default function SchedulePage() {
     [projects, calendar],
   )
 
-  // 只保留有结束时间的节点，按 dueAt 升序（filter/sort 会新建数组，不改 displayProjects）
-  const ddlItems = useMemo(
-    () => displayProjects.filter((p) => p.dueAt > 0).sort((a, b) => a.dueAt - b.dueAt),
-    [displayProjects],
+  /**
+   * 「周期任务」= 挂了每周重复时段的任务（加课生成的课程、每周定时的组会等）。
+   * 它们的 DDL 没有交付意义（一门课要上到期末周、组会周周都有），展示只会平添紧张，
+   * 因此一律不进 DDL 清单，让它顺利过期即可（用户要求）。
+   * 判据用「是否挂有每周重复时段」而不是 type==='course'：考试 / 课程论文这类一次性
+   * 任务同样可能落在课程大类下，但它们没有每周时段，应当照常显示。
+   */
+  const periodicTaskIds = useMemo(
+    () => new Set(courses.filter((c) => c.repeat === 'weekly' && c.taskId).map((c) => c.taskId)),
+    [courses],
   )
+
+  /**
+   * DDL 清单：有结束时间、且不是周期任务。
+   * 未完成的只保留「未来一个月内」（已过期 / 一个月以外都不展示 —— 用户要求）；
+   * 已完成的仍交给页头「显示已完成」开关处理。按 dueAt 升序。
+   */
+  const ddlItems = useMemo(() => {
+    const now = Date.now()
+    return displayProjects
+      .filter((p) => p.dueAt > 0 && !periodicTaskIds.has(p.projectId))
+      .filter((p) => p.done || (p.dueAt > now && p.dueAt <= now + MONTH_MS))
+      .sort((a, b) => a.dueAt - b.dueAt)
+  }, [displayProjects, periodicTaskIds])
 
   // 页面里是否存在过期任务（未完成且已过点）—— 决定页头「显示过期」开关要不要出现
   const hasExpired = useMemo(() => displayProjects.some((p) => !p.done && isOverdue(p)), [displayProjects])
@@ -655,7 +678,6 @@ export default function SchedulePage() {
               byId={byId}
               currentId={currentId}
               highlightId={highlightDdlId}
-              showExpired={showExpired}
               showCompleted={showCompleted}
               onNewRoot={openCreateRoot}
               onView={setViewTarget}
