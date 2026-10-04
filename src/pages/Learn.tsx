@@ -1180,8 +1180,8 @@ export default function LearnPage() {
   }
 
   return (
-    <div className="page-container py-ui-page">
-      <div className="mb-6 flex items-center justify-end">
+    <div className="page-container flex h-full flex-col py-ui-page">
+      <div className="mb-6 flex shrink-0 items-center justify-end">
         <button
           onClick={() => setAiGenOpen(true)}
           className="flex items-center gap-2 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-sm"
@@ -1191,7 +1191,7 @@ export default function LearnPage() {
         </button>
       </div>
 
-      <div className="flex items-center gap-1 mb-6 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
+      <div className="mb-6 flex shrink-0 items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
         {subTabs.map((tab) => {
           const Icon = tab.icon
           return (
@@ -1284,16 +1284,18 @@ export default function LearnPage() {
         </div>
       )}
 
-      {activeTab === 'words' && (
-        <WordSection
-          words={words}
-          setWords={setWords}
-          studyStats={studyStats}
-          onStudied={markStudied}
-        />
-      )}
-      {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} literatures={literatures} />}
-      {activeTab === 'translation' && <TranslationSection translations={translations} setTranslations={setTranslations} literatures={literatures} />}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {activeTab === 'words' && (
+          <WordSection
+            words={words}
+            setWords={setWords}
+            studyStats={studyStats}
+            onStudied={markStudied}
+          />
+        )}
+        {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} literatures={literatures} />}
+        {activeTab === 'translation' && <TranslationSection translations={translations} setTranslations={setTranslations} literatures={literatures} />}
+      </div>
     </div>
   )
 }

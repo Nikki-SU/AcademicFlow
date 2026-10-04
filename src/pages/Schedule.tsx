@@ -588,9 +588,9 @@ export default function SchedulePage() {
   }
 
   // 三栏等高：外壳（Layout）已给 main 确定高度，页面本身用 flex 撑满「剩余高度」，
-  // 三栏再据此等高。不再写 calc(100svh - 7.5rem) 这种魔法扣减——导航 / 页头 /
-  // 内边距任何一处对不上，整页就会多出一条几像素的滚动条（ADJ-84）。
-  const columnBox = 'min-h-ui-lane lg:min-h-0'
+  // 三栏再据此等高。窄屏塌成三行时，三行按剩余高度均分（各栏内部滚），不再用
+  // min-h 把页面撑高去靠整页滚动——工作台不允许整页滚。
+  const columnBox = 'min-h-0'
 
   return (
     <div className="page-container flex h-full flex-col py-ui-page">
@@ -647,11 +647,11 @@ export default function SchedulePage() {
       </header>
 
       {isLoading ? (
-        <div className="flex min-h-ui-lane items-center justify-center">
+        <div className="flex min-h-0 flex-1 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-ink-200 border-t-seal-500" />
         </div>
       ) : (
-        <div className="grid gap-ui-gap-lg lg:min-h-0 lg:flex-1 lg:grid-cols-ratio-111">
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] gap-ui-gap-lg lg:grid-cols-ratio-111 lg:grid-rows-[minmax(0,1fr)]">
           <div className={columnBox}>
             <CourseTable
               courses={courses}

@@ -202,9 +202,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     /*
-     * 外壳用 h-screen + overflow-hidden 把「视口高度」变成确定值，
-     * 主内容区再自己滚动。这样页面里直接写 h-full 就能撑满，
-     * 不需要再各自算 calc(100vh - 3rem) —— 那个算法一旦多出 PAT 横幅就会算错。
+     * 外壳用 h-screen + overflow-hidden 把「视口高度」变成确定值。
+     * 这是工作台，不是流式阅读：**外壳永不滚**，滚动只发生在页面内部的各个
+     * 面板 / 列表里（各自 min-h-0 + overflow-y-auto）。所以这里的 main 必须
+     * overflow-hidden —— 页面写 h-full 撑满高度，再自己把需要滚动的区域圈出来。
+     * 这样滚动某个面板时，其余面板（如右侧监控）不会跟着一起滚。
      */
     <div className="h-screen bg-paper-100 flex flex-col overflow-hidden">
       {/* PAT 过期横幅 */}
@@ -295,8 +297,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      {/* 主内容区：唯一的滚动容器；页面写 h-full 即可撑满 */}
-      <main className="flex-1 min-h-0 overflow-auto">
+      {/* 主内容区：外壳不滚；页面用 h-full 撑满，滚动交给页面内部的面板 */}
+      <main className="flex-1 min-h-0 overflow-hidden">
         {children}
       </main>
 

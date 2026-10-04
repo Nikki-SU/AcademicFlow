@@ -441,9 +441,9 @@ function Settings() {
   ) : null
 
   return (
-    <div className="min-h-full bg-paper-100">
+    <div className="flex h-full flex-col bg-paper-100">
       {/* 顶栏 */}
-      <header className="sticky top-0 z-10 border-b border-ink-200 bg-paper-50">
+      <header className="shrink-0 border-b border-ink-200 bg-paper-50">
         <div className="page-container flex items-center justify-between py-2.5">
           <span className="flex items-center gap-1.5 text-ui-sm font-medium text-ink-900">
             <SettingsIcon className="h-4 w-4 text-ink-400" />
@@ -459,9 +459,9 @@ function Settings() {
         </div>
       </header>
 
-      <main className="page-container py-ui-page">
-        <div className="grid items-start gap-ui-gap grid-cols-[minmax(0,1fr)] lg:grid-cols-ratio-14">
-          <aside className="min-w-0 lg:sticky lg:top-14">
+      <main className="page-container flex min-h-0 flex-1 flex-col py-ui-page">
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-ui-gap lg:grid-cols-ratio-14 lg:grid-rows-[minmax(0,1fr)]">
+          <aside className="min-w-0 min-h-0 overflow-y-auto">
             <nav className="rounded-card border border-ink-200 bg-paper-50 p-1.5 shadow-sm">
               {OUTLINE.map((g) => (
                 <div key={g.group} className="space-y-0.5 pt-1">
@@ -488,7 +488,7 @@ function Settings() {
             </nav>
           </aside>
 
-          <div className="min-w-0 space-y-ui-gap">
+          <div className="min-w-0 min-h-0 overflow-y-auto space-y-ui-gap">
           {/* ── AI 服务 ── */}
           <Section id="ai-service" icon={Sparkles} title="AI 服务" badge={syncBadge}>
             <AISlotSection

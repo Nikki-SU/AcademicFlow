@@ -1112,11 +1112,11 @@ export default function TrackingPage() {
 
   return (
     <div className="page-container flex h-full flex-col py-ui-page">
-      <div className="grid gap-ui-gap-lg lg:min-h-0 lg:flex-1 lg:grid-cols-ratio-122">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] gap-ui-gap-lg lg:grid-cols-ratio-122 lg:grid-rows-[minmax(0,1fr)]">
         {/* ============================================================ */}
         {/* 左①（1）：功能入口 —— 添加关键词 / 添加期刊 / 立即追踪 / DOI 入库 / 搜索 */}
         {/* ============================================================ */}
-        <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50 lg:min-h-0">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
           <div className="af-line-b shrink-0 p-4">
             {/* 三个动作：添加关键词 / 添加期刊 / 立即追踪（红） */}
             <div className="space-y-2">
@@ -1456,7 +1456,7 @@ export default function TrackingPage() {
         {/* ============================================================ */}
         {/* 中②（2）：待入库 —— 筛出来的候选；入库 / 删除后消失；越新越上 */}
         {/* ============================================================ */}
-        <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50 lg:min-h-0">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
           <div className="af-line-b flex shrink-0 items-center justify-between gap-2 px-ui-gap py-3">
             <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
               <Rss className="h-4 w-4 text-seal-600" />
@@ -1581,7 +1581,7 @@ export default function TrackingPage() {
         {/* ============================================================ */}
         {/* 右②（2）：已入库但还没传 PDF —— 催你尽快把 PDF 找进来；越旧越上 */}
         {/* ============================================================ */}
-        <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50 lg:min-h-0">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
           <div className="af-line-b shrink-0 px-ui-gap py-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">

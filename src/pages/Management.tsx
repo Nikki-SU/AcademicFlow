@@ -2421,11 +2421,12 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="page-container py-ui-page">
-      {/* 管理页布局：左=功能栏（类型切换 + 任务/标签）｜中=内容｜右=后台监控（1:3:1） */}
-      <div className="grid items-start gap-ui-gap grid-cols-[minmax(0,1fr)] lg:grid-cols-ratio-131">
+    <div className="page-container flex h-full flex-col py-ui-page">
+      {/* 管理页布局：左=功能栏（类型切换 + 任务/标签）｜中=内容｜右=后台监控（1:3:1）
+          工作台形态：外壳不滚，三栏各自 min-h-0 + 滚动。窄屏塌成两行（功能栏 + 内容）。 */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-ui-gap lg:grid-cols-ratio-131 lg:grid-rows-[minmax(0,1fr)]">
         {/* ──── 左：功能栏 ──── */}
-        <aside className="min-w-0 space-y-ui-gap">
+        <aside className="min-w-0 min-h-0 space-y-ui-gap overflow-y-auto">
           {/* 类型切换（竖排） */}
           <nav className="rounded-card border border-ink-200 bg-paper-50 p-1.5 shadow-sm">
             {subTabs.map((tab) => {
@@ -2702,7 +2703,7 @@ export default function ManagementPage() {
         </aside>
 
         {/* ──── 中：内容 ──── */}
-        <div className="min-w-0">
+        <div className="min-w-0 min-h-0 overflow-y-auto">
 
       {/* ============ 文献库 Tab ============ */}
       {activeTab === 'library' && (
@@ -4447,11 +4448,9 @@ export default function ManagementPage() {
       )}
       </div>{/* ──── 中：内容 END ──── */}
 
-      {/* ──── 右侧 sticky 后台监控面板（常驻、不弹窗） ──── */}
-      <aside className="hidden lg:block min-w-0">
-        <div className="sticky top-4 max-h-[calc(100dvh-6rem)] overflow-y-auto">
-          <BackendMonitorPanel taskQueue={taskQueue} />
-        </div>
+      {/* ──── 右侧 后台监控面板（常驻、不弹窗；栏内自滚，不带动整页） ──── */}
+      <aside className="hidden min-w-0 min-h-0 overflow-y-auto lg:block">
+        <BackendMonitorPanel taskQueue={taskQueue} />
       </aside>
 
       {/* 全文检索结果：命中片段 + 点结果去阅读页滚动定位并高亮 */}

@@ -71,9 +71,9 @@ function Onboarding() {
   }
 
   return (
-    <div className="min-h-full bg-paper-100">
+    <div className="flex h-full flex-col bg-paper-100">
       {/* 顶栏 */}
-      <header className="border-b border-ink-200 bg-paper-50">
+      <header className="shrink-0 border-b border-ink-200 bg-paper-50">
         <div className="page-container flex items-center gap-2.5 py-3">
           <div className="flex h-7 w-7 items-center justify-center rounded-control bg-seal-600">
             <BookOpen className="h-4 w-4 text-paper-50" strokeWidth={1.75} />
@@ -83,7 +83,7 @@ function Onboarding() {
         </div>
       </header>
 
-      <main className="page-container flex flex-col items-center gap-6 py-ui-page">
+      <main className="page-container flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto py-ui-page">
         <div className="w-full max-w-3xl rounded-card border border-ink-900/10 bg-paper-50 p-8 shadow-card md:p-10">
           {/* 标题 */}
           <div className="mb-8 text-center">
