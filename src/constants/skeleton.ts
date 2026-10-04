@@ -205,6 +205,10 @@ on:
 jobs:
   track:
     runs-on: ubuntu-latest
+    # 追踪结果要靠 git push 落回仓库，默认 GITHUB_TOKEN 只读会 403
+    # （remote: Write access to repository not granted），必须显式申请写权限
+    permissions:
+      contents: write
     steps:
       - name: Checkout workspace
         uses: actions/checkout@v4
@@ -242,7 +246,8 @@ const DAILY_TRACKING_SCRIPT = `#!/usr/bin/env python3
 """
 AcademicFlow Daily Tracking Script
 -------------------------------------------------
-从 keyword_groups/keyword_groups.csv 读取关键词组，
+从 keyword_groups/keyword_groups.csv 读取关键词组、
+从 journals/journal_tracking.csv 读取期刊追踪列表，
 调用 OpenAlex API 搜索近 7 天的新文献。
 
 **筛选制**：命中的文献**不再直接进文献库**，而是写成「候选」——
@@ -251,11 +256,13 @@ AcademicFlow Daily Tracking Script
 
 去重口径 = 已入库的（literatures.csv）∪ 候选表里的**全部行**（含已忽略）。
 这样"忽略"过的文献不会在第二天又被重新命中。
+
+期刊追踪按 ISSN 精确检索（OpenAlex works 的 primary_location.source.issn）。
+期刊行没填 ISSN 时，先用刊名到 OpenAlex /sources 反查一次拿 ISSN ——
+用户往往不知道期刊的准确著录名，这一步保证他填的 "Nature" 也能被追踪。
 """
 
 import csv
-import json
-import os
 import sys
 import time
 import requests
@@ -265,11 +272,12 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 LITERATURES_CSV = BASE_DIR / "literatures" / "literatures.csv"
 KEYWORD_GROUPS_CSV = BASE_DIR / "keyword_groups" / "keyword_groups.csv"
+JOURNALS_CSV = BASE_DIR / "journals" / "journal_tracking.csv"
 INBOX_CSV = BASE_DIR / "tracking" / "inbox.csv"
 LOGS_DIR = BASE_DIR / "logs" / "tracking"
 
 OPENALEX_API = "https://api.openalex.org/works"
-CROSSREF_API = "https://api.crossref.org/works"
+OPENALEX_SOURCES_API = "https://api.openalex.org/sources"
 USER_AGENT = "AcademicFlow/1.0 (mailto:bot@academicflow.local)"
 
 
@@ -291,6 +299,49 @@ def load_keyword_groups():
                     "translate_abstract": row.get("translate_abstract", "").lower() in ("true", "1", "yes"),
                 })
     return groups
+
+
+def load_journals():
+    """从 CSV 加载启用的期刊追踪项（issn 允许为空）"""
+    journals = []
+    if not JOURNALS_CSV.exists():
+        print(f"[WARN] 期刊追踪文件不存在: {JOURNALS_CSV}")
+        return journals
+
+    with open(JOURNALS_CSV, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("enabled", "").strip().lower() in ("true", "1", "yes"):
+                journals.append({
+                    "id": row.get("id", ""),
+                    "name": (row.get("name", "") or "").strip(),
+                    "issn": (row.get("issn", "") or "").strip(),
+                })
+    return journals
+
+
+def resolve_issn_by_name(name):
+    """期刊行缺 ISSN 时，用刊名到 OpenAlex /sources 反查最可能一本的 ISSN。
+    拿不到就返回空串——宁可这次不追踪，也不拿一本不相干的刊的 ISSN 去搜。"""
+    params = {
+        "search": name,
+        "filter": "type:journal",
+        "per-page": 1,
+        "select": "display_name,issn_l,issn",
+    }
+    try:
+        resp = requests.get(OPENALEX_SOURCES_API, params=params,
+                            headers={"User-Agent": USER_AGENT}, timeout=30)
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        if not results:
+            return ""
+        src = results[0]
+        issns = src.get("issn") or []
+        return (src.get("issn_l") or (issns[0] if issns else "") or "").strip()
+    except Exception as e:
+        print(f"[ERROR] 反查期刊 ISSN 失败 '{name}': {e}")
+        return ""
 
 
 def load_seen_dois():
@@ -325,6 +376,28 @@ def search_openalex(keyword, from_date, to_date, per_page=50):
         return data.get("results", [])
     except Exception as e:
         print(f"[ERROR] OpenAlex search failed for '{keyword}': {e}")
+        return []
+
+
+def search_openalex_journal(issn, from_date, to_date, per_page=50):
+    """按期刊 ISSN 精确检索近 N 天的新文献"""
+    filter_str = (
+        f"primary_location.source.issn:{issn},"
+        f"from_publication_date:{from_date},to_publication_date:{to_date}"
+    )
+    params = {
+        "filter": filter_str,
+        "per-page": per_page,
+        "sort": "publication_date:desc",
+    }
+    headers = {"User-Agent": USER_AGENT}
+
+    try:
+        resp = requests.get(OPENALEX_API, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+    except Exception as e:
+        print(f"[ERROR] OpenAlex journal search failed for ISSN '{issn}': {e}")
         return []
 
 
@@ -422,34 +495,53 @@ def append_candidates(new_papers):
             })
 
 
-def write_log(date_str, group_results):
+def format_candidate_lines(papers):
+    """把候选文献格式化成日志里的 markdown 条目"""
+    lines = ""
+    for p in papers:
+        doi = p["doi"] or "no-doi"
+        title = p["title"] or "(无标题)"
+        lines += f"- **{title}**\\n"
+        lines += f"  - DOI: [{doi}](https://doi.org/{doi})\\n"
+        lines += f"  - 期刊：{p.get('journal', '')}\\n"
+        lines += f"  - 年份：{p.get('year', '')}\\n\\n"
+    return lines
+
+
+def write_log(date_str, group_results, journal_results):
     """写入追踪日志"""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOGS_DIR / f"{date_str}.md"
 
     total_new = sum(len(r["new_papers"]) for r in group_results)
+    total_new += sum(len(r["new_papers"]) for r in journal_results)
 
     content = f"# 每日追踪报告 - {date_str}\\n\\n"
     content += f"- 追踪时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\\n"
     content += f"- 关键词组：{len(group_results)} 个\\n"
+    content += f"- 期刊：{len(journal_results)} 个\\n"
     content += f"- 新文献：{total_new} 篇\\n\\n"
     content += "---\\n\\n"
 
     for grp in group_results:
-        content += f"## {grp['name']}\\n\\n"
+        content += f"## 关键词组：{grp['name']}\\n\\n"
         content += f"- 搜索表达式：\`{grp['expression']}\`\\n"
         content += f"- 检索到：{grp['total_found']} 篇\\n"
         content += f"- 新增候选：{len(grp['new_papers'])} 篇\\n\\n"
 
         if grp["new_papers"]:
             content += "### 新增候选（待裁决）\\n\\n"
-            for p in grp["new_papers"]:
-                doi = p["doi"] or "no-doi"
-                title = p["title"] or "(无标题)"
-                content += f"- **{title}**\\n"
-                content += f"  - DOI: [{doi}](https://doi.org/{doi})\\n"
-                content += f"  - 期刊：{p.get('journal', '')}\\n"
-                content += f"  - 年份：{p.get('year', '')}\\n\\n"
+            content += format_candidate_lines(grp["new_papers"])
+
+    for jrn in journal_results:
+        content += f"## 期刊：{jrn['name']}\\n\\n"
+        content += f"- ISSN：{jrn['issn'] or '（未解析到，已跳过）'}\\n"
+        content += f"- 检索到：{jrn['total_found']} 篇\\n"
+        content += f"- 新增候选：{len(jrn['new_papers'])} 篇\\n\\n"
+
+        if jrn["new_papers"]:
+            content += "### 新增候选（待裁决）\\n\\n"
+            content += format_candidate_lines(jrn["new_papers"])
 
     content += "\\n---\\n\\n*Generated by AcademicFlow Daily Tracking*\\n"
 
@@ -471,21 +563,24 @@ def main():
 
     print(f"[INFO] 追踪日期范围: {from_date} ~ {to_date}")
 
-    # 加载关键词组
+    # 加载关键词组 + 期刊
     groups = load_keyword_groups()
+    journals = load_journals()
     print(f"[INFO] 已启用的关键词组: {len(groups)} 个")
-    if not groups:
-        print("[INFO] 没有启用的关键词组，跳过追踪。")
+    print(f"[INFO] 已启用的期刊: {len(journals)} 个")
+    if not groups and not journals:
+        print("[INFO] 没有启用的关键词组或期刊，跳过追踪。")
         return 0
 
     # 加载已见过的 DOI（文献库 ∪ 候选表）
     existing_dois = load_seen_dois()
     print(f"[INFO] 已见过的 DOI 数: {len(existing_dois)}")
 
-    # 逐组搜索
     group_results = []
+    journal_results = []
     all_new_papers = []
 
+    # ---------- 逐组搜索关键词 ----------
     for grp in groups:
         print(f"\\n[INFO] 搜索关键词组: {grp['name']}")
         print(f"       表达式: {grp['expression']}")
@@ -515,6 +610,52 @@ def main():
         # OpenAlex 礼貌等待
         time.sleep(0.5)
 
+    # ---------- 逐刊搜索（按 ISSN） ----------
+    for jrn in journals:
+        print(f"\\n[INFO] 追踪期刊: {jrn['name']}")
+
+        issn = jrn["issn"]
+        if not issn:
+            issn = resolve_issn_by_name(jrn["name"])
+            if issn:
+                print(f"       未填 ISSN，已按刊名解析到: {issn}")
+
+        if not issn:
+            print("       [WARN] 无法确定 ISSN，跳过该期刊（请在追踪页补全）。")
+            journal_results.append({
+                "id": jrn["id"],
+                "name": jrn["name"],
+                "issn": "",
+                "total_found": 0,
+                "new_papers": [],
+            })
+            continue
+
+        works = search_openalex_journal(issn, from_date, to_date)
+        print(f"       检索到: {len(works)} 篇")
+
+        new_papers = []
+        for work in works:
+            paper = openalex_to_literature(work, f"期刊：{jrn['name']}")
+            doi = paper["doi"].strip().lower()
+            if doi and doi not in existing_dois:
+                existing_dois.add(doi)
+                new_papers.append(paper)
+
+        print(f"       新增: {len(new_papers)} 篇")
+
+        journal_results.append({
+            "id": jrn["id"],
+            "name": jrn["name"],
+            "issn": issn,
+            "total_found": len(works),
+            "new_papers": new_papers,
+        })
+        all_new_papers.extend(new_papers)
+
+        # OpenAlex 礼貌等待
+        time.sleep(0.5)
+
     # 写入「候选」（筛选制：等用户在追踪页裁决，**不直接进文献库**）
     if all_new_papers:
         print(f"\\n[INFO] 共 {len(all_new_papers)} 篇候选，写入 tracking/inbox.csv ...")
@@ -523,7 +664,7 @@ def main():
         print("\\n[INFO] 没有新的候选文献。")
 
     # 写日志
-    write_log(date_str, group_results)
+    write_log(date_str, group_results, journal_results)
 
     print("\\n[INFO] 每日追踪完成。")
     return 0
