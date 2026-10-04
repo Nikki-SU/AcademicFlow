@@ -6,7 +6,6 @@
 import {
   ArrowLeft,
   Brain,
-  CalendarDays,
   Check,
   ChevronDown,
   Copy,
@@ -42,7 +41,6 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { DEFAULT_WORKSPACE_REPO_NAME } from '../constants/skeleton'
 import { CODE_LANGS } from '../constants/codeLangs'
 import { syncAllSecrets, type SecretItemStatus } from '../services/repoSecrets'
-import { loadCalendar, saveCalendar, EMPTY_CALENDAR, type SchoolCalendar } from '../services/scheduleData'
 import type { AIProviderMode, AIThinkingMode, AISlotThinking, SettingsData } from '../types'
 import { AI_PROVIDERS } from '../types'
 
@@ -223,46 +221,12 @@ function Settings() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     ai: true,
     processing: true,
-    calendar: true,
     session: true,
     data: false,
     diag: false,
   })
   const toggleGroup = (k: string) =>
     setOpenGroups((s) => ({ ...s, [k]: !s[k] }))
-
-  // 校历（学期开始 / 期末周开始 / 学期结束）：落私库 schedule/calendar.md，与课程表同域。
-  // 它是「课程结束时间」的默认来源 —— 一门课的结束时间 = 期末周第一天（可单门覆盖）。
-  const [calendar, setCalendar] = useState<SchoolCalendar>(EMPTY_CALENDAR)
-  const [savingCalendar, setSavingCalendar] = useState(false)
-
-  useEffect(() => {
-    if (!ws.repo) return
-    let cancelled = false
-    loadCalendar()
-      .then((c) => {
-        if (!cancelled) setCalendar(c)
-      })
-      .catch((err) => console.warn('[Settings] 读取校历失败:', err))
-    return () => {
-      cancelled = true
-    }
-  }, [ws.repo])
-
-  /** 改一项校历就立即落库（改完即存，不等到别处触发） */
-  const updateCalendar = async (patch: Partial<SchoolCalendar>) => {
-    const next = { ...calendar, ...patch }
-    setCalendar(next)
-    setSavingCalendar(true)
-    try {
-      await saveCalendar(next)
-    } catch (err) {
-      console.error('[Settings] 保存校历失败:', err)
-      toast.error('保存校历失败，请重试')
-    } finally {
-      setSavingCalendar(false)
-    }
-  }
 
   useEffect(() => {
     if (!isInitialized) init()
@@ -784,43 +748,6 @@ function Settings() {
                   </span>
                 </span>
               </label>
-            </SubBlock>
-          </SettingsGroup>
-
-          {/* ── 校历（学期开始 / 期末周开始 / 学期结束） ── */}
-          <SettingsGroup
-            icon={CalendarDays}
-            title="校历"
-            summary="学期开始 / 期末周开始 / 学期结束 —— 课程的结束时间默认取「期末周第一天」"
-            badge={
-              savingCalendar ? <span className="text-ui-xs text-ink-400">保存中…</span> : undefined
-            }
-            open={openGroups.calendar}
-            onToggle={() => toggleGroup('calendar')}
-          >
-            <SubBlock
-              title="学期时间点"
-              hint="按中国本地时区；留空 = 未设。期末周只是课表不再排这门课；课程过期默认看「学期结束（放假）」，若其下还有更晚的子任务截止时间则以后者为准。"
-            >
-              <div className="grid gap-4 sm:grid-cols-3">
-                {(
-                  [
-                    { key: 'semesterStart' as const, label: '开学日' },
-                    { key: 'examWeekStart' as const, label: '期末周开始' },
-                    { key: 'semesterEnd' as const, label: '学期结束' },
-                  ]
-                ).map(({ key, label }) => (
-                  <div key={key} className="space-y-2">
-                    <label className="block text-ui-sm font-medium text-ink-700">{label}</label>
-                    <input
-                      type="date"
-                      value={calendar[key]}
-                      onChange={(e) => void updateCalendar({ [key]: e.target.value })}
-                      className="w-full rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                    />
-                  </div>
-                ))}
-              </div>
             </SubBlock>
           </SettingsGroup>
 

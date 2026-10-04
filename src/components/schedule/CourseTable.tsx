@@ -21,8 +21,8 @@
  * 数据落库全交给页面（Schedule.tsx），本组件只呈现与收集输入。
  */
 import { useMemo, useState } from 'react'
-import { CalendarPlus, Clock, X } from 'lucide-react'
-import type { Course, ExtraDay, TodayPlan } from '../../services/scheduleData'
+import { CalendarDays, CalendarPlus, Clock, X } from 'lucide-react'
+import type { Course, ExtraDay, SchoolCalendar, TodayPlan } from '../../services/scheduleData'
 import { timeToMinutes, weekdayOfDate, WEEKDAY_LABELS } from '../../services/scheduleData'
 import type { Project } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
@@ -118,6 +118,9 @@ export function CourseTable({
   todayPlan,
   ddls,
   examWeekStartMs,
+  calendar,
+  savingCalendar,
+  onChangeCalendar,
   highlightId,
   onHighlight,
   onPickDdl,
@@ -137,6 +140,11 @@ export function CourseTable({
   ddls: Project[]
   /** 校历「期末周开始」当天 00:00 的 Unix ms；0 = 未设。期末周起隐藏每周课块（单次照常） */
   examWeekStartMs: number
+  /** 校历（开学日 / 期末周开始 / 学期结束）：课程表的一部分，就地可改 */
+  calendar: SchoolCalendar
+  /** 校历正在保存（改一项即存） */
+  savingCalendar: boolean
+  onChangeCalendar: (patch: Partial<SchoolCalendar>) => void
   /** 当前亮起的 DDL 任务 id（课表红线 / DDL 清单 / 任务栏联动） */
   highlightId: string | null
   /** 悬停红线：置亮 / 清除 */
@@ -319,6 +327,32 @@ export function CourseTable({
             调休
           </button>
         </div>
+      </div>
+
+      {/* 校历：课程表的一部分 —— 开学 / 期末周 / 放假，改一项即落库 */}
+      <div className="af-line-b flex flex-wrap items-center gap-ui-gap px-ui-gap py-ui-gap-sm">
+        <span className="flex items-center gap-ui-gap-sm text-ui-xs font-medium text-ink-600">
+          <CalendarDays className="h-ui-icon-sm w-ui-icon-sm text-seal-600" />
+          校历
+        </span>
+        {(
+          [
+            { key: 'semesterStart' as const, label: '开学' },
+            { key: 'examWeekStart' as const, label: '期末周' },
+            { key: 'semesterEnd' as const, label: '放假' },
+          ]
+        ).map(({ key, label }) => (
+          <label key={key} className="flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
+            {label}
+            <input
+              type="date"
+              value={calendar[key]}
+              onChange={(e) => onChangeCalendar({ [key]: e.target.value })}
+              className="rounded-control-sm border border-ink-200 bg-paper-50 px-ui-gap-sm py-0.5 font-mono text-ui-2xs text-ink-700 focus:outline-none focus:ring-2 focus:ring-seal-500"
+            />
+          </label>
+        ))}
+        {savingCalendar && <span className="text-ui-2xs text-ink-400">保存中…</span>}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-auto p-ui-gap">

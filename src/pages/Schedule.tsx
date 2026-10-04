@@ -23,6 +23,7 @@ import {
   loadExtraDays,
   saveExtraDays,
   loadCalendar,
+  saveCalendar,
   effectiveDueAtAll,
   resolveToday,
   weekdayOfDate,
@@ -80,6 +81,7 @@ export default function SchedulePage() {
   const [extraDays, setExtraDays] = useState<ExtraDay[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [calendar, setCalendar] = useState<SchoolCalendar>(EMPTY_CALENDAR)
+  const [savingCalendar, setSavingCalendar] = useState(false)
   const [holidays, setHolidays] = useState<HolidayMap>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [editor, setEditor] = useState<EditorState | null>(null)
@@ -211,6 +213,21 @@ export default function SchedulePage() {
     () => resolveToday(todayDateStr(), extraDays, holidays),
     [extraDays, holidays],
   )
+
+  // 校历改一项即落库（课程表顶栏就地编辑，不另设保存按钮）
+  const updateCalendar = async (patch: Partial<SchoolCalendar>) => {
+    const next = { ...calendar, ...patch }
+    setCalendar(next)
+    setSavingCalendar(true)
+    try {
+      await saveCalendar(next)
+    } catch (err) {
+      console.error('[Schedule] 保存校历失败:', err)
+      toast.error('保存校历失败，请重试')
+    } finally {
+      setSavingCalendar(false)
+    }
+  }
 
   // ---------- 课程 / 定时任务：时段 ----------
   /** 加课时：同名课程复用同一个课程任务（高数周二 / 周四共享），否则新建 */
@@ -645,6 +662,9 @@ export default function SchedulePage() {
               todayPlan={todayPlan}
               ddls={ddlItems}
               examWeekStartMs={msOfDate(calendar.examWeekStart)}
+              calendar={calendar}
+              savingCalendar={savingCalendar}
+              onChangeCalendar={updateCalendar}
               highlightId={highlightDdlId}
               onHighlight={setHoverDdlId}
               onPickDdl={togglePickDdl}
