@@ -1,24 +1,25 @@
 /**
- * 设置页 —— 分组折叠（手机设置模式）
- * 四组：AI 服务 / 文献处理 / 数据维护 / 诊断与调试。
- * 诊断类面板（连通性、双引擎、后端能力、Secrets 明细、Pipeline 看板）默认折叠。
+ * 设置页 —— 左栏大纲（服务 / 数据 / 开发者中心）+ 右栏内容，比例 1:4。
  */
 import {
+  Activity,
   ArrowLeft,
+  BookOpen,
   Brain,
   Check,
-  ChevronDown,
   Copy,
-  Database,
-  FileText,
+  FlaskConical,
+  Gauge,
   Loader2,
-  Mic,
   RefreshCw,
+  Server,
   Settings as SettingsIcon,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   ToggleLeft,
   ToggleRight,
+  Trash2,
   Wrench,
   type LucideIcon,
 } from 'lucide-react'
@@ -29,8 +30,6 @@ import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
 import ConnectivityPanel from '../components/settings/ConnectivityPanel'
 import AsrTestPanel from '../components/settings/AsrTestPanel'
-
-
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
 import BackendCapabilitiesPanel from '../components/settings/BackendCapabilitiesPanel'
 import PdfCleanupPanel from '../components/settings/PdfCleanupPanel'
@@ -112,53 +111,64 @@ function formatFetchedAt(ts: number | null): string {
   return new Date(ts).toLocaleString()
 }
 
-/** 分组卡片：组头可点击折叠，展开区以分隔线区隔各子块 */
-function SettingsGroup(props: {
+/** 左栏大纲：三个分组，每组列出可跳转的设置锚点 */
+const OUTLINE: { group: string; items: { id: string; label: string; icon: LucideIcon }[] }[] = [
+  {
+    group: '服务',
+    items: [
+      { id: 'ai-service', label: 'AI 服务', icon: Sparkles },
+      { id: 'lit-service', label: '文献服务', icon: BookOpen },
+    ],
+  },
+  {
+    group: '数据',
+    items: [
+      { id: 'pdf-cleanup', label: '清理 PDF', icon: Trash2 },
+      { id: 'backend-rewrite', label: '重写后端', icon: Server },
+    ],
+  },
+  {
+    group: '开发者中心',
+    items: [
+      { id: 'connectivity', label: '连通性检测', icon: Activity },
+      { id: 'dual-engine', label: '双引擎试运行', icon: FlaskConical },
+      { id: 'secrets-sync', label: 'Secrets 同步', icon: Wrench },
+      { id: 'pipeline-debug', label: 'Pipeline 看板', icon: Gauge },
+      { id: 'advanced-mode', label: '高级模式', icon: SlidersHorizontal },
+    ],
+  },
+]
+
+/** 右栏分区卡片：带锚点 id 的标题 + 内容 */
+function Section(props: {
+  id: string
   icon: LucideIcon
   title: string
-  summary: string
   badge?: ReactNode
-  open: boolean
-  onToggle: () => void
   children: ReactNode
 }) {
-  const { icon: Icon, title, summary, badge, open, onToggle, children } = props
+  const { id, icon: Icon, title, badge, children } = props
   return (
-    <section className="overflow-hidden rounded-card border border-ink-200 bg-paper-50 shadow-card">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-paper-100"
-      >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-paper-100">
-          <Icon className="h-4 w-4 text-ink-600" strokeWidth={1.75} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold text-ink-900">{title}</div>
-          <div className="truncate text-ui-xs text-ink-500">{summary}</div>
-        </div>
-        {badge}
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {open && (
-        <div className="divide-y divide-ink-100 af-line-t px-5 py-5">{children}</div>
-      )}
+    <section
+      id={id}
+      className="scroll-mt-14 overflow-hidden rounded-card border border-ink-200 bg-paper-50 shadow-card"
+    >
+      <div className="af-line-b flex items-center gap-2.5 px-ui-gap-lg py-3">
+        <Icon className="h-ui-icon w-ui-icon text-ink-500" strokeWidth={1.75} />
+        <h2 className="text-ui-sm font-semibold text-ink-900">{title}</h2>
+        {badge && <span className="ml-auto flex items-center">{badge}</span>}
+      </div>
+      <div className="space-y-ui-gap-lg px-ui-gap-lg py-4">{children}</div>
     </section>
   )
 }
 
-/** 组内子块：小节标题 + 一行说明 + 内容 */
-function SubBlock(props: { title: string; hint?: string; children: ReactNode }) {
-  const { title, hint, children } = props
+/** 分区内的子标题，只留标题 */
+function SubHeading(props: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-3 pt-5 first:pt-0">
-      <div>
-        <h3 className="text-ui-sm font-semibold text-ink-800">{title}</h3>
-        {hint && <p className="mt-0.5 text-ui-xs text-ink-500">{hint}</p>}
-      </div>
-      {children}
+    <div className="space-y-3">
+      <h3 className="text-ui-sm font-semibold text-ink-800">{props.title}</h3>
+      {props.children}
     </div>
   )
 }
@@ -216,17 +226,6 @@ function Settings() {
     refreshModels,
     init,
   } = store
-
-  // 分组折叠状态：前两组默认展开，诊断类默认收起
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    ai: true,
-    processing: true,
-    session: true,
-    data: false,
-    diag: false,
-  })
-  const toggleGroup = (k: string) =>
-    setOpenGroups((s) => ({ ...s, [k]: !s[k] }))
 
   useEffect(() => {
     if (!isInitialized) init()
@@ -387,7 +386,7 @@ function Settings() {
 
   if (!isInitialized) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-paper-100">
+      <div className="flex min-h-full items-center justify-center bg-paper-100">
         <div className="flex items-center gap-3 text-ink-600">
           <Loader2 className="h-5 w-5 animate-spin text-seal-600" />
           <span className="text-ui-sm">正在加载设置…</span>
@@ -461,35 +460,37 @@ function Settings() {
       </header>
 
       <main className="page-container py-ui-page">
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
-          {/* ── AI 服务 ── */}
-          <SettingsGroup
-            icon={Sparkles}
-            title="AI 服务"
-            summary="AI-1 生成位 / AI-2 审阅位 · Key、模型与推理模式"
-            badge={syncBadge}
-            open={openGroups.ai}
-            onToggle={() => toggleGroup('ai')}
-          >
-            {/* 高级模式 */}
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-ui-sm font-semibold text-ink-800">高级模式</h3>
-                <p className="mt-0.5 text-ui-xs text-ink-500">解锁自定义 OpenAI 兼容端点</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => updateSettings({ advancedMode: !advancedMode })}
-                aria-label="切换高级模式"
-              >
-                {advancedMode ? (
-                  <ToggleRight className="h-6 w-6 text-seal-600" />
-                ) : (
-                  <ToggleLeft className="h-6 w-6 text-ink-400" />
-                )}
-              </button>
-            </div>
+        <div className="grid items-start gap-ui-gap grid-cols-[minmax(0,1fr)] lg:grid-cols-ratio-14">
+          <aside className="min-w-0 lg:sticky lg:top-14">
+            <nav className="rounded-card border border-ink-200 bg-paper-50 p-1.5 shadow-sm">
+              {OUTLINE.map((g) => (
+                <div key={g.group} className="space-y-0.5 pt-1">
+                  <div className="px-ui-gap-sm py-1 text-ui-2xs font-medium text-ink-400">
+                    {g.group}
+                  </div>
+                  {g.items.map((it) => (
+                    <button
+                      key={it.id}
+                      type="button"
+                      onClick={() =>
+                        document
+                          .getElementById(it.id)
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }
+                      className="flex w-full items-center gap-ui-gap-sm rounded-control-sm px-ui-gap-sm py-2 text-left text-ui-sm font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
+                    >
+                      <it.icon className="h-ui-icon w-ui-icon" strokeWidth={1.75} />
+                      {it.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </nav>
+          </aside>
 
+          <div className="min-w-0 space-y-ui-gap">
+          {/* ── AI 服务 ── */}
+          <Section id="ai-service" icon={Sparkles} title="AI 服务" badge={syncBadge}>
             <AISlotSection
               slot={1}
               title="AI-1（生成位）"
@@ -569,10 +570,7 @@ function Settings() {
             />
 
             {/* 思考模式：按文献管线阶段控制 */}
-            <SubBlock
-              title="思考模式（reasoning）"
-              hint="机械任务建议关闭：思考与正文共用输出预算"
-            >
+            <SubHeading title="思考模式（reasoning）">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {THINKING_ROWS.map(({ field, label, desc }) => (
                   <div key={field} className="space-y-1">
@@ -594,24 +592,106 @@ function Settings() {
                   </div>
                 ))}
               </div>
-              <p className="text-ui-xs text-ink-400">
-                只管文献处理管线；问 AI / 双引擎走各槽位自己的「推理模式」。
-              </p>
-            </SubBlock>
-          </SettingsGroup>
+            </SubHeading>
 
-          {/* ── 文献处理 ── */}
-          <SettingsGroup
-            icon={FileText}
-            title="文献处理"
-            summary="PDF 转换、公式识图与转换后的自动任务"
-            open={openGroups.processing}
-            onToggle={() => toggleGroup('processing')}
-          >
-            <SubBlock
-              title="MinerU Token"
-              hint="PDF → Markdown 转换必需"
-            >
+            {/* 会议转写：浏览器直连硅基流动 */}
+            <SubHeading title="会议转写">
+              <APIKeyInput
+                label="硅基流动 API Key"
+                fieldId="asr"
+                value={asrApiKey}
+                onChange={(v) => updateSettings({ asrApiKey: v })}
+                hint="转写与翻译共用此 Key；聊天管道若选「硅基流动」也直接复用这一把，无需再填。"
+              />
+              <AsrTestPanel />
+              <div className="space-y-2">
+                <label className="block text-ui-sm font-medium text-ink-700">转写 Base URL</label>
+                <input
+                  type="text"
+                  value={asrBaseUrl}
+                  onChange={(e) => updateSettings({ asrBaseUrl: e.target.value })}
+                  placeholder="https://api.siliconflow.cn/v1"
+                  spellCheck={false}
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-ui-sm font-medium text-ink-700">转写模型</label>
+                <input
+                  type="text"
+                  value={asrModel}
+                  onChange={(e) => updateSettings({ asrModel: e.target.value })}
+                  placeholder="TeleAI/TeleSpeechASR"
+                  spellCheck={false}
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-seal-600"
+                  checked={asrTranslateToZh}
+                  onChange={(e) => updateSettings({ asrTranslateToZh: e.target.checked })}
+                />
+                <span className="text-ui-sm font-medium text-ink-700">非中文自动译成中文</span>
+              </label>
+              <div className="space-y-2">
+                <label className="block text-ui-sm font-medium text-ink-700">翻译模型</label>
+                <input
+                  type="text"
+                  value={asrTranslateModel}
+                  onChange={(e) => updateSettings({ asrTranslateModel: e.target.value })}
+                  placeholder="留空 = 不翻译"
+                  spellCheck={false}
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-ui-sm font-medium text-ink-700">转写稿 AI 修饰模型</label>
+                <input
+                  type="text"
+                  value={asrPolishModel}
+                  onChange={(e) => updateSettings({ asrPolishModel: e.target.value })}
+                  placeholder="留空 = 不启用（如 Qwen/Qwen2.5-7B-Instruct）"
+                  spellCheck={false}
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
+                />
+              </div>
+
+              <details className="rounded-control border border-ink-200 bg-paper-100/60 px-ui-gap py-2.5 text-ui-xs text-ink-600">
+                <summary className="flex cursor-pointer items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-seal-500" />
+                  长时间录音不中断 · 保活与加固
+                </summary>
+                <div className="mt-2 space-y-2 leading-relaxed">
+                  <p>
+                    录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。
+                  </p>
+                  <p>
+                    若仍被打断，可把本站加入浏览器「内存节省程序」例外名单（Chrome：设置 → 性能 →
+                    始终保持这些网站处于活动状态），或访问{' '}
+                    <code className="font-mono text-ink-700">chrome://discards</code> 关掉自动丢弃。
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopySite()}
+                    className="flex items-center gap-1.5 rounded-control-sm border border-ink-200 bg-paper-50 px-2 py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
+                  >
+                    {copiedSite ? (
+                      <Check className="h-3.5 w-3.5 text-green-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {copiedSite ? '已复制' : '复制本站地址'}
+                  </button>
+                </div>
+              </details>
+            </SubHeading>
+          </Section>
+
+          {/* ── 文献服务 ── */}
+          <Section id="lit-service" icon={BookOpen} title="文献服务">
+            <SubHeading title="MinerU Token">
               <input
                 type="password"
                 placeholder="eyJ...（MinerU JWT token）"
@@ -626,12 +706,9 @@ function Settings() {
                 </a>{' '}
                 生成，填入后自动同步到后端。
               </p>
-            </SubBlock>
+            </SubHeading>
 
-            <SubBlock
-              title="SimpleTex 令牌"
-              hint="写作页「公式识图」用 · 只需这一个 key"
-            >
+            <SubHeading title="SimpleTex 令牌">
               <input
                 type="password"
                 placeholder="用户授权令牌（UAT）"
@@ -644,17 +721,11 @@ function Settings() {
                 <a href="https://simpletex.cn/user/center" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
                   SimpleTex 用户中心
                 </a>{' '}
-                的「用户授权令牌」里创建（SimpleTex 只签发这一把钥匙，没有 APP Secret）。
-                填入后会自动同步到私库 Actions Secrets（SIMPLETEX_TOKEN）——
-                <b className="font-medium text-ink-500">本机这份丢了也还在</b>，
-                识图时临时传给后端。
+                的「用户授权令牌」里创建；填入后自动同步到后端。
               </p>
-            </SubBlock>
+            </SubHeading>
 
-            <SubBlock
-              title="转换后自动任务"
-              hint="PDF 转换成功后自动生成全文翻译与核心单词"
-            >
+            <SubHeading title="转换后自动任务">
               <div className="flex items-center gap-4">
                 <label className="text-ui-sm font-medium text-ink-700 whitespace-nowrap">单词生成数量</label>
                 <input
@@ -685,13 +756,9 @@ function Settings() {
                   {store.sentenceGenCount ?? 8}
                 </span>
               </div>
-              <p className="text-ui-xs text-ink-400">数量越多，耗时与 token 消耗越大。例句必须逐字来自原文献。</p>
-            </SubBlock>
+            </SubHeading>
 
-            <SubBlock
-              title="翻译判分标准"
-              hint="摘要翻译与长难句翻译判分后，低分时弹出学习卡片复盘"
-            >
+            <SubHeading title="翻译判分标准">
               <div className="flex items-center gap-4">
                 <label className="text-ui-sm font-medium text-ink-700 whitespace-nowrap">低分线</label>
                 <input
@@ -707,13 +774,9 @@ function Settings() {
                   {store.translationLowScore ?? 70}
                 </span>
               </div>
-              <p className="text-ui-xs text-ink-400">
-                得分低于 {store.translationLowScore ?? 70} 分才弹卡片（参考译文 / 难点 / 踩分点 / 每点扣分）；
-                达到或超过就只给结果，不打断做题节奏。
-              </p>
-            </SubBlock>
+            </SubHeading>
 
-            <SubBlock title="编辑器偏好" hint="写作页与阅读笔记共用">
+            <SubHeading title="编辑器偏好">
               <div className="flex items-center gap-3">
                 <label className="whitespace-nowrap text-ui-sm font-medium text-ink-700">
                   代码块默认语言
@@ -730,276 +793,122 @@ function Settings() {
                   ))}
                 </select>
               </div>
-              <p className="text-ui-xs text-ink-400">
-                点工具栏「代码块」时预选的语言；插入前还可以改成别的。
-              </p>
 
-              <label className="mt-4 flex items-start gap-3 cursor-pointer">
+              <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   className="mt-0.5 h-4 w-4 accent-seal-600"
                   checked={store.editorZebra ?? true}
                   onChange={(e) => updateSettings({ editorZebra: e.target.checked })}
                 />
-                <span>
-                  <span className="block text-ui-sm font-medium text-ink-700">间隔上色</span>
-                  <span className="block text-ui-xs text-ink-400">
-                    逐行交替极淡绿条纹（一行有色、一行无色），长文里不容易看串行。写作页正文、阅读页侧栏笔记与阅读页正文一致生效。
-                  </span>
-                </span>
+                <span className="text-ui-sm font-medium text-ink-700">间隔上色</span>
               </label>
-            </SubBlock>
-          </SettingsGroup>
+            </SubHeading>
+          </Section>
 
-          {/* ── 会议转写（ASR · 浏览器直连硅基流动） ── */}
-          <SettingsGroup
-            icon={Mic}
-            title="会议转写"
-            summary="会议/课程页录音 → 浏览器直连硅基流动转写（全站唯一一处前端直连模型）"
-            open={openGroups.session}
-            onToggle={() => toggleGroup('session')}
-          >
-            <SubBlock
-              title="API Key"
-              hint="本机 IndexedDB + 私库 Secrets 各存一份；音频只在内存里走一趟，转写完即丢弃"
-            >
-              <APIKeyInput
-                label="硅基流动 API Key"
-                fieldId="asr"
-                value={asrApiKey}
-                onChange={(v) => updateSettings({ asrApiKey: v })}
-                hint="转写与翻译共用此 Key；聊天管道若选「硅基流动」也直接复用这一把，无需再填。"
-              />
-            </SubBlock>
+          {/* ── 数据 ── */}
+          <Section id="pdf-cleanup" icon={Trash2} title="清理 PDF">
+            <PdfCleanupPanel />
+          </Section>
 
-            <SubBlock title="连通性测试" hint="改完 Key / 端点就点一下，确认真的能转写再开录">
-              <AsrTestPanel />
-            </SubBlock>
+          <Section id="backend-rewrite" icon={Server} title="重写后端">
+            <BackendCapabilitiesPanel />
+          </Section>
 
-            <SubBlock title="转写端点与模型" hint="OpenAI 兼容端点，默认硅基流动">
-              <div className="space-y-2">
-                <label className="block text-ui-sm font-medium text-ink-700">Base URL</label>
-                <input
-                  type="text"
-                  value={asrBaseUrl}
-                  onChange={(e) => updateSettings({ asrBaseUrl: e.target.value })}
-                  placeholder="https://api.siliconflow.cn/v1"
-                  spellCheck={false}
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                />
-                <p className="text-ui-xs text-ink-400">
-                  末尾不带斜杠；固定拼 <code className="font-mono">/audio/transcriptions</code> 与{' '}
-                  <code className="font-mono">/chat/completions</code>。
-                </p>
+          {/* ── 开发者中心 ── */}
+          <Section id="connectivity" icon={Activity} title="连通性检测">
+            <ConnectivityPanel />
+          </Section>
+
+          <Section id="dual-engine" icon={FlaskConical} title="双引擎试运行">
+            <DualEngineTestPanel />
+          </Section>
+
+          <Section id="secrets-sync" icon={Wrench} title="Secrets 同步">
+            <div className="overflow-hidden rounded-control border border-ink-200 bg-paper-100">
+              <div className="af-line-b flex items-center justify-between px-ui-gap py-1.5 bg-ink-100 text-ui-xs">
+                <span className="font-medium text-ink-700">同步明细</span>
+                <button
+                  type="button"
+                  onClick={runSync}
+                  disabled={secretSyncing}
+                  className="flex items-center gap-1 rounded-control border border-ink-300 bg-paper-50 px-2 py-0.5 text-ui-xs hover:bg-paper-100 disabled:text-ink-400"
+                >
+                  {secretSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  手动同步
+                </button>
               </div>
-              <div className="space-y-2 pt-4">
-                <label className="block text-ui-sm font-medium text-ink-700">转写模型</label>
-                <input
-                  type="text"
-                  value={asrModel}
-                  onChange={(e) => updateSettings({ asrModel: e.target.value })}
-                  placeholder="TeleAI/TeleSpeechASR"
-                  spellCheck={false}
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                />
-              </div>
-            </SubBlock>
+              {secretItems.length === 0 ? (
+                <div className="px-ui-gap py-2 text-ui-xs text-ink-400">等待首次同步…</div>
+              ) : (
+                <div className="af-divided text-ui-xs font-mono">
+                  {secretItems.map((it) => {
+                    const isSkipped = !it.valueWanted && it.putStatus === 0
+                    const isFailed = !it.putOk
+                    const isDelayed = it.putOk && it.valueWanted && !it.verified
 
-            <SubBlock title="翻译" hint="讲者是外国人时，把非中文转写译成中文">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 accent-seal-600"
-                  checked={asrTranslateToZh}
-                  onChange={(e) => updateSettings({ asrTranslateToZh: e.target.checked })}
-                />
-                <span>
-                  <span className="block text-ui-sm font-medium text-ink-700">非中文自动译成中文</span>
-                  <span className="block text-ui-xs text-ink-400">
-                    转写返回的语种不是中文时，再调 chat 端点翻译一遍，附在原文下方。
-                  </span>
-                </span>
-              </label>
-              <div className="mt-4 space-y-2">
-                <label className="block text-ui-sm font-medium text-ink-700">翻译模型</label>
-                <input
-                  type="text"
-                  value={asrTranslateModel}
-                  onChange={(e) => updateSettings({ asrTranslateModel: e.target.value })}
-                  placeholder="留空 = 不翻译"
-                  spellCheck={false}
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                />
-                <p className="text-ui-xs text-ink-400">
-                  留空表示不翻译；填模型 id 才启用（如 <code className="font-mono">tencent/Hunyuan-MT-7B</code>，免费）。
-                </p>
-              </div>
-            </SubBlock>
+                    let icon: string, color: string, label: string
+                    if (isSkipped) { icon = '—'; color = 'text-ink-400'; label = '未填写（跳过）' }
+                    else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `PUT 失败 HTTP ${it.putStatus}` }
+                    else if (isDelayed) {
+                      icon = '⏳'; color = 'text-amber-600'
+                      // PUT 已成功（201/204），只是 secrets 列表还没列出来；
+                      // workflow 运行时 GitHub Actions 通常能直接读到值
+                      label = it.error || 'GitHub 回查未命中（已重试多次，PUT 实际成功）'
+                    }
+                    else { icon = '✓'; color = 'text-green-600'; label = '已写入 + 已回查确认' }
 
-            <SubBlock
-              title="转写稿 AI 修饰"
-              hint="把口语化的原始转写整理成分段书面稿：去掉口头禅、重新分段，但不压缩信息"
-            >
-              <div className="space-y-2">
-                <label className="block text-ui-sm font-medium text-ink-700">修饰模型</label>
-                <input
-                  type="text"
-                  value={asrPolishModel}
-                  onChange={(e) => updateSettings({ asrPolishModel: e.target.value })}
-                  placeholder="留空 = 不启用（如 Qwen/Qwen2.5-7B-Instruct）"
-                  spellCheck={false}
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                />
-                <p className="text-ui-xs text-ink-400">
-                  填一个通用对话模型 id 才启用（与上面的端点 / Key 共用）。留空时，会议页不显示「AI 修饰」按钮。
-                </p>
-              </div>
-            </SubBlock>
+                    const valPreview = isSkipped ? '' : (() => {
+                      const v = it.valueWanted
+                      if (!v) return ''
+                      if (v.length <= 12) return v
+                      return v.slice(0, 8) + '…' + v.slice(-4)
+                    })()
 
-            <SubBlock
-              title="长时间录音不中断"
-              hint="浏览器会冻结 / 回收后台空闲页面，录音页一旦被回收就会中断"
-            >
-              <div className="flex items-start gap-2.5 rounded-control border border-ink-200 bg-paper-100/60 px-ui-gap py-2.5">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-seal-500" />
-                <div className="space-y-2 text-ui-xs leading-relaxed text-ink-600">
-                  <p>
-                    <span className="font-medium text-ink-700">已内建保活：</span>
-                    录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。
-                  </p>
-                  <p className="font-medium text-ink-700">若仍被打断，可自行加固：</p>
-                  <ul className="list-disc space-y-1 pl-4">
-                    <li>
-                      把本站加入浏览器「内存节省程序」例外名单（Chrome：设置 → 性能 → 始终保持这些网站处于活动状态），粘上下面复制的地址。
-                    </li>
-                    <li>
-                      或在地址栏访问 <code className="font-mono text-ink-700">chrome://discards</code>
-                      ，把本标签的「自动丢弃」关掉。
-                    </li>
-                    <li>或点采集球的「悬浮窗」，让录音在置顶小窗里跑（但要留着这个标签页别关）。</li>
-                  </ul>
-                  <button
-                    type="button"
-                    onClick={() => void handleCopySite()}
-                    className="flex items-center gap-1.5 rounded-control-sm border border-ink-200 bg-paper-50 px-2 py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-paper-100 hover:text-ink-800"
-                  >
-                    {copiedSite ? (
-                      <Check className="h-3.5 w-3.5 text-green-600" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                    {copiedSite ? '已复制' : '复制本站地址'}
-                  </button>
+                    return (
+                      <div key={it.name} className="flex items-center gap-2 px-ui-gap py-1.5">
+                        <span className={`${color} w-4 text-center shrink-0`}>{icon}</span>
+                        <span className="text-ink-700 w-40 shrink-0 truncate" title={it.name}>{it.name}</span>
+                        {valPreview && (
+                          <span className="text-ink-400 truncate flex-1 max-w-[12.5rem]" title={it.valueWanted}>
+                            {valPreview}
+                          </span>
+                        )}
+                        <span className={`${color} ml-auto truncate max-w-[16.25rem]`}>{label}</span>
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
-            </SubBlock>
-          </SettingsGroup>
+              )}
+            </div>
+            <details className="text-ui-xs text-ink-500">
+              <summary className="cursor-pointer select-none">同步目标</summary>
+              <p className="mt-1 leading-relaxed">写入 {owner}/{repoName}，配置变更后自动同步。</p>
+            </details>
+          </Section>
 
-          {/* ── 数据维护 ── */}
-          <SettingsGroup
-            icon={Database}
-            title="数据维护"
-            summary="清理已转换文献的 PDF，释放仓库空间"
-            open={openGroups.data}
-            onToggle={() => toggleGroup('data')}
-          >
-            <SubBlock
-              title="清理已转换的 PDF"
-              hint="只列转换成功的文献；md、图片、词汇表不受影响"
+          <Section id="pipeline-debug" icon={Gauge} title="Pipeline 看板">
+            <PipelineDebugPanel />
+          </Section>
+
+          <Section id="advanced-mode" icon={SlidersHorizontal} title="高级模式">
+            <button
+              type="button"
+              onClick={() => updateSettings({ advancedMode: !advancedMode })}
+              className="flex items-center gap-2 rounded-control border border-ink-200 bg-paper-50 px-ui-gap py-2 text-ui-sm font-medium text-ink-700 transition hover:bg-paper-100"
             >
-              <PdfCleanupPanel />
-            </SubBlock>
-          </SettingsGroup>
-
-          {/* ── 诊断与调试 ── */}
-          <SettingsGroup
-            icon={Wrench}
-            title="诊断与调试"
-            summary="连通性测试、双引擎试运行、后端能力、Secrets 明细、Pipeline 看板"
-            open={openGroups.diag}
-            onToggle={() => toggleGroup('diag')}
-          >
-            <SubBlock title="服务连通性" hint="GitHub / AI / MinerU，排查问题时用">
-              <ConnectivityPanel />
-            </SubBlock>
-
-            <SubBlock title="双引擎试运行" hint="用当前配置跑一次事实核查，验证生成 + 审阅链路">
-              <DualEngineTestPanel />
-            </SubBlock>
-
-            <SubBlock title="后端处理能力" hint="GitHub Actions 工作流状态">
-              <BackendCapabilitiesPanel />
-            </SubBlock>
-
-            <SubBlock
-              title="Secrets 同步状态"
-              hint={`写入 ${owner}/${repoName}，配置变更后自动同步`}
-            >
-              <div className="overflow-hidden rounded-control border border-ink-200 bg-paper-100">
-                <div className="af-line-b flex items-center justify-between px-ui-gap py-1.5 bg-ink-100 text-ui-xs">
-                  <span className="font-medium text-ink-700">同步明细</span>
-                  <button
-                    type="button"
-                    onClick={runSync}
-                    disabled={secretSyncing}
-                    className="flex items-center gap-1 rounded-control border border-ink-300 bg-paper-50 px-2 py-0.5 text-ui-xs hover:bg-paper-100 disabled:text-ink-400"
-                  >
-                    {secretSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    手动同步
-                  </button>
-                </div>
-                {secretItems.length === 0 ? (
-                  <div className="px-ui-gap py-2 text-ui-xs text-ink-400">等待首次同步…</div>
-                ) : (
-                  <div className="af-divided text-ui-xs font-mono">
-                    {secretItems.map((it) => {
-                      const isSkipped = !it.valueWanted && it.putStatus === 0
-                      const isFailed = !it.putOk
-                      const isDelayed = it.putOk && it.valueWanted && !it.verified
-
-                      let icon: string, color: string, label: string
-                      if (isSkipped) { icon = '—'; color = 'text-ink-400'; label = '未填写（跳过）' }
-                      else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `PUT 失败 HTTP ${it.putStatus}` }
-                      else if (isDelayed) {
-                        icon = '⏳'; color = 'text-amber-600'
-                        // PUT 已成功（201/204），只是 secrets 列表还没列出来；
-                        // workflow 运行时 GitHub Actions 通常能直接读到值
-                        label = it.error || 'GitHub 回查未命中（已重试多次，PUT 实际成功）'
-                      }
-                      else { icon = '✓'; color = 'text-green-600'; label = '已写入 + 已回查确认' }
-
-                      const valPreview = isSkipped ? '' : (() => {
-                        const v = it.valueWanted
-                        if (!v) return ''
-                        if (v.length <= 12) return v
-                        return v.slice(0, 8) + '…' + v.slice(-4)
-                      })()
-
-                      return (
-                        <div key={it.name} className="flex items-center gap-2 px-ui-gap py-1.5">
-                          <span className={`${color} w-4 text-center shrink-0`}>{icon}</span>
-                          <span className="text-ink-700 w-40 shrink-0 truncate" title={it.name}>{it.name}</span>
-                          {valPreview && (
-                            <span className="text-ink-400 truncate flex-1 max-w-[12.5rem]" title={it.valueWanted}>
-                              {valPreview}
-                            </span>
-                          )}
-                          <span className={`${color} ml-auto truncate max-w-[16.25rem]`}>{label}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </SubBlock>
-
-            <SubBlock title="Pipeline 调试看板" hint="每次 PDF 转换的完整链路：每步 Prompt / 输入 / 输出 / 耗时">
-              <PipelineDebugPanel />
-            </SubBlock>
-          </SettingsGroup>
+              {advancedMode ? (
+                <ToggleRight className="h-5 w-5 text-seal-600" />
+              ) : (
+                <ToggleLeft className="h-5 w-5 text-ink-400" />
+              )}
+              解锁自定义 OpenAI 兼容端点
+            </button>
+          </Section>
 
           <div className="pt-2 text-center text-ui-xs text-ink-400">
             所有凭据仅存本机 IndexedDB · License AGPL-3.0-or-later
+          </div>
           </div>
         </div>
       </main>
@@ -1130,9 +1039,6 @@ function AISlotSection(props: {
           </button>
         ))}
       </div>
-      {!isCustom && (
-        <p className="text-ui-xs text-ink-500">{cfg.note}</p>
-      )}
 
       {isCustom ? (
         <div className="space-y-2 rounded-control border border-ink-200 bg-paper-100 p-3">
