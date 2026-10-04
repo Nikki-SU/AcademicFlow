@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   Wifi,
 } from 'lucide-react'
-import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
 import {
   buildPATCreateURL,
@@ -44,7 +43,6 @@ function Login() {
     try {
       const expiresAtMs = patExpiresAt ? new Date(patExpiresAt).getTime() : undefined
       await login(patInput, 'pat', expiresAtMs)
-      toast.success('登录成功！')
     } catch {
       // error already set in store
     }

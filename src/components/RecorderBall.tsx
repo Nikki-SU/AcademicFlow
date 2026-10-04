@@ -303,19 +303,17 @@ export default function RecorderBall() {
     if (!id || list.length === 0) return
     const sessionId = useSessionStore.getState().ensure(id)
     setUploading(true)
-    const toastId = toast.loading(`正在上传 ${list.length} 张图片…`)
     try {
       for (const file of list) {
         await uploadSessionImage(id, sessionId, file)
       }
-      toast.success('图片已归到本节课', { id: toastId })
       // 通知课程页右栏重载，两处图片列表保持一致
       notifySessionImagesChanged(id, sessionId)
       // 拍完即入管道：照片交给 MinerU，识别结果合并成本节课的 board.md
       useSessionImagesStore.getState().start(id, sessionId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`图片上传失败：${msg}`, { id: toastId, duration: 8000 })
+      toast.error(`图片上传失败：${msg}`, { duration: 8000 })
     } finally {
       setUploading(false)
     }
@@ -346,7 +344,6 @@ export default function RecorderBall() {
     try {
       await navigator.clipboard.writeText(window.location.origin)
       setCopiedSite(true)
-      toast.success('已复制本站地址')
       setTimeout(() => setCopiedSite(false), 1500)
     } catch {
       toast.error('复制失败，请手动复制地址栏')

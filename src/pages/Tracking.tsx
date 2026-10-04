@@ -195,8 +195,8 @@ export default function TrackingPage() {
   /** 待上传 PDF 的文献 DOI（隐藏 file input 复用，选中后再打开文件选择器） */
   const [pdfInputDoi, setPdfInputDoi] = useState<string | null>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
-  /** 摘要译文缓存镜像（供自动翻译队列判断「是否已译」，不触发重渲染） */
-  const translatedAbstractsRef = useRef<Record<string, string>>({})
+  /** 标题译文缓存镜像（供自动翻译队列判断「是否已译」，不触发重渲染） */
+  const translatedTitlesRef = useRef<Record<string, string>>({})
   /** 正在翻译的 DOI（防止重复入队） */
   const translatingRef = useRef<Set<string>>(new Set())
   /** 自动翻译失败只提示一次，避免刷屏 */
@@ -209,12 +209,12 @@ export default function TrackingPage() {
   const [selectedKeywordGroupIds, setSelectedKeywordGroupIds] = useState<string[]>([])
   /** 期刊「管理」弹窗：批量操作选中的期刊 id */
   const [selectedJournalIds, setSelectedJournalIds] = useState<string[]>([])
-  /** 中栏摘要译文缓存（DOI → 中文）；默认显示译文，缓存避免重复翻译 */
-  const [translatedAbstracts, setTranslatedAbstracts] = useState<Record<string, string>>({})
-  /** 中栏想看英文原文的候选 DOI（默认显示中文译文） */
-  const [showOriginalDois, setShowOriginalDois] = useState<string[]>([])
-  /** 中栏正在翻译（自动 + 手动）的候选 DOI，用于按钮 loading */
-  const [translatingDois, setTranslatingDois] = useState<string[]>([])
+  /** 中栏标题译文缓存（DOI → 中文标题）；默认显示中文，缓存避免重复翻译 */
+  const [translatedTitles, setTranslatedTitles] = useState<Record<string, string>>({})
+  /** 中栏想看英文原标题的候选 DOI（默认显示中文标题） */
+  const [showOriginalTitleDois, setShowOriginalTitleDois] = useState<string[]>([])
+  /** 中栏正在翻译（自动 + 手动）标题的候选 DOI，用于按钮 loading */
+  const [translatingTitleDois, setTranslatingTitleDois] = useState<string[]>([])
 
   // ============================================================
   // 持久化（全部存 GitHub 私库，不使用 localStorage —— SPEC §0/§2.3）
@@ -433,13 +433,10 @@ export default function TrackingPage() {
   }
 
   const toastAdded = (title: string, status: 'added' | 'exists') => {
+    if (status !== 'exists') return
     const short = title.slice(0, 40)
     const suffix = title.length > 40 ? '...' : ''
-    if (status === 'exists') {
-      toast.message(`已在库中：${short}${suffix}`)
-    } else {
-      toast.success(`已入库：${short}${suffix}`)
-    }
+    toast.message(`已在库中：${short}${suffix}`)
   }
 
   const handleAddByDoi = async () => {
@@ -525,7 +522,6 @@ export default function TrackingPage() {
             : g,
         ),
       )
-      toast.success('关键词组已更新')
     } else {
       const newGroup: KeywordGroup = {
         id: generateId(),
@@ -536,7 +532,6 @@ export default function TrackingPage() {
         createdAt: Date.now(),
       }
       setKeywordGroups((prev) => [...prev, newGroup])
-      toast.success('关键词组已创建')
     }
     setShowKeywordModal(false)
   }
@@ -544,7 +539,6 @@ export default function TrackingPage() {
   const handleDeleteKeywordGroup = (id: string) => {
     setKeywordGroups((prev) => prev.filter((g) => g.id !== id))
     setSelectedKeywordGroupIds((prev) => prev.filter((x) => x !== id))
-    toast.success('关键词组已删除')
   }
 
   /** 关键词组「全选」：语义是全选当前列表里的全部（无筛选） */
@@ -561,7 +555,6 @@ export default function TrackingPage() {
     const selected = new Set(selectedKeywordGroupIds)
     setKeywordGroups((prev) => prev.filter((g) => !selected.has(g.id)))
     setSelectedKeywordGroupIds([])
-    toast.success(`已删除 ${count} 个关键词组`)
   }
 
   const toggleKeywordGroupSelect = (id: string) => {
@@ -637,7 +630,6 @@ export default function TrackingPage() {
             : j,
         ),
       )
-      toast.success('期刊已更新')
     } else {
       const newJournal: JournalItem = {
         id: generateId(),
@@ -648,7 +640,6 @@ export default function TrackingPage() {
         enabled: true,
       }
       setJournals((prev) => [...prev, newJournal])
-      toast.success('期刊已添加')
     }
     setShowJournalModal(false)
   }
@@ -656,7 +647,6 @@ export default function TrackingPage() {
   const handleDeleteJournal = (id: string) => {
     setJournals((prev) => prev.filter((j) => j.id !== id))
     setSelectedJournalIds((prev) => prev.filter((x) => x !== id))
-    toast.success('期刊已删除')
   }
 
   /** 期刊「全选」：语义是全选当前列表里的全部（无筛选） */
@@ -673,7 +663,6 @@ export default function TrackingPage() {
     const selected = new Set(selectedJournalIds)
     setJournals((prev) => prev.filter((j) => !selected.has(j.id)))
     setSelectedJournalIds([])
-    toast.success(`已删除 ${count} 个期刊`)
   }
 
   const toggleJournalSelect = (id: string) => {
@@ -743,7 +732,6 @@ export default function TrackingPage() {
         toast.error('没找到官方 RSS 地址，可手动填写或留空')
       } else {
         setJournalFormRssUrl(rss)
-        toast.success('已填入检索到的 RSS 地址，保存前请确认')
       }
     } catch {
       toast.error('RSS 检索失败，可手动填写或留空')
@@ -816,7 +804,6 @@ export default function TrackingPage() {
             : s,
         ),
       )
-      toast.success('搜索源已更新')
     } else {
       const newSite: SearchSite = {
         id: generateId(),
@@ -825,7 +812,6 @@ export default function TrackingPage() {
         color: searchFormColor,
       }
       setSearchSites((prev) => [...prev, newSite])
-      toast.success('搜索源已添加')
     }
     setShowSearchManager(false)
   }
@@ -842,13 +828,11 @@ export default function TrackingPage() {
         setSelectedSearchSiteId(remaining[0].id)
       }
     }
-    toast.success('搜索源已删除')
   }
 
   const resetSearchSites = () => {
     setSearchSites(DEFAULT_SEARCH_SITES)
     setSelectedSearchSiteId(DEFAULT_SEARCH_SITES[0].id)
-    toast.success('已恢复默认搜索源')
   }
 
   // ============================================================
@@ -874,7 +858,6 @@ export default function TrackingPage() {
       const beforeDois = new Set((await loadTrackingInbox()).map((r) => r.doi))
       const sinceIso = new Date().toISOString()
       await dispatchDailyTracking(user.login, repo.name, token)
-      toast.message('已触发追踪，等待后端返回…')
 
       const result = await waitForDailyTracking(user.login, repo.name, token, sinceIso)
       if (result === 'failure') {
@@ -888,9 +871,6 @@ export default function TrackingPage() {
       const pending = pendingCandidates(rows)
       const found = pending.filter((r) => !beforeDois.has(r.doi)).length
       setTrackRun({ groups: enabledGroups.length, journals: enabledJournals.length, found })
-      if (result === 'success') {
-        toast.success(found > 0 ? `追踪完成：新增 ${found} 篇待裁决` : '追踪完成：没有新的候选文献')
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`追踪失败：${msg}`)
@@ -952,8 +932,6 @@ export default function TrackingPage() {
       await saveTrackingInbox(next)
       setInbox(next)
       setSelectedCandidateDois((prev) => prev.filter((d) => d !== c.doi))
-      const short = c.title.slice(0, 40)
-      toast.message(`已忽略：${short}${c.title.length > 40 ? '...' : ''}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`忽略失败：${msg}`)
@@ -971,16 +949,11 @@ export default function TrackingPage() {
     const targets = pendingList.filter((c) => c.doi && selectedCandidateDois.includes(c.doi))
     if (targets.length === 0) return
     try {
-      let added = 0
-      let exists = 0
       for (const c of targets) {
         const newLit = candidateToLiterature(c)
         const status = await addLiteratureToLibrary(newLit)
         if (status === 'added') {
-          added += 1
           setLiteratures((prev) => [...prev, newLit])
-        } else {
-          exists += 1
         }
       }
       const selected = new Set(targets.map((c) => c.doi))
@@ -988,7 +961,6 @@ export default function TrackingPage() {
       await saveTrackingInbox(next)
       setInbox(next)
       setSelectedCandidateDois([])
-      toast.success(`已入库 ${added} 篇${exists > 0 ? `，${exists} 篇已在库` : ''}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`批量入库失败：${msg}`)
@@ -1010,7 +982,6 @@ export default function TrackingPage() {
       await saveTrackingInbox(next)
       setInbox(next)
       setSelectedCandidateDois([])
-      toast.message(`已忽略 ${count} 篇`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`批量忽略失败：${msg}`)
@@ -1082,7 +1053,6 @@ export default function TrackingPage() {
       try {
         await saveTrackingInbox(next)
         setInbox(next)
-        toast.message(`已自动清理 ${stale.length} 篇超期（超过一个月未处理）的候选`)
       } catch (err) {
         console.error('[Tracking] 自动清理超期候选失败:', err)
       }
@@ -1150,7 +1120,6 @@ export default function TrackingPage() {
         prev.map((l) => (l.doi === doi ? { ...l, pdfAddedAt: Date.now() } : l)),
       )
       setSelectedLibraryDois((prev) => prev.filter((d) => d !== doi))
-      toast.success('已移出待补 PDF 清单')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`上传失败：${msg}`)
@@ -1164,8 +1133,6 @@ export default function TrackingPage() {
       await removeLiterature(lit.doi)
       setLiteratures((prev) => prev.filter((l) => l.doi !== lit.doi))
       setSelectedLibraryDois((prev) => prev.filter((d) => d !== lit.doi))
-      const short = lit.title.slice(0, 40)
-      toast.message(`已移出文献库：${short}${lit.title.length > 40 ? '...' : ''}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`撤销入库失败：${msg}`)
@@ -1184,7 +1151,6 @@ export default function TrackingPage() {
     targets.forEach((l) =>
       window.open(`https://doi.org/${l.doi}`, '_blank', 'noopener,noreferrer'),
     )
-    toast.message(`已打开 ${targets.length} 个 DOI 链接`)
   }
 
   /** 右栏批量撤销入库：选中的一次性移出文献库 */
@@ -1198,7 +1164,6 @@ export default function TrackingPage() {
       const selected = new Set(targets.map((l) => l.doi))
       setLiteratures((prev) => prev.filter((l) => !selected.has(l.doi)))
       setSelectedLibraryDois([])
-      toast.success(`已移出文献库 ${count} 篇`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`批量撤销入库失败：${msg}`)
@@ -1206,7 +1171,7 @@ export default function TrackingPage() {
   }
 
   // ============================================================
-  // 中栏操作：摘要翻译（默认显示中文译文，译文缓存；可切回英文原文）
+  // 中栏操作：标题英译中（默认显示中文标题，译文缓存；可切回英文原标题）
   // ============================================================
 
   const readTranslateCfg = () => {
@@ -1218,32 +1183,35 @@ export default function TrackingPage() {
     }
   }
 
-  const setTranslated = (doi: string, zh: string) => {
-    translatedAbstractsRef.current = { ...translatedAbstractsRef.current, [doi]: zh }
-    setTranslatedAbstracts((prev) => ({ ...prev, [doi]: zh }))
+  /** 标题只有不含中文（即英文等外文）时才需要翻译 */
+  const isEnglishTitle = (title: string) => !!title.trim() && !/[\u4e00-\u9fff]/.test(title)
+
+  const setTranslatedTitle = (doi: string, zh: string) => {
+    translatedTitlesRef.current = { ...translatedTitlesRef.current, [doi]: zh }
+    setTranslatedTitles((prev) => ({ ...prev, [doi]: zh }))
   }
 
   const markTranslating = (doi: string, on: boolean) => {
     if (on) translatingRef.current.add(doi)
     else translatingRef.current.delete(doi)
-    setTranslatingDois((prev) =>
+    setTranslatingTitleDois((prev) =>
       on ? (prev.includes(doi) ? prev : [...prev, doi]) : prev.filter((d) => d !== doi),
     )
   }
 
-  /** 手动（重试）翻译单条摘要 */
-  const retranslateAbstract = async (c: TrackingCandidate) => {
-    const text = (c.abstractEn || '').trim()
+  /** 手动（重试）翻译单条标题 */
+  const retranslateTitle = async (c: TrackingCandidate) => {
+    const text = (c.title || '').trim()
     if (!text) {
-      toast.error('这篇没有可翻译的摘要')
+      toast.error('这篇没有可翻译的标题')
       return
     }
     if (translatingRef.current.has(c.doi)) return
     markTranslating(c.doi, true)
     try {
       const zh = await translateText(text, readTranslateCfg())
-      setTranslated(c.doi, zh)
-      setShowOriginalDois((prev) => prev.filter((d) => d !== c.doi))
+      setTranslatedTitle(c.doi, zh)
+      setShowOriginalTitleDois((prev) => prev.filter((d) => d !== c.doi))
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`翻译失败：${msg}`, { duration: 8000 })
@@ -1252,22 +1220,22 @@ export default function TrackingPage() {
     }
   }
 
-  const toggleAbstractOriginal = (doi: string) => {
-    setShowOriginalDois((prev) =>
+  const toggleTitleOriginal = (doi: string) => {
+    setShowOriginalTitleDois((prev) =>
       prev.includes(doi) ? prev.filter((d) => d !== doi) : [...prev, doi],
     )
   }
 
-  // 中栏摘要默认显示中文译文：进视口即自动排队翻译（顺序执行，避免并发打爆）
+  // 中栏标题默认显示中文译文：进视口即自动排队翻译（顺序执行，避免并发打爆）
   useEffect(() => {
     let cancelled = false
     const { apiKey } = readTranslateCfg()
-    // 未配置翻译 key 就不自动翻，保留英文原文
+    // 未配置翻译 key 就不自动翻，保留英文原标题
     if (!apiKey) return
     const queue = pendingList.filter(
       (c) =>
-        (c.abstractEn || '').trim() &&
-        !translatedAbstractsRef.current[c.doi] &&
+        isEnglishTitle(c.title) &&
+        !translatedTitlesRef.current[c.doi] &&
         !translatingRef.current.has(c.doi),
     )
     if (queue.length === 0) return
@@ -1276,15 +1244,15 @@ export default function TrackingPage() {
         if (cancelled) return
         markTranslating(c.doi, true)
         try {
-          const zh = await translateText((c.abstractEn || '').trim(), readTranslateCfg())
+          const zh = await translateText((c.title || '').trim(), readTranslateCfg())
           if (cancelled) return
-          setTranslated(c.doi, zh)
+          setTranslatedTitle(c.doi, zh)
         } catch (err) {
           if (cancelled) return
           if (!translationErrorShownRef.current) {
             translationErrorShownRef.current = true
             const msg = err instanceof Error ? err.message : String(err)
-            toast.error(`摘要自动翻译失败，已显示英文原文：${msg}`, { duration: 8000 })
+            toast.error(`标题自动翻译失败，已显示英文原题：${msg}`, { duration: 8000 })
           }
         } finally {
           markTranslating(c.doi, false)
@@ -1523,9 +1491,10 @@ export default function TrackingPage() {
               </div>
             ) : (
               pendingList.map((paper) => {
-                const zh = translatedAbstracts[paper.doi]
-                const showEn = showOriginalDois.includes(paper.doi) || !zh
-                const isTranslating = translatingDois.includes(paper.doi)
+                const titleZh = translatedTitles[paper.doi]
+                const showEn = showOriginalTitleDois.includes(paper.doi) || !titleZh
+                const isTranslating = translatingTitleDois.includes(paper.doi)
+                const canTranslate = isEnglishTitle(paper.title)
                 return (
                   <article
                     key={paper.doi}
@@ -1539,7 +1508,30 @@ export default function TrackingPage() {
                         className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 accent-seal-600"
                       />
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-ui-sm font-medium leading-snug text-ink-800">{paper.title || '(无标题)'}</h3>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="min-w-0 flex-1 text-ui-sm font-medium leading-snug text-ink-800">
+                            {showEn ? paper.title || '(无标题)' : titleZh}
+                          </h3>
+                          {canTranslate && (
+                            <button
+                              onClick={() => {
+                                if (isTranslating) return
+                                if (titleZh) toggleTitleOriginal(paper.doi)
+                                else retranslateTitle(paper)
+                              }}
+                              disabled={isTranslating}
+                              title={isTranslating ? '翻译中' : titleZh ? (showEn ? '看中文标题' : '看英文原题') : '译为中文'}
+                              className="mt-0.5 flex flex-shrink-0 items-center gap-1 rounded-control-sm px-1.5 py-0.5 text-ui-2xs text-seal-600 transition hover:bg-seal-50 disabled:opacity-50"
+                            >
+                              {isTranslating ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Languages className="h-3 w-3" />
+                              )}
+                              {isTranslating ? '翻译中' : titleZh ? (showEn ? '看译文' : '看原文') : '译为中文'}
+                            </button>
+                          )}
+                        </div>
                         {paper.authors && <p className="mt-1 text-ui-xs text-ink-500">{paper.authors}</p>}
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-ui-2xs text-ink-400">
                           {paper.year > 0 && <span>{paper.year}</span>}
@@ -1550,30 +1542,8 @@ export default function TrackingPage() {
 
                         {paper.abstractEn && (
                           <div className="mt-2 rounded-control bg-paper-100/60 p-2.5">
-                            <div className="mb-1 flex items-center justify-between gap-2">
-                              <span className="text-ui-2xs font-medium text-ink-500">
-                                {showEn ? '摘要（EN）' : '中文摘要'}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  if (isTranslating) return
-                                  if (zh) toggleAbstractOriginal(paper.doi)
-                                  else retranslateAbstract(paper)
-                                }}
-                                disabled={isTranslating}
-                                className="flex items-center gap-1 rounded-control-sm px-1.5 py-0.5 text-ui-2xs text-seal-600 transition hover:bg-seal-50 disabled:opacity-50"
-                              >
-                                {isTranslating ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Languages className="h-3 w-3" />
-                                )}
-                                {isTranslating ? '翻译中' : zh ? (showEn ? '看译文' : '看原文') : '译为中文'}
-                              </button>
-                            </div>
-                            <p className="text-ui-xs leading-relaxed text-ink-600">
-                              {showEn ? paper.abstractEn : zh}
-                            </p>
+                            <span className="text-ui-2xs font-medium text-ink-500">摘要（EN）</span>
+                            <p className="mt-1 text-ui-xs leading-relaxed text-ink-600">{paper.abstractEn}</p>
                           </div>
                         )}
 

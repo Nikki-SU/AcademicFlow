@@ -20,7 +20,6 @@
  *   刷新 / 换设备后仍能正确回退，且当用户课中手动切了任务（当前任务 ≠ slot_id）时不回退。
  */
 import { useEffect, useRef } from 'react'
-import { toast } from 'sonner'
 import { loadCourses, loadExtraDays, resolveToday, timeToMinutes, type Course, type ExtraDay } from '../services/scheduleData'
 import { loadYearHolidays, todayDateStr, type HolidayMap } from '../services/holidays'
 import {
@@ -72,8 +71,6 @@ export function useAutoTaskBySchedule(): void {
   })
 
   useEffect(() => {
-    const titleOf = (id: string) =>
-      projectsRef.current.find((p) => p.projectId === id)?.title || '未知任务'
     const mark = (m: AutoTaskMark) =>
       saveAutoTaskMark(m).catch((e) => console.warn('[autoTask] 保存回退标记失败:', e))
     const clearMark = () =>
@@ -138,7 +135,6 @@ export function useAutoTaskBySchedule(): void {
         if (autoSwitched) {
           mark({ manualId: currentProjectId, slotId: slotTask })
           void setCurrentProject(slotTask)
-          toast.message(`已按课表切到「${titleOf(slotTask)}」`)
         }
       } else {
         // 离开时段：回到「上一次任务」。
@@ -150,7 +146,6 @@ export function useAutoTaskBySchedule(): void {
         const target = stillOnAuto ? prev.manualId ?? persisted.manualId : null
         if (target && target !== currentProjectId) {
           void setCurrentProject(target)
-          toast.message(`课表时段结束，已回到「${titleOf(target)}」`)
         }
         if (prev.slotTaskId || persisted.slotId) {
           clearMark()

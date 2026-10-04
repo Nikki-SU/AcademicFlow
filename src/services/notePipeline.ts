@@ -203,10 +203,6 @@ export async function enqueueNoteConvertBatch(
       results[v.idx].source_path = v.sourcePath
       results[v.idx].task_id = v.taskId
     })
-    toast.success(
-      valid.length === 1 ? `已提交后端转换：${valid[0].noteName}` : `已提交后端转换 ${valid.length} 篇笔记`,
-      { description: 'Word / PDF 正在转成 markdown 笔记，可在笔记面板看到进度' },
-    )
     return { ok: true, results }
   } catch (err: any) {
     const msg = `触发后端 pipeline 失败：${err?.message || String(err)}。请检查私库是否已安装 note_convert workflow（设置页可一键安装）。`

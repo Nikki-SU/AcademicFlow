@@ -113,13 +113,9 @@ export function MigrationStatus() {
       }
       // 迁移期间锁住受影响的功能域，避免读到 / 写到半迁移的旧值
       setLockedDomains([...new Set(p.flatMap((m) => m.affects))])
-      const toastId = toast.loading(`正在后台更新数据格式（0/${p.length}）…`, {
-        description: '受影响的功能会暂时锁定，其他功能照常可用',
-      })
       const ok = await runAll(p)
       if (!ok) throw new Error('仍有未完成的迁移')
       setLockedDomains([])
-      toast.success('数据已更新为新格式', { id: toastId })
     } catch (err) {
       console.error('[migration] 后台更新失败:', err)
       // 失败时不清锁：受影响功能继续不可用，直到重试成功，避免用户看到半迁移数据

@@ -96,11 +96,7 @@ function App() {
   // 于是从私库保险箱（PAT 派生密钥加密的密文）解密，只回填本机为空的敏感字段。
   useEffect(() => {
     if (!isChecked || !repo || !token) return
-    void restoreCredentialsFromVault(repo.owner.login, repo.name, token).then((filled) => {
-      if (filled.length > 0) {
-        toast.success(`已从私库保险箱回填 ${filled.length} 项凭据`)
-      }
-    })
+    void restoreCredentialsFromVault(repo.owner.login, repo.name, token)
   }, [isChecked, repo, token])
 
   // 敏感字段变化 → 防抖加密写回私库保险箱（sig 去重，内容没变不产生空提交）

@@ -97,9 +97,6 @@ export default function PdfCleanupPanel() {
         `chore: 清理已转换文献的 PDF（${selectedGroups.length} 篇 / ${paths.length} 个文件）`,
         owner, repoName, token,
       )
-      toast.success(`已清理 ${paths.length} 个 PDF（${formatBytes(selectedBytes)}）`, {
-        description: '正文 md、图片、词汇表都保留；重新转换需要重新上传 PDF',
-      })
       await load()
     } catch (e) {
       toast.error(`清理失败：${e instanceof Error ? e.message : String(e)}`)

@@ -614,10 +614,8 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
 
   /**
    * 上传一张图并把 `![alt](仓库路径)` 插到光标处。
-   * 上传要几秒，期间给一个 loading toast —— 静默会让人以为点了没反应。
    */
   const uploadOne = async (doc: string, file: File, at?: Range | null) => {
-    const id = toast.loading('正在上传图片…')
     try {
       const repoPath = await uploadEditorImage({
         docPath: doc,
@@ -628,10 +626,8 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       // 用调用方在**发起上传时**拍下的位置，而不是此刻的 savedRangeRef：
       // 上传要几秒，这期间用户可能已经把光标点到别处了
       insertAtCursorImpl(`![${imageAlt(file.name)}](${repoPath})`, at)
-      toast.success('图片已上传', { id })
     } catch (e) {
       toast.error(`图片上传失败：${e instanceof Error ? e.message : String(e)}`, {
-        id,
         duration: 8000,
       })
     }

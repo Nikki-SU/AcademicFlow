@@ -18,7 +18,6 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
 import {
   DEFAULT_WORKSPACE_REPO_NAME,
   WORKSPACE_SKELETON,
@@ -62,7 +61,6 @@ function Onboarding() {
     try {
       await createAndInit()
       setCreationDone(true)
-      toast.success('工作区初始化成功！')
       // 让用户看一下"完成"状态再跳
       setTimeout(() => navigate('/', { replace: true }), 1500)
     } catch {

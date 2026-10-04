@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
 import { PdfQuickUploadButton } from './PdfQuickUpload'
-import { toast } from 'sonner'
 import {
   listRecentTraces,
   getTrace,
@@ -231,8 +230,7 @@ export function PipelineDebugPanel() {
   // 选中的 trace 也跟着刷新
   const selectedTrace = selectedId ? traces.find((t) => t.id === selectedId) : null
 
-  const handleUploadSuccess = (_doi: string, title: string) => {
-    toast.success(`已入队：${title}，刷新看板查看进度`)
+  const handleUploadSuccess = () => {
     // 强制刷新 + 自动选中最新那条
     setTimeout(() => {
       setRefreshKey((k) => k + 1)

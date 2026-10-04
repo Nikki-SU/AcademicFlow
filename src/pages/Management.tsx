@@ -910,7 +910,6 @@ export default function ManagementPage() {
         const hits = Object.entries(found).filter(([, v]) => v.trim())
         if (hits.length === 0) return
         setJournalAbbrevMap(await mergeJournalAbbrevs(Object.fromEntries(hits)))
-        toast.success(`已自动查询 ${hits.length} 个期刊的标准缩写`)
       })
       .catch(() => { /* 查不到就显示原期刊名，不打扰用户 */ })
   }, [papers, journalAbbrevMap])
@@ -1372,7 +1371,6 @@ export default function ManagementPage() {
         keywords: keywords || prev.keywords,
         abstractEn: abstract || prev.abstractEn,
       }))
-      toast.success('已从 Crossref 自动填充，请确认后保存')
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setDoiFetchError(msg)
@@ -1440,9 +1438,6 @@ export default function ManagementPage() {
       await savePapers(updated)
       await persistMeta(setMeta(materialMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
       setDoiQuickInput('')
-      toast.success('已添加到文献库', {
-        description: meta.title.slice(0, 60) + (meta.title.length > 60 ? '…' : ''),
-      })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`DOI 入库失败：${msg}`)
@@ -1503,7 +1498,6 @@ export default function ManagementPage() {
       await persistMeta(setMeta(materialMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
       setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: '', tags: [] })
       setShowAddPaperModal(false)
-      toast.success('文献已保存', { description: '刷新后仍会保留' })
     } catch (err) {
       setPapers(prevPapers)
       toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
@@ -1719,7 +1713,6 @@ export default function ManagementPage() {
         invalidateCache('literatures/literatures.csv')
         setPapers(updated)
         if (paperDoi) await persistMeta(dropMeta(materialMeta, 'paper', paperDoi))
-        toast.success('文献已删除（GitHub 文件清理在后台进行）')
       } catch (saveErr) {
         // savePapers 失败：不乐观更新，回滚 deletingIds，让用户看到失败
         console.warn('[handleDeletePaper] savePapers 失败:', saveErr)
@@ -1768,7 +1761,6 @@ export default function ManagementPage() {
     if (input === null) return
     await saveJournalAbbrev(journal, input.trim())
     setJournalAbbrevMap(await loadJournalAbbrevMap())
-    toast.success('已保存期刊缩写')
   }
 
   /** 跳转到阅读页并直接打开这篇文献 */
@@ -1861,7 +1853,6 @@ export default function ManagementPage() {
 
       await dispatchPaperConvert(paper.doi, paper.title || slug, pdfPath, owner as string, repo.name, token)
       console.log('[handleReconvertPaper] dispatch success')
-      toast.success('已重新提交后端处理', { description: '右侧后台监控面板可查看实时进度' })
 
       // 异步捕获新 run id 存入 metadata（非阻塞），供轮询时 run 状态兜底
       void (async () => {
@@ -1950,7 +1941,6 @@ export default function ManagementPage() {
       setEditingPaper(null)
       setPaperWords(null)
       setPaperWordsDirty(false)
-      toast.success('修改已保存')
     } catch (err) {
       setPapers(prevPapers)
       toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
@@ -1987,7 +1977,6 @@ export default function ManagementPage() {
         await persistMeta(nextMeta)
         setSelectedPapers(new Set())
         setBatchMode(false)
-        toast.success(`已删除 ${papersToDelete.length} 篇文献（GitHub 清理在后台进行）`)
       } catch (e) {
         // savePapers 失败：不乐观更新
         toast.error(`批量删除失败：无法保存 CSV — ${e instanceof Error ? e.message : String(e)}`, { duration: 5000 })
@@ -2091,7 +2080,6 @@ export default function ManagementPage() {
       setTemplates((prev) => [...prev, toTemplateItem(backend)])
       setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
       setShowTemplateModal(false)
-      toast.success(`期刊模板「${backend.name}」已创建并保存到 GitHub`)
     } catch (err) {
       toast.error(`创建模板失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleAddTemplate]', err)
@@ -2149,7 +2137,6 @@ export default function ManagementPage() {
         guidelines: guidelinesText, // 保留用户粘贴的全文，作为模板的投稿须知源材料
         formatSummary: resp.content, // 摘要有独立入口，可编辑
       }))
-      toast.success('AI 已提取格式规范摘要，见下方「格式规范摘要」框，可直接改')
     } catch (err) {
       toast.error(`AI 提取失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleExtractFormat]', err)
@@ -2177,7 +2164,6 @@ export default function ManagementPage() {
       setTemplates(backend.map(toTemplateItem))
       setShowTemplateModal(false)
       setEditingTemplate(null)
-      toast.success('模板已更新并保存到 GitHub')
     } catch (err) {
       toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleSaveTemplate]', err)
@@ -2189,7 +2175,6 @@ export default function ManagementPage() {
       await setDefaultTemplate(id)
       const backend = await getAllTemplates()
       setTemplates(backend.map(toTemplateItem))
-      toast.success('已设为默认模板')
     } catch (err) {
       toast.error(`设置失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleSetDefaultTemplate]', err)
@@ -2204,7 +2189,6 @@ export default function ManagementPage() {
       await deleteJournalTemplate(id)
       const backend = await getAllTemplates()
       setTemplates(backend.map(toTemplateItem))
-      toast.success('模板已删除')
     } catch (err) {
       toast.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleDeleteTemplate]', err)
@@ -2214,10 +2198,6 @@ export default function ManagementPage() {
   const handleApplyTemplate = (id: string) => {
     // 应用到项目 = 设为默认模板 + 提示用户去排版页面使用
     handleSetDefaultTemplate(id)
-    toast.success('已设为默认模板，前往「排版」页面开始写作', {
-      description: '模板的格式规范会自动应用到新文档',
-      duration: 4000,
-    })
   }
 
   // ============================================================
@@ -2325,7 +2305,6 @@ export default function ManagementPage() {
     setBooks((prev) => prev.map((b) => (b.id === showBookDetail.id ? { ...b, taskId: bookDetailTaskId, tags: bookDetailTags } : b)))
     setShowBookDetail({ ...showBookDetail, taskId: bookDetailTaskId, tags: bookDetailTags })
     await persistMeta(nextMeta)
-    toast.success('已保存')
   }
 
   // ── 其他文档 ──
@@ -2348,8 +2327,7 @@ export default function ManagementPage() {
     }
     setImporting(true)
     try {
-      const added = await importMarkdownDocs(usable)
-      toast.success(`已导入 ${added.length} 个文档`)
+      await importMarkdownDocs(usable)
       await refreshDocuments()
       setShowImportDocModal(false)
       setPasteDoc({ title: '', content: '' })
@@ -2418,7 +2396,6 @@ export default function ManagementPage() {
       await persistMeta(
         setMeta(materialMeta, 'document', editingDocument.id, { taskId: editDocForm.taskId, tags: editDocForm.tags }),
       )
-      toast.success('已保存')
       setEditingDocument(null)
       await refreshDocuments()
     } catch (err) {
@@ -2433,7 +2410,6 @@ export default function ManagementPage() {
     try {
       await deleteDocuments([doc.id])
       await persistMeta(dropMeta(materialMeta, 'document', doc.id))
-      toast.success('已删除')
       await refreshDocuments()
     } catch (err) {
       toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`)
@@ -4205,7 +4181,6 @@ export default function ManagementPage() {
                         try {
                           const text = await file.text()
                           setNewTemplate((prev) => ({ ...prev, guidelines: text }))
-                          toast.success(`已读入 ${file.name}，可点「AI提取」生成格式规范摘要`)
                         } catch {
                           toast.error('读取文件失败，请直接把内容粘贴到下方文本框')
                         } finally {

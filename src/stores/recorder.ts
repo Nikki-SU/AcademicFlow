@@ -633,7 +633,6 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
     if (targetTaskId && sessionId && segments.length > 0) {
       try {
         await saveTranscript(targetTaskId, sessionId, segments)
-        toast.success('本轮转写已保存到私库')
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         toast.error(`转写保存失败：${msg}`, { duration: 8000 })
@@ -663,7 +662,6 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
     set({ pendingCount: remaining })
     if (remaining === 0) {
       get().clear()
-      toast.success('未完成的片已全部转写并补写进私库')
     } else {
       set({ error: `仍有 ${remaining} 片未转写成功，请检查网络 / Key 后再试` })
       toast.error(`仍有 ${remaining} 片未成功，可稍后再试`, { duration: 10000 })

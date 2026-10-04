@@ -151,9 +151,6 @@ export async function enqueuePaperMineruConvert(
       } catch { /* 不阻塞 */ }
     }
 
-    toast.success('已提交后端处理', {
-      description: '右侧后台监控面板可查看实时进度',
-    })
     return { ok: true, pdf_path: pdfPath, task_id: taskId }
   } catch (err: any) {
     const msg = `触发后端 pipeline 失败：${err?.message || String(err)}。请检查 GitHub Actions 是否启用。`

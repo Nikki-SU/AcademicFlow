@@ -341,14 +341,7 @@ function DualEngineTestPanel() {
           setAi2Ms(event.ai2Ms ?? null)
         }
       })
-      // 根据 finalPassed 决定 toast 语气
-      if (result.finalPassed) {
-        toast.success(
-          result.attempts.length > 1
-            ? `双引擎第 ${result.attempts.length}/${result.maxAttempts} 轮通过 ✅`
-            : '双引擎忠实性核查通过 ✅',
-        )
-      } else {
+      if (!result.finalPassed) {
         toast.error(
           `双引擎 ${result.attempts.length}/${result.maxAttempts} 轮反复纠错后仍未通过`,
         )

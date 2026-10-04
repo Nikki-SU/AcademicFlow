@@ -32,9 +32,7 @@ export default function BackendCapabilitiesPanel() {
     try {
       const r = await checkPipelineInstalled(owner, repo, token)
       setCheckResult(r)
-      if (r.installed) {
-        toast.success('后端 workflow 已安装 ✓（新版已就绪，无旧版残留）')
-      } else {
+      if (!r.installed) {
         const parts: string[] = []
         if (r.missing.length > 0) parts.push(`缺 ${r.missing.length} 个新文件`)
         if (r.legacy.length > 0) parts.push(`残留 ${r.legacy.length} 个旧版文件`)
@@ -60,14 +58,10 @@ export default function BackendCapabilitiesPanel() {
     setInstalling(true)
     try {
       const r = await writePipelineFiles(owner, repo, token)
-      if (r.ok) {
-        const cleanMsg = r.legacyDeleted?.length
-          ? `，已清理 ${r.legacyDeleted.length} 个旧版文件`
-          : ''
-        toast.success(`写入成功 ${r.written?.length ?? 4} 个文件${cleanMsg}`)
-        await runCheck() // 重新检测
-      } else {
+      if (!r.ok) {
         toast.error(`写入失败：${r.details?.filter(d => !d.ok).map(d => `${d.path}: ${d.error}`).join('; ') || 'unknown'}`)
+      } else {
+        await runCheck() // 重新检测
       }
     } catch (e: any) {
       toast.error(`写入失败：${e?.message || e}`)

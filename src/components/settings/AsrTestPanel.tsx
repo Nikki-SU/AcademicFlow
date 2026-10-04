@@ -74,7 +74,7 @@ export default function AsrTestPanel() {
           setSteps((prev) => ({ ...prev, [key]: { ...prev[key], status, detail } })),
       )
       setVerdict(ok ? 'ok' : 'err')
-      toast[ok ? 'success' : 'error'](ok ? '会议转写连通性通过 ✅' : '会议转写连通性失败')
+      if (!ok) toast.error('会议转写连通性失败')
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setVerdict('err')

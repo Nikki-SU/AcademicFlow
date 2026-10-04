@@ -162,7 +162,6 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
       await savePolishedTranscript(taskId, sessionId, next)
       setBlocks(next)
       setShowRaw(false)
-      toast.success('转写稿已修饰并保存')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(msg, { duration: 10000 })

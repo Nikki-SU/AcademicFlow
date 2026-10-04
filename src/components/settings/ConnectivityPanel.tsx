@@ -379,9 +379,7 @@ export default function ConnectivityPanel() {
         setAiSteps,
       )
       setAiResult(result)
-      toast[result.ok ? 'success' : 'error'](
-        result.ok ? 'AI 端到端通过 ✅' : `AI 端到端失败:${result.reason}`
-      )
+      if (!result.ok) toast.error(`AI 端到端失败:${result.reason}`)
     } catch (e: any) {
       const reason = e?.message || String(e)
       setAiResult({ ok: false, run: null, reason })
@@ -414,9 +412,7 @@ export default function ConnectivityPanel() {
         setMineruSteps,
       )
       setMineruResult(result)
-      toast[result.ok ? 'success' : 'error'](
-        result.ok ? 'MinerU 端到端通过 ✅' : `MinerU 端到端失败:${result.reason}`
-      )
+      if (!result.ok) toast.error(`MinerU 端到端失败:${result.reason}`)
     } catch (e: any) {
       const reason = e?.message || String(e)
       setMineruResult({ ok: false, run: null, reason })
@@ -457,7 +453,6 @@ export default function ConnectivityPanel() {
       )
       mark('ocr', 'done')
       setStLatex(result.latex)
-      toast.success('SimpleTex 端到端通过 ✅')
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       // 卡在哪个 running 步骤，就让哪一步变红
@@ -476,12 +471,10 @@ export default function ConnectivityPanel() {
     if (!isInitialized) { toast.warning('等待初始化...'); return }
     setAllTesting(true)
     try {
-      toast.info('开始全部测试...')
       await runGitHubTest()
       await runAITest()
       await runMineruE2ETest()
       await runSimpleTexTest()
-      toast.success('全部测试完成!')
     } finally {
       setAllTesting(false)
     }

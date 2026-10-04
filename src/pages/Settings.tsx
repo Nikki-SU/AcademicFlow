@@ -284,7 +284,6 @@ function Settings() {
     try {
       await navigator.clipboard.writeText(window.location.origin)
       setCopiedSite(true)
-      toast.success('已复制本站地址')
       setTimeout(() => setCopiedSite(false), 1500)
     } catch {
       toast.error('复制失败，请手动复制地址栏')
@@ -412,8 +411,7 @@ function Settings() {
   /** 拉取某槽位的真实模型清单（runner 代拉该槽位 provider 的 /v1/models） */
   const handleFetchModels = async (slot: 1 | 2) => {
     try {
-      const models = await refreshModels(slot, true)
-      toast.success(`AI-${slot} 槽位已拉取 ${models.length} 个模型`)
+      await refreshModels(slot, true)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`AI-${slot} 槽位拉取失败：${msg}`, { duration: 8000 })

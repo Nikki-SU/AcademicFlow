@@ -1164,11 +1164,10 @@ export default function LearnPage() {
         : ai2Silent
           ? `AI-2 这一轮没有任何输出（第 ${result.attempts.length} 轮），内容按 AI-1 原样收下了，建议人工扫一眼`
           : `AI-2 审阅未通过：${result.ai2Feedback.summary || '存在忠实性问题，请人工核对'}`
-      toast.success(`AI 生成完成（${addedCount} 条），${reviewNote}`)
+      toast.warning(`AI 生成完成（${addedCount} 条），${reviewNote}`)
       setAiGenOpen(false)
     } catch (err) {
       if (isAbortError(err)) {
-        toast.info('已停止 AI 生成')
         return
       }
       const msg = err instanceof Error ? err.message : String(err)
@@ -1607,7 +1606,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     if (repairing) return
     setRepairing(true)
     try {
-      const before = incompleteWords.length
       // 有 AI 才清"释义=定义"的脏数据（清掉要能补回来）；没有就原样保留
       const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
       const aiReady = !!(ai1 && ai1.baseUrl && ai1.apiKey && ai1.model)
@@ -1636,12 +1634,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       const needRepair = (w: WordData) =>
         w.word.trim() && (missingWordFields(w).length > 0 || hasDuplicatedMeaningDef(w))
       const left = next.filter(needRepair).length
-      if (left === 0) {
-        toast.success(`已修复 ${before} 个单词的缺失/错乱字段`)
-      } else if (!aiReady) {
+      if (left > 0 && !aiReady) {
         toast.error(`已做规则修复，仍有 ${left} 个单词需要 AI 补全（请先在设置里配置 AI 服务）`)
-      } else {
-        toast.success(`已修复，仍有 ${left} 个单词待处理（可再点一次）`)
       }
     } finally {
       setRepairing(false)
@@ -1949,7 +1943,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         ? { ...w, status: 'mastered', reviewCount: Math.max(w.reviewCount, settings.masterRounds) }
         : w,
     ))
-    toast.success('已斩词，标记为掌握')
     if (session) {
       advance({
         ...session,
@@ -1999,7 +1992,6 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const handleAddWord = (word: WordData) => {
     setWords((prev) => [...prev, word])
     setShowAddModal(false)
-    toast.success('单词已添加')
   }
 
   // ── 空状态 ──
@@ -2764,7 +2756,6 @@ function PracticePanel({
       })
       setResult(r)
       onSubmitResult(text, r)
-      toast.success(`判分完成：${r.score} 分`)
       // 低分才弹卡片复盘；分数够了就直接过，不打断节奏
       if (r.score < lowScore) setCardOpen(true)
     } catch (err) {
@@ -3012,7 +3003,6 @@ function PracticePanel({
                         onClick={() => {
                           onSavePoints(pointsDraft.split('\n').map((s) => s.trim()).filter(Boolean))
                           setEditingPoints(false)
-                          toast.success('踩分点已保存')
                         }}
                         className="px-ui-gap py-1.5 text-ui-xs text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition"
                       >
@@ -3221,7 +3211,6 @@ function SentenceSection({
   const handleAddSentence = (sentence: SentenceData) => {
     setSentences((prev) => [...prev, sentence])
     setShowAddModal(false)
-    toast.success('长难句已添加')
   }
 
   /**
@@ -3321,12 +3310,8 @@ function SentenceSection({
     setBatchFailures([...failures])
     setBatchRunning(false)
 
-    if (res.stopped) {
-      toast.info(`已停止补提：新增 ${addedTotal} 条长难句，${failures.length} 篇失败`)
-    } else if (failures.length > 0) {
+    if (!res.stopped && failures.length > 0) {
       toast.warning(`补提完成（新增 ${addedTotal} 条长难句），${failures.length} 篇失败，详见下方清单`)
-    } else {
-      toast.success(`补提完成，新增 ${addedTotal} 条长难句`)
     }
   }
 
@@ -3499,7 +3484,6 @@ function TranslationSection({
   const handleAddTranslation = (item: TranslationData) => {
     setTranslations((prev) => [...prev, item])
     setShowAddModal(false)
-    toast.success('翻译练习已添加')
   }
 
   /**
@@ -3587,12 +3571,8 @@ function TranslationSection({
     setBatchFailures([...failures])
     setBatchRunning(false)
 
-    if (res.stopped) {
-      toast.info(`已停止补提：新增 ${addedTotal} 条翻译题，${failures.length} 篇失败`)
-    } else if (failures.length > 0) {
+    if (!res.stopped && failures.length > 0) {
       toast.warning(`补提完成（新增 ${addedTotal} 条翻译题），${failures.length} 篇失败，详见下方清单`)
-    } else {
-      toast.success(`补提完成，新增 ${addedTotal} 条翻译题（每篇按方向各一条）`)
     }
   }
 

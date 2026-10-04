@@ -47,7 +47,6 @@ function APIKeyInput({ label, value, onChange, placeholder, hint, disabled, fiel
     try {
       await navigator.clipboard.writeText(value)
       setCopied(true)
-      toast.success('已复制到剪贴板')
       setTimeout(() => setCopied(false), 1500)
     } catch {
       toast.error('复制失败')

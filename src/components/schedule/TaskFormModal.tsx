@@ -334,9 +334,7 @@ export function TaskFormModal({
       })
       setAiResult(result)
     } catch (err) {
-      if (isAbortError(err)) {
-        toast.info('已停止 AI 总结')
-      } else {
+      if (!isAbortError(err)) {
         console.error('[Schedule] AI 总结失败:', err)
         toast.error(`AI 总结失败：${(err as Error).message}`)
       }
@@ -416,11 +414,8 @@ export function TaskFormModal({
         return [...prev, ...additions]
       })
       notesTouchedRef.current = true
-      toast.success(`已提炼 ${extracted.length} 条，可自行修改`)
     } catch (err) {
-      if (isAbortError(err)) {
-        toast.info('已停止提炼')
-      } else {
+      if (!isAbortError(err)) {
         console.error('[Schedule] AI 提炼要求失败:', err)
         toast.error(`提炼失败：${(err as Error).message}`)
       }
@@ -442,7 +437,6 @@ export function TaskFormModal({
         await uploadTaskAttachment(project.projectId, f)
       }
       setAttachments(await loadTaskAttachments(project.projectId))
-      toast.success('附件已上传')
     } catch (err) {
       console.error('[Schedule] 上传附件失败:', err)
       toast.error('上传附件失败，请重试')
@@ -458,7 +452,6 @@ export function TaskFormModal({
     try {
       await deleteTaskAttachment(a.path, a.name)
       setAttachments(await loadTaskAttachments(project.projectId))
-      toast.success('已删除附件')
     } catch (err) {
       console.error('[Schedule] 删除附件失败:', err)
       toast.error('删除附件失败，请重试')

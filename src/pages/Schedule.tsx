@@ -335,7 +335,6 @@ export default function SchedulePage() {
       const next = [...courses, ...newCourses]
       await saveCourses(next)
       setCourses(next)
-      toast.success(variant === 'course' ? '已添加课程' : '已加入课表')
     } catch (err) {
       console.error('[Schedule] 添加时段失败:', err)
       toast.error('添加失败，请重试')
@@ -412,7 +411,6 @@ export default function SchedulePage() {
         await saveCourses(next)
         setCourses(next)
       }
-      toast.success('已保存时段')
     } catch (err) {
       console.error('[Schedule] 保存时段失败:', err)
       toast.error('保存失败，请重试')
@@ -447,7 +445,6 @@ export default function SchedulePage() {
     try {
       await saveExtraDays(next)
       setExtraDays(next)
-      toast.success('已添加调休日')
     } catch (err) {
       console.error('[Schedule] 添加调休日失败:', err)
       toast.error('添加调休日失败，请重试')
@@ -561,7 +558,6 @@ export default function SchedulePage() {
     try {
       const next = await renameProject(project.projectId, title)
       setProjects(next)
-      toast.success('已改名')
     } catch (err) {
       console.error('[Schedule] 任务改名失败:', err)
       toast.error('改名失败，请重试')
@@ -579,7 +575,6 @@ export default function SchedulePage() {
       setEditor((prev) =>
         prev?.mode === 'edit' && prev.projectId === target.projectId ? null : prev,
       )
-      toast.success(mode === 'purge' ? '已删除任务及独占材料' : '已删除任务')
     } catch (err) {
       console.error('[Schedule] 删除任务失败:', err)
       toast.error('删除失败，请重试')

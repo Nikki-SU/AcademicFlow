@@ -69,9 +69,6 @@ async function doUpload(props: UploadLogicProps) {
         source: 'PDF', trackingGroup: '', mdStatus: 'none', correspondingAuthor: '',
       }
       await saveLiteratures([...lits, newLit])
-      toast.success(`已入库：${finalTitle}`)
-    } else {
-      toast.message(`文献已在库中：${finalTitle}`)
     }
     const result = await enqueuePaperMineruConvert(normalized.doi, pdf, finalTitle)
     if (result.ok) onSuccess?.(normalized.doi, finalTitle)
@@ -115,7 +112,6 @@ export function PdfQuickUploadModal(props: {
       const { entries, failed } = await getCitationEntries([normalized.doi])
       if (failed.length === 0 && entries[0]) {
         setTitle(entries[0].title || title)
-        toast.success(`已自动获取标题`)
       } else {
         toast.warning('DOI 解析失败，请手动填写')
       }

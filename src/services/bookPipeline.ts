@@ -142,9 +142,6 @@ export async function enqueueBookMineruConvert(
       console.warn('[bookPipeline] 没找到新 run id，后续只能靠 progress.json')
     }
 
-    toast.success(`已提交后端转换：${title || bookId}`, {
-      description: '右侧后台监控面板可查看实时进度',
-    })
     return { ok: true, pdf_path: pdfPath, task_id: taskId }
   } catch (err: any) {
     const msg = `触发后端 pipeline 失败：${err?.message || String(err)}。请检查私库是否已安装 book_convert workflow（设置页可一键安装）。`

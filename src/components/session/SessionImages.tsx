@@ -143,18 +143,16 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const uploadImages = async (list: File[]) => {
     if (!taskId || !sessionId || list.length === 0) return
     setIsUploading(true)
-    const toastId = toast.loading(`正在上传 ${list.length} 张照片…`)
     try {
       for (const file of list) {
         await uploadSessionImage(taskId, sessionId, file)
       }
-      toast.success('照片已归到本节课', { id: toastId })
       await reload()
       notifySessionImagesChanged(taskId, sessionId)
       useSessionImagesStore.getState().start(taskId, sessionId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`照片上传失败：${msg}`, { id: toastId, duration: 8000 })
+      toast.error(`照片上传失败：${msg}`, { duration: 8000 })
     } finally {
       setIsUploading(false)
     }
@@ -177,7 +175,6 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
       await deleteTaskImages([file.path])
       forgetRepoImage(file.path)
       await reload()
-      toast.success('已删除')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`删除失败：${msg}`, { duration: 8000 })

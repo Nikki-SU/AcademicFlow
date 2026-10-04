@@ -197,8 +197,6 @@ function JournalTemplatesPage() {
       setFormAbstractNote(result.abstract_format_note || '')
       setFormRefNote(result.reference_format_note || '')
       setFormCustomPreamble(result.custom_preamble || '')
-
-      toast.success('AI 双引擎提取完成，请核对结果')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`提取失败：${msg}`)
@@ -245,7 +243,6 @@ function JournalTemplatesPage() {
         notes: formNotes || undefined,
       })
 
-      toast.success('模板创建成功')
       await loadTemplates()
       setView('list')
     } catch (err) {
@@ -293,7 +290,6 @@ function JournalTemplatesPage() {
         notes: formNotes || undefined,
       })
 
-      toast.success('模板更新成功')
       await loadTemplates()
       setView('list')
     } catch (err) {
@@ -307,7 +303,6 @@ function JournalTemplatesPage() {
     if (!confirm(`确定要删除模板「${t.name}」吗？`)) return
     try {
       await deleteTemplate(t.id)
-      toast.success('已删除')
       await loadTemplates()
     } catch {
       toast.error('删除失败')
@@ -373,7 +368,6 @@ function JournalTemplatesPage() {
                         publisher: '示例出版社',
                         guidelines_content: DEMO_ANGEW_GUIDELINES,
                       })
-                      toast.success('演示模板已加载：示例期刊')
                       await loadTemplates()
                       openEdit(tpl)
                     } catch (err) {

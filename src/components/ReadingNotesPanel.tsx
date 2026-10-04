@@ -164,9 +164,6 @@ export default function ReadingNotesPanel({
     invalidateNoteTree()
     const target = justDone[justDone.length - 1].name
     void reload(target)
-    toast.success(
-      justDone.length === 1 ? `笔记已生成：${justDone[0].name}` : `已生成 ${justDone.length} 篇笔记`,
-    )
   }, [converts, reload])
 
   /**
@@ -371,7 +368,6 @@ export default function ReadingNotesPanel({
       saveTimerRef.current = null
       pendingRef.current = null
       await deleteNote(docRefRef.current, active)
-      toast.success('笔记已删除')
       await reload(null)
     } catch (err) {
       console.error('[笔记] 删除失败:', err)
@@ -421,7 +417,6 @@ export default function ReadingNotesPanel({
       }
       if (importedCount > 0) {
         await reload(firstName)
-        toast.success(`已导入 ${importedCount} 篇笔记`)
       }
 
       // 2) 云端管线附件（判据是产物出现，见 converts 轮询）

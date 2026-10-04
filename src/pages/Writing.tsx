@@ -2274,7 +2274,6 @@ export default function WritingPage() {
         return
       }
       setOnlineSummaries((prev) => ({ ...prev, ...parsed }))
-      toast.success(`已为 ${n} 篇生成中文小结`)
     } catch (err) {
       console.error('[Writing] 生成中文小结失败:', err)
       toast.error(err instanceof Error ? err.message : '生成中文小结失败')
@@ -2309,7 +2308,6 @@ export default function WritingPage() {
       return next
     })
     setImportedDois((prev) => [...prev, result.doi])
-    toast.success('已导入到引用列表')
   }
 
 
@@ -2319,10 +2317,7 @@ export default function WritingPage() {
 
   /** 侧栏检索结果的一键复制：复制的是完整 DOI 链接，不是裸 DOI */
   const handleCopyDoiLink = (doi: string) => {
-    navigator.clipboard?.writeText(doiLinkOf(doi)).then(
-      () => toast.success('已复制 DOI 链接'),
-      () => toast.error('复制失败'),
-    )
+    navigator.clipboard?.writeText(doiLinkOf(doi)).catch(() => toast.error('复制失败'))
   }
 
   // ══════════════════════════════════════════════════════════
@@ -2396,15 +2391,12 @@ export default function WritingPage() {
       setCompileError('')
 
       // 块映射缺失 + 模板合规：都不阻塞出稿，但必须让用户看见
-      const mapped = result.sidecar.blocks.length
       if (result.anchor_check?.missing.length) {
         toast.warning(
           `已生成，但 ${result.anchor_check.missing.length} 个段落没能建好映射 —— ` +
             '以后改 md 做「局部更新」时这些段落会整段重写（其余段落仍逐字更正）。',
           { duration: 9000 },
         )
-      } else {
-        toast.success(`已生成 LaTeX，${mapped} 个段落全部建立了映射，可在代码板继续修改`)
       }
       if (result.template_compliance && !result.template_compliance.passed) {
         toast.warning(
@@ -2460,10 +2452,6 @@ export default function WritingPage() {
       setLatexSidecar(result.sidecar)
       setCompileError('')
 
-      toast.success(
-        `局部更新完成：逐字改 ${result.deterministic} 段（未走 AI）/ AI 重写 ${result.regenerated} 段 / 删除 ${result.dropped} 段 / 未动 ${result.untouched} 段`,
-        { duration: 9000 },
-      )
       if (result.notes.length > 0) {
         // 需要人看的说明一条都不藏：回退了 AI 的、被手改过没同步的，都在这里
         toast.warning(result.notes.join('；'), { duration: 15000 })
@@ -2520,7 +2508,6 @@ export default function WritingPage() {
       setShowNewTemplateForm(false)
       setNewTemplateName('')
       setNewTemplateGuidelines('')
-      toast.success('模板已创建，骨架已载入代码板 —— 改完记得「保存回模板」')
     } catch (err) {
       toast.error(`创建失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -2600,7 +2587,6 @@ export default function WritingPage() {
       setShowNewTemplateForm(false)
       setNewTemplateName('')
       setNewTemplateGuidelines('')
-      toast.success('AI 已提取并创建模板，骨架已载入代码板 —— 改完记得「保存回模板」')
     } catch (err) {
       toast.error(`AI 创建失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -2619,7 +2605,6 @@ export default function WritingPage() {
     setLatexCode(existing || buildLatexSkeletonFromTemplate(currentTemplate))
     setLatexSidecar(null) // 代码板换成模板内容，旧块映射作废
     setCompileError('')
-    toast.success(existing ? '已载入模板 LaTeX' : '该模板还没有 LaTeX，已生成可编译骨架')
   }
 
   /** 把代码板内容存回期刊模板（落到 templates/journals/{id}/template.tex） */
@@ -2640,7 +2625,6 @@ export default function WritingPage() {
           t.id === currentTemplate.id ? { ...t, template_tex: latexCode, updated_at: now } : t,
         ),
       )
-      toast.success('已保存回期刊模板')
     } catch (err) {
       toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
     }
@@ -2698,11 +2682,6 @@ export default function WritingPage() {
       setTemplates(list)
       const target = list.find((t) => t.id === targetId)
       if (target) adoptNewTemplate(target)
-      toast.success(
-        overwrite
-          ? `已按 ${file.name} 更新模板`
-          : `已从 ${file.name} 解析并创建模板，原文已载入代码板`,
-      )
     } catch (err) {
       toast.error(`解析失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -2800,10 +2779,6 @@ export default function WritingPage() {
       const info = unpacked
       const review = info.ai_review
       const warnCount = info.warnings?.length || 0
-      toast.success(
-        `已解包「${info.name}」：主模板 ${info.main_tex}，整包 ${info.file_count ?? info.asset_count} 个文件全部保留`,
-        { duration: 8000 },
-      )
       // 复核结论落到「模板复核」面板里逐条列出，让人真能看、能做（而不是丢一句"请过目 meta.md"却没入口）。
       setPackageReview(
         review || warnCount > 0
@@ -2877,11 +2852,9 @@ export default function WritingPage() {
       setLatexSidecar((prev) => (prev ? resyncSidecar(result.latex, prev) : prev))
       setCompileError('')
       setTemplateInstruction('')
-      toast.success(
-        result.reviewPassed === false
-          ? 'AI 已改完，但 AI-2 忠实性核查未完全通过，请核对'
-          : 'AI 已改完，结果在代码板',
-      )
+      if (result.reviewPassed === false) {
+        toast.warning('AI 已改完，但 AI-2 忠实性核查未完全通过，请核对')
+      }
     } catch (err) {
       toast.error(`AI 改代码失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -2922,9 +2895,7 @@ export default function WritingPage() {
         )
       }
       setPackageStatus(parts.join('\n'))
-      if (result.imported.length > 0) {
-        toast.success(`已导入 ${result.imported.length} 个宏包，编译时自动带上`)
-      } else {
+      if (result.imported.length === 0) {
         toast.error('没有导入任何文件')
       }
     } catch (err) {
@@ -3064,7 +3035,6 @@ export default function WritingPage() {
       })
       setPdfObjectUrl(createPdfObjectUrl(result.pdf))
       setCompileStatus(`预览编译完成 · ${result.passes} 趟 XeTeX${result.bibtexRan ? ' + BibTeX' : ''}`)
-      toast.success('预览编译完成')
     } catch (err) {
       const log = getCompileErrorLog(err)
       const raw = log || (err instanceof Error ? err.message : String(err))
@@ -3139,7 +3109,6 @@ export default function WritingPage() {
       )
       setPdfObjectUrl(createPdfObjectUrl(result.pdf))
       setCompileStatus('正式编译完成（官方 TeX Live）')
-      toast.success('正式编译完成')
     } catch (err) {
       setCompileError(err instanceof Error ? err.message : String(err))
       setCompileStatus('')
@@ -5829,7 +5798,6 @@ export default function WritingPage() {
                 onClick={() => {
                   const all = [...citeGate.malformed, ...citeGate.unresolved]
                   navigator.clipboard?.writeText(all.join('\n'))
-                  toast.success(`已复制 ${all.length} 条到剪贴板`)
                 }}
                 className="px-ui-gap py-1.5 text-ui-xs text-ink-600 hover:bg-ink-200 rounded-control transition flex items-center gap-1.5"
               >

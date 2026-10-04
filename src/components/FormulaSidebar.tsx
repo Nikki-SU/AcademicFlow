@@ -271,7 +271,6 @@ export default function FormulaSidebar({
       const cred = await loadSimpleTexCredentials()
       const result = await recognizeFormulaImage(file, cred, ocrModel)
       setTex(result.latex.trim())
-      toast.success('识别完成，看板里就是插入后的效果；不对可在输入框里改')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -343,11 +342,10 @@ export default function FormulaSidebar({
       if (existing) {
         await removeFormulaFavorite(existing.id)
         setFavorites((prev) => prev.filter((f) => f.id !== existing.id))
-        toast.success('已取消收藏')
       } else {
         const ok = await addFormulaFavorite(latex, display)
         setFavorites(await loadFormulaFavorites(true))
-        toast[ok ? 'success' : 'info'](ok ? '已收藏（跨项目可用）' : '这条公式已经在收藏里了')
+        if (!ok) toast.info('这条公式已经在收藏里了')
       }
     } catch (err) {
       toast.error(`收藏失败：${err instanceof Error ? err.message : String(err)}`)
@@ -386,11 +384,6 @@ export default function FormulaSidebar({
       return
     }
     onReplaceAt(editingIndex, tex, kind, global, editOriginalTex)
-    toast.success(
-      global
-        ? `已把全文 ${Math.max(duplicateCount, 1)} 处相同公式一起改掉`
-        : `已更新正文里第 ${editingIndex + 1} 个公式`,
-    )
     resetToCreate()
   }
 
@@ -482,7 +475,6 @@ export default function FormulaSidebar({
   const doDeletePicked = (list: number[]) => {
     onDelete(list)
     setPicked(new Set())
-    toast.success(`已删除 ${list.length} 个公式`)
   }
 
   /**

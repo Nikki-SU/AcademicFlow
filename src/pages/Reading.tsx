@@ -1212,7 +1212,6 @@ export default function ReadingPage() {
         if (addMaterialSelected.has(metaKey('document', d.id))) next = setMeta(next, 'document', d.id, { taskId: currentProjectId })
       }
       await persistMaterialMeta(next)
-      toast.success(`已添加 ${addMaterialSelected.size} 项材料`)
       setShowAddMaterialModal(false)
     } finally {
       setAddMaterialSaving(false)
@@ -1230,7 +1229,6 @@ export default function ReadingPage() {
     setImporting(true)
     try {
       const added = await importMarkdownDocs(usable)
-      toast.success(`已导入 ${added.length} 个文档`)
       await refreshDocuments()
       setShowImportDocModal(false)
       setPasteDoc({ title: '', content: '' })
@@ -1591,7 +1589,6 @@ export default function ReadingPage() {
     setCheckedAnnotationIds((prev) => prev.filter((x) => !idSet.has(x)))
     if (selectedAnnotationId && idSet.has(selectedAnnotationId)) setSelectedAnnotationId(null)
     if (editingAnnotationId && idSet.has(editingAnnotationId)) setEditingAnnotationId(null)
-    toast.success(`已删除 ${ids.length} 条批注`)
   }
 
   const updateAnnotationNote = (id: string, note: string) => {
@@ -2425,7 +2422,6 @@ export default function ReadingPage() {
       }
       exitEditMode()
       setEditReport(built ? built.report : '已保存（这份文件没有块结构，按整篇写入）。')
-      toast.success('已保存到仓库')
     } catch (err) {
       console.error('[Reading] 保存文献失败:', err)
       alert(`保存失败：${(err as any)?.message || err}\n\n可以先别关编辑态，重试一次。`)
