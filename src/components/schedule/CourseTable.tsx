@@ -10,6 +10,8 @@
  * - **一周视图**：表头每天**先日期、后星期**（周一到周日，周末有课 / 调休才出现）。
  * - **调休日**：那一天对应的列**直接上「被跟随周几」的课表**（如 10 号补上周三的课），
  *   表头只点一句「按周三」并可在此移除 —— 不用另贴一条文字条目让人自己脑补。
+ * - **期末周起**：不再展示这门课的「每周课块」（课已上完），但考试等**单次**事项照常显示
+ *   —— 期末周只是课表上不排这门课，任务本身并没过期（过期见校历放假 / 子树最晚子 DDL）。
  * - **DDL 死线**：进了右栏 DDL 的任务（非周期任务、且在一个月内），只在**它到期的那一天**（本周这一天）对应列画一条
  *   **红色粗线**（不再按「周几」每周重画）；默认不写任何文字（不挡课）；悬停或点击才
  *   浮出任务名 + 时间，并让 DDL 清单 / 任务栏里对应条目**亮起**（联动由 Schedule.tsx 的 highlightId 统一驱动）。
@@ -115,6 +117,7 @@ export function CourseTable({
   currentId,
   todayPlan,
   ddls,
+  examWeekStartMs,
   highlightId,
   onHighlight,
   onPickDdl,
@@ -132,6 +135,8 @@ export function CourseTable({
   todayPlan: TodayPlan
   /** 需要交付的 DDL 任务（= 右栏 DDL 那份已筛好的清单）——在课表对应日期画红线 */
   ddls: Project[]
+  /** 校历「期末周开始」当天 00:00 的 Unix ms；0 = 未设。期末周起隐藏每周课块（单次照常） */
+  examWeekStartMs: number
   /** 当前亮起的 DDL 任务 id（课表红线 / DDL 清单 / 任务栏联动） */
   highlightId: string | null
   /** 悬停红线：置亮 / 清除 */
@@ -172,6 +177,10 @@ export function CourseTable({
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 
+  // 期末周起，「每周课块」不再展示（这门课已不用再上）；考试等「单次」事项照常显示。
+  const hiddenByExamWeek = (col: Date | undefined) =>
+    !!col && examWeekStartMs > 0 && col.getTime() >= examWeekStartMs
+
   // 只有**落在本周**的 DDL 才进课表：死线不再按「周几」每周重画，只在到期那天出现
   const weekDdls = useMemo(() => {
     const mon = weekDates.get(1)!
@@ -186,6 +195,8 @@ export function CourseTable({
   const { rangeStart, rangeEnd } = useMemo(() => {
     const mins: number[] = []
     for (const c of courses) {
+      // 期末周起已隐藏的每周课块不参与时间轴范围，避免为「看不见的课」留出空白
+      if (c.repeat !== 'once' && hiddenByExamWeek(weekDates.get(c.weekday))) continue
       const s = timeToMinutes(c.startTime)
       const e = timeToMinutes(c.endTime)
       if (e > 0) mins.push(s, e)
@@ -199,7 +210,7 @@ export function CourseTable({
     let end = Math.ceil(Math.max(...mins) / 60) * 60
     if (end - start < 300) end = start + 300
     return { rangeStart: start, rangeEnd: end }
-  }, [courses, weekDdls])
+  }, [courses, weekDdls, weekDates, examWeekStartMs])
 
   const hourTicks = useMemo(() => {
     const ticks: number[] = []
@@ -218,6 +229,8 @@ export function CourseTable({
         const col = weekDates.get(wd)
         if (col && isSameDay(new Date(`${c.date}T00:00:00`), col)) active.add(wd)
       } else if (c.weekday >= 1 && c.weekday <= 7) {
+        // 期末周起该列不再排每周课，也就不必为一个「空列」把周末撑出来
+        if (hiddenByExamWeek(weekDates.get(c.weekday))) continue
         active.add(c.weekday)
       }
     }
@@ -231,7 +244,7 @@ export function CourseTable({
     const list = [1, 2, 3, 4, 5]
     for (const w of [6, 7]) if (active.has(w)) list.push(w)
     return list
-  }, [courses, extraDays, weekDates])
+  }, [courses, extraDays, weekDates, examWeekStartMs])
 
   // 调休日：日期 → 记录。某一列若是调休日，就改上「被跟随周几」的课表
   const extraByDate = useMemo(() => new Map(extraDays.map((d) => [d.date, d])), [extraDays])
@@ -243,10 +256,13 @@ export function CourseTable({
     const col = weekDates.get(weekday)
     const ed = col ? extraByDate.get(dateKeyOf(col)) : undefined
     const effWeekday = ed ? ed.followWeekday : weekday
+    const hideWeekly = hiddenByExamWeek(col)
     return courses.filter((c) => {
       if (c.repeat === 'once') {
         return !!c.date && !!col && isSameDay(new Date(`${c.date}T00:00:00`), col)
       }
+      // 期末周起不再展示每周课块；考试等单次事项走上面的分支，照常显示
+      if (hideWeekly) return false
       return effWeekday >= 1 && effWeekday <= 7 && c.weekday === effWeekday
     })
   }

@@ -231,13 +231,13 @@ export function resolveToday(
 // 校历（学期开始 / 期末周开始 / 学期结束）
 // -------------------------------------------------
 // 用户要求：加一个校历 —— 这个学期什么时候开学、什么时候进入期末周、什么时候结束。
-// 它是「课程的结束时间」的默认来源：一门课的结束时间 = 期末周第一天（可单门覆盖）。
+// 期末周起课表不再展示「每周课块」（考试等单次事项照常），课程任务的过期默认看「学期结束（放假）」。
 // 落 `schedule/calendar.md`（业务数据只准 md + csv），与课程表同域，换设备即同步。
 // ═════════════════════════════════════════════════════════════════════
 export interface SchoolCalendar {
   /** YYYY-MM-DD，空串 = 未设 */
   semesterStart: string
-  /** YYYY-MM-DD，空串 = 未设；课程的结束时间默认取它 */
+  /** YYYY-MM-DD，空串 = 未设；期末周起课表不再展示「每周课块」 */
   examWeekStart: string
   /** YYYY-MM-DD，空串 = 未设 */
   semesterEnd: string
@@ -288,14 +288,41 @@ export function msOfDate(dateStr: string, endOfDay = false): number {
 }
 
 /**
- * 一个任务的「有效结束时间」—— 判断它是不是 DDL 的唯一标准。
- * - 显式设了 `dueAt` → 就用它；
- * - 否则，如果是「课程」，默认取校历的**期末周第一天**（一门课上到期末周结束）；
- * - 其余 → 0（无结束时间，不是 DDL）。
+ * 全部任务的「有效结束时间」—— 判断它是不是 DDL 的唯一标准（自底向上汇总）。
+ * - 叶子任务：显式设了 `dueAt` → 用它；课程没显式设 → 取校历**学期结束（放假）**；其余 → 0。
+ * - 父任务：取**子树里最晚的子 DDL** 与自身结束时间的**较晚者**；课程还要与校历
+ *   「学期结束（放假）」取较晚。
+ * 为什么不用「期末周第一天」：考试就发生在期末周内，若课程在期末周就到了期，会出现
+ * 「课程父任务已过期、而考试子任务还没过期」的荒谬状态。期末周只是**课表上不再展示这门课**，
+ * 任务本身要到**放假**才过期；若子树里有更晚的子任务（如「下学期之前交论文」），则随它。
  * 不落库、只用于展示与筛选，故改校历能立刻反映到所有课程。
  */
-export function effectiveDueAt(p: Project, cal: SchoolCalendar): number {
-  if (p.dueAt > 0) return p.dueAt
-  if (p.type === 'course' && cal.examWeekStart) return msOfDate(cal.examWeekStart, true)
-  return 0
+export function effectiveDueAtAll(projects: Project[], cal: SchoolCalendar): Map<string, number> {
+  const semesterEndMs = msOfDate(cal.semesterEnd, true)
+  const childrenOf = new Map<string, Project[]>()
+  for (const p of projects) {
+    if (!p.parentId) continue
+    const arr = childrenOf.get(p.parentId)
+    if (arr) arr.push(p)
+    else childrenOf.set(p.parentId, [p])
+  }
+  const memo = new Map<string, number>()
+  const visiting = new Set<string>()
+  const calc = (p: Project): number => {
+    const cached = memo.get(p.projectId)
+    if (cached !== undefined) return cached
+    if (visiting.has(p.projectId)) return 0
+    visiting.add(p.projectId)
+    let val = p.dueAt
+    if (p.type === 'course' && semesterEndMs > val) val = semesterEndMs
+    for (const k of childrenOf.get(p.projectId) ?? []) {
+      const kv = calc(k)
+      if (kv > val) val = kv
+    }
+    visiting.delete(p.projectId)
+    memo.set(p.projectId, val)
+    return val
+  }
+  for (const p of projects) calc(p)
+  return memo
 }

@@ -23,7 +23,7 @@ import {
   loadExtraDays,
   saveExtraDays,
   loadCalendar,
-  effectiveDueAt,
+  effectiveDueAtAll,
   resolveToday,
   weekdayOfDate,
   msOfDate,
@@ -144,19 +144,19 @@ export default function SchedulePage() {
 
   /**
    * 展示用的任务表：把「有效结束时间」写进 dueAt 的**副本**（不改库里的 projects）。
-   * 判定「有没有结束时间」只有一条标准 —— effectiveDueAt：
-   * - 任务显式设了截止时间 → 用它；
-   * - 课程没显式设 → 默认用校历的「期末周第一天」（一门课上到期末周结束）。
+   * 判定「有没有结束时间」只有一条标准 —— effectiveDueAtAll（自底向上汇总）：
+   * - 叶子任务：显式设了截止时间 → 用它；课程没设 → 取校历「学期结束（放假）」。
+   * - 父任务：取**子树里最晚的子 DDL** 与自身结束时间的较晚者；课程再与校历放假取较晚。
+   * 这样「课程在期末周到期、而考试子任务还没到期」的矛盾不再出现。
    * 注意：有结束时间 ≠ 进右栏 DDL —— 课程 / 每周定时这类周期任务会被 ddlItems 再滤掉。
    */
-  const displayProjects = useMemo(
-    () =>
-      projects.map((p) => {
-        const eff = effectiveDueAt(p, calendar)
-        return eff === p.dueAt ? p : { ...p, dueAt: eff }
-      }),
-    [projects, calendar],
-  )
+  const displayProjects = useMemo(() => {
+    const effMap = effectiveDueAtAll(projects, calendar)
+    return projects.map((p) => {
+      const eff = effMap.get(p.projectId) ?? p.dueAt
+      return eff === p.dueAt ? p : { ...p, dueAt: eff }
+    })
+  }, [projects, calendar])
 
   /**
    * 「周期任务」= 挂了每周重复时段的任务（加课生成的课程、每周定时的组会等）。
@@ -644,6 +644,7 @@ export default function SchedulePage() {
               currentId={currentId}
               todayPlan={todayPlan}
               ddls={ddlItems}
+              examWeekStartMs={msOfDate(calendar.examWeekStart)}
               highlightId={highlightDdlId}
               onHighlight={setHoverDdlId}
               onPickDdl={togglePickDdl}
