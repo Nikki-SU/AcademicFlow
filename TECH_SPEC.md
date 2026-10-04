@@ -590,10 +590,12 @@ Markdown 结构化配置，示例：
 - 目标期刊 RSS（用户在关键词组设置里可勾选期刊白名单）
 
 **关键词表达式引擎**：
-- 用户在设置界面写形如 `(perovskite OR "wide bandgap") AND (tandem OR stability) NOT dye` 的表达式。
-- 前端解析为中间 AST。
-- 每个数据源 adapter 决定"下推多少到服务端 + 剩多少留本地"。
-- 本地筛选走标题 + 摘要 + 作者关键词的正则/词形匹配（英文用 lemmatization，中文用 jieba 或类似）。
+- 用户在设置界面写形如 `(perovskite OR "wide bandgap") AND (tandem OR stability) NOT dye` 的表达式（前端以「标签 + 运算符下拉」拼装，实时预览 + 结构校验）。
+- 语法：`expr := or`；`or := and (OR and)*`；`and := not (AND? not)*`；`not := NOT not | atom`；`atom := '(' expr ')' | 词`。运算符大写，**相邻词默认 AND**，含空格 / 括号的词用双引号短语。
+- **命中语义（AND）**：`命中任一期刊` **AND** `满足关键词表达式`；**只配一侧就只按那一侧追**（只配期刊→逐刊全收，只配关键词→关键词检索）。多个关键词组之间为 **OR**（满足任一组即可），组内才是 AND/OR/NOT。
+- **求值在每日追踪脚本本地完成**（`daily_tracking.py` 的 `evaluate_expression`）：OpenAlex 原生不支持布尔表达式，交由其服务端只会让语义不可控；期刊阶段先按 ISSN 拉全刊、再对「标题+摘要+关键词」本地跑表达式（不命中即丢弃，即 AND 的落点），关键词-only 阶段先用宽 OR 查询粗召回、再本地精筛。
+- 本地筛选走标题 + 摘要 + 作者关键词的规范化匹配（英文按词边界 + 词形匹配，中文做等价切分）。
+- 若要接入新的数据源（CrossRef / arXiv / RSS），adapter 各自决定「下推多少到服务端 + 剩多少留本地」，**布尔语义一律以本地求值为准**。
 
 **调度**：
 - 每日 08:00（可改）由 GitHub Actions 触发 `daily-tracking.yml`

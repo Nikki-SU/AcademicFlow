@@ -55,6 +55,13 @@ import {
 } from '../services/trackingData'
 import { dispatchDailyTracking, waitForDailyTracking } from '../services/workflowClient'
 import { resolveJournals, findJournalRss, type JournalCandidate } from '../services/journalResolve'
+import {
+  parseExpression,
+  serializeExpression,
+  expressionTerms,
+  validateExpression,
+  type ExprToken,
+} from '../services/keywordGroupData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 
@@ -65,7 +72,8 @@ import { useAuthStore } from '../stores/auth'
 interface KeywordGroup {
   id: string
   name: string
-  keywords: string[]
+  /** 后端列 expression：关键词布尔表达式（AND / OR / NOT + 括号），由标签序列拼装 */
+  expression: string
   enabled: boolean
   /** 后端列 translate_abstract（前端暂未暴露开关，读取时保留原值） */
   translateAbstract: boolean
@@ -148,8 +156,10 @@ export default function TrackingPage() {
   const [showKeywordModal, setShowKeywordModal] = useState(false)
   const [editingKeywordGroup, setEditingKeywordGroup] = useState<KeywordGroup | null>(null)
   const [keywordFormName, setKeywordFormName] = useState('')
-  const [keywordFormKeywords, setKeywordFormKeywords] = useState<string[]>([])
+  const [keywordFormTokens, setKeywordFormTokens] = useState<ExprToken[]>([])
   const [keywordInput, setKeywordInput] = useState('')
+  /** 关键词编辑弹窗里的「运算符」下拉是否展开 */
+  const [showKeywordOperatorMenu, setShowKeywordOperatorMenu] = useState(false)
 
   // ---------- 期刊 ----------
   const [journals, setJournals] = useState<JournalItem[]>([])
@@ -234,8 +244,8 @@ export default function TrackingPage() {
             return rows.slice(1).map((r) => ({
               id: r[0] || '',
               name: r[1] || '',
-              // expression 是给 OpenAlex 的检索式：空格或逗号分隔都认
-              keywords: (r[2] || '').split(/[,\s]+/).filter(Boolean),
+              // expression 是布尔检索式（AND / OR / NOT + 括号），原样保留交给后端求值
+              expression: r[2] || '',
               enabled: r[3] === '1' || r[3] === 'true',
               translateAbstract: r[4] === '1' || r[4] === 'true',
               createdAt: parseInt(r[5] || '0', 10) || 0,
@@ -346,7 +356,7 @@ export default function TrackingPage() {
           (g) => [
             g.id,
             g.name,
-            g.keywords.join(' '),
+            g.expression,
             g.enabled ? 'true' : 'false',
             g.translateAbstract ? 'true' : 'false',
             String(g.createdAt || Date.now()),
@@ -491,16 +501,18 @@ export default function TrackingPage() {
   const openAddKeywordGroup = () => {
     setEditingKeywordGroup(null)
     setKeywordFormName('')
-    setKeywordFormKeywords([])
+    setKeywordFormTokens([])
     setKeywordInput('')
+    setShowKeywordOperatorMenu(false)
     setShowKeywordModal(true)
   }
 
   const openEditKeywordGroup = (group: KeywordGroup) => {
     setEditingKeywordGroup(group)
     setKeywordFormName(group.name)
-    setKeywordFormKeywords([...group.keywords])
+    setKeywordFormTokens(parseExpression(group.expression))
     setKeywordInput('')
+    setShowKeywordOperatorMenu(false)
     setShowKeywordModal(true)
   }
 
@@ -509,16 +521,19 @@ export default function TrackingPage() {
       toast.error('请输入关键词组名称')
       return
     }
-    if (keywordFormKeywords.length === 0) {
-      toast.error('请至少添加一个关键词')
+    // 先约束：表达式结构非法直接拦下，不让「看起来像结果其实是垃圾」的式子进库
+    const exprError = validateExpression(keywordFormTokens)
+    if (exprError) {
+      toast.error(exprError)
       return
     }
+    const expression = serializeExpression(keywordFormTokens)
 
     if (editingKeywordGroup) {
       setKeywordGroups((prev) =>
         prev.map((g) =>
           g.id === editingKeywordGroup.id
-            ? { ...g, name: keywordFormName.trim(), keywords: keywordFormKeywords }
+            ? { ...g, name: keywordFormName.trim(), expression }
             : g,
         ),
       )
@@ -526,7 +541,7 @@ export default function TrackingPage() {
       const newGroup: KeywordGroup = {
         id: generateId(),
         name: keywordFormName.trim(),
-        keywords: keywordFormKeywords,
+        expression,
         enabled: true,
         translateAbstract: false,
         createdAt: Date.now(),
@@ -570,18 +585,32 @@ export default function TrackingPage() {
   }
 
   const addKeywordTag = () => {
-    const kw = keywordInput.trim()
+    // 去掉会破坏表达式语法的引号 / 括号（后端按裸词或双引号短语解析）
+    const kw = keywordInput.trim().replace(/["()]/g, '').trim()
     if (!kw) return
-    if (keywordFormKeywords.includes(kw)) {
+    if (expressionTerms(keywordFormTokens).some((t) => t.toLowerCase() === kw.toLowerCase())) {
       toast.error('该关键词已存在')
       return
     }
-    setKeywordFormKeywords((prev) => [...prev, kw])
+    setKeywordFormTokens((prev) => {
+      const last = prev[prev.length - 1]
+      // 前一个 token 是关键词 / 右括号时，补一个显式 AND（相邻词默认 AND）
+      const needAnd = !!last && (last.kind === 'term' || (last.kind === 'op' && last.value === ')'))
+      return needAnd
+        ? [...prev, { kind: 'op', value: 'AND' }, { kind: 'term', value: kw }]
+        : [...prev, { kind: 'term', value: kw }]
+    })
+    setKeywordInput('')
+  }
+
+  /** 运算符下拉：把 AND / OR / NOT / 括号追加到表达式末尾 */
+  const appendKeywordOperator = (op: 'AND' | 'OR' | 'NOT' | '(' | ')') => {
+    setKeywordFormTokens((prev) => [...prev, { kind: 'op', value: op }])
     setKeywordInput('')
   }
 
   const removeKeywordTag = (index: number) => {
-    setKeywordFormKeywords((prev) => prev.filter((_, i) => i !== index))
+    setKeywordFormTokens((prev) => prev.filter((_, i) => i !== index))
   }
 
   // ============================================================
@@ -1774,13 +1803,19 @@ export default function TrackingPage() {
                         </button>
                       </div>
                     </div>
-                    {group.keywords.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1 pl-9">
-                        {group.keywords.map((kw, idx) => (
-                          <span key={idx} className="rounded-full bg-seal-50 px-1.5 py-0.5 text-ui-2xs text-seal-600">
-                            {kw}
-                          </span>
-                        ))}
+                    {group.expression.trim() && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-9">
+                        {parseExpression(group.expression).map((t, idx) =>
+                          t.kind === 'term' ? (
+                            <span key={idx} className="rounded-full bg-seal-50 px-1.5 py-0.5 text-ui-2xs text-seal-600">
+                              {t.value}
+                            </span>
+                          ) : (
+                            <span key={idx} className="text-ui-2xs font-medium text-ink-400">
+                              {t.value}
+                            </span>
+                          ),
+                        )}
                       </div>
                     )}
                   </div>
@@ -1983,41 +2018,96 @@ export default function TrackingPage() {
               </div>
               <div>
                 <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
-                  关键词
+                  关键词表达式
                 </label>
-                {keywordFormKeywords.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 border border-ink-200 rounded-control bg-paper-100 min-h-10">
-                    {keywordFormKeywords.map((kw, idx) => (
+                {/* 标签区：关键词 / 运算符 / 括号均可点 × 删除 */}
+                <div className="mb-2 flex min-h-10 flex-wrap items-center gap-1.5 rounded-control border border-ink-200 bg-paper-100 p-2">
+                  {keywordFormTokens.length === 0 && (
+                    <span className="px-1 text-ui-xs text-ink-400">先添加关键词，再用「运算符」插入 AND / OR / NOT</span>
+                  )}
+                  {keywordFormTokens.map((t, idx) =>
+                    t.kind === 'term' ? (
                       <span
                         key={idx}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-seal-100 text-seal-700 text-ui-xs rounded-full"
+                        className="inline-flex items-center gap-1 rounded-full bg-seal-100 px-2 py-0.5 text-ui-xs text-seal-700"
                       >
-                        {kw}
-                        <button
-                          onClick={() => removeKeywordTag(idx)}
-                          className="hover:text-seal-900"
-                        >
+                        {t.value}
+                        <button onClick={() => removeKeywordTag(idx)} className="hover:text-seal-900">
                           <X className="w-3 h-3" />
                         </button>
                       </span>
-                    ))}
+                    ) : (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 rounded-full bg-ink-200 px-2 py-0.5 text-ui-xs font-medium text-ink-600"
+                      >
+                        {t.value}
+                        <button onClick={() => removeKeywordTag(idx)} className="hover:text-ink-800">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ),
+                  )}
+                </div>
+                {/* 输入行：关键词输入 + 添加 + 运算符下拉 */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={keywordInput}
+                    onChange={(e) => setKeywordInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addKeywordTag()
+                      }
+                    }}
+                    placeholder="输入关键词后按回车添加"
+                    className="flex-1 rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  />
+                  <button
+                    onClick={addKeywordTag}
+                    className="rounded-control bg-seal-50 px-ui-gap py-2 text-ui-sm font-medium text-seal-700 transition hover:bg-seal-100"
+                  >
+                    添加
+                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowKeywordOperatorMenu((v) => !v)}
+                      className="inline-flex items-center gap-1 rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
+                    >
+                      运算符
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                    {showKeywordOperatorMenu && (
+                      <div className="absolute right-0 z-10 mt-1 w-24 rounded-control border border-ink-200 bg-paper-50 py-1 shadow-lg">
+                        {(['AND', 'OR', 'NOT', '(', ')'] as const).map((op) => (
+                          <button
+                            key={op}
+                            onClick={() => {
+                              appendKeywordOperator(op)
+                              setShowKeywordOperatorMenu(false)
+                            }}
+                            className="block w-full px-3 py-1.5 text-left text-ui-sm text-ink-700 transition hover:bg-seal-50"
+                          >
+                            {op}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
+                </div>
+                {/* 实时预览 + 结构校验：非法立即提示，不让「看着像结果」的式子进库 */}
+                {keywordFormTokens.length > 0 && (
+                  <p className="mt-1.5 text-ui-xs">
+                    <span className="text-ink-400">预览：</span>
+                    <span className="text-ink-700">{serializeExpression(keywordFormTokens)}</span>
+                    {validateExpression(keywordFormTokens) && (
+                      <span className="ml-2 text-red-500">{validateExpression(keywordFormTokens)}</span>
+                    )}
+                  </p>
                 )}
-                <input
-                  type="text"
-                  value={keywordInput}
-                  onChange={(e) => setKeywordInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      addKeywordTag()
-                    }
-                  }}
-                  placeholder="输入关键词后按回车添加"
-                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-                />
-                <p className="text-ui-xs text-ink-400 mt-1.5">
-                  输入关键词后按 Enter 添加，点击标签上的 × 删除
+                <p className="mt-1.5 text-ui-xs text-ink-400">
+                  相邻关键词默认「且（AND）」；用运算符下拉插入 AND / OR / NOT 与括号组合多个条件
                 </p>
               </div>
             </div>

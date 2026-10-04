@@ -263,6 +263,7 @@ AcademicFlow Daily Tracking Script
 """
 
 import csv
+import re
 import sys
 import time
 import requests
@@ -551,6 +552,162 @@ def write_log(date_str, group_results, journal_results):
     print(f"[INFO] 日志已写入: {log_path}")
 
 
+# ============================================================
+# 关键词布尔表达式：AND / OR / NOT（+ 括号），本地求值
+# ============================================================
+# 语法（运算符须大写，与前端「标签 + 运算符下拉」的序列化一致）：
+#   expr := or
+#   or   := and ( OR and )*
+#   and  := not ( AND? not )*      # 相邻词之间省略 AND 也视为 AND
+#   not  := NOT not | atom
+#   atom := '(' expr ')' | TERM
+# TERM 为不含空白 / 括号 / 引号的裸词，或双引号包裹的短语。
+# OpenAlex 的 search 虽也认 AND/OR/NOT，但此处一律**本地求值**，
+# 以保证结果确定、不随上游分词策略漂移。
+
+
+def tokenize_expression(expr):
+    """把表达式切成 token：'(' / ')' / ('OP','AND'|'OR'|'NOT') / ('TERM', 文本)"""
+    tokens = []
+    i = 0
+    n = len(expr)
+    while i < n:
+        ch = expr[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch == "(":
+            tokens.append("(")
+            i += 1
+            continue
+        if ch == ")":
+            tokens.append(")")
+            i += 1
+            continue
+        if ch == '"':
+            j = i + 1
+            buf = []
+            while j < n and expr[j] != '"':
+                buf.append(expr[j])
+                j += 1
+            tokens.append(("TERM", "".join(buf).strip()))
+            i = j + 1
+            continue
+        j = i
+        buf = []
+        while j < n and (not expr[j].isspace()) and expr[j] not in '()"':
+            buf.append(expr[j])
+            j += 1
+        word = "".join(buf)
+        if word in ("AND", "OR", "NOT"):
+            tokens.append(("OP", word))
+        else:
+            tokens.append(("TERM", word))
+        i = j
+    return tokens
+
+
+def expression_terms(expr):
+    """提取表达式里的全部关键词（仅关键词模式据此构造广搜 OR 查询）"""
+    return [t[1] for t in tokenize_expression(expr) if t[0] == "TERM" and t[1]]
+
+
+def build_broad_query(expr):
+    """把表达式放宽成「任一词命中」的 OR 查询交给上游取超集，再本地精筛"""
+    terms = expression_terms(expr)
+    if not terms:
+        return ""
+    parts = []
+    for t in terms:
+        parts.append('"' + t + '"' if " " in t else t)
+    return " OR ".join(parts)
+
+
+def term_matches(term, text):
+    """关键词在文本里按词边界匹配，多词短语允许任意空白间隔"""
+    term = term.strip().lower()
+    if not term:
+        return False
+    parts = [re.escape(w) for w in term.split()]
+    core = r"\\s+".join(parts)
+    if parts and parts[0][0].isalnum():
+        core = r"(?<![a-z0-9])" + core
+    if parts and parts[-1][-1].isalnum():
+        core = core + r"(?![a-z0-9])"
+    return re.search(core, text) is not None
+
+
+def evaluate_expression(expr, text):
+    """在 text（已小写）上按 NOT > AND > OR 求值；解析失败一律返回 False（不猜）"""
+    tokens = tokenize_expression(expr)
+    pos = 0
+
+    def peek():
+        return tokens[pos] if pos < len(tokens) else None
+
+    def parse_or():
+        nonlocal pos
+        val = parse_and()
+        while peek() == ("OP", "OR"):
+            pos += 1
+            rhs = parse_and()
+            val = val or rhs
+        return val
+
+    def parse_and():
+        nonlocal pos
+        val = parse_not()
+        while True:
+            tok = peek()
+            if tok == ("OP", "AND"):
+                pos += 1
+                rhs = parse_not()
+                val = rhs and val
+            elif tok == "(" or tok == ("OP", "NOT") or (isinstance(tok, tuple) and tok[0] == "TERM"):
+                rhs = parse_not()
+                val = rhs and val
+            else:
+                return val
+
+    def parse_not():
+        nonlocal pos
+        if peek() == ("OP", "NOT"):
+            pos += 1
+            return not parse_not()
+        return parse_atom()
+
+    def parse_atom():
+        nonlocal pos
+        tok = peek()
+        if tok == "(":
+            pos += 1
+            val = parse_or()
+            if peek() == ")":
+                pos += 1
+            return val
+        if isinstance(tok, tuple) and tok[0] == "TERM":
+            pos += 1
+            return term_matches(tok[1], text)
+        return False
+
+    try:
+        result = parse_or()
+        if pos != len(tokens):
+            return False
+        return result
+    except Exception:
+        return False
+
+
+def paper_text(paper):
+    """候选文献用于本地表达式匹配的文本（标题 + 英文摘要 + 概念关键词）"""
+    return " ".join([
+        paper.get("title", "") or "",
+        paper.get("abstract_en", "") or "",
+        paper.get("keywords", "") or "",
+    ]).lower()
+
+
 def main():
     print("=" * 60)
     print("AcademicFlow Daily Tracking")
@@ -563,8 +720,8 @@ def main():
 
     print(f"[INFO] 追踪日期范围: {from_date} ~ {to_date}")
 
-    # 加载关键词组 + 期刊
-    groups = load_keyword_groups()
+    # 加载关键词组（丢弃空表达式）+ 期刊
+    groups = [g for g in load_keyword_groups() if (g.get("expression") or "").strip()]
     journals = load_journals()
     print(f"[INFO] 已启用的关键词组: {len(groups)} 个")
     print(f"[INFO] 已启用的期刊: {len(journals)} 个")
@@ -576,90 +733,123 @@ def main():
     existing_dois = load_seen_dois()
     print(f"[INFO] 已见过的 DOI 数: {len(existing_dois)}")
 
-    group_results = []
+    has_keywords = len(groups) > 0
+    has_journals = len(journals) > 0
+
+    # 命中语义：
+    #   期刊侧 = 命中「任一」期刊即可（OR）
+    #   关键词侧 = 满足「任一」关键词组表达式即可（组间 OR；组内 AND/OR/NOT）
+    #   两侧都配了 = 必须（期刊命中）AND（关键词命中）
+    #   只配一侧 = 只按那一侧追
+    def match_group(text):
+        for g in groups:
+            if evaluate_expression(g["expression"], text):
+                return g
+        return None
+
+    group_results = [{
+        "id": g["id"],
+        "name": g["name"],
+        "expression": g["expression"],
+        "total_found": 0,
+        "new_papers": [],
+    } for g in groups]
     journal_results = []
-    all_new_papers = []
+    accepted = []  # {paper, journal_name, group_name}
 
-    # ---------- 逐组搜索关键词 ----------
-    for grp in groups:
-        print(f"\\n[INFO] 搜索关键词组: {grp['name']}")
-        print(f"       表达式: {grp['expression']}")
+    # ---------- ① 逐刊搜索（配了期刊必跑：AND 的期刊侧 / 仅期刊模式的主查询）----------
+    if has_journals:
+        for jrn in journals:
+            issn = jrn["issn"] or resolve_issn_by_name(jrn["name"])
+            if not issn:
+                print(f"[WARN] 无法确定 ISSN，跳过期刊: {jrn['name']}")
+                journal_results.append({
+                    "id": jrn["id"], "name": jrn["name"], "issn": "",
+                    "total_found": 0, "new_papers": [],
+                })
+                continue
 
-        works = search_openalex(grp["expression"], from_date, to_date)
-        print(f"       检索到: {len(works)} 篇")
-
-        new_papers = []
-        for work in works:
-            paper = openalex_to_literature(work, grp["name"])
-            doi = paper["doi"].strip().lower()
-            if doi and doi not in existing_dois:
-                existing_dois.add(doi)
-                new_papers.append(paper)
-
-        print(f"       新增: {len(new_papers)} 篇")
-
-        group_results.append({
-            "id": grp["id"],
-            "name": grp["name"],
-            "expression": grp["expression"],
-            "total_found": len(works),
-            "new_papers": new_papers,
-        })
-        all_new_papers.extend(new_papers)
-
-        # OpenAlex 礼貌等待
-        time.sleep(0.5)
-
-    # ---------- 逐刊搜索（按 ISSN） ----------
-    for jrn in journals:
-        print(f"\\n[INFO] 追踪期刊: {jrn['name']}")
-
-        issn = jrn["issn"]
-        if not issn:
-            issn = resolve_issn_by_name(jrn["name"])
-            if issn:
-                print(f"       未填 ISSN，已按刊名解析到: {issn}")
-
-        if not issn:
-            print("       [WARN] 无法确定 ISSN，跳过该期刊（请在追踪页补全）。")
+            print(f"\\n[INFO] 追踪期刊: {jrn['name']}")
+            works = search_openalex_journal(issn, from_date, to_date, per_page=200)
+            print(f"       检索到: {len(works)} 篇")
             journal_results.append({
-                "id": jrn["id"],
-                "name": jrn["name"],
-                "issn": "",
-                "total_found": 0,
-                "new_papers": [],
+                "id": jrn["id"], "name": jrn["name"], "issn": issn,
+                "total_found": len(works), "new_papers": [],
             })
+
+            for work in works:
+                paper = openalex_to_literature(work, f"期刊：{jrn['name']}")
+                group = None
+                if has_keywords:
+                    group = match_group(paper_text(paper))
+                    if not group:
+                        continue  # 配了关键词：期刊命中之后还必须关键词命中（AND）
+                if group:
+                    for r in group_results:
+                        if r["name"] == group["name"]:
+                            r["total_found"] += 1
+                            break
+                accepted.append({
+                    "paper": paper,
+                    "journal_name": jrn["name"],
+                    "group_name": group["name"] if group else None,
+                })
+
+            # OpenAlex 礼貌等待
+            time.sleep(0.5)
+
+    # ---------- ② 逐组搜索关键词（只配关键词、未配期刊时）----------
+    if has_keywords and not has_journals:
+        for grp in groups:
+            query = build_broad_query(grp["expression"])
+            if not query:
+                continue
+            print(f"\\n[INFO] 搜索关键词组: {grp['name']}")
+            print(f"       表达式: {grp['expression']}")
+            works = search_openalex(query, from_date, to_date, per_page=200)
+            print(f"       检索到: {len(works)} 篇")
+
+            for r in group_results:
+                if r["id"] == grp["id"]:
+                    r["total_found"] = len(works)
+                    break
+
+            for work in works:
+                paper = openalex_to_literature(work, grp["name"])
+                if evaluate_expression(grp["expression"], paper_text(paper)):
+                    accepted.append({
+                        "paper": paper,
+                        "journal_name": None,
+                        "group_name": grp["name"],
+                    })
+
+            # OpenAlex 礼貌等待
+            time.sleep(0.5)
+
+    # ---------- ③ 去重 + 归集（填日志计数）----------
+    new_papers = []
+    for item in accepted:
+        paper = item["paper"]
+        doi = paper["doi"].strip().lower()
+        if not doi or doi in existing_dois:
             continue
-
-        works = search_openalex_journal(issn, from_date, to_date)
-        print(f"       检索到: {len(works)} 篇")
-
-        new_papers = []
-        for work in works:
-            paper = openalex_to_literature(work, f"期刊：{jrn['name']}")
-            doi = paper["doi"].strip().lower()
-            if doi and doi not in existing_dois:
-                existing_dois.add(doi)
-                new_papers.append(paper)
-
-        print(f"       新增: {len(new_papers)} 篇")
-
-        journal_results.append({
-            "id": jrn["id"],
-            "name": jrn["name"],
-            "issn": issn,
-            "total_found": len(works),
-            "new_papers": new_papers,
-        })
-        all_new_papers.extend(new_papers)
-
-        # OpenAlex 礼貌等待
-        time.sleep(0.5)
+        existing_dois.add(doi)
+        new_papers.append(paper)
+        if item["group_name"]:
+            for r in group_results:
+                if r["name"] == item["group_name"]:
+                    r["new_papers"].append(paper)
+                    break
+        if item["journal_name"]:
+            for r in journal_results:
+                if r["name"] == item["journal_name"]:
+                    r["new_papers"].append(paper)
+                    break
 
     # 写入「候选」（筛选制：等用户在追踪页裁决，**不直接进文献库**）
-    if all_new_papers:
-        print(f"\\n[INFO] 共 {len(all_new_papers)} 篇候选，写入 tracking/inbox.csv ...")
-        append_candidates(all_new_papers)
+    if new_papers:
+        print(f"\\n[INFO] 共 {len(new_papers)} 篇候选，写入 tracking/inbox.csv ...")
+        append_candidates(new_papers)
     else:
         print("\\n[INFO] 没有新的候选文献。")
 
