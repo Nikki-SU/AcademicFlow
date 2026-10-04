@@ -43,6 +43,7 @@ const README_MD = `# academicflow-workspace
 - \`projects/projects.csv\` — 项目索引
 - \`schedule/courses.csv\` — 课程表
 - \`schedule/extra_days.csv\` — 调休日
+- \`tracking/plans.csv\` — 定时追踪计划（时间规则 + 期刊 + 关键词）
 - \`settings/global.md\` — 全局设置
 - \`settings/learning_progress.md\` — 学习进度
 - \`settings/search_sites.csv\` — 搜索源配置
@@ -118,6 +119,13 @@ const CSV_HEADERS = {
   // ⚠️ 必须与 src/services/trackingData.ts 的 TRACKING_INBOX_HEADERS 逐字一致（顺序也一致）：
   //    这是「追踪候选」表——后端每日追踪把命中的文献写这里，前端据此裁决（入库 / 忽略）。
   tracking_inbox: 'doi,title,journal,year,authors,keywords,abstract_en,source,tracking_group,found_at,status',
+  // ⚠️ 必须与 src/services/trackingPlanData.ts 的 TRACKING_PLAN_HEADERS 逐字一致（顺序也一致）：
+  //    定时追踪计划表。一个计划 = 时间规则 + 多个期刊（组内 OR）+ 一个关键词表达式。
+  //    interval ∈ daily|weekly|biweekly|monthly；hour/minute 为北京时间；
+  //    weekdays 为 1-7（周一=1，weekly/biweekly 用）；day_of_month 为 1-28（monthly 用）；
+  //    journal_ids 为期刊 id 的逗号分隔（OR）；expression 为该计划自己的布尔表达式（可自定义）；
+  //    last_run_date 由后端回写（YYYY-MM-DD），用于到期判断。
+  tracking_plans: 'plan_id,plan_name,enabled,interval,hour,minute,weekdays,day_of_month,journal_ids,expression,translate_abstract,last_run_date,created_at',
   // ⚠️ 必须与 src/services/materialMeta.ts 的 MATERIAL_META_HEADERS 逐字一致（顺序也一致）：
   //    材料元数据（任务归属 + 标签）。task_id 空串 = 未归属；tags 用「;」分隔。
   material_meta: 'material_type,material_id,task_id,tags',
@@ -194,13 +202,13 @@ const SAMPLE_CSL = `<?xml version="1.0" encoding="utf-8"?>
 </style>
 `
 
-const DAILY_TRACKING_YML = `# AcademicFlow daily tracking workflow
+const DAILY_TRACKING_YML_TEMPLATE = `# AcademicFlow daily tracking workflow
 name: Daily Tracking
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+__TRACKING_CRON_LINES__
 
 jobs:
   track:
@@ -225,6 +233,8 @@ jobs:
       - name: Run daily tracking
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          # 触发源：schedule → 走「定时计划」路径；workflow_dispatch → 走「立即追踪」路径
+          TRIGGER_EVENT: \${{ github.event_name }}
         run: |
           python .github/scripts/daily_tracking.py
 
@@ -241,6 +251,27 @@ jobs:
             echo "No changes from daily tracking."
           fi
 `
+
+/**
+ * 渲染 daily-tracking.yml 的 schedule（按启用计划实际用到的「日子 + 时刻」动态排 cron）。
+ *
+ * crons 为 UTC 的**完整 5 段 cron**（来自 planCronSpecs，已去重、已排序）；
+ * 传空数组 = 没有任何启用的定时计划 → 不排任何 cron（零调度、零空跑）。
+ *
+ * 为什么不写死固定 cron：固定每日拉起会让「今天没有任何计划到期」的日子也白跑一个 job，
+ * 白烧 Actions 额度。动态 cron 把「日」（每周星期几 / 每月几号）也排进去，
+ * 让 monthly / weekly 计划只在真正需要的日子触发；是否真跑，再由脚本内的
+ * 到期探针（is_plan_due）二次判断——探针不通过就直接退出、不发任何网络请求。
+ */
+export function buildDailyTrackingYml(crons: string[]): string {
+  const lines = crons.length
+    ? crons.map((c) => `    - cron: '${c}'`).join('\n')
+    : '    # 当前没有启用的定时计划 —— 不排任何 cron，避免空跑'
+  return DAILY_TRACKING_YML_TEMPLATE.replace('__TRACKING_CRON_LINES__', lines)
+}
+
+/** 默认（无计划）版本：仓库初始化 / 重装后端时写入，随后由前端按计划重写 */
+export const DAILY_TRACKING_YML = buildDailyTrackingYml([])
 
 const DAILY_TRACKING_SCRIPT = `#!/usr/bin/env python3
 """
@@ -263,11 +294,14 @@ AcademicFlow Daily Tracking Script
 """
 
 import csv
+import os
 import re
 import sys
 import time
+import xml.etree.ElementTree as ET
 import requests
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -275,6 +309,7 @@ LITERATURES_CSV = BASE_DIR / "literatures" / "literatures.csv"
 KEYWORD_GROUPS_CSV = BASE_DIR / "keyword_groups" / "keyword_groups.csv"
 JOURNALS_CSV = BASE_DIR / "journals" / "journal_tracking.csv"
 INBOX_CSV = BASE_DIR / "tracking" / "inbox.csv"
+PLANS_CSV = BASE_DIR / "tracking" / "plans.csv"
 LOGS_DIR = BASE_DIR / "logs" / "tracking"
 
 OPENALEX_API = "https://api.openalex.org/works"
@@ -302,8 +337,8 @@ def load_keyword_groups():
     return groups
 
 
-def load_journals():
-    """从 CSV 加载启用的期刊追踪项（issn 允许为空）"""
+def _read_journals_raw():
+    """读 journals/journal_tracking.csv 的全部行（不按 enabled 过滤）"""
     journals = []
     if not JOURNALS_CSV.exists():
         print(f"[WARN] 期刊追踪文件不存在: {JOURNALS_CSV}")
@@ -312,13 +347,93 @@ def load_journals():
     with open(JOURNALS_CSV, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            if row.get("enabled", "").strip().lower() in ("true", "1", "yes"):
-                journals.append({
-                    "id": row.get("id", ""),
-                    "name": (row.get("name", "") or "").strip(),
-                    "issn": (row.get("issn", "") or "").strip(),
-                })
+            journals.append({
+                "id": row.get("id", ""),
+                "name": (row.get("name", "") or "").strip(),
+                "issn": (row.get("issn", "") or "").strip(),
+                "rss_url": (row.get("rss_url", "") or "").strip(),
+                "enabled": row.get("enabled", "").strip().lower() in ("true", "1", "yes"),
+            })
     return journals
+
+
+def load_journals():
+    """立即追踪用：仅「已启用」的期刊（rss_url 允许为空）"""
+    return [j for j in _read_journals_raw() if j["enabled"]]
+
+
+def load_all_journals():
+    """定时计划用：按 id 索引**全部**期刊。
+    计划里的期刊是显式选择（计划本身即用户意图），不再受全局启用开关影响。"""
+    return {j["id"]: j for j in _read_journals_raw() if j["id"]}
+
+
+# 计划表列契约（必须与前端 src/services/trackingPlanData.ts 的
+# TRACKING_PLAN_HEADERS 逐字一致、顺序一致；新列一律追加在末尾）
+PLAN_HEADERS = [
+    "plan_id", "plan_name", "enabled", "interval", "hour", "minute",
+    "weekdays", "day_of_month", "journal_ids", "expression",
+    "translate_abstract", "last_run_date", "created_at",
+]
+
+
+def _safe_int(v, lo, hi, default):
+    try:
+        n = int(str(v).strip())
+    except (TypeError, ValueError):
+        return default
+    return min(max(n, lo), hi)
+
+
+def _split_ids(v):
+    return [x for x in re.split(r"[,\\s]+", (v or "").strip()) if x]
+
+
+def load_plans():
+    """加载「启用」的定时追踪计划（结构化）"""
+    plans = []
+    if not PLANS_CSV.exists():
+        return plans
+    with open(PLANS_CSV, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if (row.get("enabled", "") or "").strip().lower() not in ("true", "1", "yes"):
+                continue
+            weekdays = [int(x) for x in _split_ids(row.get("weekdays")) if x.isdigit()]
+            plans.append({
+                "plan_id": (row.get("plan_id", "") or "").strip(),
+                "plan_name": (row.get("plan_name", "") or "").strip(),
+                "interval": (row.get("interval", "") or "daily").strip() or "daily",
+                "hour": _safe_int(row.get("hour"), 0, 23, 9),
+                "minute": _safe_int(row.get("minute"), 0, 59, 0),
+                "weekdays": weekdays,
+                "day_of_month": _safe_int(row.get("day_of_month"), 1, 28, 1),
+                "journal_ids": _split_ids(row.get("journal_ids")),
+                "expression": (row.get("expression", "") or "").strip(),
+                "translate_abstract": (row.get("translate_abstract", "") or "").strip().lower() in ("true", "1", "yes"),
+                "last_run_date": (row.get("last_run_date", "") or "").strip(),
+            })
+    return plans
+
+
+def write_plans_last_run(ran):
+    """把本次真正执行过的计划的 last_run_date 回写为北京当天（用于去重 + 每两周锚点）。
+    ran = {plan_id: 'YYYY-MM-DD'}；原地重写 plans.csv，保留其它列原值。"""
+    if not ran or not PLANS_CSV.exists():
+        return
+    with open(PLANS_CSV, "r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+        fieldnames = list(rows[0].keys()) if rows else PLAN_HEADERS
+    for row in rows:
+        pid = (row.get("plan_id", "") or "").strip()
+        if pid in ran:
+            row["last_run_date"] = ran[pid]
+    with open(PLANS_CSV, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    print(f"[INFO] 已回写 {len(ran)} 个计划的 last_run_date")
 
 
 def resolve_issn_by_name(name):
@@ -400,6 +515,146 @@ def search_openalex_journal(issn, from_date, to_date, per_page=50):
     except Exception as e:
         print(f"[ERROR] OpenAlex journal search failed for ISSN '{issn}': {e}")
         return []
+
+
+# ============================================================
+# 期刊 RSS/Atom：追踪时**优先用 RSS**，无 feed / 失败再退回 OpenAlex
+# ============================================================
+DOI_RE = re.compile(r'10\\.\\d{4,9}/[^\\s"\'<>]+')
+
+
+def _local(tag):
+    return tag.split("}")[-1].lower()
+
+
+def _child_text(node, *names):
+    """取第一个「局部名命中且文本非空」的直接子节点文本（兼容 RSS/Atom 命名空间）"""
+    for child in list(node):
+        if _local(child.tag) in names and (child.text or "").strip():
+            return child.text.strip()
+    return ""
+
+
+def _rss_author(node):
+    for child in list(node):
+        name = _local(child.tag)
+        if name in ("creator", "author"):
+            txt = (child.text or "").strip()
+            if txt:
+                return txt
+            for sub in list(child):
+                if _local(sub.tag) == "name" and (sub.text or "").strip():
+                    return sub.text.strip()
+    return ""
+
+
+def _rss_link(node):
+    for child in list(node):
+        if _local(child.tag) != "link":
+            continue
+        href = (child.get("href") or "").strip()
+        if href:
+            return href
+        if (child.text or "").strip():
+            return child.text.strip()
+    return ""
+
+
+def _parse_rss_date(raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return parsedate_to_datetime(raw)
+    except Exception:
+        pass
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _extract_doi(text):
+    m = DOI_RE.search(text or "")
+    return m.group(0).rstrip(".,;").lower() if m else ""
+
+
+def _strip_html(text):
+    return re.sub(r"<[^>]+>", " ", text or "").strip()
+
+
+def fetch_rss_papers(rss_url, from_date):
+    """抓期刊 RSS/Atom，返回 (papers, ok)。
+    ok=False 表示「这条 feed 不可用」，由调用方退回 OpenAlex。
+    没有 DOI 的条目一律跳过——去重与裁决都依赖 DOI，宁可少收也不猜。"""
+    try:
+        resp = requests.get(rss_url, headers={"User-Agent": USER_AGENT}, timeout=30)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+    except Exception as e:
+        print(f"[WARN] RSS 抓取失败 {rss_url}: {e}")
+        return [], False
+
+    nodes = root.findall(".//item") or root.findall(".//{http://www.w3.org/2005/Atom}entry")
+    feed_title = _child_text(root.find(".//channel"), "title") if root.find(".//channel") is not None else ""
+    if not feed_title:
+        feed_title = _child_text(root, "title")
+
+    papers = []
+    for node in nodes:
+        title = _child_text(node, "title")
+        if not title:
+            continue
+        link = _rss_link(node)
+        pub = _parse_rss_date(_child_text(node, "pubdate", "published", "updated", "date"))
+        if pub is not None:
+            try:
+                if pub.strftime("%Y-%m-%d") < from_date:
+                    continue
+            except Exception:
+                pass
+        desc = _child_text(node, "description", "summary", "encoded")
+        doi = (_extract_doi(link)
+               or _extract_doi(desc)
+               or _extract_doi(_child_text(node, "doi", "identifier")))
+        if not doi:
+            continue
+        year = pub.year if pub is not None else 0
+        papers.append({
+            "doi": doi,
+            "title": title,
+            "journal": feed_title,
+            "year": str(year) if year else "",
+            "authors": _rss_author(node),
+            "keywords": "",
+            "abstract_en": _strip_html(desc),
+            "abstract_cn": "",
+            "tier": "1",
+            "has_graphical_abstract": "false",
+            "added_at": str(int(time.time())),
+            "pdf_added_at": "0",
+            "source": "rss",
+            "tracking_group": "",
+        })
+    return papers, True
+
+
+def collect_journal_papers(jrn, from_date, to_date):
+    """单个期刊的候选文献：**RSS 优先，无 feed / 失败再退回 OpenAlex**。
+    返回 (papers, via, total_found)；via ∈ 'rss' | 'openalex' | 'none'。"""
+    rss_url = (jrn.get("rss_url") or "").strip()
+    if rss_url:
+        papers, ok = fetch_rss_papers(rss_url, from_date)
+        if ok:
+            return papers, "rss", len(papers)
+        print(f"[INFO] 期刊「{jrn.get('name', '')}」RSS 不可用，退回 OpenAlex")
+
+    issn = (jrn.get("issn") or "").strip() or resolve_issn_by_name(jrn.get("name", ""))
+    if not issn:
+        print(f"[WARN] 无法确定 ISSN，跳过期刊: {jrn.get('name', '')}")
+        return [], "none", 0
+    works = search_openalex_journal(issn, from_date, to_date, per_page=200)
+    return [openalex_to_literature(w, "") for w in works], "openalex", len(works)
 
 
 def openalex_to_literature(work, tracking_group=""):
@@ -509,23 +764,23 @@ def format_candidate_lines(papers):
     return lines
 
 
-def write_log(date_str, group_results, journal_results):
-    """写入追踪日志"""
+def write_log(date_str, group_results, journal_results, group_label="关键词组"):
+    """写入追踪日志（立即追踪按「关键词组」、定时追踪按「计划」记）"""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOGS_DIR / f"{date_str}.md"
 
     total_new = sum(len(r["new_papers"]) for r in group_results)
     total_new += sum(len(r["new_papers"]) for r in journal_results)
 
-    content = f"# 每日追踪报告 - {date_str}\\n\\n"
-    content += f"- 追踪时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\\n"
-    content += f"- 关键词组：{len(group_results)} 个\\n"
+    content = f"# 追踪报告 - {date_str}\\n\\n"
+    content += f"- 追踪时间（北京时间）：{_beijing_now().strftime('%Y-%m-%d %H:%M:%S')}\\n"
+    content += f"- {group_label}：{len(group_results)} 个\\n"
     content += f"- 期刊：{len(journal_results)} 个\\n"
     content += f"- 新文献：{total_new} 篇\\n\\n"
     content += "---\\n\\n"
 
     for grp in group_results:
-        content += f"## 关键词组：{grp['name']}\\n\\n"
+        content += f"## {group_label}：{grp['name']}\\n\\n"
         content += f"- 搜索表达式：\`{grp['expression']}\`\\n"
         content += f"- 检索到：{grp['total_found']} 篇\\n"
         content += f"- 新增候选：{len(grp['new_papers'])} 篇\\n\\n"
@@ -536,7 +791,11 @@ def write_log(date_str, group_results, journal_results):
 
     for jrn in journal_results:
         content += f"## 期刊：{jrn['name']}\\n\\n"
-        content += f"- ISSN：{jrn['issn'] or '（未解析到，已跳过）'}\\n"
+        if jrn.get("via") == "rss":
+            content += "- 来源：RSS\\n"
+            content += "- ISSN：未使用（RSS 直取）\\n"
+        else:
+            content += f"- ISSN：{jrn.get('issn') or '（未解析到，已跳过）'}\\n"
         content += f"- 检索到：{jrn['total_found']} 篇\\n"
         content += f"- 新增候选：{len(jrn['new_papers'])} 篇\\n\\n"
 
@@ -708,15 +967,153 @@ def paper_text(paper):
     ]).lower()
 
 
-def main():
+def _beijing_now():
+    """runner 时区为 UTC；北京时间 = UTC+8，且无夏令时"""
+    return datetime.utcnow() + timedelta(hours=8)
+
+
+def _plan_day_matches(plan, bj):
+    """按北京时间判断「今天该不该跑」（不看时刻）"""
+    interval = plan["interval"]
+    if interval == "daily":
+        return True
+    if interval in ("weekly", "biweekly"):
+        wd = plan["weekdays"][0] if plan["weekdays"] else 1  # 1=周一
+        if bj.isoweekday() != wd:
+            return False
+        if interval == "biweekly":
+            anchor = plan["last_run_date"]
+            if not anchor:
+                return True  # 无锚点：先跑一次，之后以本次为锚
+            try:
+                a = datetime.strptime(anchor, "%Y-%m-%d").date()
+            except ValueError:
+                return True
+            return (bj.date() - a).days % 14 == 0
+        return True
+    if interval == "monthly":
+        return bj.day == plan["day_of_month"]
+    return False
+
+
+def is_plan_due(plan, bj):
+    """到期 = 今天该跑 且 今天还没跑过 且 已到/过了计划时刻。
+    last_run_date 防重（cron 被重试、或晚到的 cron 补跑都不会重复）。"""
+    if not _plan_day_matches(plan, bj):
+        return False
+    if plan["last_run_date"] == bj.strftime("%Y-%m-%d"):
+        return False
+    return (bj.hour, bj.minute) >= (plan["hour"], plan["minute"])
+
+
+def run_scheduled(bj):
+    """定时追踪：**先探针**（读计划 → 判断到期），不到期直接返回，零网络请求。"""
     print("=" * 60)
-    print("AcademicFlow Daily Tracking")
+    print("AcademicFlow Scheduled Tracking")
+    print("=" * 60)
+    print(f"[INFO] 北京时间: {bj.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    plans = load_plans()
+    due = [p for p in plans if is_plan_due(p, bj)]
+    print(f"[INFO] 启用计划 {len(plans)} 个，本次到期 {len(due)} 个")
+    if not due:
+        print("[INFO] 没有到期计划，跳过（不发任何网络请求）。")
+        return 0
+
+    journmap = load_all_journals()
+    existing_dois = load_seen_dois()
+    print(f"[INFO] 已见过的 DOI 数: {len(existing_dois)}")
+
+    date_str = bj.strftime("%Y-%m-%d")
+    from_date = (bj - timedelta(days=7)).strftime("%Y-%m-%d")
+    to_date = date_str
+
+    accepted = []
+    plan_results = []
+    ran = {}
+
+    for plan in due:
+        name = plan["plan_name"] or plan["plan_id"]
+        expr = plan["expression"]
+        journals = [journmap[jid] for jid in plan["journal_ids"] if jid in journmap]
+        missing = [jid for jid in plan["journal_ids"] if jid not in journmap]
+        if missing:
+            print(f"[WARN] 计划「{name}」引用了不存在的期刊 id: {', '.join(missing)}")
+
+        result = {"name": name, "expression": expr, "total_found": 0, "new_papers": []}
+        found_any = False
+
+        if journals:
+            for jrn in journals:
+                print(f"\\n[INFO] 计划「{name}」追踪期刊: {jrn['name']}")
+                papers, via, total = collect_journal_papers(jrn, from_date, to_date)
+                print(f"       来源: {via}，检索到: {total} 篇")
+                result["total_found"] += total
+                if via == "none":
+                    continue
+                found_any = True
+                for paper in papers:
+                    paper["tracking_group"] = f"计划：{name}"
+                    if expr and not evaluate_expression(expr, paper_text(paper)):
+                        continue
+                    accepted.append({"paper": paper, "plan_name": name})
+                if via == "openalex":
+                    time.sleep(0.5)
+        elif expr:
+            query = build_broad_query(expr)
+            if query:
+                print(f"\\n[INFO] 计划「{name}」按关键词检索: {expr}")
+                works = search_openalex(query, from_date, to_date, per_page=200)
+                result["total_found"] = len(works)
+                found_any = True
+                for work in works:
+                    paper = openalex_to_literature(work, f"计划：{name}")
+                    if evaluate_expression(expr, paper_text(paper)):
+                        accepted.append({"paper": paper, "plan_name": name})
+                time.sleep(0.5)
+        else:
+            print(f"[WARN] 计划「{name}」既没有可用期刊、也没有表达式，跳过")
+
+        plan_results.append(result)
+        if found_any:
+            ran[plan["plan_id"]] = date_str
+
+    new_papers = []
+    for item in accepted:
+        paper = item["paper"]
+        doi = paper["doi"].strip().lower()
+        if not doi or doi in existing_dois:
+            continue
+        existing_dois.add(doi)
+        new_papers.append(paper)
+        for r in plan_results:
+            if r["name"] == item["plan_name"]:
+                r["new_papers"].append(paper)
+                break
+
+    if new_papers:
+        print(f"\\n[INFO] 共 {len(new_papers)} 篇候选，写入 tracking/inbox.csv ...")
+        append_candidates(new_papers)
+    else:
+        print("\\n[INFO] 没有新的候选文献。")
+
+    write_log(date_str, plan_results, [], group_label="计划")
+    write_plans_last_run(ran)
+
+    print("\\n[INFO] 定时追踪完成。")
+    return 0
+
+
+def run_immediate():
+    """立即追踪（手动触发）：按当前启用的关键词组 × 期刊跑一次。"""
+    bj = _beijing_now()
+    print("=" * 60)
+    print("AcademicFlow Immediate Tracking")
     print("=" * 60)
 
-    today = datetime.now()
-    date_str = today.strftime("%Y-%m-%d")
-    from_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-    to_date = today.strftime("%Y-%m-%d")
+    date_str = bj.strftime("%Y-%m-%d")
+    from_date = (bj - timedelta(days=7)).strftime("%Y-%m-%d")
+    to_date = date_str
 
     print(f"[INFO] 追踪日期范围: {from_date} ~ {to_date}")
 
@@ -757,28 +1154,22 @@ def main():
     journal_results = []
     accepted = []  # {paper, journal_name, group_name}
 
-    # ---------- ① 逐刊搜索（配了期刊必跑：AND 的期刊侧 / 仅期刊模式的主查询）----------
+    # ---------- ① 逐刊搜索（RSS 优先；配了期刊必跑：AND 的期刊侧 / 仅期刊模式的主查询）----------
     if has_journals:
         for jrn in journals:
-            issn = jrn["issn"] or resolve_issn_by_name(jrn["name"])
-            if not issn:
-                print(f"[WARN] 无法确定 ISSN，跳过期刊: {jrn['name']}")
-                journal_results.append({
-                    "id": jrn["id"], "name": jrn["name"], "issn": "",
-                    "total_found": 0, "new_papers": [],
-                })
+            print(f"\\n[INFO] 追踪期刊: {jrn['name']}")
+            papers, via, total = collect_journal_papers(jrn, from_date, to_date)
+            print(f"       来源: {via}，检索到: {total} 篇")
+            journal_results.append({
+                "id": jrn["id"], "name": jrn["name"],
+                "issn": jrn["issn"] or ("RSS" if via == "rss" else ""),
+                "via": via, "total_found": total, "new_papers": [],
+            })
+            if via == "none":
                 continue
 
-            print(f"\\n[INFO] 追踪期刊: {jrn['name']}")
-            works = search_openalex_journal(issn, from_date, to_date, per_page=200)
-            print(f"       检索到: {len(works)} 篇")
-            journal_results.append({
-                "id": jrn["id"], "name": jrn["name"], "issn": issn,
-                "total_found": len(works), "new_papers": [],
-            })
-
-            for work in works:
-                paper = openalex_to_literature(work, f"期刊：{jrn['name']}")
+            for paper in papers:
+                paper["tracking_group"] = f"期刊：{jrn['name']}"
                 group = None
                 if has_keywords:
                     group = match_group(paper_text(paper))
@@ -795,8 +1186,8 @@ def main():
                     "group_name": group["name"] if group else None,
                 })
 
-            # OpenAlex 礼貌等待
-            time.sleep(0.5)
+            if via == "openalex":
+                time.sleep(0.5)
 
     # ---------- ② 逐组搜索关键词（只配关键词、未配期刊时）----------
     if has_keywords and not has_journals:
@@ -856,8 +1247,15 @@ def main():
     # 写日志
     write_log(date_str, group_results, journal_results)
 
-    print("\\n[INFO] 每日追踪完成。")
+    print("\\n[INFO] 立即追踪完成。")
     return 0
+
+
+def main():
+    """入口：cron 触发走「计划」路径；手动触发（立即追踪）走旧路径。"""
+    if (os.environ.get("TRIGGER_EVENT", "") or "").strip() == "schedule":
+        return run_scheduled(_beijing_now())
+    return run_immediate()
 
 
 if __name__ == "__main__":
@@ -953,6 +1351,7 @@ export const WORKSPACE_SKELETON: SkeletonFile[] = [
   { path: 'schedule/courses.csv', content: CSV_HEADERS.courses + '\n' },
   { path: 'schedule/extra_days.csv', content: CSV_HEADERS.extra_days + '\n' },
   { path: 'tracking/inbox.csv', content: CSV_HEADERS.tracking_inbox + '\n' },
+  { path: 'tracking/plans.csv', content: CSV_HEADERS.tracking_plans + '\n' },
   { path: 'materials/meta.csv', content: CSV_HEADERS.material_meta + '\n' },
 
   { path: 'templates/journals/_sample-generic/meta.md', content: SAMPLE_JOURNAL_META },

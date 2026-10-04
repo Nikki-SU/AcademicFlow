@@ -32,6 +32,7 @@ import {
   RotateCcw,
   Languages,
   Sparkles,
+  Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
@@ -53,7 +54,7 @@ import {
   pendingCandidates,
   type TrackingCandidate,
 } from '../services/trackingData'
-import { dispatchDailyTracking, waitForDailyTracking } from '../services/workflowClient'
+import { dispatchDailyTracking, waitForDailyTracking, syncTrackingCron } from '../services/workflowClient'
 import { resolveJournals, findJournalRss, type JournalCandidate } from '../services/journalResolve'
 import {
   parseExpression,
@@ -62,6 +63,18 @@ import {
   validateExpression,
   type ExprToken,
 } from '../services/keywordGroupData'
+import {
+  loadTrackingPlans,
+  saveTrackingPlans,
+  newPlanId,
+  validatePlan,
+  describeSchedule,
+  nextRunAt,
+  weekdayLabel,
+  PLAN_INTERVALS,
+  type TrackingPlan,
+  type PlanInterval,
+} from '../services/trackingPlanData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 
@@ -197,6 +210,27 @@ export default function TrackingPage() {
   /** 追踪候选（tracking/inbox.csv）：含「待裁决」与「已忽略」两类，页面只显示待裁决 */
   const [inbox, setInbox] = useState<TrackingCandidate[]>([])
 
+  // ---------- 定时追踪计划 ----------
+  /** 定时追踪计划（tracking/plans.csv）：一个计划 = 时间规则 + 多个期刊（组内 OR）+ 一个关键词表达式 */
+  const [plans, setPlans] = useState<TrackingPlan[]>([])
+  /** 计划「管理」弹窗：列出已有 + 新建 / 编辑 / 删除 / 启停 */
+  const [showPlansModal, setShowPlansModal] = useState(false)
+  const [showPlanModal, setShowPlanModal] = useState(false)
+  const [editingPlan, setEditingPlan] = useState<TrackingPlan | null>(null)
+  const [planFormName, setPlanFormName] = useState('')
+  const [planFormInterval, setPlanFormInterval] = useState<PlanInterval>('daily')
+  /** 北京时间 0-23 / 0-59 */
+  const [planFormHour, setPlanFormHour] = useState(9)
+  const [planFormMinute, setPlanFormMinute] = useState(0)
+  /** weekly / biweekly 用（1-7，周一=1） */
+  const [planFormWeekday, setPlanFormWeekday] = useState(1)
+  /** monthly 用（1-28） */
+  const [planFormDayOfMonth, setPlanFormDayOfMonth] = useState(1)
+  /** 该计划追踪的期刊 id 列表（组内 OR） */
+  const [planFormJournalIds, setPlanFormJournalIds] = useState<string[]>([])
+  const [planFormTokens, setPlanFormTokens] = useState<ExprToken[]>([])
+  const [planFormInput, setPlanFormInput] = useState('')
+
   // ---------- 右栏：已入库但还没传 PDF ----------
   /** 文献库（literatures/literatures.csv）全量，右栏只取 pdfAddedAt === 0 的 */
   const [literatures, setLiteratures] = useState<Literature[]>([])
@@ -288,6 +322,14 @@ export default function TrackingPage() {
         if (!cancelled) setInbox(inboxRows)
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载追踪候选失败:', err)
+      }
+
+      // 定时追踪计划（时间规则 + 多期刊 + 单个表达式）
+      try {
+        const loadedPlans = await loadTrackingPlans()
+        if (!cancelled && loadedPlans.length > 0) setPlans(loadedPlans)
+      } catch (err) {
+        console.warn('[Tracking] 从 GitHub 加载定时计划失败:', err)
       }
 
       // 文献库（右栏「已入库未传 PDF」的数据源）
@@ -394,6 +436,28 @@ export default function TrackingPage() {
       if (journalsSaveTimerRef.current) clearTimeout(journalsSaveTimerRef.current)
     }
   }, [journals])
+
+  // 定时计划变化时防抖保存到 GitHub，并按需重写 workflow 的 schedule（动态 cron）
+  const plansSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!dataLoadedRef.current) return
+    if (plansSaveTimerRef.current) clearTimeout(plansSaveTimerRef.current)
+    plansSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await saveTrackingPlans(plans)
+        // 计划变了 → 只为「启用计划实际用到的 时:分」排 cron；没有计划就不排，避免空跑
+        const { token, user } = useAuthStore.getState()
+        if (token && user && repo) {
+          await syncTrackingCron(user.login, repo.name, token, plans)
+        }
+      } catch (err) {
+        console.error('[Tracking] 保存定时计划 / 同步 cron 失败:', err)
+      }
+    }, 2000)
+    return () => {
+      if (plansSaveTimerRef.current) clearTimeout(plansSaveTimerRef.current)
+    }
+  }, [plans, repo])
 
   // 搜索源变化时防抖保存到 GitHub
   const searchSitesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -611,6 +675,141 @@ export default function TrackingPage() {
 
   const removeKeywordTag = (index: number) => {
     setKeywordFormTokens((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // ============================================================
+  // 定时追踪计划管理
+  // 一个计划 = 时间规则 + 多个期刊（组内 OR）+ 一个关键词表达式。
+  // 想追踪不同主题 → 建多个计划；**不需要**问「多个词组之间是什么关系」。
+  // ============================================================
+
+  const openAddPlan = () => {
+    setEditingPlan(null)
+    setPlanFormName('')
+    setPlanFormInterval('daily')
+    setPlanFormHour(9)
+    setPlanFormMinute(0)
+    setPlanFormWeekday(1)
+    setPlanFormDayOfMonth(1)
+    setPlanFormJournalIds([])
+    setPlanFormTokens([])
+    setPlanFormInput('')
+    setShowPlanModal(true)
+  }
+
+  const openEditPlan = (plan: TrackingPlan) => {
+    setEditingPlan(plan)
+    setPlanFormName(plan.planName)
+    setPlanFormInterval(plan.interval)
+    setPlanFormHour(plan.hour)
+    setPlanFormMinute(plan.minute)
+    setPlanFormWeekday(plan.weekdays[0] || 1)
+    setPlanFormDayOfMonth(plan.dayOfMonth || 1)
+    setPlanFormJournalIds(plan.journalIds)
+    setPlanFormTokens(parseExpression(plan.expression))
+    setPlanFormInput('')
+    setShowPlanModal(true)
+  }
+
+  const handleSavePlan = () => {
+    // 先约束：表达式结构非法直接拦下，不让「看着像结果其实是垃圾」的式子进库
+    const exprError = validateExpression(planFormTokens)
+    if (exprError) {
+      toast.error(exprError)
+      return
+    }
+    const draft: TrackingPlan = {
+      planId: editingPlan?.planId || newPlanId(),
+      planName: planFormName.trim(),
+      enabled: editingPlan?.enabled ?? true,
+      interval: planFormInterval,
+      hour: planFormHour,
+      minute: planFormMinute,
+      weekdays:
+        planFormInterval === 'weekly' || planFormInterval === 'biweekly' ? [planFormWeekday] : [],
+      dayOfMonth: planFormInterval === 'monthly' ? planFormDayOfMonth : 0,
+      journalIds: planFormJournalIds,
+      expression: serializeExpression(planFormTokens),
+      translateAbstract: editingPlan?.translateAbstract ?? false,
+      lastRunDate: editingPlan?.lastRunDate ?? '',
+      createdAt: editingPlan?.createdAt ?? Date.now(),
+    }
+    const planError = validatePlan(draft)
+    if (planError) {
+      toast.error(planError)
+      return
+    }
+    if (editingPlan) {
+      setPlans((prev) => prev.map((p) => (p.planId === editingPlan.planId ? draft : p)))
+    } else {
+      setPlans((prev) => [...prev, draft])
+    }
+    setShowPlanModal(false)
+  }
+
+  const handleDeletePlan = (planId: string) => {
+    setPlans((prev) => prev.filter((p) => p.planId !== planId))
+  }
+
+  const togglePlan = (planId: string) => {
+    setPlans((prev) => prev.map((p) => (p.planId === planId ? { ...p, enabled: !p.enabled } : p)))
+  }
+
+  const togglePlanJournal = (journalId: string) => {
+    setPlanFormJournalIds((prev) =>
+      prev.includes(journalId) ? prev.filter((x) => x !== journalId) : [...prev, journalId],
+    )
+  }
+
+  /** 从现成关键词组导入表达式（也可完全手写）—— 复用现成、但不限制只能用它 */
+  const importKeywordGroupToPlan = (groupId: string) => {
+    const g = keywordGroups.find((x) => x.id === groupId)
+    if (!g) return
+    setPlanFormTokens(parseExpression(g.expression))
+  }
+
+  const addPlanTag = () => {
+    const kw = planFormInput.trim().replace(/["()]/g, '').trim()
+    if (!kw) return
+    if (expressionTerms(planFormTokens).some((t) => t.toLowerCase() === kw.toLowerCase())) {
+      toast.error('该关键词已存在')
+      return
+    }
+    setPlanFormTokens((prev) => {
+      const last = prev[prev.length - 1]
+      const needAnd = !!last && (last.kind === 'term' || (last.kind === 'op' && last.value === ')'))
+      return needAnd
+        ? [...prev, { kind: 'op', value: 'AND' }, { kind: 'term', value: kw }]
+        : [...prev, { kind: 'term', value: kw }]
+    })
+    setPlanFormInput('')
+  }
+
+  const appendPlanOperator = (op: 'AND' | 'OR' | 'NOT' | '(' | ')') => {
+    setPlanFormTokens((prev) => [...prev, { kind: 'op', value: op }])
+    setPlanFormInput('')
+  }
+
+  const removePlanTag = (index: number) => {
+    setPlanFormTokens((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  /** 表单预览：由当前表单字段拼一个临时计划，交给 describeSchedule 生成可读时间规则 */
+  const planFormPreview: TrackingPlan = {
+    planId: '',
+    planName: planFormName,
+    enabled: true,
+    interval: planFormInterval,
+    hour: planFormHour,
+    minute: planFormMinute,
+    weekdays:
+      planFormInterval === 'weekly' || planFormInterval === 'biweekly' ? [planFormWeekday] : [],
+    dayOfMonth: planFormInterval === 'monthly' ? planFormDayOfMonth : 0,
+    journalIds: planFormJournalIds,
+    expression: '',
+    translateAbstract: false,
+    lastRunDate: editingPlan?.lastRunDate ?? '',
+    createdAt: editingPlan?.createdAt ?? Date.now(),
   }
 
   // ============================================================
@@ -1333,6 +1532,15 @@ export default function TrackingPage() {
                   <span className="text-ink-400">({journals.length})</span>
                 </button>
               </div>
+              {/* 定时追踪：计划列表入口（时间规则 + 多期刊 + 表达式） */}
+              <button
+                onClick={() => setShowPlansModal(true)}
+                className="flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-control border border-ink-200 px-2 py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
+              >
+                <Clock className="h-4 w-4 shrink-0 text-ink-500" />
+                定时追踪
+                <span className="text-ink-400">({plans.length})</span>
+              </button>
               {/* 立即追踪单独一行 */}
               <button
                 onClick={handleTrackNow}
@@ -1851,6 +2059,381 @@ export default function TrackingPage() {
                   新建关键词组
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 定时计划管理弹窗：列出已有 + 新建 / 编辑 / 删除 / 启停 */}
+      {/* ============================================================ */}
+      {showPlansModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4"
+          onClick={() => setShowPlansModal(false)}
+        >
+          <div
+            className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-card bg-paper-50 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="af-line-b flex shrink-0 items-center justify-between gap-3 p-5">
+              <h3 className="flex items-center gap-2 font-semibold text-ink-800">
+                <Clock className="h-4 w-4 text-seal-600" />
+                定时追踪计划
+                <span className="font-normal text-ink-400">({plans.length})</span>
+              </h3>
+              <button
+                onClick={() => setShowPlansModal(false)}
+                className="p-1 text-ink-400 transition hover:text-ink-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-5">
+              {plans.length === 0 ? (
+                <div className="rounded-control border border-dashed border-ink-200 py-8 text-center text-ui-sm text-ink-400">
+                  尚未创建定时计划
+                </div>
+              ) : (
+                plans.map((plan) => {
+                  const next = nextRunAt(plan)
+                  const journalNames = plan.journalIds
+                    .map((jid) => journals.find((j) => j.id === jid)?.name)
+                    .filter(Boolean)
+                  return (
+                    <div
+                      key={plan.planId}
+                      className={`rounded-control border border-ink-200 p-3 transition ${plan.enabled ? 'bg-paper-50' : 'bg-paper-100 opacity-60'}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <button
+                            onClick={() => togglePlan(plan.planId)}
+                            className={`relative h-4 w-7 flex-shrink-0 rounded-full transition ${plan.enabled ? 'bg-seal-600' : 'bg-ink-300'}`}
+                          >
+                            <div
+                              className={`absolute top-0.5 h-3 w-3 rounded-full bg-paper-50 shadow transition-transform ${plan.enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+                            />
+                          </button>
+                          <span className="truncate text-ui-sm font-medium text-ink-800">{plan.planName}</span>
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-0.5">
+                          <button
+                            onClick={() => openEditPlan(plan)}
+                            className="rounded-control-sm p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePlan(plan.planId)}
+                            className="rounded-control-sm p-1 text-ink-400 transition hover:bg-red-50 hover:text-red-600"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-1.5 space-y-0.5 pl-9 text-ui-2xs text-ink-500">
+                        <p className="flex items-center gap-1">
+                          <Clock className="h-3 w-3 text-ink-400" />
+                          {describeSchedule(plan)}
+                          {plan.enabled && next && (
+                            <span className="text-ink-400">
+                              · 下次{' '}
+                              {next.toLocaleString('zh-CN', {
+                                hour12: false,
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                          )}
+                        </p>
+                        <p className="truncate">
+                          {journalNames.length > 0 ? journalNames.join(' / ') : '未选期刊'}
+                          {plan.expression.trim() && ` · ${plan.expression}`}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            <div className="af-line-t flex shrink-0 items-center justify-end gap-2 p-5">
+              <button
+                onClick={() => setShowPlansModal(false)}
+                className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
+              >
+                关闭
+              </button>
+              <button
+                onClick={() => {
+                  setShowPlansModal(false)
+                  openAddPlan()
+                }}
+                className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
+              >
+                新建计划
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 定时计划「新建 / 编辑」弹窗：时间规则 + 多期刊（OR）+ 单个表达式 */}
+      {/* 注意：一个计划只有一个关键词表达式，不问「多个词组之间的关系」。 */}
+      {/* 想同时追踪不同主题 → 建多个计划。 */}
+      {/* ============================================================ */}
+      {showPlanModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4"
+          onClick={() => setShowPlanModal(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-card bg-paper-50 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="af-line-b flex shrink-0 items-center justify-between gap-3 p-5">
+              <h3 className="flex items-center gap-2 font-semibold text-ink-800">
+                <Clock className="h-4 w-4 text-seal-600" />
+                {editingPlan ? '编辑定时计划' : '新建定时计划'}
+              </h3>
+              <button
+                onClick={() => setShowPlanModal(false)}
+                className="p-1 text-ink-400 transition hover:text-ink-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+              {/* 计划名称 */}
+              <div>
+                <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">计划名称</label>
+                <input
+                  type="text"
+                  value={planFormName}
+                  onChange={(e) => setPlanFormName(e.target.value)}
+                  placeholder="如：AI 教育 每日追踪"
+                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                />
+              </div>
+
+              {/* 时间规则 */}
+              <div className="rounded-control border border-ink-200 bg-paper-100 p-3">
+                <p className="mb-2 flex items-center gap-1.5 text-ui-sm font-medium text-ink-700">
+                  <Clock className="h-3.5 w-3.5 text-ink-400" />
+                  追踪时间（北京时间）
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={planFormInterval}
+                    onChange={(e) => setPlanFormInterval(e.target.value as PlanInterval)}
+                    className="rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-1.5 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  >
+                    {PLAN_INTERVALS.map((it) => (
+                      <option key={it.value} value={it.value}>
+                        {it.label}
+                      </option>
+                    ))}
+                  </select>
+                  {(planFormInterval === 'weekly' || planFormInterval === 'biweekly') && (
+                    <select
+                      value={planFormWeekday}
+                      onChange={(e) => setPlanFormWeekday(Number(e.target.value))}
+                      className="rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-1.5 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                        <option key={n} value={n}>
+                          {weekdayLabel(n)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {planFormInterval === 'monthly' && (
+                    <select
+                      value={planFormDayOfMonth}
+                      onChange={(e) => setPlanFormDayOfMonth(Number(e.target.value))}
+                      className="rounded-control border border-ink-300 bg-paper-50 px-ui-gap py-1.5 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                    >
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n} 日
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={planFormHour}
+                      onChange={(e) => {
+                        const v = Number(e.target.value)
+                        if (!Number.isNaN(v)) setPlanFormHour(Math.min(23, Math.max(0, Math.trunc(v))))
+                      }}
+                      className="w-14 rounded-control border border-ink-300 bg-paper-50 px-2 py-1.5 text-center text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                    />
+                    <span className="text-ink-400">:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={planFormMinute}
+                      onChange={(e) => {
+                        const v = Number(e.target.value)
+                        if (!Number.isNaN(v)) setPlanFormMinute(Math.min(59, Math.max(0, Math.trunc(v))))
+                      }}
+                      className="w-14 rounded-control border border-ink-300 bg-paper-50 px-2 py-1.5 text-center text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                    />
+                  </div>
+                </div>
+                <p className="mt-1.5 text-ui-xs text-ink-400">规则：{describeSchedule(planFormPreview)}</p>
+              </div>
+
+              {/* 期刊（组内 OR） */}
+              <div>
+                <label className="mb-1.5 block text-ui-sm font-medium text-ink-700">
+                  追踪期刊
+                  <span className="ml-1.5 font-normal text-ink-400">（可多选，命中任一即可）</span>
+                </label>
+                {journals.length === 0 ? (
+                  <p className="rounded-control border border-dashed border-ink-200 px-3 py-3 text-ui-xs text-ink-400">
+                    还没有期刊，请先在「期刊追踪」里添加
+                  </p>
+                ) : (
+                  <div className="max-h-40 space-y-1 overflow-y-auto rounded-control border border-ink-200 bg-paper-100 p-2">
+                    {journals.map((j) => (
+                      <label
+                        key={j.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-control-sm px-2 py-1.5 text-ui-sm text-ink-700 transition hover:bg-paper-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={planFormJournalIds.includes(j.id)}
+                          onChange={() => togglePlanJournal(j.id)}
+                          className="h-3.5 w-3.5 accent-seal-600"
+                        />
+                        <span className="truncate">{j.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 关键词表达式（单个） */}
+              <div>
+                <div className="mb-1.5 flex items-end justify-between gap-2">
+                  <label className="block text-ui-sm font-medium text-ink-700">关键词表达式</label>
+                  {keywordGroups.length > 0 && (
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) importKeywordGroupToPlan(e.target.value)
+                      }}
+                      className="rounded-control border border-ink-300 bg-paper-50 px-2 py-1 text-ui-xs text-ink-600 focus:border-seal-400 focus:outline-none"
+                    >
+                      <option value="">从关键词组导入…</option>
+                      {keywordGroups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className="mb-2 flex min-h-10 flex-wrap items-center gap-1.5 rounded-control border border-ink-200 bg-paper-100 p-2">
+                  {planFormTokens.length === 0 && (
+                    <span className="px-1 text-ui-xs text-ink-400">
+                      留空表示不按关键词过滤（只看期刊）；也可添加关键词并用运算符组合
+                    </span>
+                  )}
+                  {planFormTokens.map((t, idx) =>
+                    t.kind === 'term' ? (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 rounded-full bg-seal-100 px-2 py-0.5 text-ui-xs text-seal-700"
+                      >
+                        {t.value}
+                        <button onClick={() => removePlanTag(idx)} className="hover:text-seal-900">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ) : (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 rounded-full bg-ink-200 px-2 py-0.5 text-ui-xs font-medium text-ink-600"
+                      >
+                        {t.value}
+                        <button onClick={() => removePlanTag(idx)} className="hover:text-ink-800">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ),
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={planFormInput}
+                    onChange={(e) => setPlanFormInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addPlanTag()
+                      }
+                    }}
+                    placeholder="输入关键词后按回车添加"
+                    className="min-w-0 flex-1 rounded-control border border-ink-300 px-ui-gap py-2 text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  />
+                  <button
+                    onClick={addPlanTag}
+                    className="rounded-control bg-seal-50 px-ui-gap py-2 text-ui-sm font-medium text-seal-700 transition hover:bg-seal-100"
+                  >
+                    添加
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {(['AND', 'OR', 'NOT', '(', ')'] as const).map((op) => (
+                    <button
+                      key={op}
+                      onClick={() => appendPlanOperator(op)}
+                      className="rounded-control-sm border border-ink-300 px-2 py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-ink-100"
+                    >
+                      {op}
+                    </button>
+                  ))}
+                </div>
+                {planFormTokens.length > 0 && (
+                  <p className="mt-1.5 text-ui-xs">
+                    <span className="text-ink-400">预览：</span>
+                    <span className="text-ink-700">{serializeExpression(planFormTokens)}</span>
+                    {validateExpression(planFormTokens) && (
+                      <span className="ml-2 text-red-500">{validateExpression(planFormTokens)}</span>
+                    )}
+                  </p>
+                )}
+                <p className="mt-1.5 text-ui-xs text-ink-400">
+                  一个计划只写一个表达式；相邻关键词默认「且（AND）」；要追踪不同主题，请新建多个计划。
+                </p>
+              </div>
+            </div>
+
+            <div className="af-line-t flex shrink-0 items-center justify-end gap-2 p-5">
+              <button
+                onClick={() => setShowPlanModal(false)}
+                className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSavePlan}
+                className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
+              >
+                {editingPlan ? '保存' : '创建'}
+              </button>
             </div>
           </div>
         </div>

@@ -19,8 +19,10 @@ import {
   MINERU_CONNECTIVITY_TEST_YML_B64, MINERU_CONNECTIVITY_TEST_MJS_B64,
   AI_CONNECTIVITY_TEST_YML_B64, AI_CONNECTIVITY_TEST_MJS_B64,
   PIPELINE_FILES,
+  buildDailyTrackingYml,
 } from '../constants/skeleton'
 import { githubFetch, writeRepoTextFile, deleteRepoFiles, base64ToUtf8 } from './github'
+import { loadTrackingPlans, planCronSpecs } from './trackingPlanData'
 
 const MAX_PIPELINE_FILE = 500 * 1024 // 500KB — 所有 pipeline 文件都远小于此
 
@@ -126,7 +128,11 @@ export async function writePipelineFiles(
 
   for (const f of PIPELINE_FILES) {
     let content: string
-    if ('raw' in f) {
+    if (f.path === '.github/workflows/daily-tracking.yml') {
+      // 动态 cron：该文件的 schedule 取决于当前启用计划，重装时按 plans.csv 现算，
+      // 不能直接用默认（无 cron）版本，否则会把用户已有的定时计划清空。
+      content = buildDailyTrackingYml(planCronSpecs(await loadTrackingPlans()))
+    } else if ('raw' in f) {
       content = f.raw
     } else {
       const b64 = b64Map[f.b64Key]

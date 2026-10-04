@@ -9,6 +9,8 @@
 
 import { dispatchWorkflow, readRepoTextFile, writeRepoTextFile, githubFetch } from './github'
 import type { PipelineStage } from '../stores/taskQueue'
+import { loadTrackingPlans, planCronSpecs, type TrackingPlan } from './trackingPlanData'
+import { buildDailyTrackingYml } from '../constants/skeleton'
 
 export interface PipelineProgress {
   stage: PipelineStage
@@ -235,6 +237,7 @@ export async function dispatchAiConnectivityTest(
  * 也不满足 event_type 的命名约束，所以不能沿用 dispatchWorkflow 那套。
  */
 const DAILY_TRACKING_WORKFLOW_FILE = 'daily-tracking.yml'
+const DAILY_TRACKING_WORKFLOW_PATH = '.github/workflows/daily-tracking.yml'
 const DAILY_TRACKING_REF = 'main'
 
 /** 触发私库的「每日追踪」（等同在 Actions 页面点一次 Run workflow） */
@@ -258,6 +261,11 @@ export async function dispatchDailyTracking(
  * 等刚刚触发的追踪 run 跑完（尽力而为）。
  * 追踪是"跑完才写候选"，所以前端触发后要等它结束再去读 inbox.csv，否则读到的是旧数据。
  * 超时不报错 —— 后端可能只是慢，前端提示"稍后自动刷新"即可。
+ *
+ * 频率控制（省 API 配额，控制频率）：退避轮询 —— 开局密、随后稀，
+ *   - 秒级就能跑完的小任务，2s 内即命中，比原来"先盲等 4s"更快；
+ *   - 慢任务把总请求数从固定 4s×120s ≈ 30 次压到约 12 次。
+ * 只查本 workflow 的 run（URL 已按文件过滤），per_page=5 足够覆盖刚触发的这一条。
  */
 export async function waitForDailyTracking(
   owner: string,
@@ -267,11 +275,13 @@ export async function waitForDailyTracking(
   timeoutMs = 120000,
 ): Promise<'success' | 'failure' | 'timeout'> {
   const start = Date.now()
+  let delay = 2000
   while (Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 4000))
+    await new Promise((r) => setTimeout(r, delay))
+    delay = Math.min(Math.round(delay * 1.5), 12000)
     try {
       const res = await githubFetch(
-        `/repos/${owner}/${repo}/actions/workflows/${DAILY_TRACKING_WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=10`,
+        `/repos/${owner}/${repo}/actions/workflows/${DAILY_TRACKING_WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=5`,
         token,
       )
       if (!res.ok) continue
@@ -286,6 +296,43 @@ export async function waitForDailyTracking(
     }
   }
   return 'timeout'
+}
+
+/**
+ * 按启用计划同步 workflow 的 schedule（动态 cron）。
+ *
+ * 只给「启用计划实际用到的 时:分」排 cron；没有启用计划 → schedule 清空（零调度）。
+ * 先读当前文件比对，内容一致就跳过写入（幂等 + 省一次写调用）。
+ *
+ * 为什么放在这里：cron 住在 workflow 文件里，改计划就必须重写这个文件；
+ * 每次保存计划后调用一次即可，避免为没有计划的时间点空跑 job。
+ */
+export async function syncTrackingCron(
+  owner: string,
+  repo: string,
+  token: string,
+  plans?: TrackingPlan[],
+): Promise<{ changed: boolean; crons: string[] }> {
+  const list = plans ?? (await loadTrackingPlans())
+  const crons = planCronSpecs(list)
+  const desired = buildDailyTrackingYml(crons)
+  const current = await readRepoTextFile(owner, repo, DAILY_TRACKING_WORKFLOW_PATH, token)
+  if (current && current.content === desired) {
+    return { changed: false, crons }
+  }
+  // 文件不存在 + 没有任何启用计划 → 不必为了「没有 cron」去新建一个 workflow 文件
+  if (!current && crons.length === 0) {
+    return { changed: false, crons }
+  }
+  await writeRepoTextFile(
+    owner,
+    repo,
+    DAILY_TRACKING_WORKFLOW_PATH,
+    desired,
+    token,
+    `[academicflow] sync tracking cron (${crons.length ? crons.join(' | ') : 'none'})`,
+  )
+  return { changed: true, crons }
 }
 
 // ===================== run 查询 =====================
