@@ -541,6 +541,103 @@ export function descendantIds(projects: Project[], rootId: string): Set<string> 
   return out
 }
 
+/**
+ * 某任务所属的根大类（研究 / 课程）：沿 parentId 上溯到根节点取 type。
+ * 用于「任务筛选第二类 = 当前任务所属大类」。
+ */
+export function rootTypeOf(projects: Project[], projectId: string): ProjectType | null {
+  const byId = new Map(projects.map((p) => [p.projectId, p]))
+  let cur = byId.get(projectId)
+  const seen = new Set<string>()
+  while (cur) {
+    if (!cur.parentId || !byId.has(cur.parentId) || seen.has(cur.projectId)) return cur.type
+    seen.add(cur.projectId)
+    cur = byId.get(cur.parentId)
+  }
+  return null
+}
+
+/** 任务筛选选项（除日程页外的统一口径） */
+export interface TaskFilterOption {
+  /** 'all' | 'cat:research' | 'cat:course' | 'node:<projectId>' */
+  value: string
+  label: string
+  depth: number
+  /** 父选项的 value（用于折叠判断；顶层为 null） */
+  parent: string | null
+  hasChildren: boolean
+}
+
+/**
+ * 任务维度可选项（统一口径）：
+ *   有当前任务 → 全部 / 所属大类 / 当前任务（含全部子任务，子任务默认折叠、可逐级展开）
+ *   无当前任务 → 全部 / 研究 / 课程
+ */
+export function buildTaskFilterOptions(projects: Project[], currentProjectId: string | null): TaskFilterOption[] {
+  const opts: TaskFilterOption[] = [{ value: 'all', label: '全部', depth: 0, parent: null, hasChildren: false }]
+  if (!currentProjectId || !projects.some((p) => p.projectId === currentProjectId)) {
+    opts.push({ value: 'cat:research', label: '研究', depth: 0, parent: null, hasChildren: false })
+    opts.push({ value: 'cat:course', label: '课程', depth: 0, parent: null, hasChildren: false })
+    return opts
+  }
+  const type = rootTypeOf(projects, currentProjectId)
+  if (type) {
+    opts.push({ value: `cat:${type}`, label: type === 'research' ? '研究' : '课程', depth: 0, parent: null, hasChildren: false })
+  }
+  const childrenByParent = new Map<string, Project[]>()
+  for (const p of projects) {
+    if (!p.parentId) continue
+    const arr = childrenByParent.get(p.parentId)
+    if (arr) arr.push(p)
+    else childrenByParent.set(p.parentId, [p])
+  }
+  const cur = projects.find((p) => p.projectId === currentProjectId) as Project
+  const currentValue = `node:${currentProjectId}`
+  opts.push({
+    value: currentValue,
+    label: cur.title,
+    depth: 0,
+    parent: null,
+    hasChildren: (childrenByParent.get(currentProjectId)?.length ?? 0) > 0,
+  })
+  const walk = (parentId: string, parentValue: string, depth: number) => {
+    for (const c of childrenByParent.get(parentId) ?? []) {
+      const v = `node:${c.projectId}`
+      opts.push({
+        value: v,
+        label: c.title,
+        depth,
+        parent: parentValue,
+        hasChildren: (childrenByParent.get(c.projectId)?.length ?? 0) > 0,
+      })
+      walk(c.projectId, v, depth + 1)
+    }
+  }
+  walk(currentProjectId, currentValue, 1)
+  return opts
+}
+
+/**
+ * 任务筛选命中判断。
+ *   'all'                        全部
+ *   'cat:research'/'cat:course'  研究 / 课程大类
+ *   'node:<projectId>'           该任务及其全部子任务
+ */
+export function taskFilterMatches(projects: Project[], filter: string, materialTaskId: string): boolean {
+  if (filter === 'all') return true
+  if (filter.startsWith('node:')) {
+    const rootId = filter.slice(5)
+    if (!rootId || !materialTaskId) return false
+    return descendantIds(projects, rootId).has(materialTaskId)
+  }
+  if (filter.startsWith('cat:')) {
+    const type = filter.slice(4) as ProjectType
+    if (!materialTaskId) return false
+    return rootTypeOf(projects, materialTaskId) === type
+  }
+  return materialTaskId === filter
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // 任务附件（projects/{id}/attachments/）
 // 任务详情里可挂文件（如期刊「格式要求」PDF）。二进制，走 GitHub 私库同目录。

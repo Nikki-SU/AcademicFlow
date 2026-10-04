@@ -54,6 +54,14 @@ function FourNodeBar({ nodeIndex, status }: { nodeIndex: number; status: string 
 }
 
 // ──── 实时任务列表 ────
+const STATUS_TEXT: Record<string, string> = {
+  running: '运行中',
+  pending: '排队',
+  done: '完成',
+  failed: '失败',
+  aborted: '已取消',
+}
+
 function LiveTaskList({ taskQueue }: { taskQueue: TaskQueue }) {
   const tasks = taskQueue.tasks
   if (tasks.length === 0) {
@@ -65,41 +73,38 @@ function LiveTaskList({ taskQueue }: { taskQueue: TaskQueue }) {
     )
   }
   return (
-    <div className="space-y-2">
+    <div className="af-divided">
       {tasks.map((t: any) => {
         const meta = t.node_index !== undefined ? STAGE_META[t.node_index as keyof typeof STAGE_META] : null
         return (
-          <div
-            key={t.id}
-            className="border border-ink-200 rounded-control p-2.5 bg-paper-50 hover:border-ink-300 transition"
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <FourNodeBar nodeIndex={t.node_index ?? 0} status={t.status} />
-              <span className="flex-1 min-w-0 text-ui-xs font-medium text-ink-700 truncate" title={t.title}>
+          <div key={t.id} className="flex items-center gap-2 py-2">
+            <FourNodeBar nodeIndex={t.node_index ?? 0} status={t.status} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-ui-xs font-medium text-ink-700" title={t.title}>
                 {t.title}
-              </span>
-              <span
-                className={`text-ui-2xs px-1.5 py-0.5 rounded-control-sm shrink-0 ${
-                  t.status === 'running'
-                    ? 'bg-blue-100 text-blue-700'
-                    : t.status === 'pending'
-                    ? 'bg-ink-100 text-ink-600'
-                    : t.status === 'done'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-red-100 text-red-700'
-                }`}
-              >
-                {t.status}
-              </span>
+              </p>
+              <p className="mt-0.5 flex items-center gap-1 text-ui-2xs text-ink-500">
+                {t.status === 'failed' && <AlertTriangle className="w-3 h-3 shrink-0 text-red-500" />}
+                {t.status === 'aborted' && <XCircle className="w-3 h-3 shrink-0 text-ink-400" />}
+                {t.status === 'done' && <CheckCircle2 className="w-3 h-3 shrink-0 text-green-500" />}
+                {t.status === 'running' && <Loader2 className="w-3 h-3 shrink-0 text-blue-500 animate-spin" />}
+                {t.status === 'pending' && <Clock className="w-3 h-3 shrink-0 text-ink-400" />}
+                <span className="truncate">{meta?.label ?? t.stage ?? '—'}</span>
+              </p>
             </div>
-            <div className="flex items-center gap-1.5 text-ui-xs text-ink-500">
-              {t.status === 'failed' && <AlertTriangle className="w-3 h-3 text-red-500" />}
-              {t.status === 'aborted' && <XCircle className="w-3 h-3 text-ink-400" />}
-              {t.status === 'done' && <CheckCircle2 className="w-3 h-3 text-green-500" />}
-              {t.status === 'running' && <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />}
-              {t.status === 'pending' && <Clock className="w-3 h-3 text-ink-400" />}
-              <span className="truncate">{meta?.label ?? t.stage ?? '—'}</span>
-            </div>
+            <span
+              className={`shrink-0 px-1.5 py-0.5 text-ui-2xs rounded-control-sm ${
+                t.status === 'running'
+                  ? 'bg-blue-100 text-blue-700'
+                  : t.status === 'pending'
+                  ? 'bg-ink-100 text-ink-600'
+                  : t.status === 'done'
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {STATUS_TEXT[t.status] ?? t.status}
+            </span>
           </div>
         )
       })}

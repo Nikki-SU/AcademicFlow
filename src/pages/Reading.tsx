@@ -36,7 +36,13 @@ import { loadLiteratures, loadFulltext, loadAlignedMd, saveFulltext, saveAligned
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
 import { loadMaterialMeta, taskOf, tagsOf, type MaterialMeta } from '../services/materialMeta'
-import { loadProjects, type Project } from '../services/projectData'
+import {
+  loadProjects,
+  buildTaskFilterOptions,
+  taskFilterMatches,
+  type Project,
+  type TaskFilterOption,
+} from '../services/projectData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { HIGHLIGHTERS, highlighterOf, type HighlighterColor } from '../services/highlightColors'
 import {
@@ -54,6 +60,7 @@ import {
 import { getLastRead, setLastRead } from '../services/uiState'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
+import { useTaskStore } from '../stores/task'
 import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml, copySelectionForWord } from '../services/markdown-renderer'
@@ -648,6 +655,13 @@ function Modal({ title, onClose, children, width = 'max-w-2xl' }: { title: strin
 
 export default function ReadingPage() {
   const { repo } = useWorkspaceStore()
+  // 全局当前任务：本页「任务筛选」三类口径的唯一来源
+  const currentProjectId = useTaskStore((s) => s.currentProjectId)
+  const isTaskLoaded = useTaskStore((s) => s.isLoaded)
+  const loadCurrentTask = useTaskStore((s) => s.loadCurrent)
+  useEffect(() => {
+    if (!isTaskLoaded) void loadCurrentTask()
+  }, [isTaskLoaded, loadCurrentTask])
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const location = useLocation()
@@ -747,7 +761,7 @@ export default function ReadingPage() {
   const [tasks, setTasks] = useState<Project[]>([])
   /** 材料元数据单一真源：任务归属 + 标签 */
   const [materialMeta, setMaterialMeta] = useState<MaterialMeta[]>([])
-  /** 'all' | projectId | '__none__'；切换阅读对象时重置，避免留下不可见筛选 */
+  /** 'all' | 'cat:research' | 'cat:course' | 'node:<projectId>'；切换阅读对象时重置，避免留下不可见筛选 */
   const [taskFilter, setTaskFilter] = useState('all')
   /** 选中的标签过滤（空串 = 不过滤） */
   const [tagFilter, setTagFilter] = useState('')
@@ -765,6 +779,8 @@ export default function ReadingPage() {
   /** 左栏大纲面板展开态（文献 / 图书共用） */
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [listExpanded, setListExpanded] = useState(true)
+  /** 筛选菜单里已展开的任务节点（默认折叠，用户手动展开才显示子任务） */
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
 
   /**
    * 窄屏（<1100px）抽屉开合。
@@ -1490,9 +1506,16 @@ export default function ReadingPage() {
     saveAnnotationsToStorage(newAnnotations)
   }
 
-  /** 任务筛选：'all' 全部 / '__none__' 未归属 / 否则指定任务 */
-  const matchTask = (taskId: string) =>
-    taskFilter === 'all' || (taskFilter === '__none__' ? !taskId : taskId === taskFilter)
+  /** 任务筛选（统一三类口径：全部 / 研究·课程大类 / 当前任务及其全部子任务） */
+  const matchTask = (taskId: string) => taskFilterMatches(tasks, taskFilter, taskId)
+
+  /** 筛选菜单任务维度可选项（统一三类口径） */
+  const taskOptions = useMemo(() => buildTaskFilterOptions(tasks, currentProjectId), [tasks, currentProjectId])
+
+  // 选中的任务过滤项若已失效（如切换了全局当前任务），回落到「全部」，避免列表被清空
+  useEffect(() => {
+    if (!taskOptions.some((o) => o.value === taskFilter)) setTaskFilter('all')
+  }, [taskOptions, taskFilter])
 
   /** 标签筛选：空串不过滤 */
   const matchTag = (tags: string[]) => !tagFilter || tags.includes(tagFilter)
@@ -3127,20 +3150,62 @@ export default function ReadingPage() {
             </button>
             {filterOpen && (
               <div className="absolute right-0 top-full mt-1 w-60 bg-paper-50 border border-ink-200 rounded-control shadow-xl z-40 p-3">
-                {/* 维度 1：任务（材料归属哪个任务） */}
+                {/* 维度 1：任务（统一三类口径：全部 / 研究·课程 / 当前任务及其子任务，子任务默认折叠） */}
                 <div className="text-ui-xs font-semibold text-ink-500 mb-1.5">任务</div>
-                <div className="flex flex-wrap gap-1">
-                  <button onClick={() => setDraftTask('all')} className={chipCls(draftTask === 'all')}>
-                    全部
-                  </button>
-                  {tasks.map((t) => (
-                    <button key={t.projectId} onClick={() => setDraftTask(t.projectId)} className={chipCls(draftTask === t.projectId)}>
-                      {t.title}
-                    </button>
-                  ))}
-                  <button onClick={() => setDraftTask('__none__')} className={chipCls(draftTask === '__none__')}>
-                    未归属
-                  </button>
+                <div className="space-y-0.5">
+                  {(() => {
+                    const collapsed = new Set<string>()
+                    const visible: TaskFilterOption[] = []
+                    for (const opt of taskOptions) {
+                      if (opt.parent && collapsed.has(opt.parent)) {
+                        if (opt.hasChildren) collapsed.add(opt.value)
+                        continue
+                      }
+                      visible.push(opt)
+                      if (opt.hasChildren && !expandedTasks.has(opt.value)) collapsed.add(opt.value)
+                    }
+                    return visible
+                  })().map((opt) => {
+                    const active = draftTask === opt.value
+                    const expanded = expandedTasks.has(opt.value)
+                    return (
+                      <div
+                        key={opt.value}
+                        className="flex items-center gap-0.5"
+                        style={{ paddingLeft: `${opt.depth * 0.75}rem` }}
+                      >
+                        {opt.hasChildren ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedTasks((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(opt.value)) next.delete(opt.value)
+                                else next.add(opt.value)
+                                return next
+                              })
+                            }
+                            title={expanded ? '折叠子任务' : '展开子任务'}
+                            className="shrink-0 rounded-control-sm p-0.5 text-ink-400 transition hover:bg-paper-100 hover:text-ink-600"
+                          >
+                            <ChevronRight
+                              className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+                            />
+                          </button>
+                        ) : (
+                          <span className="w-4 shrink-0" />
+                        )}
+                        <button
+                          onClick={() => setDraftTask(opt.value)}
+                          className={`min-w-0 flex-1 truncate rounded-control-sm px-2 py-1 text-left text-ui-xs transition ${
+                            active ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
 
                 {/* 维度 2：标签（想给这份材料打什么） */}

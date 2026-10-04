@@ -11,7 +11,13 @@ import {
   dropMeta,
   type MaterialMeta,
 } from '../services/materialMeta'
-import { loadProjects, type Project } from '../services/projectData'
+import {
+  loadProjects,
+  buildTaskFilterOptions,
+  taskFilterMatches,
+  type Project,
+  type TaskFilterOption,
+} from '../services/projectData'
 import {
   listDocuments,
   importMarkdownDocs,
@@ -25,6 +31,7 @@ import {
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
+import { useTaskStore } from '../stores/task'
 import { githubFetch, deleteRepoFiles } from '../services/github'
 import { pollProgressJson, pollBookProgressJson, pollNoteConvertProgress, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
@@ -556,16 +563,39 @@ function MorphemeSplitEditor({
   )
 }
 
-/** 归属任务下拉（分类 = 任务） */
+/** 归属任务下拉：未归属 / 本任务（当前任务，置顶）/ 其余任务（按层级缩进） */
 function TaskSelect({
   value,
   onChange,
   tasks,
+  currentProjectId,
 }: {
   value: string
   onChange: (v: string) => void
   tasks: Project[]
+  currentProjectId?: string | null
 }) {
+  const byId = new Map(tasks.map((t) => [t.projectId, t]))
+  const childrenByParent = new Map<string, Project[]>()
+  for (const t of tasks) {
+    const key = t.parentId && byId.has(t.parentId) ? t.parentId : ''
+    const arr = childrenByParent.get(key)
+    if (arr) arr.push(t)
+    else childrenByParent.set(key, [t])
+  }
+  const current = currentProjectId ? byId.get(currentProjectId) : undefined
+  const rows: { id: string; title: string; depth: number }[] = []
+  const walk = (parentKey: string, depth: number) => {
+    for (const t of childrenByParent.get(parentKey) ?? []) {
+      if (current && t.projectId === current.projectId) {
+        walk(t.projectId, depth)
+        continue
+      }
+      rows.push({ id: t.projectId, title: t.title, depth })
+      walk(t.projectId, depth + 1)
+    }
+  }
+  walk('', 0)
   return (
     <select
       value={value}
@@ -573,9 +603,10 @@ function TaskSelect({
       className="w-full px-ui-gap py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
     >
       <option value="">未归属</option>
-      {tasks.map((t) => (
-        <option key={t.projectId} value={t.projectId}>
-          {t.title}
+      {current && <option value={current.projectId}>本任务 · {current.title}</option>}
+      {rows.map((r) => (
+        <option key={r.id} value={r.id}>
+          {r.depth > 0 ? `${'　'.repeat(r.depth)}${r.title}` : r.title}
         </option>
       ))}
     </select>
@@ -633,6 +664,13 @@ export default function ManagementPage() {
   const auth = useAuthStore()
   const owner = repo?.owner?.login ?? auth.user?.login ?? ''
   const token = auth.token ?? ''
+  // 全局当前任务：全站「任务过滤」三类口径的唯一来源
+  const currentProjectId = useTaskStore((s) => s.currentProjectId)
+  const isTaskLoaded = useTaskStore((s) => s.isLoaded)
+  const loadCurrentTask = useTaskStore((s) => s.loadCurrent)
+  useEffect(() => {
+    if (!isTaskLoaded) void loadCurrentTask()
+  }, [isTaskLoaded, loadCurrentTask])
   const [activeTab, setActiveTab] = useState<SubTabId>('library')
 
   // 文献库状态
@@ -684,8 +722,10 @@ export default function ManagementPage() {
   const [tasks, setTasks] = useState<Project[]>([])
   /** 材料元数据单一真源：任务归属 + 标签 */
   const [materialMeta, setMaterialMeta] = useState<MaterialMeta[]>([])
-  /** 左栏选中的任务过滤：'all' | projectId | '__none__' */
+  /** 左栏选中的任务过滤：'all' | 'cat:research' | 'cat:course' | 'node:<projectId>' */
   const [activeTaskId, setActiveTaskId] = useState<string>('all')
+  /** 任务面板里已展开的节点（默认全折叠，只有用户手动展开才显示子任务） */
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   /** 选中的标签过滤（空串 = 不过滤） */
   const [tagFilter, setTagFilter] = useState<string>('')
   const [showBatchMoveModal, setShowBatchMoveModal] = useState(false)
@@ -700,6 +740,7 @@ export default function ManagementPage() {
 
   // 知识库状态
   const [books, setBooks] = useState<BookItem[]>([])
+  const [bookSearch, setBookSearch] = useState('')
   const [showBookDetail, setShowBookDetail] = useState<BookItem | null>(null)
   const [isDragOverBook, setIsDragOverBook] = useState(false)
   const [showUploadBookModal, setShowUploadBookModal] = useState(false)
@@ -1094,12 +1135,11 @@ export default function ManagementPage() {
     }
   }
 
-  /** 任务过滤：'all' 全部 / '__none__' 未归属 / 否则指定任务 */
-  const matchTask = (taskId: string) => {
-    if (activeTaskId === 'all') return true
-    if (activeTaskId === '__none__') return !taskId
-    return taskId === activeTaskId
-  }
+  /** 任务过滤（统一三类口径：全部 / 研究·课程大类 / 当前任务及其全部子任务） */
+  const matchTask = (taskId: string) => taskFilterMatches(tasks, activeTaskId, taskId)
+
+  /** 当前筛选选中的具体任务 id（'all'/大类/未选中 → 空串）；「添加到本任务」的默认归属即取此值 */
+  const presetTaskId = () => (activeTaskId.startsWith('node:') ? activeTaskId.slice(5) : '')
 
   /** 标签过滤：空串不过滤 */
   const matchTag = (tags: string[]) => !tagFilter || tags.includes(tagFilter)
@@ -1114,15 +1154,22 @@ export default function ManagementPage() {
     }))
   }, [activeTab, papers, books, documents, materialMeta])
 
-  /** 左栏任务面板数量（当前 tab） */
+  /** 左栏任务面板选项（统一三类口径） */
+  const taskOptions = useMemo(() => buildTaskFilterOptions(tasks, currentProjectId), [tasks, currentProjectId])
+
+  /** 左栏任务面板数量（当前 tab）：按统一口径对每个选项计数（含子树累加） */
   const taskCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: scopedMaterials.length, __none__: 0 }
-    for (const item of scopedMaterials) {
-      if (item.taskId) counts[item.taskId] = (counts[item.taskId] || 0) + 1
-      else counts.__none__ += 1
+    const counts: Record<string, number> = {}
+    for (const opt of taskOptions) {
+      counts[opt.value] = scopedMaterials.filter((m) => taskFilterMatches(tasks, opt.value, m.taskId)).length
     }
     return counts
-  }, [scopedMaterials])
+  }, [taskOptions, scopedMaterials, tasks])
+
+  // 选中的过滤项若已失效（如切换了当前任务），回落到「全部」，避免列表被清空
+  useEffect(() => {
+    if (!taskOptions.some((o) => o.value === activeTaskId)) setActiveTaskId('all')
+  }, [taskOptions, activeTaskId])
 
   /** 左栏标签面板（当前 tab 去重） */
   const availableTags = useMemo(() => {
@@ -1148,7 +1195,7 @@ export default function ManagementPage() {
       )
     }
     return result
-  }, [papers, tierFilter, searchQuery, activeTaskId, tagFilter])
+  }, [papers, tierFilter, searchQuery, activeTaskId, tagFilter, tasks])
 
   /** 一级 / 二级都支持"有没有导入 PDF"的筛选 */
   const filteredPapers = useMemo(() => {
@@ -1159,10 +1206,20 @@ export default function ManagementPage() {
   const totalPages = Math.ceil(filteredPapers.length / PAGE_SIZE)
   const pagedPapers = filteredPapers.slice((libraryPage - 1) * PAGE_SIZE, libraryPage * PAGE_SIZE)
 
-  // 图书按任务 / 标签筛选
+  // 图书按任务 / 标签 / 搜索筛选
   const filteredBooks = useMemo(() => {
-    return books.filter((b) => matchTask(b.taskId) && matchTag(b.tags))
-  }, [books, activeTaskId, tagFilter])
+    let result = books.filter((b) => matchTask(b.taskId) && matchTag(b.tags))
+    const q = bookSearch.trim().toLowerCase()
+    if (q) {
+      result = result.filter(
+        (b) =>
+          b.title.toLowerCase().includes(q) ||
+          b.author.toLowerCase().includes(q) ||
+          (b.publisher || '').toLowerCase().includes(q),
+      )
+    }
+    return result
+  }, [books, activeTaskId, tagFilter, bookSearch, tasks])
 
   // 其他文档搜索
   const filteredDocuments = useMemo(() => {
@@ -1177,7 +1234,7 @@ export default function ManagementPage() {
       (d) => d.title.toLowerCase().includes(q) || d.author.toLowerCase().includes(q),
     )
     return result
-  }, [documents, documentSearch, activeTaskId, tagFilter, materialMeta])
+  }, [documents, documentSearch, activeTaskId, tagFilter, materialMeta, tasks])
 
   // 文献操作
   // Crossref DOI 自动填充
@@ -1277,7 +1334,7 @@ export default function ManagementPage() {
         mdProgress: 0,
         hasPdf: false,
         // 当前选中的任务下新增 → 直接归到该任务
-        taskId: activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '',
+        taskId: presetTaskId(),
         tags: [],
         trackingGroup: '',
         // DOI 快捷入库只有元数据：把元数据里带的摘要收下，
@@ -2332,13 +2389,13 @@ export default function ManagementPage() {
 
   /** 打开「手动添加文献」弹窗：默认继承左栏当前任务 */
   const openAddPaper = () => {
-    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '', tags: [] })
+    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: presetTaskId(), tags: [] })
     setShowAddPaperModal(true)
   }
 
   /** 打开「上传图书」弹窗：默认继承左栏当前任务 */
   const openUploadBook = () => {
-    setUploadBookTaskId(activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '')
+    setUploadBookTaskId(presetTaskId())
     setUploadBookTags([])
     setShowUploadBookModal(true)
   }
@@ -2440,15 +2497,33 @@ export default function ManagementPage() {
             </div>
           )}
 
-          {/* 图书库：上传图书 */}
+          {/* 图书库：全文检索 + 上传图书 */}
           {activeTab === 'knowledge' && (
-            <button
-              onClick={openUploadBook}
-              className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
-            >
-              <Upload className="w-4 h-4" />
-              上传图书
-            </button>
+            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                <input
+                  type="text"
+                  placeholder="书名、作者、出版社…（Enter 全文检索）"
+                  value={bookSearch}
+                  onChange={(e) => setBookSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      runFullTextSearch(bookSearch)
+                    }
+                  }}
+                  className="w-full pl-8 pr-3 py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                />
+              </div>
+              <button
+                onClick={openUploadBook}
+                className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
+              >
+                <Upload className="w-4 h-4" />
+                上传图书
+              </button>
+            </div>
           )}
 
           {/* 其他文档：全文检索 + 导入文档 */}
@@ -2539,46 +2614,61 @@ export default function ManagementPage() {
               <ListTodo className="w-4 h-4 text-seal-600" />
               任务
             </h3>
-            <div className="space-y-0.5">
-              <button
-                onClick={() => setActiveTaskId('all')}
-                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition ${
-                  activeTaskId === 'all' ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
-                }`}
-              >
-                <span className="text-ui-sm flex-1 truncate">全部</span>
-                <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${activeTaskId === 'all' ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
-                  {taskCounts.all || 0}
-                </span>
-              </button>
-              {tasks.map((t) => {
-                const isActive = activeTaskId === t.projectId
+            <div className="max-h-72 -mr-1 space-y-0.5 overflow-y-auto pr-1">
+              {(() => {
+                const collapsed = new Set<string>()
+                const visible: TaskFilterOption[] = []
+                for (const opt of taskOptions) {
+                  if (opt.parent && collapsed.has(opt.parent)) {
+                    if (opt.hasChildren) collapsed.add(opt.value)
+                    continue
+                  }
+                  visible.push(opt)
+                  if (opt.hasChildren && !expandedTasks.has(opt.value)) collapsed.add(opt.value)
+                }
+                return visible
+              })().map((opt) => {
+                const isActive = activeTaskId === opt.value
+                const expanded = expandedTasks.has(opt.value)
                 return (
-                  <button
-                    key={t.projectId}
-                    onClick={() => setActiveTaskId(t.projectId)}
-                    className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition ${
-                      isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
-                    }`}
+                  <div
+                    key={opt.value}
+                    className="flex items-center gap-0.5"
+                    style={{ paddingLeft: `${opt.depth * 0.75}rem` }}
                   >
-                    <span className="text-ui-sm flex-1 truncate">{t.title}</span>
-                    <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
-                      {taskCounts[t.projectId] || 0}
-                    </span>
-                  </button>
+                    {opt.hasChildren ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedTasks((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(opt.value)) next.delete(opt.value)
+                            else next.add(opt.value)
+                            return next
+                          })
+                        }
+                        title={expanded ? '折叠子任务' : '展开子任务'}
+                        className="shrink-0 rounded-control-sm p-0.5 text-ink-400 transition hover:bg-paper-100 hover:text-ink-600"
+                      >
+                        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                      </button>
+                    ) : (
+                      <span className="w-4 shrink-0" />
+                    )}
+                    <button
+                      onClick={() => setActiveTaskId(opt.value)}
+                      className={`flex min-w-0 flex-1 items-center gap-2 rounded-control px-2 py-1.5 text-left transition ${
+                        isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                      }`}
+                    >
+                      <span className="flex-1 truncate text-ui-sm">{opt.label}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-ui-xs ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
+                        {taskCounts[opt.value] || 0}
+                      </span>
+                    </button>
+                  </div>
                 )
               })}
-              <button
-                onClick={() => setActiveTaskId('__none__')}
-                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition ${
-                  activeTaskId === '__none__' ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
-                }`}
-              >
-                <span className="text-ui-sm flex-1 truncate">未归属</span>
-                <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${activeTaskId === '__none__' ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
-                  {taskCounts.__none__ || 0}
-                </span>
-              </button>
             </div>
           </div>
 
@@ -3057,7 +3147,7 @@ export default function ManagementPage() {
                   </div>
                   <button
                     onClick={() => {
-                      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '', tags: [] })
+                      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: presetTaskId(), tags: [] })
                       setShowAddPaperModal(true)
                     }}
                     className="inline-flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
@@ -3278,7 +3368,7 @@ export default function ManagementPage() {
                 </div>
                 <button
                   onClick={() => {
-                    setUploadBookTaskId(activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '')
+                    setUploadBookTaskId(presetTaskId())
                     setUploadBookTags([])
                     setShowUploadBookModal(true)
                   }}
@@ -3561,7 +3651,7 @@ export default function ManagementPage() {
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
-              <TaskSelect value={newPaper.taskId} onChange={(v) => setNewPaper({ ...newPaper, taskId: v })} tasks={tasks} />
+              <TaskSelect value={newPaper.taskId} onChange={(v) => setNewPaper({ ...newPaper, taskId: v })} tasks={tasks} currentProjectId={currentProjectId} />
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
@@ -3774,7 +3864,7 @@ export default function ManagementPage() {
 
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
-              <TaskSelect value={editingPaper.taskId} onChange={(v) => setEditingPaper({ ...editingPaper, taskId: v })} tasks={tasks} />
+              <TaskSelect value={editingPaper.taskId} onChange={(v) => setEditingPaper({ ...editingPaper, taskId: v })} tasks={tasks} currentProjectId={currentProjectId} />
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
@@ -3928,7 +4018,7 @@ export default function ManagementPage() {
             <p className="text-ui-sm text-ink-600">
               已选中 <span className="font-semibold text-seal-600">{selectedPapers.size}</span> 篇文献，选择目标任务：
             </p>
-            <TaskSelect value={batchMoveTaskId} onChange={setBatchMoveTaskId} tasks={tasks} />
+            <TaskSelect value={batchMoveTaskId} onChange={setBatchMoveTaskId} tasks={tasks} currentProjectId={currentProjectId} />
           </div>
           <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
@@ -4099,7 +4189,7 @@ export default function ManagementPage() {
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
-              <TaskSelect value={uploadBookTaskId} onChange={setUploadBookTaskId} tasks={tasks} />
+              <TaskSelect value={uploadBookTaskId} onChange={setUploadBookTaskId} tasks={tasks} currentProjectId={currentProjectId} />
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
@@ -4156,7 +4246,7 @@ export default function ManagementPage() {
                   保存归属
                 </button>
               </div>
-              <TaskSelect value={bookDetailTaskId} onChange={setBookDetailTaskId} tasks={tasks} />
+              <TaskSelect value={bookDetailTaskId} onChange={setBookDetailTaskId} tasks={tasks} currentProjectId={currentProjectId} />
               <label className="block text-ui-sm font-medium text-ink-700">标签</label>
               <TagEditor value={bookDetailTags} onChange={setBookDetailTags} />
             </div>
@@ -4324,7 +4414,7 @@ export default function ManagementPage() {
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
-              <TaskSelect value={editDocForm.taskId} onChange={(v) => setEditDocForm({ ...editDocForm, taskId: v })} tasks={tasks} />
+              <TaskSelect value={editDocForm.taskId} onChange={(v) => setEditDocForm({ ...editDocForm, taskId: v })} tasks={tasks} currentProjectId={currentProjectId} />
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
