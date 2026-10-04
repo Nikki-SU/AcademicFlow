@@ -208,6 +208,58 @@ const subTabs: { id: SubTabId; label: string; icon: typeof BookMarked }[] = [
 
 const PAGE_SIZE = 10
 
+/**
+ * 管理页列表通用翻页条 —— 文献 / 图书 / 期刊模板 / 其他文档四处共用同一套口径。
+ * 排版对齐、常驻可见；工作台里靠翻页而不是上下滚动来浏览列表（见 UX_DETAILS）。
+ */
+function PaginationBar({
+  total,
+  page,
+  totalPages,
+  onPage,
+}: {
+  total: number
+  page: number
+  totalPages: number
+  onPage: (p: number) => void
+}) {
+  if (totalPages <= 0) return null
+  return (
+    <div className="af-line-t flex items-center justify-between px-ui-gap py-3 bg-paper-100/50">
+      <div className="text-ui-sm text-ink-500">
+        共 {total} 条，第 {page} / {totalPages} 页
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onPage(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+          <button
+            key={p}
+            onClick={() => onPage(p)}
+            className={`w-8 h-8 text-ui-sm rounded-control-sm transition ${
+              page === p ? 'bg-seal-600 text-paper-50' : 'text-ink-500 hover:bg-ink-100 hover:text-ink-700'
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+        <button
+          onClick={() => onPage(Math.min(totalPages, page + 1))}
+          disabled={page === totalPages}
+          className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function literatureToPaper(lit: Literature): Paper {
   return {
     id: lit.doi || String(lit.addedAt),
@@ -733,6 +785,8 @@ export default function ManagementPage() {
 
   // 期刊模板状态
   const [templates, setTemplates] = useState<JournalTemplateItem[]>([])
+  const [templateSearch, setTemplateSearch] = useState('')
+  const [templatePage, setTemplatePage] = useState(1)
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<JournalTemplateItem | null>(null)
   const [newTemplate, setNewTemplate] = useState({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
@@ -741,6 +795,7 @@ export default function ManagementPage() {
   // 知识库状态
   const [books, setBooks] = useState<BookItem[]>([])
   const [bookSearch, setBookSearch] = useState('')
+  const [bookPage, setBookPage] = useState(1)
   const [showBookDetail, setShowBookDetail] = useState<BookItem | null>(null)
   const [isDragOverBook, setIsDragOverBook] = useState(false)
   const [showUploadBookModal, setShowUploadBookModal] = useState(false)
@@ -755,6 +810,7 @@ export default function ManagementPage() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentSearch, setDocumentSearch] = useState('')
+  const [documentPage, setDocumentPage] = useState(1)
   const [showImportDocModal, setShowImportDocModal] = useState(false)
   /** 导入弹窗的三种方式：上传 .md / 粘贴文本 / 上传 zip */
   const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
@@ -1235,6 +1291,41 @@ export default function ManagementPage() {
     )
     return result
   }, [documents, documentSearch, activeTaskId, tagFilter, materialMeta, tasks])
+
+  // 图书 / 文档 / 模板：一律翻页（与文献库同一口径），不靠整列上下滚动
+  const bookTotalPages = Math.ceil(filteredBooks.length / PAGE_SIZE)
+  const pagedBooks = filteredBooks.slice((bookPage - 1) * PAGE_SIZE, bookPage * PAGE_SIZE)
+
+  const documentTotalPages = Math.ceil(filteredDocuments.length / PAGE_SIZE)
+  const pagedDocuments = filteredDocuments.slice((documentPage - 1) * PAGE_SIZE, documentPage * PAGE_SIZE)
+
+  // 期刊模板搜索（名称 / 出版社 / ISSN）
+  const filteredTemplates = useMemo(() => {
+    const q = templateSearch.trim().toLowerCase()
+    if (!q) return templates
+    return templates.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.publisher.toLowerCase().includes(q) ||
+        t.issn.toLowerCase().includes(q),
+    )
+  }, [templates, templateSearch])
+  const templateTotalPages = Math.ceil(filteredTemplates.length / PAGE_SIZE)
+  const pagedTemplates = filteredTemplates.slice((templatePage - 1) * PAGE_SIZE, templatePage * PAGE_SIZE)
+
+  // 筛选 / 任务切换后条目变少 → 当前页越界时回夹，避免停在空页
+  useEffect(() => {
+    setLibraryPage((p) => Math.min(p, Math.max(1, totalPages)))
+  }, [totalPages])
+  useEffect(() => {
+    setBookPage((p) => Math.min(p, Math.max(1, bookTotalPages)))
+  }, [bookTotalPages])
+  useEffect(() => {
+    setDocumentPage((p) => Math.min(p, Math.max(1, documentTotalPages)))
+  }, [documentTotalPages])
+  useEffect(() => {
+    setTemplatePage((p) => Math.min(p, Math.max(1, templateTotalPages)))
+  }, [templateTotalPages])
 
   // 文献操作
   // Crossref DOI 自动填充
@@ -2426,9 +2517,9 @@ export default function ManagementPage() {
           工作台形态：外壳不滚，三栏各自 min-h-0 + 滚动。窄屏塌成两行（功能栏 + 内容）。 */}
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-ui-gap lg:grid-cols-ratio-131 lg:grid-rows-[minmax(0,1fr)]">
         {/* ──── 左：功能栏 ──── */}
-        <aside className="min-w-0 min-h-0 space-y-ui-gap overflow-y-auto">
+        <aside className="flex min-w-0 min-h-0 flex-col gap-ui-gap">
           {/* 类型切换（竖排） */}
-          <nav className="rounded-card border border-ink-200 bg-paper-50 p-1.5 shadow-sm">
+          <nav className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-1.5 shadow-sm">
             {subTabs.map((tab) => {
               const Icon = tab.icon
               const active = activeTab === tab.id
@@ -2449,7 +2540,7 @@ export default function ManagementPage() {
 
           {/* 文献库：全文检索 → DOI 链接入库 → 手动入库（入库的两种方式） */}
           {activeTab === 'library' && (
-            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
+            <div className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
                 <input
@@ -2500,14 +2591,17 @@ export default function ManagementPage() {
 
           {/* 图书库：全文检索 + 上传图书 */}
           {activeTab === 'knowledge' && (
-            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
+            <div className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
                 <input
                   type="text"
                   placeholder="书名、作者、出版社…（Enter 全文检索）"
                   value={bookSearch}
-                  onChange={(e) => setBookSearch(e.target.value)}
+                  onChange={(e) => {
+                    setBookSearch(e.target.value)
+                    setBookPage(1)
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                       e.preventDefault()
@@ -2529,14 +2623,17 @@ export default function ManagementPage() {
 
           {/* 其他文档：全文检索 + 导入文档 */}
           {activeTab === 'documents' && (
-            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
+            <div className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
                 <input
                   type="text"
                   placeholder="标题、作者…（Enter 全文检索）"
                   value={documentSearch}
-                  onChange={(e) => setDocumentSearch(e.target.value)}
+                  onChange={(e) => {
+                    setDocumentSearch(e.target.value)
+                    setDocumentPage(1)
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                       e.preventDefault()
@@ -2556,15 +2653,32 @@ export default function ManagementPage() {
             </div>
           )}
 
-          {/* 期刊模板：新建模板 */}
+          {/* 期刊模板：检索 + 新建（按钮贴底，填满整列） */}
           {activeTab === 'templates' && (
-            <button
-              onClick={openNewTemplate}
-              className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
-            >
-              <Plus className="w-4 h-4" />
-              新建模板
-            </button>
+            <>
+              <div className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                  <input
+                    type="text"
+                    placeholder="模板名称、出版社、ISSN…"
+                    value={templateSearch}
+                    onChange={(e) => {
+                      setTemplateSearch(e.target.value)
+                      setTemplatePage(1)
+                    }}
+                    className="w-full pl-8 pr-3 py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={openNewTemplate}
+                className="mt-auto flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
+              >
+                <Plus className="w-4 h-4" />
+                新建模板
+              </button>
+            </>
           )}
 
           {/* 导入导出：功能全收进左栏 */}
@@ -2610,12 +2724,12 @@ export default function ManagementPage() {
           {/* 任务 + 标签：仅内容类 tab（文献 / 图书 / 文档）过滤用 */}
           {(activeTab === 'library' || activeTab === 'knowledge' || activeTab === 'documents') && (
           <>
-          <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
-            <h3 className="mb-3 px-1 text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
+          <div className="flex min-h-0 flex-1 flex-col rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
+            <h3 className="mb-3 px-1 text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5 shrink-0">
               <ListTodo className="w-4 h-4 text-seal-600" />
               任务
             </h3>
-            <div className="max-h-72 -mr-1 space-y-0.5 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 -mr-1 space-y-0.5 overflow-y-auto pr-1">
               {(() => {
                 const collapsed = new Set<string>()
                 const visible: TaskFilterOption[] = []
@@ -3159,42 +3273,12 @@ export default function ManagementPage() {
                 </div>
               )}
 
-              {totalPages > 0 && (
-                <div className="af-line-t flex items-center justify-between px-ui-gap py-3 bg-paper-100/50">
-                  <div className="text-ui-sm text-ink-500">
-                    共 {filteredPapers.length} 条，第 {libraryPage} / {totalPages} 页
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setLibraryPage(Math.max(1, libraryPage - 1))}
-                      disabled={libraryPage === 1}
-                      className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => setLibraryPage(p)}
-                        className={`w-8 h-8 text-ui-sm rounded-control-sm transition ${
-                          libraryPage === p
-                            ? 'bg-seal-600 text-paper-50'
-                            : 'text-ink-500 hover:bg-ink-100 hover:text-ink-700'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setLibraryPage(Math.min(totalPages, libraryPage + 1))}
-                      disabled={libraryPage === totalPages}
-                      className="p-1.5 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
+              <PaginationBar
+                total={filteredPapers.length}
+                page={libraryPage}
+                totalPages={totalPages}
+                onPage={setLibraryPage}
+              />
             </div>
         </div>
       )}
@@ -3202,8 +3286,9 @@ export default function ManagementPage() {
       {/* ============ 期刊模板 Tab ============ */}
       {activeTab === 'templates' && (
         <div className="space-y-4">
+          {filteredTemplates.length > 0 && (
           <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm af-divided overflow-hidden">
-            {templates.map((tpl) => (
+            {pagedTemplates.map((tpl) => (
               <div key={tpl.id} className="flex items-center gap-3 px-ui-gap py-3 hover:bg-paper-100/70 transition">
                 <div className="w-10 h-10 shrink-0 flex items-center justify-center bg-seal-50 rounded-control">
                   <BookOpen className="w-5 h-5 text-seal-600" />
@@ -3256,7 +3341,14 @@ export default function ManagementPage() {
                 </div>
               </div>
             ))}
+            <PaginationBar
+              total={filteredTemplates.length}
+              page={templatePage}
+              totalPages={templateTotalPages}
+              onPage={setTemplatePage}
+            />
           </div>
+          )}
           {templates.length === 0 && (
             <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center">
               <div className="text-ink-400 mb-3">
@@ -3277,6 +3369,12 @@ export default function ManagementPage() {
               </button>
             </div>
           )}
+          {templates.length > 0 && filteredTemplates.length === 0 && (
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center text-ink-400 text-ui-sm">
+              <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p>没有找到匹配的期刊模板</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -3285,7 +3383,7 @@ export default function ManagementPage() {
         <div className="min-w-0 space-y-4">
             {filteredBooks.length > 0 ? (
               <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm af-divided overflow-hidden">
-                {filteredBooks.map((book) => (
+                {pagedBooks.map((book) => (
                   <div
                     key={book.id}
                     className="flex items-center gap-4 px-ui-gap py-3 hover:bg-paper-100/70 transition cursor-pointer"
@@ -3359,6 +3457,17 @@ export default function ManagementPage() {
                     </div>
                   </div>
                 ))}
+                <PaginationBar
+                  total={filteredBooks.length}
+                  page={bookPage}
+                  totalPages={bookTotalPages}
+                  onPage={setBookPage}
+                />
+              </div>
+            ) : books.length > 0 ? (
+              <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center text-ink-400 text-ui-sm">
+                <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p>没有找到匹配的图书</p>
               </div>
             ) : (
               <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center">
@@ -3413,7 +3522,7 @@ export default function ManagementPage() {
             </div>
           ) : (
             <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm af-divided overflow-hidden">
-              {filteredDocuments.map((doc) => {
+              {pagedDocuments.map((doc) => {
                 const docTaskId = taskOf(materialMeta, 'document', doc.id)
                 const docTags = tagsOf(materialMeta, 'document', doc.id)
                 const docTask = tasks.find((t) => t.projectId === docTaskId)
@@ -3472,6 +3581,12 @@ export default function ManagementPage() {
                   </div>
                 )
               })}
+              <PaginationBar
+                total={filteredDocuments.length}
+                page={documentPage}
+                totalPages={documentTotalPages}
+                onPage={setDocumentPage}
+              />
             </div>
           )}
         </div>
