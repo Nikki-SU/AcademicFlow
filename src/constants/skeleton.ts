@@ -118,6 +118,9 @@ const CSV_HEADERS = {
   // ⚠️ 必须与 src/services/trackingData.ts 的 TRACKING_INBOX_HEADERS 逐字一致（顺序也一致）：
   //    这是「追踪候选」表——后端每日追踪把命中的文献写这里，前端据此裁决（入库 / 忽略）。
   tracking_inbox: 'doi,title,journal,year,authors,keywords,abstract_en,source,tracking_group,found_at,status',
+  // ⚠️ 必须与 src/services/materialMeta.ts 的 MATERIAL_META_HEADERS 逐字一致（顺序也一致）：
+  //    材料元数据（任务归属 + 标签）。task_id 空串 = 未归属；tags 用「;」分隔。
+  material_meta: 'material_type,material_id,task_id,tags',
 } as const
 
 
@@ -619,6 +622,7 @@ export const WORKSPACE_SKELETON: SkeletonFile[] = [
   { path: 'schedule/courses.csv', content: CSV_HEADERS.courses + '\n' },
   { path: 'schedule/extra_days.csv', content: CSV_HEADERS.extra_days + '\n' },
   { path: 'tracking/inbox.csv', content: CSV_HEADERS.tracking_inbox + '\n' },
+  { path: 'materials/meta.csv', content: CSV_HEADERS.material_meta + '\n' },
 
   { path: 'templates/journals/_sample-generic/meta.md', content: SAMPLE_JOURNAL_META },
   { path: 'templates/journals/_sample-generic/template.tex', content: SAMPLE_JOURNAL_TEMPLATE },

@@ -2,16 +2,16 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, inferMdStatusByDoi, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, bookHasContent, type Textbook } from '../services/textbookData'
-import { loadCategories, saveCategories, type LiteratureCategory } from '../services/literatureCategoryData'
 import {
-  loadBookCategories,
-  saveBookCategories,
-  loadDocumentCategories,
-  saveDocumentCategories,
-  categoriesOfMember,
-  setMemberCategories,
-  type Category,
-} from '../services/categoryData'
+  loadMaterialMeta,
+  saveMaterialMeta,
+  taskOf,
+  tagsOf,
+  setMeta,
+  dropMeta,
+  type MaterialMeta,
+} from '../services/materialMeta'
+import { loadProjects, type Project } from '../services/projectData'
 import {
   listDocuments,
   importMarkdownDocs,
@@ -74,24 +74,18 @@ import {
   Star,
   Book,
   RefreshCw,
-  Database,
   Image as ImageIcon,
   Link as LinkIcon,
   StickyNote,
-  FileSpreadsheet,
-  FileJson,
-  BookText,
   Github,
   Sparkles,
   ExternalLink,
   CheckSquare,
-  ChevronDown,
   Folder,
   MoveRight,
   Tag,
-  Library,
+  ListTodo,
   Pencil,
-  // ListTodo,
 } from 'lucide-react'
 import { DoiLink } from '../components/DoiLink'
 import { toast } from 'sonner'
@@ -106,12 +100,6 @@ import { listNotes, type DocRef } from '../services/readingDocData'
 import { loadAnnotations } from '../services/annotationData'
 
 type SubTabId = 'library' | 'templates' | 'knowledge' | 'documents' | 'import-export'
-
-interface PaperCategory {
-  id: string
-  name: string
-  children?: PaperCategory[]
-}
 
 interface Paper {
   id: string
@@ -129,9 +117,11 @@ interface Paper {
   postStage?: 'none' | 'translating' | 'words' | 'done' | 'error'
   /** 是否已导入 PDF（来自 CSV 的 pdf_added_at > 0，筛选用） */
   hasPdf: boolean
-  /** 所属分类 id 列表（可以同时属于多个分类） */
-  categoryIds: string[]
-  /** 追踪页给它打的分组；只读保留，绝不用分类去覆盖它 */
+  /** 归属任务（projects.csv 的 project_id）；空串 = 未归属 */
+  taskId: string
+  /** 自由标签，可被检索 */
+  tags: string[]
+  /** 追踪页给它打的分组；只读保留 */
   trackingGroup: string
   /**
    * 摘要。来自 DOI 元数据（Crossref / OpenAlex）或转换为 md 时的抽取。
@@ -197,7 +187,8 @@ interface BookItem {
   status: 'uploading' | 'converting' | 'done' | 'failed'
   coverImage?: string
   progress: number
-  categoryIds: string[]
+  taskId: string
+  tags: string[]
 }
 
 const subTabs: { id: SubTabId; label: string; icon: typeof BookMarked }[] = [
@@ -206,11 +197,6 @@ const subTabs: { id: SubTabId; label: string; icon: typeof BookMarked }[] = [
   { id: 'documents', label: '其他文档', icon: FileText },
   { id: 'templates', label: '期刊模板', icon: BookOpen },
   { id: 'import-export', label: '导入导出', icon: ArrowLeftRight },
-]
-
-// 'all' 是伪分类（不落盘），只用来表示"全部图书"
-const DEFAULT_BOOK_CATEGORIES: Category[] = [
-  { id: 'all', name: '全部图书', members: [] },
 ]
 
 const PAGE_SIZE = 10
@@ -230,8 +216,9 @@ function literatureToPaper(lit: Literature): Paper {
     mdStatus: lit.mdStatus || 'none',
     mdProgress: 0,
     hasPdf: (lit.pdfAddedAt || 0) > 0,
-    // 分类关系存在 literatures/categories.csv 里，加载时再填进来（见 loadData）
-    categoryIds: [],
+    // 任务 / 标签关系存在 materials/meta.csv，加载时再填进来（见 loadData）
+    taskId: '',
+    tags: [],
     trackingGroup: lit.trackingGroup,
     abstractEn: lit.abstractEn || '',
     abstractCn: lit.abstractCn || '',
@@ -307,16 +294,6 @@ function correspondingNames(correspondingAuthor: string): Set<string> {
   )
 }
 
-/** 文献分类色块调色板：按文献内分类下标取色，让相邻分类颜色不同 */
-const CATEGORY_COLORS = [
-  'bg-amber-50 text-amber-600',
-  'bg-emerald-50 text-emerald-600',
-  'bg-sky-50 text-sky-600',
-  'bg-violet-50 text-violet-600',
-  'bg-rose-50 text-rose-600',
-  'bg-teal-50 text-teal-600',
-]
-
 /** 文献分级配色：一级（原创）暖色 amber，二级（综述等二手文献）冷色 sky。
  *  用「整行底色 + 页签底色」区分，不在标题前放图标（图标占格子且不表意）。 */
 const TIER_STYLE = {
@@ -333,33 +310,7 @@ const TIER_STYLE = {
   },
 } as const
 
-/** 把分类树拍平成一层（'全部文献' 是伪分类，不落盘） */
-function flattenCategories(cats: PaperCategory[]): PaperCategory[] {
-  const out: PaperCategory[] = []
-  const walk = (list: PaperCategory[]) => {
-    for (const c of list) {
-      if (c.id === 'all') continue
-      out.push(c)
-      if (c.children?.length) walk(c.children)
-    }
-  }
-  walk(cats)
-  return out
-}
-
-/**
- * 分类落盘内容：分类本身 + 它的成员文献。
- * 成员关系（dois）从 papers 反推 —— 唯一事实来源是每篇文献的 categoryIds。
- */
-function buildCategoryPayload(cats: PaperCategory[], papers: Paper[]): LiteratureCategory[] {
-  return flattenCategories(cats).map((c) => ({
-    id: c.id,
-    name: c.name,
-    dois: papers.filter((p) => p.categoryIds.includes(c.id)).map((p) => p.doi),
-  }))
-}
-
-function textbookToBookItem(tb: Textbook, categories: Category[]): BookItem {
+function textbookToBookItem(tb: Textbook): BookItem {
   return {
     id: tb.textbookId,
     title: tb.title,
@@ -369,8 +320,8 @@ function textbookToBookItem(tb: Textbook, categories: Category[]): BookItem {
     addedAt: tb.addedAt,
     status: 'done',
     progress: 100,
-    // 分类关系存在 textbooks/categories.csv，主键是书名（= textbook_id）
-    categoryIds: categoriesOfMember(categories, tb.textbookId),
+    taskId: '',
+    tags: [],
   }
 }
 
@@ -605,6 +556,77 @@ function MorphemeSplitEditor({
   )
 }
 
+/** 归属任务下拉（分类 = 任务） */
+function TaskSelect({
+  value,
+  onChange,
+  tasks,
+}: {
+  value: string
+  onChange: (v: string) => void
+  tasks: Project[]
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-ui-gap py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+    >
+      <option value="">未归属</option>
+      {tasks.map((t) => (
+        <option key={t.projectId} value={t.projectId}>
+          {t.title}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** 标签编辑器：回车 / 逗号添加，退格删除末尾，chip 可点 × 移除 */
+function TagEditor({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }) {
+  const [draft, setDraft] = useState('')
+  const add = () => {
+    const t = draft.trim()
+    if (t && !value.includes(t)) onChange([...value, t])
+    setDraft('')
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 min-h-[2.5rem] border border-ink-200 rounded-control bg-paper-50 focus-within:border-seal-400 focus-within:ring-2 focus-within:ring-seal-100">
+      {value.map((tag) => (
+        <span
+          key={tag}
+          className="inline-flex items-center gap-1 px-2 py-0.5 bg-seal-100 text-seal-700 text-ui-xs rounded-control-sm"
+        >
+          {tag}
+          <button
+            type="button"
+            onClick={() => onChange(value.filter((x) => x !== tag))}
+            className="text-seal-500 hover:text-seal-800"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ',' || e.key === '、') && !e.nativeEvent.isComposing) {
+            e.preventDefault()
+            add()
+          } else if (e.key === 'Backspace' && !draft && value.length > 0) {
+            onChange(value.slice(0, -1))
+          }
+        }}
+        onBlur={add}
+        placeholder={value.length ? '' : '输入标签后回车'}
+        className="flex-1 min-w-[6rem] bg-transparent text-ui-sm focus:outline-none"
+      />
+    </div>
+  )
+}
+
 export default function ManagementPage() {
   const navigate = useNavigate()
   const { repo } = useWorkspaceStore()
@@ -647,7 +669,7 @@ export default function ManagementPage() {
   const [paperWords, setPaperWords] = useState<WordData[] | null>(null)
   const [paperWordsDirty, setPaperWordsDirty] = useState(false)
   const [papers, setPapers] = useState<Paper[]>([])
-  const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto' as 'auto' | '1' | '2', categoryIds: [] as string[] })
+  const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto' as 'auto' | '1' | '2', taskId: '', tags: [] as string[] })
   const [doiFetching, setDoiFetching] = useState(false)
   const [doiFetchError, setDoiFetchError] = useState<string | null>(null)
   const [doiQuickInput, setDoiQuickInput] = useState('')
@@ -657,13 +679,17 @@ export default function ManagementPage() {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   /** 期刊缩写本地覆盖表（全名 → 缩写） */
   const [journalAbbrevMap, setJournalAbbrevMap] = useState<Record<string, string>>({})
-  const [paperCategories, setPaperCategories] = useState<PaperCategory[]>([{ id: 'all', name: '全部文献' }])
-  const [activePaperCategory, setActivePaperCategory] = useState<string>('all')
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['my-categories']))
+  // ── 统一分类体系：分类 = 归属任务（Project），标签 = 自由标注（MaterialMeta） ──
+  /** 全部任务（左栏任务面板 / 归属下拉的数据源） */
+  const [tasks, setTasks] = useState<Project[]>([])
+  /** 材料元数据单一真源：任务归属 + 标签 */
+  const [materialMeta, setMaterialMeta] = useState<MaterialMeta[]>([])
+  /** 左栏选中的任务过滤：'all' | projectId | '__none__' */
+  const [activeTaskId, setActiveTaskId] = useState<string>('all')
+  /** 选中的标签过滤（空串 = 不过滤） */
+  const [tagFilter, setTagFilter] = useState<string>('')
   const [showBatchMoveModal, setShowBatchMoveModal] = useState(false)
-  const [batchMoveTargetIds, setBatchMoveTargetIds] = useState<string[]>([])
-  const [editingCategory, setEditingCategory] = useState<{ id?: string; name: string; parentId?: string } | null>(null)
-  const [showCategoryModal, setShowCategoryModal] = useState(false)
+  const [batchMoveTaskId, setBatchMoveTaskId] = useState<string>('')
 
   // 期刊模板状态
   const [templates, setTemplates] = useState<JournalTemplateItem[]>([])
@@ -676,27 +702,25 @@ export default function ManagementPage() {
   const [books, setBooks] = useState<BookItem[]>([])
   const [showBookDetail, setShowBookDetail] = useState<BookItem | null>(null)
   const [isDragOverBook, setIsDragOverBook] = useState(false)
-  const [bookCategories, setBookCategories] = useState<Category[]>(DEFAULT_BOOK_CATEGORIES)
-  const [activeBookCategory, setActiveBookCategory] = useState<string>('all')
-  const [editingBookCategory, setEditingBookCategory] = useState<{ id?: string; name: string } | null>(null)
-  const [showBookCategoryModal, setShowBookCategoryModal] = useState(false)
   const [showUploadBookModal, setShowUploadBookModal] = useState(false)
-  const [uploadBookCategories, setUploadBookCategories] = useState<string[]>([])
-  /** 图书详情弹窗里正在编辑的所属分类（与已落盘内容分开，保存时才写回） */
-  const [bookDetailCategoryIds, setBookDetailCategoryIds] = useState<string[]>([])
+  /** 上传图书弹窗里正在编辑的任务归属 + 标签 */
+  const [uploadBookTaskId, setUploadBookTaskId] = useState<string>('')
+  const [uploadBookTags, setUploadBookTags] = useState<string[]>([])
+  /** 图书详情弹窗里正在编辑的任务 / 标签（保存时才写回） */
+  const [bookDetailTaskId, setBookDetailTaskId] = useState<string>('')
+  const [bookDetailTags, setBookDetailTags] = useState<string[]>([])
 
   // 其他文档状态
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentSearch, setDocumentSearch] = useState('')
-  const [documentCategories, setDocumentCategories] = useState<Category[]>([])
   const [showImportDocModal, setShowImportDocModal] = useState(false)
   /** 导入弹窗的三种方式：上传 .md / 粘贴文本 / 上传 zip */
   const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
   const [pasteDoc, setPasteDoc] = useState({ title: '', content: '' })
   const [importing, setImporting] = useState(false)
   const [editingDocument, setEditingDocument] = useState<DocumentSummary | null>(null)
-  const [editDocForm, setEditDocForm] = useState({ title: '', author: '', categoryIds: [] as string[] })
+  const [editDocForm, setEditDocForm] = useState({ title: '', author: '', taskId: '', tags: [] as string[] })
   const [savingDocument, setSavingDocument] = useState(false)
 
   // 后台任务状态
@@ -704,62 +728,42 @@ export default function ManagementPage() {
   const taskQueueRef = useRef(taskQueue)
   taskQueueRef.current = taskQueue
 
-  // 加载数据：文献 + 文献分类（分类的成员关系存在 literatures/categories.csv）
-  useEffect(() => {
-    if (!repo) return
-    const loadData = async () => {
-      try {
-        const [lits, cats] = await Promise.all([loadLiteratures(true), loadCategories()])
-        // 分类文件是「分类 → 成员 doi」，这里反过来建成 doi → 分类 id[]
-        const doiToCatIds = new Map<string, string[]>()
-        for (const c of cats) {
-          for (const d of c.dois) {
-            const arr = doiToCatIds.get(d) || []
-            arr.push(c.id)
-            doiToCatIds.set(d, arr)
-          }
-        }
-        setPaperCategories([{ id: 'all', name: '全部文献' }, ...cats.map((c) => ({ id: c.id, name: c.name }))])
-        // 防缓存：跳过正在删除的 ID —— 即使 CSV 还没 propagate 也不让它冒出来
-        setPapers(
-          lits
-            .map(literatureToPaper)
-            .map((p) => ({ ...p, categoryIds: doiToCatIds.get(p.doi) || [] }))
-            .filter((p) => !deletingIds.has(p.id)),
-        )
-      } catch (err) {
-        console.error('加载文献失败:', err)
-      }
-    }
-    loadData()
-  }, [repo])
-
-  useEffect(() => {
-    if (!repo) return
-    const loadData = async () => {
-      try {
-        // 图书分类从 textbooks/categories.csv 读，成员关系由主键（书名）反查
-        const [tbs, cats] = await Promise.all([loadTextbooks(), loadBookCategories()])
-        setBookCategories([...DEFAULT_BOOK_CATEGORIES, ...cats])
-        setBooks(tbs.map((tb) => textbookToBookItem(tb, cats)))
-      } catch (err) {
-        console.error('加载教材失败:', err)
-      }
-    }
-    loadData()
-  }, [repo])
-
-  // 加载其他文档 + 文档分类（分类成员存在 documents/categories.csv）
+  // 加载数据：三种材料 + 统一元数据（任务归属 / 标签）
   useEffect(() => {
     if (!repo) return
     const loadData = async () => {
       setDocumentsLoading(true)
       try {
-        const [docs, cats] = await Promise.all([listDocuments(), loadDocumentCategories()])
+        const [lits, tbs, docs, meta, projects] = await Promise.all([
+          loadLiteratures(true),
+          loadTextbooks(),
+          listDocuments(),
+          loadMaterialMeta(true),
+          loadProjects(),
+        ])
+        setTasks(projects)
+        setMaterialMeta(meta)
+        // 防缓存：跳过正在删除的 ID —— 即使 CSV 还没 propagate 也不让它冒出来
+        setPapers(
+          lits
+            .map(literatureToPaper)
+            .map((p) => ({
+              ...p,
+              taskId: taskOf(meta, 'paper', p.doi),
+              tags: tagsOf(meta, 'paper', p.doi),
+            }))
+            .filter((p) => !deletingIds.has(p.id)),
+        )
+        setBooks(
+          tbs.map((tb) => ({
+            ...textbookToBookItem(tb),
+            taskId: taskOf(meta, 'book', tb.textbookId),
+            tags: tagsOf(meta, 'book', tb.textbookId),
+          })),
+        )
         setDocuments(docs)
-        setDocumentCategories(cats)
       } catch (err) {
-        console.error('加载其他文档失败:', err)
+        console.error('加载材料失败:', err)
       } finally {
         setDocumentsLoading(false)
       }
@@ -1059,22 +1063,11 @@ export default function ManagementPage() {
     return () => { cancelled = true; clearInterval(pollInterval) }
   }, [repo])
 
-  /** 分类落盘：分类名 + 成员文献（成员关系从 papers 反推） */
-  const persistCategoryStore = async (cats: PaperCategory[], updatedPapers: Paper[]) => {
-    try {
-      await saveCategories(buildCategoryPayload(cats, updatedPapers))
-    } catch (err) {
-      console.error('保存文献分类失败:', err)
-      toast.error('保存分类失败，请检查仓库权限')
-    }
-  }
-
-  // 保存文献：元数据写 literatures.csv；分类的成员关系顺带同步落盘
+  // 保存文献：元数据写 literatures.csv
   const savePapers = async (updatedPapers: Paper[]) => {
     try {
       const lits = updatedPapers.map(paperToLiterature)
       await saveLiteratures(lits)
-      await persistCategoryStore(paperCategories, updatedPapers)
     } catch (err) {
       console.error('保存文献失败:', err)
     }
@@ -1090,50 +1083,57 @@ export default function ManagementPage() {
     }
   }
 
-  // 文献分类树 - 展开关闭
-  const toggleCategoryExpand = (id: string) => {
-    const next = new Set(expandedCategories)
-    if (next.has(id)) {
-      next.delete(id)
-    } else {
-      next.add(id)
+  /** 材料元数据落盘（任务归属 + 标签） */
+  const persistMeta = async (next: MaterialMeta[]) => {
+    setMaterialMeta(next)
+    try {
+      await saveMaterialMeta(next)
+    } catch (err) {
+      console.error('保存材料元数据失败:', err)
+      toast.error('保存失败，请检查仓库权限')
     }
-    setExpandedCategories(next)
   }
 
-  // 获取所有叶子分类（用于文献数量统计）
-  const getAllLeafCategories = useMemo(() => {
-    const leaves: { id: string; name: string }[] = []
-    const traverse = (cats: PaperCategory[]) => {
-      for (const cat of cats) {
-        if (cat.children && cat.children.length > 0) {
-          traverse(cat.children)
-        } else if (cat.id !== 'all') {
-          leaves.push({ id: cat.id, name: cat.name })
-        }
-      }
-    }
-    traverse(paperCategories)
-    return leaves
-  }, [paperCategories])
+  /** 任务过滤：'all' 全部 / '__none__' 未归属 / 否则指定任务 */
+  const matchTask = (taskId: string) => {
+    if (activeTaskId === 'all') return true
+    if (activeTaskId === '__none__') return !taskId
+    return taskId === activeTaskId
+  }
 
-  // 统计各分类文献数量
-  const paperCategoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: papers.length }
-    for (const paper of papers) {
-      for (const cid of paper.categoryIds) {
-        counts[cid] = (counts[cid] || 0) + 1
-      }
+  /** 标签过滤：空串不过滤 */
+  const matchTag = (tags: string[]) => !tagFilter || tags.includes(tagFilter)
+
+  /** 当前 tab 下带任务 / 标签的材料视图（文档的任务标签存在 meta 里） */
+  const scopedMaterials = useMemo(() => {
+    if (activeTab === 'library') return papers.map((p) => ({ taskId: p.taskId, tags: p.tags }))
+    if (activeTab === 'knowledge') return books.map((b) => ({ taskId: b.taskId, tags: b.tags }))
+    return documents.map((d) => ({
+      taskId: taskOf(materialMeta, 'document', d.id),
+      tags: tagsOf(materialMeta, 'document', d.id),
+    }))
+  }, [activeTab, papers, books, documents, materialMeta])
+
+  /** 左栏任务面板数量（当前 tab） */
+  const taskCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: scopedMaterials.length, __none__: 0 }
+    for (const item of scopedMaterials) {
+      if (item.taskId) counts[item.taskId] = (counts[item.taskId] || 0) + 1
+      else counts.__none__ += 1
     }
     return counts
-  }, [papers])
+  }, [scopedMaterials])
 
-  // 筛选文献：先按分类 / tier / 搜索过滤（PDF 与否单独一层，方便给筛选按钮算数量）
+  /** 左栏标签面板（当前 tab 去重） */
+  const availableTags = useMemo(() => {
+    const set = new Set<string>()
+    for (const item of scopedMaterials) for (const t of item.tags) set.add(t)
+    return [...set].sort()
+  }, [scopedMaterials])
+
+  // 筛选文献：按任务 / 标签 / tier / 搜索过滤（PDF 与否单独一层）
   const basePapers = useMemo(() => {
-    let result = papers
-    if (activePaperCategory !== 'all') {
-      result = result.filter((p) => p.categoryIds.includes(activePaperCategory))
-    }
+    let result = papers.filter((p) => matchTask(p.taskId) && matchTag(p.tags))
     if (tierFilter !== 'all') {
       result = result.filter((p) => p.tier === tierFilter)
     }
@@ -1148,7 +1148,7 @@ export default function ManagementPage() {
       )
     }
     return result
-  }, [papers, tierFilter, searchQuery, activePaperCategory])
+  }, [papers, tierFilter, searchQuery, activeTaskId, tagFilter])
 
   /** 一级 / 二级都支持"有没有导入 PDF"的筛选 */
   const filteredPapers = useMemo(() => {
@@ -1159,30 +1159,25 @@ export default function ManagementPage() {
   const totalPages = Math.ceil(filteredPapers.length / PAGE_SIZE)
   const pagedPapers = filteredPapers.slice((libraryPage - 1) * PAGE_SIZE, libraryPage * PAGE_SIZE)
 
-  // 知识库分类筛选
+  // 图书按任务 / 标签筛选
   const filteredBooks = useMemo(() => {
-    if (activeBookCategory === 'all') return books
-    return books.filter((b) => b.categoryIds.includes(activeBookCategory))
-  }, [books, activeBookCategory])
-
-  const bookCategoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: books.length }
-    for (const book of books) {
-      for (const cid of book.categoryIds) {
-        counts[cid] = (counts[cid] || 0) + 1
-      }
-    }
-    return counts
-  }, [books])
+    return books.filter((b) => matchTask(b.taskId) && matchTag(b.tags))
+  }, [books, activeTaskId, tagFilter])
 
   // 其他文档搜索
   const filteredDocuments = useMemo(() => {
+    let result = documents.filter(
+      (d) =>
+        matchTask(taskOf(materialMeta, 'document', d.id)) &&
+        matchTag(tagsOf(materialMeta, 'document', d.id)),
+    )
     const q = documentSearch.trim().toLowerCase()
-    if (!q) return documents
-    return documents.filter(
+    if (!q) return result
+    result = result.filter(
       (d) => d.title.toLowerCase().includes(q) || d.author.toLowerCase().includes(q),
     )
-  }, [documents, documentSearch])
+    return result
+  }, [documents, documentSearch, activeTaskId, tagFilter, materialMeta])
 
   // 文献操作
   // Crossref DOI 自动填充
@@ -1281,8 +1276,9 @@ export default function ManagementPage() {
         mdStatus: 'none',
         mdProgress: 0,
         hasPdf: false,
-        // 在当前选中的分类里新增 → 直接归到该分类下
-        categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [],
+        // 当前选中的任务下新增 → 直接归到该任务
+        taskId: activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '',
+        tags: [],
         trackingGroup: '',
         // DOI 快捷入库只有元数据：把元数据里带的摘要收下，
         // 这样即便没有 md，摘要翻译练习也有题面/参考答案可用
@@ -1294,6 +1290,7 @@ export default function ManagementPage() {
       const updated = [paper, ...papers]
       setPapers(updated)
       await savePapers(updated)
+      await persistMeta(setMeta(materialMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
       setDoiQuickInput('')
       toast.success('已添加到文献库', {
         description: meta.title.slice(0, 60) + (meta.title.length > 60 ? '…' : ''),
@@ -1304,7 +1301,7 @@ export default function ManagementPage() {
     } finally {
       setIsAddingByDoi(false)
     }
-  }, [doiQuickInput, papers, activePaperCategory])
+  }, [doiQuickInput, papers, activeTaskId, materialMeta])
 
   const handleAddPaper = async () => {
     if (!newPaper.title.trim()) {
@@ -1344,7 +1341,8 @@ export default function ManagementPage() {
       mdStatus: 'none',
       mdProgress: 0,
       hasPdf: false,
-      categoryIds: newPaper.categoryIds,
+      taskId: newPaper.taskId,
+      tags: newPaper.tags,
       trackingGroup: '',
       abstractEn: newPaper.abstractEn.trim(),
       abstractCn: newPaper.abstractCn.trim(),
@@ -1354,7 +1352,8 @@ export default function ManagementPage() {
     setPapers(updated)
     try {
       await savePapers(updated)
-      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: [] })
+      await persistMeta(setMeta(materialMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
+      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: '', tags: [] })
       setShowAddPaperModal(false)
       toast.success('文献已保存', { description: '刷新后仍会保留' })
     } catch (err) {
@@ -1571,6 +1570,7 @@ export default function ManagementPage() {
         await savePapers(updated)
         invalidateCache('literatures/literatures.csv')
         setPapers(updated)
+        if (paperDoi) await persistMeta(dropMeta(materialMeta, 'paper', paperDoi))
         toast.success('文献已删除（GitHub 文件清理在后台进行）')
       } catch (saveErr) {
         // savePapers 失败：不乐观更新，回滚 deletingIds，让用户看到失败
@@ -1795,6 +1795,9 @@ export default function ManagementPage() {
     setPapers(updated)
     try {
       await savePapers(updated)
+      if (editingPaper.doi) {
+        await persistMeta(setMeta(materialMeta, 'paper', editingPaper.doi, { taskId: editingPaper.taskId, tags: editingPaper.tags }))
+      }
       setShowEditPaperModal(false)
       setEditingPaper(null)
       setPaperWords(null)
@@ -1829,6 +1832,11 @@ export default function ManagementPage() {
         await savePapers(updated)
         invalidateCache('literatures/literatures.csv')
         setPapers(updated)
+        let nextMeta = materialMeta
+        for (const p of papersToDelete) {
+          if (p.doi) nextMeta = dropMeta(nextMeta, 'paper', p.doi)
+        }
+        await persistMeta(nextMeta)
         setSelectedPapers(new Set())
         setBatchMode(false)
         toast.success(`已删除 ${papersToDelete.length} 篇文献（GitHub 清理在后台进行）`)
@@ -1904,96 +1912,21 @@ export default function ManagementPage() {
   }
 
   const handleBatchMove = () => {
-    const updated = papers.map((p) => {
-      if (selectedPapers.has(p.id)) {
-        return { ...p, categoryIds: [...new Set([...p.categoryIds, ...batchMoveTargetIds])] }
-      }
-      return p
-    })
+    const target = batchMoveTaskId
+    const updated = papers.map((p) => (selectedPapers.has(p.id) ? { ...p, taskId: target } : p))
     setPapers(updated)
     savePapers(updated)
+    let nextMeta = materialMeta
+    for (const p of updated) {
+      if (selectedPapers.has(p.id)) {
+        nextMeta = setMeta(nextMeta, 'paper', p.doi, { taskId: target, tags: p.tags })
+      }
+    }
+    persistMeta(nextMeta)
     setSelectedPapers(new Set())
     setBatchMode(false)
     setShowBatchMoveModal(false)
-    setBatchMoveTargetIds([])
-  }
-
-  // 文献分类管理
-  const handleAddCategory = (parentId?: string) => {
-    setEditingCategory({ name: '', parentId })
-    setShowCategoryModal(true)
-  }
-
-  const handleEditCategory = (id: string, name: string, parentId?: string) => {
-    setEditingCategory({ id, name, parentId })
-    setShowCategoryModal(true)
-  }
-
-  const handleDeleteCategory = (id: string) => {
-    const removeFromTree = (cats: PaperCategory[]): PaperCategory[] => {
-      return cats
-        .filter((c) => c.id !== id)
-        .map((c) => ({
-          ...c,
-          children: c.children ? removeFromTree(c.children) : undefined,
-        }))
-    }
-    const updatedCats = removeFromTree(paperCategories)
-    const updatedPapers = papers.map((p) => ({ ...p, categoryIds: p.categoryIds.filter((cid) => cid !== id) }))
-    setPaperCategories(updatedCats)
-    setPapers(updatedPapers)
-    // 分类与成员都在分类文件里，一次写清即可（不碰 literatures.csv）
-    persistCategoryStore(updatedCats, updatedPapers)
-    if (activePaperCategory === id) setActivePaperCategory('all')
-  }
-
-  const handleSaveCategory = () => {
-    if (!editingCategory || !editingCategory.name.trim()) return
-    let updatedCats: PaperCategory[]
-    if (editingCategory.id) {
-      const updateInTree = (cats: PaperCategory[]): PaperCategory[] => {
-        return cats.map((c) => {
-          if (c.id === editingCategory.id) {
-            return { ...c, name: editingCategory.name }
-          }
-          return {
-            ...c,
-            children: c.children ? updateInTree(c.children) : undefined,
-          }
-        })
-      }
-      updatedCats = updateInTree(paperCategories)
-      setPaperCategories(updatedCats)
-    } else {
-      const newCat: PaperCategory = {
-        id: String(Date.now()),
-        name: editingCategory.name,
-      }
-      if (editingCategory.parentId) {
-        const addToTree = (cats: PaperCategory[]): PaperCategory[] => {
-          return cats.map((c) => {
-            if (c.id === editingCategory.parentId) {
-              return { ...c, children: [...(c.children || []), newCat] }
-            }
-            return {
-              ...c,
-              children: c.children ? addToTree(c.children) : undefined,
-            }
-          })
-        }
-        updatedCats = addToTree(paperCategories)
-        setPaperCategories(updatedCats)
-        if (!expandedCategories.has(editingCategory.parentId)) {
-          setExpandedCategories(new Set([...expandedCategories, editingCategory.parentId]))
-        }
-      } else {
-        updatedCats = [...paperCategories, newCat]
-        setPaperCategories(updatedCats)
-      }
-    }
-    persistCategoryStore(updatedCats, papers)
-    setEditingCategory(null)
-    setShowCategoryModal(false)
+    setBatchMoveTaskId('')
   }
 
   // 期刊模板操作 —— 全部通过 journal-templates.ts 持久化到 GitHub 私库
@@ -2199,26 +2132,23 @@ export default function ManagementPage() {
         addedAt: Date.now(),
         status: 'converting' as const,
         progress: 5,
-        categoryIds: uploadBookCategories,
+        taskId: uploadBookTaskId,
+        tags: uploadBookTags,
       }
     })
     const updated = [...newBooks, ...books]
     setBooks(updated)
     await saveBooks(updated)
 
-    // 分类成员单独落盘：textbooks/ 只存元数据，分类关系在 textbooks/categories.csv
-    if (uploadBookCategories.length > 0) {
-      let nextCats = bookCategories
-      for (const b of newBooks) nextCats = setMemberCategories(nextCats, b.id, uploadBookCategories)
-      setBookCategories(nextCats)
-      try {
-        await persistBookCategories(nextCats)
-      } catch (err) {
-        toast.error(`图书分类保存失败：${err instanceof Error ? err.message : String(err)}`)
-      }
+    // 任务归属 + 标签写入 materials/meta.csv
+    let nextMeta = materialMeta
+    for (const b of newBooks) {
+      nextMeta = setMeta(nextMeta, 'book', b.id, { taskId: uploadBookTaskId, tags: uploadBookTags })
     }
+    await persistMeta(nextMeta)
     setShowUploadBookModal(false)
-    setUploadBookCategories([])
+    setUploadBookTaskId('')
+    setUploadBookTags([])
 
     // fire-and-forget: 每个文件上传 PDF + dispatch 后端 book_convert
     fileArray.forEach((file, i) => {
@@ -2230,84 +2160,24 @@ export default function ManagementPage() {
     const updated = books.filter((b) => b.id !== id)
     setBooks(updated)
     await saveBooks(updated)
-    // 删书也要摘掉它在分类里的成员身份，否则 categories.csv 会留下幽灵
-    if (bookCategories.some((c) => c.members.includes(id))) {
-      const nextCats = setMemberCategories(bookCategories, id, [])
-      setBookCategories(nextCats)
-      try {
-        await persistBookCategories(nextCats)
-      } catch (err) {
-        toast.error(`图书分类更新失败：${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
+    await persistMeta(dropMeta(materialMeta, 'book', id))
   }
 
-  /** 图书分类落盘：伪分类 'all' 不入库（与文献分类保持一致） */
-  const persistBookCategories = async (cats: Category[]) => {
-    await saveBookCategories(cats.filter((c) => c.id !== 'all'))
-  }
-
-  /** 打开图书详情：顺带把已落盘的分类填进编辑态 */
+  /** 打开图书详情：顺带把已落盘的任务 / 标签填进编辑态 */
   const openBookDetail = (book: BookItem) => {
-    setBookDetailCategoryIds(categoriesOfMember(bookCategories, book.id))
+    setBookDetailTaskId(book.taskId)
+    setBookDetailTags(book.tags)
     setShowBookDetail(book)
   }
 
-  /** 图书详情弹窗里保存所属分类 */
-  const handleSaveBookDetailCategories = async () => {
+  /** 图书详情弹窗里保存任务归属 + 标签 */
+  const handleSaveBookDetail = async () => {
     if (!showBookDetail) return
-    const nextCats = setMemberCategories(bookCategories, showBookDetail.id, bookDetailCategoryIds)
-    setBookCategories(nextCats)
-    setBooks((prev) => prev.map((b) => (b.id === showBookDetail.id ? { ...b, categoryIds: bookDetailCategoryIds } : b)))
-    setShowBookDetail({ ...showBookDetail, categoryIds: bookDetailCategoryIds })
-    try {
-      await persistBookCategories(nextCats)
-      toast.success('分类已保存')
-    } catch (err) {
-      toast.error(`分类保存失败：${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  // 图书分类管理
-  const handleAddBookCategory = () => {
-    setEditingBookCategory({ name: '' })
-    setShowBookCategoryModal(true)
-  }
-
-  const handleEditBookCategory = (id: string, name: string) => {
-    setEditingBookCategory({ id, name })
-    setShowBookCategoryModal(true)
-  }
-
-  const handleDeleteBookCategory = async (id: string) => {
-    const updatedCats = bookCategories.filter((c) => c.id !== id)
-    setBookCategories(updatedCats)
-    setBooks((prev) => prev.map((b) => ({ ...b, categoryIds: b.categoryIds.filter((cid) => cid !== id) })))
-    if (activeBookCategory === id) setActiveBookCategory('all')
-    try {
-      await persistBookCategories(updatedCats)
-      toast.success('分类已删除')
-    } catch (err) {
-      toast.error(`删除分类失败：${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  const handleSaveBookCategory = async () => {
-    if (!editingBookCategory || !editingBookCategory.name.trim()) return
-    const editingId = editingBookCategory.id
-    const name = editingBookCategory.name.trim()
-    const updatedCats = editingId
-      ? bookCategories.map((c) => (c.id === editingId ? { ...c, name } : c))
-      : [...bookCategories, { id: String(Date.now()), name, members: [] }]
-    setBookCategories(updatedCats)
-    setEditingBookCategory(null)
-    setShowBookCategoryModal(false)
-    try {
-      await persistBookCategories(updatedCats)
-      toast.success(editingId ? '分类已更新' : '分类已添加')
-    } catch (err) {
-      toast.error(`保存分类失败：${err instanceof Error ? err.message : String(err)}`)
-    }
+    const nextMeta = setMeta(materialMeta, 'book', showBookDetail.id, { taskId: bookDetailTaskId, tags: bookDetailTags })
+    setBooks((prev) => prev.map((b) => (b.id === showBookDetail.id ? { ...b, taskId: bookDetailTaskId, tags: bookDetailTags } : b)))
+    setShowBookDetail({ ...showBookDetail, taskId: bookDetailTaskId, tags: bookDetailTags })
+    await persistMeta(nextMeta)
+    toast.success('已保存')
   }
 
   // ── 其他文档 ──
@@ -2380,7 +2250,8 @@ export default function ManagementPage() {
     setEditDocForm({
       title: doc.title,
       author: doc.author,
-      categoryIds: categoriesOfMember(documentCategories, doc.id),
+      taskId: taskOf(materialMeta, 'document', doc.id),
+      tags: tagsOf(materialMeta, 'document', doc.id),
     })
   }
 
@@ -2396,9 +2267,9 @@ export default function ManagementPage() {
         title: editDocForm.title.trim(),
         author: editDocForm.author.trim(),
       })
-      const nextCats = setMemberCategories(documentCategories, editingDocument.id, editDocForm.categoryIds)
-      await saveDocumentCategories(nextCats)
-      setDocumentCategories(nextCats)
+      await persistMeta(
+        setMeta(materialMeta, 'document', editingDocument.id, { taskId: editDocForm.taskId, tags: editDocForm.tags }),
+      )
       toast.success('已保存')
       setEditingDocument(null)
       await refreshDocuments()
@@ -2413,12 +2284,7 @@ export default function ManagementPage() {
     if (!confirm(`确定删除「${doc.title}」吗？会连同正文、笔记、批注一起删除，且不可恢复。`)) return
     try {
       await deleteDocuments([doc.id])
-      // 顺带把它从文档分类里摘掉，避免留下幽灵成员
-      if (documentCategories.some((c) => c.members.includes(doc.id))) {
-        const nextCats = setMemberCategories(documentCategories, doc.id, [])
-        await saveDocumentCategories(nextCats)
-        setDocumentCategories(nextCats)
-      }
+      await persistMeta(dropMeta(materialMeta, 'document', doc.id))
       toast.success('已删除')
       await refreshDocuments()
     } catch (err) {
@@ -2434,93 +2300,6 @@ export default function ManagementPage() {
   /** 跳转到阅读页并直接打开这本书 */
   const handleOpenBookReading = (book: BookItem) => {
     navigate(`/reading?doc=book:${encodeURIComponent(book.id)}`)
-  }
-
-  // 渲染文献分类树
-  const renderCategoryTree = (cats: PaperCategory[], level = 0) => {
-    return cats.map((cat) => {
-      const hasChildren = cat.children && cat.children.length > 0
-      const isExpanded = expandedCategories.has(cat.id)
-      const isActive = activePaperCategory === cat.id
-      const count = cat.id === 'all' ? paperCategoryCounts.all : (paperCategoryCounts[cat.id] || 0)
-
-      return (
-        <div key={cat.id}>
-          <div
-            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-control cursor-pointer transition group ${
-              isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
-            }`}
-            style={{ paddingLeft: `${level + 0.5}rem` }}
-            onClick={() => {
-              if (hasChildren) {
-                toggleCategoryExpand(cat.id)
-              }
-              if (!hasChildren || cat.id === 'all') {
-                setActivePaperCategory(cat.id)
-                setLibraryPage(1)
-              }
-            }}
-          >
-            {hasChildren ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  toggleCategoryExpand(cat.id)
-                }}
-                className="p-0.5 -ml-0.5 text-ink-400 hover:text-ink-600"
-              >
-                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              </button>
-            ) : (
-              <Folder className="w-3.5 h-3.5 text-ink-400" />
-            )}
-            <span className="text-ui-sm flex-1 truncate">{cat.name}</span>
-            <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
-              {count}
-            </span>
-            {cat.id !== 'all' && (
-              <div className="hidden group-hover:flex items-center gap-0.5">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleEditCategory(cat.id, cat.name, hasChildren ? cat.id : undefined)
-                  }}
-                  className="p-0.5 text-ink-400 hover:text-seal-600 rounded-control-sm"
-                >
-                  <Edit3 className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (confirm(`确定删除分类「${cat.name}」吗？`)) {
-                      handleDeleteCategory(cat.id)
-                    }
-                  }}
-                  className="p-0.5 text-ink-400 hover:text-red-600 rounded-control-sm"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </div>
-          {hasChildren && isExpanded && (
-            <div className="mt-0.5">
-              {renderCategoryTree(cat.children!, level + 1)}
-              {cat.id === 'my-categories' && (
-                <button
-                  onClick={() => handleAddCategory(cat.id)}
-                  className="flex items-center gap-1 ml-4 mt-1 px-2 py-1 text-ui-xs text-ink-400 hover:text-seal-600 rounded-control-sm hover:bg-seal-50 transition"
-                  style={{ marginLeft: `${level + 1.5}rem` }}
-                >
-                  <Plus className="w-3 h-3" />
-                  添加子分类
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )
-    })
   }
 
   /**
@@ -2551,6 +2330,26 @@ export default function ManagementPage() {
     navigate(`/reading?doc=${hit.kind}:${encodeURIComponent(hit.id)}&q=${encodeURIComponent(ftQuery)}`)
   }
 
+  /** 打开「手动添加文献」弹窗：默认继承左栏当前任务 */
+  const openAddPaper = () => {
+    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '', tags: [] })
+    setShowAddPaperModal(true)
+  }
+
+  /** 打开「上传图书」弹窗：默认继承左栏当前任务 */
+  const openUploadBook = () => {
+    setUploadBookTaskId(activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '')
+    setUploadBookTags([])
+    setShowUploadBookModal(true)
+  }
+
+  /** 打开「新建期刊模板」弹窗 */
+  const openNewTemplate = () => {
+    setEditingTemplate(null)
+    setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
+    setShowTemplateModal(true)
+  }
+
   /** 片段里的检索词包成 <mark>：split 带捕获组时，奇数位就是命中的词 */
   const renderHitSnippet = (text: string) => {
     const re = buildHighlightRegex(ftQuery)
@@ -2566,7 +2365,7 @@ export default function ManagementPage() {
 
   return (
     <div className="page-container py-8">
-      {/* 管理页布局：左=功能栏（类型切换 + 分类）｜中=内容｜右=后台监控（1:3:1） */}
+      {/* 管理页布局：左=功能栏（类型切换 + 任务/标签）｜中=内容｜右=后台监控（1:3:1） */}
       <div className="grid items-start gap-ui-gap grid-cols-[minmax(0,1fr)] lg:grid-cols-ratio-131">
         {/* ──── 左：功能栏 ──── */}
         <aside className="min-w-0 space-y-ui-gap">
@@ -2590,96 +2389,225 @@ export default function ManagementPage() {
             })}
           </nav>
 
-          {/* 文献分类（仅文献库） */}
+          {/* 文献库：全文检索 → DOI 链接入库 → 手动入库（入库的两种方式） */}
           {activeTab === 'library' && (
-            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
-              <div className="flex items-center justify-between mb-3 px-1">
-                <h3 className="text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
-                  <Library className="w-4 h-4 text-seal-600" />
-                  文献分类
-                </h3>
+            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                <input
+                  type="text"
+                  placeholder="全文检索…"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value)
+                    setLibraryPage(1)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      runFullTextSearch(searchQuery)
+                    }
+                  }}
+                  className="w-full pl-8 pr-3 py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                />
+              </div>
+              <div className="flex items-center bg-paper-50 rounded-control border border-ink-200 overflow-hidden focus-within:border-seal-400 focus-within:ring-2 focus-within:ring-seal-100">
+                <span className="pl-2 text-ui-xs font-medium text-ink-400 whitespace-nowrap">DOI</span>
+                <input
+                  type="text"
+                  value={doiQuickInput}
+                  onChange={(e) => setDoiQuickInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !isAddingByDoi && handleAddByDoi()}
+                  placeholder="链接入库…"
+                  className="min-w-0 flex-1 px-2 py-2 text-ui-sm bg-transparent focus:outline-none"
+                />
                 <button
-                  onClick={() => handleAddCategory()}
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-ui-xs text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
+                  onClick={handleAddByDoi}
+                  disabled={isAddingByDoi || !doiQuickInput.trim()}
+                  className="flex items-center gap-1 px-2.5 py-2 text-ui-xs font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  新建
+                  {isAddingByDoi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  入库
                 </button>
               </div>
-              <div className="space-y-0.5">
-                {renderCategoryTree(paperCategories)}
-              </div>
               <button
-                onClick={() => handleAddCategory()}
-                className="mt-2 w-full flex items-center justify-center gap-1 py-1.5 text-ui-xs text-ink-500 hover:text-seal-600 hover:bg-seal-50 rounded-control transition"
+                onClick={openAddPaper}
+                className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
               >
-                <Plus className="w-3.5 h-3.5" />
-                新建分类
+                <Plus className="w-4 h-4" />
+                手动入库
               </button>
             </div>
           )}
 
-          {/* 图书分类（仅图书库） */}
+          {/* 图书库：上传图书 */}
           {activeTab === 'knowledge' && (
-            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
-              <div className="flex items-center justify-between mb-3 px-1">
-                <h3 className="text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
-                  <BookCopy className="w-4 h-4 text-seal-600" />
-                  图书分类
-                </h3>
-                <button
-                  onClick={handleAddBookCategory}
-                  className="p-1 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+            <button
+              onClick={openUploadBook}
+              className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
+            >
+              <Upload className="w-4 h-4" />
+              上传图书
+            </button>
+          )}
+
+          {/* 其他文档：全文检索 + 导入文档 */}
+          {activeTab === 'documents' && (
+            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-2">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                <input
+                  type="text"
+                  placeholder="标题、作者…（Enter 全文检索）"
+                  value={documentSearch}
+                  onChange={(e) => setDocumentSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      runFullTextSearch(documentSearch)
+                    }
+                  }}
+                  className="w-full pl-8 pr-3 py-2 text-ui-sm border border-ink-200 rounded-control bg-paper-50 focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                />
               </div>
-              <div className="space-y-0.5">
-                {bookCategories.map((cat) => {
-                  const isActive = activeBookCategory === cat.id
-                  const count = bookCategoryCounts[cat.id] || 0
+              <button
+                onClick={() => setShowImportDocModal(true)}
+                className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
+              >
+                <Upload className="w-4 h-4" />
+                导入文档
+              </button>
+            </div>
+          )}
+
+          {/* 期刊模板：新建模板 */}
+          {activeTab === 'templates' && (
+            <button
+              onClick={openNewTemplate}
+              className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
+            >
+              <Plus className="w-4 h-4" />
+              新建模板
+            </button>
+          )}
+
+          {/* 导入导出：功能全收进左栏 */}
+          {activeTab === 'import-export' && (
+            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm space-y-3">
+              <div className="space-y-1.5">
+                <p className="px-1 text-ui-xs font-semibold text-ink-500">导入</p>
+                {[
+                  { name: 'CSV', ext: '.csv' },
+                  { name: 'JSON', ext: '.json' },
+                  { name: 'EndNote', ext: '.enw' },
+                  { name: 'Zotero', ext: '.json,.csv' },
+                ].map((item) => (
+                  <label
+                    key={item.name}
+                    className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-ui-sm text-ink-700 border border-ink-200 rounded-control hover:border-seal-300 hover:bg-seal-50/40 cursor-pointer transition"
+                  >
+                    <span>{item.name}</span>
+                    <Upload className="w-4 h-4 text-ink-400" />
+                    <input type="file" accept={item.ext} className="hidden" />
+                  </label>
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <p className="px-1 text-ui-xs font-semibold text-ink-500">导出</p>
+                {['CSV', 'Markdown', 'BibTeX'].map((name) => (
+                  <button
+                    key={name}
+                    className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-ui-sm text-ink-700 border border-ink-200 rounded-control hover:border-seal-300 hover:bg-seal-50/40 transition"
+                  >
+                    <span>{name}</span>
+                    <Download className="w-4 h-4 text-ink-400" />
+                  </button>
+                ))}
+              </div>
+              <button className="flex w-full items-center justify-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200">
+                <Github className="w-4 h-4" />
+                GitHub 同步
+              </button>
+            </div>
+          )}
+
+          {/* 任务 + 标签：仅内容类 tab（文献 / 图书 / 文档）过滤用 */}
+          {(activeTab === 'library' || activeTab === 'knowledge' || activeTab === 'documents') && (
+          <>
+          <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
+            <h3 className="mb-3 px-1 text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
+              <ListTodo className="w-4 h-4 text-seal-600" />
+              任务
+            </h3>
+            <div className="space-y-0.5">
+              <button
+                onClick={() => setActiveTaskId('all')}
+                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition ${
+                  activeTaskId === 'all' ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                }`}
+              >
+                <span className="text-ui-sm flex-1 truncate">全部</span>
+                <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${activeTaskId === 'all' ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
+                  {taskCounts.all || 0}
+                </span>
+              </button>
+              {tasks.map((t) => {
+                const isActive = activeTaskId === t.projectId
+                return (
+                  <button
+                    key={t.projectId}
+                    onClick={() => setActiveTaskId(t.projectId)}
+                    className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition ${
+                      isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                    }`}
+                  >
+                    <span className="text-ui-sm flex-1 truncate">{t.title}</span>
+                    <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
+                      {taskCounts[t.projectId] || 0}
+                    </span>
+                  </button>
+                )
+              })}
+              <button
+                onClick={() => setActiveTaskId('__none__')}
+                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition ${
+                  activeTaskId === '__none__' ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                }`}
+              >
+                <span className="text-ui-sm flex-1 truncate">未归属</span>
+                <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${activeTaskId === '__none__' ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
+                  {taskCounts.__none__ || 0}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* 标签（跨 tab 共用） */}
+          {availableTags.length > 0 && (
+            <div className="rounded-card border border-ink-200 bg-paper-50 p-3 shadow-sm">
+              <h3 className="mb-3 px-1 text-ui-sm font-semibold text-ink-700 flex items-center gap-1.5">
+                <Tag className="w-4 h-4 text-seal-600" />
+                标签
+              </h3>
+              <div className="flex flex-wrap gap-1.5">
+                {availableTags.map((tag) => {
+                  const isActive = tagFilter === tag
                   return (
-                    <div
-                      key={cat.id}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-control cursor-pointer transition group ${
-                        isActive ? 'bg-seal-50 text-seal-700 font-medium' : 'text-ink-600 hover:bg-paper-100'
+                    <button
+                      key={tag}
+                      onClick={() => setTagFilter(isActive ? '' : tag)}
+                      className={`px-2 py-0.5 text-ui-xs rounded-control-sm transition ${
+                        isActive ? 'bg-seal-100 text-seal-700' : 'bg-ink-100 text-ink-500 hover:bg-ink-200'
                       }`}
-                      onClick={() => setActiveBookCategory(cat.id)}
                     >
-                      <Folder className="w-3.5 h-3.5 text-ink-400" />
-                      <span className="text-ui-sm flex-1 truncate">{cat.name}</span>
-                      <span className={`text-ui-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-seal-100 text-seal-600' : 'bg-ink-100 text-ink-500'}`}>
-                        {count}
-                      </span>
-                      {cat.id !== 'all' && (
-                        <div className="hidden group-hover:flex items-center gap-0.5">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEditBookCategory(cat.id, cat.name)
-                            }}
-                            className="p-0.5 text-ink-400 hover:text-seal-600 rounded-control-sm"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (confirm(`确定删除分类「${cat.name}」吗？`)) {
-                                handleDeleteBookCategory(cat.id)
-                              }
-                            }}
-                            className="p-0.5 text-ink-400 hover:text-red-600 rounded-control-sm"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                      {tag}
+                    </button>
                   )
                 })}
               </div>
             </div>
+          )}
+          </>
           )}
         </aside>
 
@@ -2689,103 +2617,6 @@ export default function ManagementPage() {
       {/* ============ 文献库 Tab ============ */}
       {activeTab === 'library' && (
         <div className="min-w-0 space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-                  <input
-                    type="text"
-                    placeholder="标题/作者/期刊/关键词…（Enter 全文检索）"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value)
-                      setLibraryPage(1)
-                    }}
-                    onKeyDown={(e) => {
-                      // 输入法组词中的回车是"选词"，不是"提交"
-                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                        e.preventDefault()
-                        runFullTextSearch(searchQuery)
-                      }
-                    }}
-                    className="pl-9 pr-4 py-2 text-ui-sm border border-ink-200 rounded-control w-[clamp(12rem,22vw,20rem)] focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {/* DOI 快捷添加 — inline 紧凑版，优先于批量/手动 */}
-                <div className="flex items-center bg-paper-50 rounded-control border border-ink-200 overflow-hidden focus-within:border-seal-400 focus-within:ring-2 focus-within:ring-seal-100">
-                  <span className="pl-2.5 text-ui-xs font-medium text-ink-400 whitespace-nowrap">DOI</span>
-                  <input
-                    type="text"
-                    value={doiQuickInput}
-                    onChange={(e) => setDoiQuickInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && !isAddingByDoi && handleAddByDoi()}
-                    placeholder="输入 DOI 或链接..."
-                    className="w-56 px-2 py-1.5 text-ui-sm bg-transparent focus:outline-none"
-                    title="快捷 DOI 入库"
-                  />
-                  <button
-                    onClick={handleAddByDoi}
-                    disabled={isAddingByDoi || !doiQuickInput.trim()}
-                    className="flex items-center gap-1 px-2.5 py-1.5 text-ui-xs font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                  >
-                    {isAddingByDoi ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-3.5 h-3.5" />
-                    )}
-                    添加
-                  </button>
-                </div>
-
-                {batchMode && (
-                  <>
-                    <button
-                      onClick={() => setShowBatchMoveModal(true)}
-                      disabled={selectedPapers.size === 0}
-                      className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-seal-600 bg-seal-50 border border-seal-200 hover:bg-seal-100 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <MoveRight className="w-4 h-4" />
-                      移动分类 ({selectedPapers.size})
-                    </button>
-                    <button
-                      onClick={handleBatchDelete}
-                      disabled={selectedPapers.size === 0}
-                      className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      删除选中
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => {
-                    setBatchMode(!batchMode)
-                    setSelectedPapers(new Set())
-                  }}
-                  className={`flex items-center gap-2 px-ui-gap py-2 text-ui-sm rounded-control border transition ${
-                    batchMode
-                      ? 'text-seal-600 bg-seal-50 border-seal-200'
-                      : 'text-ink-600 bg-paper-50 border-ink-200 hover:bg-paper-100'
-                  }`}
-                >
-                  <CheckSquare className="w-4 h-4" />
-                  {batchMode ? '取消批量' : '批量操作'}
-                </button>
-                <button
-                  onClick={() => {
-                    setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
-                    setShowAddPaperModal(true)
-                  }}
-                  className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
-                >
-                  <Plus className="w-4 h-4" />
-                  手动添加文献
-                </button>
-              </div>
-            </div>
-
             <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
               <div className="flex items-center gap-1 p-3 border-b border-ink-100 bg-paper-100/50">
                 <button
@@ -2871,6 +2702,42 @@ export default function ManagementPage() {
                     )
                   })}
                 </div>
+
+                {/* 批量操作 — 归位到「操作」列正上方 */}
+                {batchMode && (
+                  <>
+                    <button
+                      onClick={() => setShowBatchMoveModal(true)}
+                      disabled={selectedPapers.size === 0}
+                      className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm text-seal-600 bg-seal-50 border border-seal-200 hover:bg-seal-100 rounded-control-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <MoveRight className="w-4 h-4" />
+                      移动任务 ({selectedPapers.size})
+                    </button>
+                    <button
+                      onClick={handleBatchDelete}
+                      disabled={selectedPapers.size === 0}
+                      className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-control-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      删除选中
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    setBatchMode(!batchMode)
+                    setSelectedPapers(new Set())
+                  }}
+                  className={`flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm rounded-control-sm border transition ${
+                    batchMode
+                      ? 'text-seal-600 bg-seal-50 border-seal-200'
+                      : 'text-ink-600 bg-paper-50 border-ink-200 hover:bg-paper-100'
+                  }`}
+                >
+                  <CheckSquare className="w-4 h-4" />
+                  {batchMode ? '取消批量' : '批量操作'}
+                </button>
               </div>
 
               {/* 文献表格：一条文献 = 一行，字段横向铺开成列；格子里该换行就换行 */}
@@ -2898,7 +2765,7 @@ export default function ManagementPage() {
                         <th className="border border-ink-200 px-ui-gap py-2 font-normal">标题</th>
                         <th className="w-[16%] border border-ink-200 px-ui-gap py-2 font-normal">作者</th>
                         <th className="w-[11%] border border-ink-200 px-ui-gap py-2 font-normal">期刊 · 年份</th>
-                        <th className="w-[11%] border border-ink-200 px-ui-gap py-2 font-normal">分类</th>
+                        <th className="w-[11%] border border-ink-200 px-ui-gap py-2 font-normal">任务 / 标签</th>
                         <th className="w-[5.5rem] border border-ink-200 px-2 py-2 font-normal">状态</th>
                         <th className="w-[14%] border border-ink-200 px-ui-gap py-2 font-normal text-right">操作</th>
                       </tr>
@@ -3034,31 +2901,35 @@ export default function ManagementPage() {
                         </div>
                       </td>
 
-                      {/* 分类 */}
+                      {/* 任务 / 标签 */}
                       <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
                         <div className="flex flex-wrap gap-1">
-                          {paper.categoryIds.length > 0 ? (
-                          paper.categoryIds.map((cid, i) => {
-                            const cat = getAllLeafCategories.find((c) => c.id === cid)
-                            if (!cat) return null
+                          {(() => {
+                            const t = tasks.find((x) => x.projectId === paper.taskId)
                             return (
-                              <button
-                                key={cid}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleEditPaper(paper)
-                                }}
-                                className={`px-1.5 py-0.5 text-ui-xs rounded-control-sm whitespace-nowrap hover:opacity-80 transition ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
-                                title="修改所属分类"
-                              >
-                                <Tag className="w-3 h-3 inline mr-0.5" />
-                                {cat.name}
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleEditPaper(paper)
+                                  }}
+                                  className={`px-1.5 py-0.5 text-ui-xs rounded-control-sm whitespace-nowrap hover:opacity-80 transition ${t ? 'bg-seal-50 text-seal-700' : 'bg-ink-100 text-ink-400'}`}
+                                  title="修改归属与标签"
+                                >
+                                  {t ? t.title : '未归属'}
+                                </button>
+                                {paper.tags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="px-1.5 py-0.5 text-ui-xs rounded-control-sm whitespace-nowrap bg-ink-100 text-ink-600"
+                                  >
+                                    <Tag className="w-3 h-3 inline mr-0.5" />
+                                    {tag}
+                                  </span>
+                                ))}
+                              </>
                             )
-                          })
-                        ) : (
-                          <span className="text-ui-xs text-ink-400">未分类</span>
-                        )}
+                          })()}
                         </div>
                       </td>
 
@@ -3186,7 +3057,7 @@ export default function ManagementPage() {
                   </div>
                   <button
                     onClick={() => {
-                      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', categoryIds: activePaperCategory !== 'all' ? [activePaperCategory] : [] })
+                      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '', tags: [] })
                       setShowAddPaperModal(true)
                     }}
                     className="inline-flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
@@ -3240,21 +3111,6 @@ export default function ManagementPage() {
       {/* ============ 期刊模板 Tab ============ */}
       {activeTab === 'templates' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-ui-sm text-ink-500">管理期刊投稿模板，支持 AI 提取格式规范，用于提示和规范提取格式</p>
-            <button
-              onClick={() => {
-                setEditingTemplate(null)
-                setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
-                setShowTemplateModal(true)
-              }}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
-            >
-              <Plus className="w-4 h-4" />
-              新建模板
-            </button>
-          </div>
-
           <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
             {templates.map((tpl) => (
               <div key={tpl.id} className="flex items-center gap-3 px-ui-gap py-3 hover:bg-paper-100/70 transition">
@@ -3336,24 +3192,6 @@ export default function ManagementPage() {
       {/* ============ 知识库 Tab ============ */}
       {activeTab === 'knowledge' && (
         <div className="min-w-0 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-ui-sm text-ink-500">
-                  图书库存储图书，PDF 上传后自动转换为 Markdown。超过200页按180页切分，多卷管理。
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setUploadBookCategories(activeBookCategory !== 'all' ? [activeBookCategory] : [])
-                  setShowUploadBookModal(true)
-                }}
-                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
-              >
-                <Upload className="w-4 h-4" />
-                上传图书
-              </button>
-            </div>
-
             {filteredBooks.length > 0 ? (
               <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
                 {filteredBooks.map((book) => (
@@ -3376,16 +3214,21 @@ export default function ManagementPage() {
                       <p className="text-ui-xs text-ink-400 truncate">
                         {[book.publisher, book.year ? `${book.year} 年` : ''].filter(Boolean).join(' · ')}
                       </p>
-                      {book.categoryIds.length > 0 && (
+                      {(book.taskId || book.tags.length > 0) && (
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {book.categoryIds.slice(0, 2).map((cid) => {
-                            const cat = bookCategories.find((c) => c.id === cid)
-                            return cat ? (
-                              <span key={cid} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-ui-xs rounded-control-sm">
-                                {cat.name}
+                          {(() => {
+                            const t = tasks.find((x) => x.projectId === book.taskId)
+                            return t ? (
+                              <span className="px-1.5 py-0.5 bg-seal-50 text-seal-700 text-ui-xs rounded-control-sm">
+                                {t.title}
                               </span>
                             ) : null
-                          })}
+                          })()}
+                          {book.tags.map((tag) => (
+                            <span key={tag} className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-ui-xs rounded-control-sm">
+                              {tag}
+                            </span>
+                          ))}
                         </div>
                       )}
                       {(book.status === 'converting' || book.status === 'uploading') && (
@@ -3435,7 +3278,8 @@ export default function ManagementPage() {
                 </div>
                 <button
                   onClick={() => {
-                    setUploadBookCategories(activeBookCategory !== 'all' ? [activeBookCategory] : [])
+                    setUploadBookTaskId(activeTaskId !== 'all' && activeTaskId !== '__none__' ? activeTaskId : '')
+                    setUploadBookTags([])
                     setShowUploadBookModal(true)
                   }}
                   className="inline-flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
@@ -3451,43 +3295,6 @@ export default function ManagementPage() {
       {/* ============ 其他文档 Tab ============ */}
       {activeTab === 'documents' && (
         <div className="space-y-4">
-          <div className="flex items-start justify-between flex-wrap gap-3">
-            <div>
-              <h3 className="text-base font-semibold text-ink-800 flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-seal-600" />
-                其他文档
-              </h3>
-              <p className="text-ui-sm text-ink-500 mt-0.5">
-                导入 markdown，直接阅读
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-                <input
-                  type="text"
-                  placeholder="标题、作者…（Enter 全文检索）"
-                  value={documentSearch}
-                  onChange={(e) => setDocumentSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                      e.preventDefault()
-                      runFullTextSearch(documentSearch)
-                    }
-                  }}
-                  className="pl-9 pr-4 py-2 text-ui-sm border border-ink-200 rounded-control w-[clamp(11rem,20vw,18rem)] focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-50"
-                />
-              </div>
-              <button
-                onClick={() => setShowImportDocModal(true)}
-                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200"
-              >
-                <Upload className="w-4 h-4" />
-                导入文档
-              </button>
-            </div>
-          </div>
-
           {documentsLoading ? (
             <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm p-12 text-center text-ink-400 text-ui-sm">
               <div className="w-8 h-8 border-2 border-ink-200 border-t-seal-500 rounded-full animate-spin mx-auto mb-2" />
@@ -3516,9 +3323,9 @@ export default function ManagementPage() {
           ) : (
             <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
               {filteredDocuments.map((doc) => {
-                const catNames = documentCategories
-                  .filter((c) => c.members.includes(doc.id))
-                  .map((c) => c.name)
+                const docTaskId = taskOf(materialMeta, 'document', doc.id)
+                const docTags = tagsOf(materialMeta, 'document', doc.id)
+                const docTask = tasks.find((t) => t.projectId === docTaskId)
                 return (
                   <div key={doc.id} className="flex items-center gap-3 px-ui-gap py-3 hover:bg-paper-100 transition">
                     <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center bg-seal-50 text-seal-600 rounded-control">
@@ -3540,10 +3347,13 @@ export default function ManagementPage() {
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-ui-xs text-ink-500">
                         <span className="truncate">{doc.author || '未知作者'}</span>
-                        {catNames.length > 0 && (
+                        {docTask && (
+                          <span className="truncate text-seal-600">{docTask.title}</span>
+                        )}
+                        {docTags.length > 0 && (
                           <span className="flex items-center gap-1 truncate">
                             <Tag className="w-3 h-3 text-ink-400" />
-                            {catNames.join('、')}
+                            {docTags.join('、')}
                           </span>
                         )}
                       </div>
@@ -3577,108 +3387,7 @@ export default function ManagementPage() {
       )}
 
       {/* ============ 导入导出 Tab ============ */}
-      {activeTab === 'import-export' && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-ink-100 bg-paper-100/50">
-                <h3 className="font-semibold text-ink-800 flex items-center gap-2">
-                  <Upload className="w-5 h-5 text-seal-600" />
-                  导入文献
-                </h3>
-                <p className="text-ui-xs text-ink-500 mt-0.5">从外部文件导入文献到文献库</p>
-              </div>
-              <div className="p-5 space-y-3">
-                {[
-                  { name: 'CSV 导入', desc: '从 CSV 表格导入文献元数据', ext: '.csv', icon: FileSpreadsheet },
-                  { name: 'JSON 导入', desc: '从 JSON 文件导入结构化数据', ext: '.json', icon: FileJson },
-                  { name: 'EndNote 导入', desc: '导入 EndNote 文献库 (.enw)', ext: '.enw', icon: BookText },
-                  { name: 'Zotero 导入', desc: '从 Zotero 导出的 JSON/CSV 导入', ext: '.json,.csv', icon: Database },
-                ].map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <label
-                      key={item.name}
-                      className="flex items-center gap-3 p-3 border border-ink-200 rounded-control hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer transition"
-                    >
-                      <div className="p-2 bg-ink-100 rounded-control">
-                        <Icon className="w-5 h-5 text-ink-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-ui-sm font-medium text-ink-700">{item.name}</div>
-                        <div className="text-ui-xs text-ink-500">{item.desc}</div>
-                      </div>
-                      <input type="file" accept={item.ext} className="hidden" />
-                      <span className="text-ui-xs text-seal-600 font-medium shrink-0">选择文件</span>
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-ink-100 bg-paper-100/50">
-                <h3 className="font-semibold text-ink-800 flex items-center gap-2">
-                  <Download className="w-5 h-5 text-seal-600" />
-                  导出文献
-                </h3>
-                <p className="text-ui-xs text-ink-500 mt-0.5">将文献库导出为各种格式</p>
-              </div>
-              <div className="p-5 space-y-3">
-                {[
-                  { name: '导出 CSV', desc: '导出为 CSV 表格格式', icon: FileSpreadsheet },
-                  { name: '导出 Markdown', desc: '导出为 Markdown 文献列表', icon: FileText },
-                  { name: '导出 BibTeX', desc: '导出为 BibTeX 引用格式', icon: BookText },
-                ].map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <button
-                      key={item.name}
-                      className="w-full flex items-center gap-3 p-3 border border-ink-200 rounded-control hover:border-seal-200 hover:bg-seal-50/30 transition text-left"
-                    >
-                      <div className="p-2 bg-ink-100 rounded-control">
-                        <Icon className="w-5 h-5 text-ink-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-ui-sm font-medium text-ink-700">{item.name}</div>
-                        <div className="text-ui-xs text-ink-500">{item.desc}</div>
-                      </div>
-                      <Download className="w-4 h-4 text-seal-500 shrink-0" />
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-ink-100 bg-paper-100/50">
-              <h3 className="font-semibold text-ink-800 flex items-center gap-2">
-                <Github className="w-5 h-5 text-seal-600" />
-                GitHub 同步
-              </h3>
-              <p className="text-ui-xs text-ink-500 mt-0.5">与 GitHub 私有仓库同步文献和知识库数据</p>
-            </div>
-            <div className="p-5">
-              <div className="flex items-center gap-4 p-4 bg-seal-50/50 border border-seal-100 rounded-card">
-                <div className="p-3 bg-seal-100 rounded-card">
-                  <Github className="w-6 h-6 text-seal-600" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-ui-sm font-medium text-ink-700">GitHub 私有仓库同步</div>
-                  <div className="text-ui-xs text-ink-500 mt-0.5">
-                    将文献库 Markdown 和知识库图书同步到 GitHub 私有仓库，实现版本管理和备份
-                  </div>
-                </div>
-                <button className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition shadow-md shadow-seal-200">
-                  <RefreshCw className="w-4 h-4" />
-                  立即同步
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeTab === 'import-export' && <div className="space-y-5" />}
 
       {/* 添加文献弹窗 */}
       {showAddPaperModal && (
@@ -3851,34 +3560,12 @@ export default function ManagementPage() {
               </div>
             </div>
             <div>
-              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">所属分类（可多选）</label>
-              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
-                {getAllLeafCategories.map((cat) => {
-                  const checked = newPaper.categoryIds.includes(cat.id)
-                  return (
-                    <label
-                      key={cat.id}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
-                        checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setNewPaper({ ...newPaper, categoryIds: [...newPaper.categoryIds, cat.id] })
-                          } else {
-                            setNewPaper({ ...newPaper, categoryIds: newPaper.categoryIds.filter((id) => id !== cat.id) })
-                          }
-                        }}
-                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
-                      />
-                      {cat.name}
-                    </label>
-                  )
-                })}
-              </div>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
+              <TaskSelect value={newPaper.taskId} onChange={(v) => setNewPaper({ ...newPaper, taskId: v })} tasks={tasks} />
+            </div>
+            <div>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
+              <TagEditor value={newPaper.tags} onChange={(tags) => setNewPaper({ ...newPaper, tags })} />
             </div>
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">上传 PDF（自动转MD）</label>
@@ -4086,34 +3773,12 @@ export default function ManagementPage() {
             </div>
 
             <div>
-              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">所属分类（可多选，可同时属于多个分类）</label>
-              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50 max-h-32 overflow-y-auto">
-                {getAllLeafCategories.map((cat) => {
-                  const checked = editingPaper.categoryIds.includes(cat.id)
-                  return (
-                    <label
-                      key={cat.id}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
-                        checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setEditingPaper({ ...editingPaper, categoryIds: [...editingPaper.categoryIds, cat.id] })
-                          } else {
-                            setEditingPaper({ ...editingPaper, categoryIds: editingPaper.categoryIds.filter((id) => id !== cat.id) })
-                          }
-                        }}
-                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
-                      />
-                      {cat.name}
-                    </label>
-                  )
-                })}
-              </div>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
+              <TaskSelect value={editingPaper.taskId} onChange={(v) => setEditingPaper({ ...editingPaper, taskId: v })} tasks={tasks} />
+            </div>
+            <div>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
+              <TagEditor value={editingPaper.tags} onChange={(tags) => setEditingPaper({ ...editingPaper, tags })} />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -4256,123 +3921,28 @@ export default function ManagementPage() {
         </Modal>
       )}
 
-      {/* 批量移动分类弹窗 */}
+      {/* 批量移动任务弹窗 */}
       {showBatchMoveModal && (
-        <Modal title="批量移动分类" onClose={() => { setShowBatchMoveModal(false); setBatchMoveTargetIds([]) }}>
+        <Modal title="批量移动任务" onClose={() => { setShowBatchMoveModal(false); setBatchMoveTaskId('') }}>
           <div className="space-y-4">
             <p className="text-ui-sm text-ink-600">
-              已选中 <span className="font-semibold text-seal-600">{selectedPapers.size}</span> 篇文献，选择目标分类（可多选，将添加到现有分类中）：
+              已选中 <span className="font-semibold text-seal-600">{selectedPapers.size}</span> 篇文献，选择目标任务：
             </p>
-            <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50 max-h-48 overflow-y-auto">
-              {getAllLeafCategories.map((cat) => {
-                const checked = batchMoveTargetIds.includes(cat.id)
-                return (
-                  <label
-                    key={cat.id}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
-                      checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setBatchMoveTargetIds([...batchMoveTargetIds, cat.id])
-                        } else {
-                          setBatchMoveTargetIds(batchMoveTargetIds.filter((id) => id !== cat.id))
-                        }
-                      }}
-                      className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
-                    />
-                    {cat.name}
-                  </label>
-                )
-              })}
-            </div>
+            <TaskSelect value={batchMoveTaskId} onChange={setBatchMoveTaskId} tasks={tasks} />
           </div>
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
-              onClick={() => { setShowBatchMoveModal(false); setBatchMoveTargetIds([]) }}
+              onClick={() => { setShowBatchMoveModal(false); setBatchMoveTaskId('') }}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={handleBatchMove}
-              disabled={batchMoveTargetIds.length === 0}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
             >
               <MoveRight className="w-4 h-4" />
               确认移动
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* 分类编辑弹窗 */}
-      {showCategoryModal && editingCategory && (
-        <Modal title={editingCategory.id ? '编辑分类' : '添加分类'} onClose={() => { setShowCategoryModal(false); setEditingCategory(null) }}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">分类名称 *</label>
-              <input
-                type="text"
-                value={editingCategory.name}
-                onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
-                placeholder="请输入分类名称"
-                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
-            <button
-              onClick={() => { setShowCategoryModal(false); setEditingCategory(null) }}
-              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleSaveCategory}
-              disabled={!editingCategory.name.trim()}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              保存
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* 图书分类编辑弹窗 */}
-      {showBookCategoryModal && editingBookCategory && (
-        <Modal title={editingBookCategory.id ? '编辑分类' : '添加分类'} onClose={() => { setShowBookCategoryModal(false); setEditingBookCategory(null) }}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">分类名称 *</label>
-              <input
-                type="text"
-                value={editingBookCategory.name}
-                onChange={(e) => setEditingBookCategory({ ...editingBookCategory, name: e.target.value })}
-                placeholder="请输入分类名称"
-                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
-            <button
-              onClick={() => { setShowBookCategoryModal(false); setEditingBookCategory(null) }}
-              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleSaveBookCategory}
-              disabled={!editingBookCategory.name.trim()}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              保存
             </button>
           </div>
         </Modal>
@@ -4492,7 +4062,7 @@ export default function ManagementPage() {
 
       {/* 上传图书弹窗 */}
       {showUploadBookModal && (
-        <Modal title="上传图书" onClose={() => { setShowUploadBookModal(false); setUploadBookCategories([]) }}>
+        <Modal title="上传图书" onClose={() => { setShowUploadBookModal(false); setUploadBookTaskId(''); setUploadBookTags([]) }}>
           <div className="space-y-4">
             <div
               onDragOver={(e) => {
@@ -4528,39 +4098,17 @@ export default function ManagementPage() {
               </label>
             </div>
             <div>
-              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">选择分类（可多选）</label>
-              <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
-                {bookCategories.filter((c) => c.id !== 'all').map((cat) => {
-                  const checked = uploadBookCategories.includes(cat.id)
-                  return (
-                    <label
-                      key={cat.id}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
-                        checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setUploadBookCategories([...uploadBookCategories, cat.id])
-                          } else {
-                            setUploadBookCategories(uploadBookCategories.filter((id) => id !== cat.id))
-                          }
-                        }}
-                        className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
-                      />
-                      {cat.name}
-                    </label>
-                  )
-                })}
-              </div>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
+              <TaskSelect value={uploadBookTaskId} onChange={setUploadBookTaskId} tasks={tasks} />
+            </div>
+            <div>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
+              <TagEditor value={uploadBookTags} onChange={setUploadBookTags} />
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
             <button
-              onClick={() => { setShowUploadBookModal(false); setUploadBookCategories([]) }}
+              onClick={() => { setShowUploadBookModal(false); setUploadBookTaskId(''); setUploadBookTags([]) }}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
@@ -4597,49 +4145,20 @@ export default function ManagementPage() {
               </div>
             </div>
 
-            {/* 给这本图书设置所属分类（主键 = 书名） */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-ui-sm font-medium text-ink-700 flex items-center gap-1.5">
-                  <Tag className="w-4 h-4 text-seal-600" />
-                  所属分类
-                </label>
+            {/* 给这本图书设置归属任务 + 标签（主键 = 书名） */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-ui-sm font-medium text-ink-700">归属任务</label>
                 <button
-                  onClick={handleSaveBookDetailCategories}
+                  onClick={handleSaveBookDetail}
                   className="text-ui-xs px-2.5 py-1 text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control-sm transition"
                 >
-                  保存分类
+                  保存归属
                 </button>
               </div>
-              {bookCategories.filter((c) => c.id !== 'all').length === 0 ? (
-                <p className="text-ui-xs text-ink-400">还没有图书分类，可在左侧「图书分类」里新建后再回来设置</p>
-              ) : (
-                <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
-                  {bookCategories.filter((c) => c.id !== 'all').map((cat) => {
-                    const checked = bookDetailCategoryIds.includes(cat.id)
-                    return (
-                      <label
-                        key={cat.id}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
-                          checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => setBookDetailCategoryIds(
-                            e.target.checked
-                              ? [...bookDetailCategoryIds, cat.id]
-                              : bookDetailCategoryIds.filter((id) => id !== cat.id),
-                          )}
-                          className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
-                        />
-                        {cat.name}
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
+              <TaskSelect value={bookDetailTaskId} onChange={setBookDetailTaskId} tasks={tasks} />
+              <label className="block text-ui-sm font-medium text-ink-700">标签</label>
+              <TagEditor value={bookDetailTags} onChange={setBookDetailTags} />
             </div>
           </div>
           <div className="flex items-center justify-between gap-2 mt-6 pt-4 border-t border-ink-100">
@@ -4804,37 +4323,12 @@ export default function ManagementPage() {
               />
             </div>
             <div>
-              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">所属分类（可多选）</label>
-              {documentCategories.length === 0 ? (
-                <p className="text-ui-xs text-ink-400">还没有文档分类</p>
-              ) : (
-                <div className="flex flex-wrap gap-2 p-3 border border-ink-200 rounded-control bg-paper-100/50">
-                  {documentCategories.map((cat) => {
-                    const checked = editDocForm.categoryIds.includes(cat.id)
-                    return (
-                      <label
-                        key={cat.id}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control-sm cursor-pointer text-ui-sm transition ${
-                          checked ? 'bg-seal-100 text-seal-700' : 'bg-paper-50 text-ink-600 border border-ink-200 hover:border-seal-300'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => setEditDocForm({
-                            ...editDocForm,
-                            categoryIds: e.target.checked
-                              ? [...editDocForm.categoryIds, cat.id]
-                              : editDocForm.categoryIds.filter((id) => id !== cat.id),
-                          })}
-                          className="w-3.5 h-3.5 text-seal-600 focus:ring-seal-500 rounded-control-sm"
-                        />
-                        {cat.name}
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">归属任务</label>
+              <TaskSelect value={editDocForm.taskId} onChange={(v) => setEditDocForm({ ...editDocForm, taskId: v })} tasks={tasks} />
+            </div>
+            <div>
+              <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标签</label>
+              <TagEditor value={editDocForm.tags} onChange={(tags) => setEditDocForm({ ...editDocForm, tags })} />
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">

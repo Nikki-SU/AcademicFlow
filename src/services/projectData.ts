@@ -17,7 +17,7 @@ import {
   downloadRepoBinaryFile,
 } from './github'
 import { loadLiteratures, saveLiteratures, doiToSlug } from './literatureData'
-import { loadCategories, saveCategories } from './literatureCategoryData'
+import { loadMaterialMeta, saveMaterialMeta, dropMeta } from './materialMeta'
 import { loadTextbooks, saveTextbooks } from './textbookData'
 
 /** 任务大类：研究 / 课程（节点属性，不是独立层级） */
@@ -487,7 +487,7 @@ export async function deleteProject(
     )
   }
 
-  // purge：清理独占材料的库索引与分类归属
+  // purge：清理独占材料的库索引与元数据（任务归属 / 标签）
   if (exclusive.length > 0) {
     const litDrop = new Set(
       exclusive.filter((m) => m.kind === 'literature').map((m) => m.key.toLowerCase()),
@@ -496,15 +496,15 @@ export async function deleteProject(
     if (litDrop.size > 0) {
       const lits = await loadLiteratures(true)
       await saveLiteratures(lits.filter((l) => !litDrop.has((l.doi || '').toLowerCase())))
-      const cats = await loadCategories(true)
-      await saveCategories(
-        cats.map((c) => ({ ...c, dois: c.dois.filter((d) => !litDrop.has(d.toLowerCase())) })),
-      )
     }
     if (bookDrop.size > 0) {
       const books = await loadTextbooks(true)
       await saveTextbooks(books.filter((t) => !bookDrop.has(t.textbookId)))
     }
+    let meta = await loadMaterialMeta(true)
+    for (const doi of litDrop) meta = dropMeta(meta, 'paper', doi)
+    for (const id of bookDrop) meta = dropMeta(meta, 'book', id)
+    await saveMaterialMeta(meta)
   }
 
   // 更新项目表：删该任务；直接子任务提升为顶级

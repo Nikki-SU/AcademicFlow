@@ -20,6 +20,16 @@
  */
 import { loadCourses, saveCourses, type Course } from './scheduleData'
 import { loadProjects, saveProjects, type Project, type ProjectType } from './projectData'
+import { loadCategories } from './literatureCategoryData'
+import { loadBookCategories, loadDocumentCategories } from './categoryData'
+import {
+  loadMaterialMeta,
+  saveMaterialMeta,
+  metaKey,
+  normalizeMaterialId,
+  type MaterialMeta,
+  type MaterialType,
+} from './materialMeta'
 import { readCsvFile, writeCsvFile, writeMdFile, getRepoContext } from './userData'
 import {
   readRepoTextFile,
@@ -803,6 +813,60 @@ const readingNotesMulti: Migration = {
   },
 }
 
+const OLD_CATEGORY_PATHS = [
+  'literatures/categories.csv',
+  'textbooks/categories.csv',
+  'documents/categories.csv',
+]
+
+/**
+ * v6 → v7：分类体系统一为「任务 + 标签」
+ * 旧的三种分类（文献 / 图书 / 其他文档各一份 categories.csv）语义重叠：既当归档维度、
+ * 又当任务归属，还和项目侧 references 打架。现在收敛为单一真源 materials/meta.csv：
+ * 每份材料记 { 归属任务 task_id, 自由标签 tags }。
+ * 旧分类名一律折叠成「标签」（分类本就更接近打标签），任务归属留空、由用户在界面里指定。
+ * 迁完删除旧文件 —— 数据格式只前进，不留旧格式分支。
+ */
+const materialsTaskTags: Migration = {
+  id: 'materials-task-tags-v1',
+  affects: ['management', 'reading'],
+  since: 7,
+  label: '把旧的「分类」升级为「任务 + 标签」',
+  detect: async () => {
+    for (const p of OLD_CATEGORY_PATHS) {
+      if ((await readDocText(p)) !== null) return true
+    }
+    return false
+  },
+  run: async () => {
+    const [litCats, bookCats, docCats, existing] = await Promise.all([
+      loadCategories(true),
+      loadBookCategories(true),
+      loadDocumentCategories(true),
+      loadMaterialMeta(true),
+    ])
+    const map = new Map<string, MaterialMeta>()
+    for (const m of existing) map.set(metaKey(m.type, m.id), { ...m, tags: [...m.tags] })
+    const addTag = (type: MaterialType, id: string, tag: string) => {
+      const name = (tag || '').trim()
+      if (!name || !id) return
+      const key = metaKey(type, id)
+      const cur = map.get(key) ?? { type, id: normalizeMaterialId(type, id), taskId: '', tags: [] }
+      if (!cur.tags.includes(name)) cur.tags.push(name)
+      map.set(key, cur)
+    }
+    for (const c of litCats) for (const doi of c.dois) addTag('paper', doi, c.name)
+    for (const c of bookCats) for (const b of c.members) addTag('book', b, c.name)
+    for (const c of docCats) for (const d of c.members) addTag('document', d, c.name)
+    if (map.size > 0) await saveMaterialMeta([...map.values()])
+    const toDelete: string[] = []
+    for (const p of OLD_CATEGORY_PATHS) {
+      if ((await readDocText(p)) !== null) toDelete.push(p)
+    }
+    await removeRepoFiles(toDelete)
+  },
+}
+
 // 顺序即执行顺序：先补全 projects 表结构，再修正 courses 脏值，最后挂课程任务（依赖前两者保证的列与合法值）。
 export const MIGRATIONS: Migration[] = [
   projectsSchemaLink,
@@ -819,6 +883,7 @@ export const MIGRATIONS: Migration[] = [
   projectsDoneField,
   coursesRepeatField,
   readingNotesMulti,
+  materialsTaskTags,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
@@ -862,7 +927,7 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
  * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 6
+export const DATA_VERSION = 7
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']

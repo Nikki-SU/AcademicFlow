@@ -35,8 +35,8 @@ import {
 import { loadLiteratures, loadFulltext, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
 import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
-import { loadBookCategories, loadDocumentCategories, categoriesOfMember, type Category } from '../services/categoryData'
-import { loadCategories as loadPaperCategories, type LiteratureCategory } from '../services/literatureCategoryData'
+import { loadMaterialMeta, taskOf, tagsOf, type MaterialMeta } from '../services/materialMeta'
+import { loadProjects, type Project } from '../services/projectData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
 import { HIGHLIGHTERS, highlighterOf, type HighlighterColor } from '../services/highlightColors'
 import {
@@ -429,8 +429,6 @@ interface Paper {
   hasMarkdown: boolean
   /** 一级 / 二级文献 */
   tier: 1 | 2
-  /** 所属分类 id（literatures/categories.csv 反查得到） */
-  categoryIds: string[]
   markdownContent?: string
 }
 
@@ -439,7 +437,7 @@ interface SaveState {
   lastSaved: number | null
 }
 
-function literatureToPaper(lit: Literature, categoryIds: string[] = []): Paper {
+function literatureToPaper(lit: Literature): Paper {
   return {
     id: lit.doi,
     title: lit.title,
@@ -450,7 +448,6 @@ function literatureToPaper(lit: Literature, categoryIds: string[] = []): Paper {
     doi: lit.doi,
     hasMarkdown: lit.mdStatus === 'done',
     tier: lit.tier === 2 ? 2 : 1,
-    categoryIds,
     markdownContent: undefined,
   }
 }
@@ -744,19 +741,23 @@ export default function ReadingPage() {
   const [noteMarkdown, setNoteMarkdown] = useState('')
   const [noteLoading, setNoteLoading] = useState(false)
 
-  // ── 统一筛选：分类（三类各自的表）+ 有无 md + 文献一级/二级 ──
-  const [paperCategories, setPaperCategories] = useState<LiteratureCategory[]>([])
-  const [bookCategories, setBookCategories] = useState<Category[]>([])
-  const [documentCategories, setDocumentCategories] = useState<Category[]>([])
-  /** 'all' 或分类 id；切换阅读对象时重置，否则会拿上一类的分类去筛这一类 */
-  const [categoryFilter, setCategoryFilter] = useState('all')
+  // ── 统一筛选：任务 + 标签（三类材料共用 MaterialMeta）+ 有无 md + 文献一级/二级 ──
+  /** 全部任务（筛选菜单任务维度） */
+  const [tasks, setTasks] = useState<Project[]>([])
+  /** 材料元数据单一真源：任务归属 + 标签 */
+  const [materialMeta, setMaterialMeta] = useState<MaterialMeta[]>([])
+  /** 'all' | projectId | '__none__'；切换阅读对象时重置，避免留下不可见筛选 */
+  const [taskFilter, setTaskFilter] = useState('all')
+  /** 选中的标签过滤（空串 = 不过滤） */
+  const [tagFilter, setTagFilter] = useState('')
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
   /**
    * 筛选菜单：菜单里先选"草稿"，点「确定」才作用到列表上并折叠。
    * 草稿每次打开时从已生效的值重新播种，所以关掉菜单 = 放弃这次的选择。
    */
   const [filterOpen, setFilterOpen] = useState(false)
-  const [draftCategory, setDraftCategory] = useState('all')
+  const [draftTask, setDraftTask] = useState('all')
+  const [draftTag, setDraftTag] = useState('')
   const [draftMd, setDraftMd] = useState<FilterType>('all')
   const [draftTier, setDraftTier] = useState<TierFilter>('all')
   const filterMenuRef = useRef<HTMLDivElement>(null)
@@ -859,9 +860,10 @@ export default function ReadingPage() {
         : docLoading
       : false
 
-  /** 切换阅读对象时把分类筛选清掉（三类的分类表不是同一套） */
+  /** 切换阅读对象时把任务 / 标签筛选清掉（各类型可选任务 / 标签不同，避免留下不可见筛选） */
   useEffect(() => {
-    setCategoryFilter('all')
+    setTaskFilter('all')
+    setTagFilter('')
     setTierFilter('all')
   }, [docType])
 
@@ -889,16 +891,9 @@ export default function ReadingPage() {
     let cancelled = false
     async function loadPapers() {
       try {
-        // 文献分类与列表一起取：列表项要按分类筛，也要显示归属
-        const [lits, cats] = await Promise.all([
-          loadLiteratures(),
-          loadPaperCategories().catch(() => [] as LiteratureCategory[]),
-        ])
+        const lits = await loadLiteratures()
         if (!cancelled) {
-          setPaperCategories(cats)
-          const catIdsOf = (doi: string) =>
-            cats.filter((c) => c.dois.includes(doi)).map((c) => c.id)
-          const paperList = lits.map((l) => literatureToPaper(l, catIdsOf(l.doi)))
+          const paperList = lits.map(literatureToPaper)
           setPapers(paperList)
           // 默认打开第一篇；但如果 URL 指名了要读哪篇，就别抢，等参数生效
           if (paperList.length > 0 && !docParam?.startsWith('paper:')) {
@@ -1043,7 +1038,8 @@ export default function ReadingPage() {
       setFilterOpen(false)
       return
     }
-    setDraftCategory(categoryFilter)
+    setDraftTask(taskFilter)
+    setDraftTag(tagFilter)
     setDraftMd(filterType)
     setDraftTier(tierFilter)
     setFilterOpen(true)
@@ -1068,7 +1064,8 @@ export default function ReadingPage() {
 
   /** 确定：草稿转正 + 折叠 */
   const applyFilterDraft = () => {
-    setCategoryFilter(draftCategory)
+    setTaskFilter(draftTask)
+    setTagFilter(draftTag)
     setFilterType(draftMd)
     setTierFilter(draftTier)
     setFilterOpen(false)
@@ -1076,14 +1073,16 @@ export default function ReadingPage() {
 
   /** 重置（只清草稿，点确定才生效） */
   const resetFilterDraft = () => {
-    setDraftCategory('all')
+    setDraftTask('all')
+    setDraftTag('')
     setDraftMd('all')
     setDraftTier('all')
   }
 
   /** 漏斗上的角标：已生效的维度个数（文档没有"有无 md"这一维） */
   const activeFilterCount =
-    (categoryFilter !== 'all' ? 1 : 0) +
+    (taskFilter !== 'all' ? 1 : 0) +
+    (tagFilter ? 1 : 0) +
     (!isDoc && filterType !== 'all' ? 1 : 0) +
     (!isPlain && tierFilter !== 'all' ? 1 : 0)
 
@@ -1162,16 +1161,19 @@ export default function ReadingPage() {
     await runImport([{ title: pasteDoc.title, source: '粘贴', content: pasteDoc.content }])
   }
 
-  // 图书分类 / 其他文档分类（各自一份表）
+  // 统一筛选数据源：任务 + 标签（三类材料共用 MaterialMeta）
   useEffect(() => {
     if (!repo) return
     let cancelled = false
-    loadBookCategories()
-      .then((cats) => { if (!cancelled) setBookCategories(cats) })
-      .catch((err) => console.error('[Reading] 加载图书分类失败:', err))
-    loadDocumentCategories()
-      .then((cats) => { if (!cancelled) setDocumentCategories(cats) })
-      .catch((err) => console.error('[Reading] 加载文档分类失败:', err))
+    Promise.all([
+      loadProjects().catch(() => [] as Project[]),
+      loadMaterialMeta().catch(() => [] as MaterialMeta[]),
+    ]).then(([projects, meta]) => {
+      if (!cancelled) {
+        setTasks(projects)
+        setMaterialMeta(meta)
+      }
+    })
     return () => { cancelled = true }
   }, [repo])
 
@@ -1487,9 +1489,24 @@ export default function ReadingPage() {
     saveAnnotationsToStorage(newAnnotations)
   }
 
-  /** 分类筛选三类共用一个 state，但各自去自己的分类表里查归属 */
-  const matchesCategory = (categoryIds: string[]) =>
-    categoryFilter === 'all' || categoryIds.includes(categoryFilter)
+  /** 任务筛选：'all' 全部 / '__none__' 未归属 / 否则指定任务 */
+  const matchTask = (taskId: string) =>
+    taskFilter === 'all' || (taskFilter === '__none__' ? !taskId : taskId === taskFilter)
+
+  /** 标签筛选：空串不过滤 */
+  const matchTag = (tags: string[]) => !tagFilter || tags.includes(tagFilter)
+
+  /** 当前阅读对象下出现过的标签（供筛选菜单标签维度） */
+  const availableTags = (() => {
+    const set = new Set<string>()
+    if (isPlain) {
+      if (isBook) for (const b of books) for (const t of tagsOf(materialMeta, 'book', b.id)) set.add(t)
+      else for (const d of documents) for (const t of tagsOf(materialMeta, 'document', d.id)) set.add(t)
+    } else {
+      for (const p of papers) for (const t of tagsOf(materialMeta, 'paper', p.doi)) set.add(t)
+    }
+    return [...set].sort()
+  })()
 
   /**
    * 「有无 md」三类语义不同，同一个 state 各自解释：
@@ -1503,7 +1520,8 @@ export default function ReadingPage() {
   const filteredPapers = papers.filter((paper) => {
     if (!matchesMdFilter(paper.hasMarkdown)) return false
     if (tierFilter !== 'all' && paper.tier !== tierFilter) return false
-    if (!matchesCategory(paper.categoryIds)) return false
+    if (!matchTask(taskOf(materialMeta, 'paper', paper.doi))) return false
+    if (!matchTag(tagsOf(materialMeta, 'paper', paper.doi))) return false
 
     if (!searchQuery.trim()) return true
 
@@ -1531,11 +1549,15 @@ export default function ReadingPage() {
     (b) =>
       matchSearch(b.title) &&
       matchesMdFilter(b.hasContent) &&
-      matchesCategory(categoriesOfMember(bookCategories, b.id)),
+      matchTask(taskOf(materialMeta, 'book', b.id)) &&
+      matchTag(tagsOf(materialMeta, 'book', b.id)),
   )
 
   const filteredDocuments = documents.filter(
-    (d) => matchSearch(d.title) && matchesCategory(categoriesOfMember(documentCategories, d.id)),
+    (d) =>
+      matchSearch(d.title) &&
+      matchTask(taskOf(materialMeta, 'document', d.id)) &&
+      matchTag(tagsOf(materialMeta, 'document', d.id)),
   )
 
   /** 笔记「来自哪篇文档」的标题（列表里显示、点开时标注来源） */
@@ -3104,20 +3126,40 @@ export default function ReadingPage() {
             </button>
             {filterOpen && (
               <div className="absolute right-0 top-full mt-1 w-60 bg-paper-50 border border-ink-200 rounded-control shadow-xl z-40 p-3">
-                {/* 维度 1：分类 */}
-                <div className="text-ui-xs font-semibold text-ink-500 mb-1.5">分类</div>
+                {/* 维度 1：任务（材料归属哪个任务） */}
+                <div className="text-ui-xs font-semibold text-ink-500 mb-1.5">任务</div>
                 <div className="flex flex-wrap gap-1">
-                  <button onClick={() => setDraftCategory('all')} className={chipCls(draftCategory === 'all')}>
+                  <button onClick={() => setDraftTask('all')} className={chipCls(draftTask === 'all')}>
                     全部
                   </button>
-                  {(isBook ? bookCategories : isDoc ? documentCategories : paperCategories).map((c) => (
-                    <button key={c.id} onClick={() => setDraftCategory(c.id)} className={chipCls(draftCategory === c.id)}>
-                      {c.name}
+                  {tasks.map((t) => (
+                    <button key={t.projectId} onClick={() => setDraftTask(t.projectId)} className={chipCls(draftTask === t.projectId)}>
+                      {t.title}
                     </button>
                   ))}
+                  <button onClick={() => setDraftTask('__none__')} className={chipCls(draftTask === '__none__')}>
+                    未归属
+                  </button>
                 </div>
 
-                {/* 维度 2：有无 md（其他文档导入的必然有 md，不给这一维） */}
+                {/* 维度 2：标签（想给这份材料打什么） */}
+                {availableTags.length > 0 && (
+                  <>
+                    <div className="text-ui-xs font-semibold text-ink-500 mt-3 mb-1.5">标签</div>
+                    <div className="flex flex-wrap gap-1">
+                      <button onClick={() => setDraftTag('')} className={chipCls(draftTag === '')}>
+                        全部
+                      </button>
+                      {availableTags.map((tag) => (
+                        <button key={tag} onClick={() => setDraftTag(tag)} className={chipCls(draftTag === tag)}>
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* 维度 3：有无 md（其他文档导入的必然有 md，不给这一维） */}
                 {!isDoc && (
                   <>
                     <div className="text-ui-xs font-semibold text-ink-500 mt-3 mb-1.5">
@@ -3137,7 +3179,7 @@ export default function ReadingPage() {
                   </>
                 )}
 
-                {/* 维度 3：文献级别（只有文献有） */}
+                {/* 维度 4：文献级别（只有文献有） */}
                 {!isPlain && (
                   <>
                     <div className="text-ui-xs font-semibold text-ink-500 mt-3 mb-1.5">文献级别</div>
