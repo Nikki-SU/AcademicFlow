@@ -3360,26 +3360,26 @@ export default function WritingPage() {
             className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50"
             style={navStack.flex(0, projectsExpanded)}
           >
-            <div className="af-line-b flex items-center gap-ui-gap-sm px-ui-gap-sm py-1.5 flex-shrink-0">
+            <div className="af-line-b flex h-ui-header flex-shrink-0 items-center px-ui-gap text-ui-xs font-semibold text-ink-600 transition hover:bg-paper-100">
               <button
                 onClick={() => setProjectsExpanded(!projectsExpanded)}
-                className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 rounded-control-sm hover:bg-paper-100 transition"
+                className="flex min-w-0 flex-1 items-center gap-ui-gap-sm"
               >
                 {projectsExpanded ? (
                   <ChevronDown className="h-ui-icon-sm w-ui-icon-sm text-ink-400 flex-shrink-0" />
                 ) : (
                   <ChevronRight className="h-ui-icon-sm w-ui-icon-sm text-ink-400 flex-shrink-0" />
                 )}
-                <FileText className="h-ui-icon w-ui-icon text-seal-600 flex-shrink-0" />
-                <span className="text-ui-sm font-semibold text-ink-800 truncate">
+                <FileText className="h-ui-icon-sm w-ui-icon-sm text-seal-600 flex-shrink-0" />
+                <span className="truncate">
                   {projectsExpanded ? '项目导航' : activeProject?.title || '项目导航'}
                 </span>
               </button>
               <button
                 onClick={() => setShowNewProjectInput(!showNewProjectInput)}
-                className="p-1 flex-shrink-0 text-ink-400 hover:text-seal-600 hover:bg-seal-50 rounded-control-sm transition"
+                className="flex-shrink-0 rounded-control-sm p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
               >
-                <Plus className="h-ui-icon w-ui-icon" />
+                <Plus className="h-ui-icon-sm w-ui-icon-sm" />
               </button>
             </div>
 
@@ -3560,7 +3560,7 @@ export default function WritingPage() {
           >
             <button
               onClick={() => setLibSearchExpanded(!libSearchExpanded)}
-              className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+              className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap h-ui-header text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
             >
               {libSearchExpanded ? (
                 <ChevronDown className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
@@ -3669,7 +3669,7 @@ export default function WritingPage() {
           >
             <button
               onClick={() => setOutlineExpanded(!outlineExpanded)}
-              className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+              className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap h-ui-header text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
             >
               {outlineExpanded ? (
                 <ChevronDown className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />

@@ -3181,19 +3181,19 @@ export default function ReadingPage() {
         >
           <button
             onClick={() => setListExpanded(!listExpanded)}
-            className="af-line-b w-full flex-shrink-0 flex items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+            className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap h-ui-header text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
           >
             {listExpanded ? (
-              <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
+              <ChevronDown className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-ink-400" />
+              <ChevronRight className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
             )}
             {isBook ? (
-              <BookCopy className="w-3.5 h-3.5 text-seal-600" />
+              <BookCopy className="h-ui-icon-sm w-ui-icon-sm text-seal-600" />
             ) : isDoc ? (
-              <FileText className="w-3.5 h-3.5 text-seal-600" />
+              <FileText className="h-ui-icon-sm w-ui-icon-sm text-seal-600" />
             ) : (
-              <BookOpen className="w-3.5 h-3.5 text-seal-600" />
+              <BookOpen className="h-ui-icon-sm w-ui-icon-sm text-seal-600" />
             )}
             {isBook ? '图书列表' : isDoc ? '文档列表' : '文献列表'}
             <span className="ml-auto text-ink-400 font-normal">
@@ -3720,14 +3720,14 @@ export default function ReadingPage() {
         >
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
-            className="af-line-b w-full flex-shrink-0 flex items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+            className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap h-ui-header text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
           >
             {outlineOpen ? (
-              <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
+              <ChevronDown className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-ink-400" />
+              <ChevronRight className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
             )}
-            <ListTree className="w-3.5 h-3.5 text-seal-600" />
+            <ListTree className="h-ui-icon-sm w-ui-icon-sm text-seal-600" />
             大纲
             <span className="ml-auto text-ink-400 font-normal">{outline.length}</span>
           </button>
