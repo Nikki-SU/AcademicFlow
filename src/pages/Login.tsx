@@ -193,7 +193,7 @@ function Login() {
           </div>
 
           {/* 网络诊断 */}
-          <div className="mt-2 border-t border-ink-200 pt-4">
+          <div className="af-line-t mt-2 pt-4">
             <div className="mb-2 flex items-center justify-between">
               <p className="flex items-center gap-1.5 text-ui-xs font-medium text-ink-500">
                 <Wifi className="h-3.5 w-3.5" />

@@ -350,7 +350,7 @@ export default function RecorderBall() {
             pipWindow ? 'w-full' : 'w-80'
           }`}
         >
-          <div className="flex items-center justify-between border-b border-ink-100 px-ui-gap py-2">
+          <div className="af-line-b flex items-center justify-between px-ui-gap py-2">
             <span className="text-ui-xs font-semibold text-ink-700">
               {isRecording ? '本轮转写' : '采集'}
             </span>
@@ -403,7 +403,7 @@ export default function RecorderBall() {
               ) : (
                 <ul className="space-y-3">
                   {segments.map((seg) => (
-                    <li key={seg.id} className="border-b border-ink-100 pb-2 last:border-0">
+                    <li key={seg.id} className="af-line-b af-line-b-ends pb-2">
                       <div className="flex items-center gap-2 text-ui-xs">
                         <span className="font-mono text-ink-400">{formatClock(seg.at)}</span>
                         <span className="rounded-control-sm bg-seal-50 px-1.5 py-0.5 text-ui-2xs font-medium text-seal-700">
@@ -432,7 +432,7 @@ export default function RecorderBall() {
           )}
 
           {/* 两个输入功能 */}
-          <div className="flex gap-2 border-t border-ink-100 p-2">
+          <div className="flex gap-2 af-line-t p-2">
             <button
               type="button"
               onClick={handleRecordToggle}
@@ -464,7 +464,7 @@ export default function RecorderBall() {
 
           {/* 防休眠说明 + 用户侧开关：浏览器后台会冻结 / 回收空闲页面，这里给出自助加固办法 */}
           {!pipWindow && (
-          <div className="border-t border-ink-100">
+          <div className="af-line-t">
             <button
               type="button"
               onClick={() => setGuideOpen((v) => !v)}
@@ -478,7 +478,7 @@ export default function RecorderBall() {
               />
             </button>
             {guideOpen && (
-              <div className="space-y-2.5 border-t border-ink-100 bg-paper-100/60 px-ui-gap py-2.5 text-ui-xs leading-relaxed text-ink-600">
+              <div className="space-y-2.5 af-line-t bg-paper-100/60 px-ui-gap py-2.5 text-ui-xs leading-relaxed text-ink-600">
                 <p>
                   <span className="font-medium text-ink-700">已内建保活：</span>
                   录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。

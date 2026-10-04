@@ -276,7 +276,7 @@ export function CourseTable({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
-      <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
+      <div className="af-line-b flex items-center justify-between gap-ui-gap px-ui-gap py-ui-gap-sm">
         <h2 className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800">
           <Clock className="h-ui-icon w-ui-icon text-seal-600" />
           课程表

@@ -441,7 +441,7 @@ function JournalTemplatesPage() {
                     </div>
 
                     {t.guidelines_content && (
-                      <div className="mt-3 pt-3 border-t border-ink-100">
+                      <div className="af-line-t mt-3 pt-3">
                         <div className="flex items-center gap-1.5 text-ui-xs text-ink-500">
                           <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
                           <span>已上传投稿须知</span>
@@ -455,7 +455,7 @@ function JournalTemplatesPage() {
                     )}
                   </div>
 
-                  <div className="px-ui-gap py-2.5 bg-paper-100 border-t border-ink-100">
+                  <div className="af-line-t px-ui-gap py-2.5 bg-paper-100">
                     <a
                       href="/writing"
                       className="text-ui-xs text-seal-600 hover:text-seal-800 font-medium"

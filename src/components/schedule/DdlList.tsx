@@ -141,7 +141,7 @@ export function DdlList({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
-      <div className="flex items-center gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
+      <div className="af-line-b flex items-center gap-ui-gap px-ui-gap py-ui-gap-sm">
         <h2 className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800">
           <CalendarClock className="h-ui-icon w-ui-icon text-seal-600" />
           DDL
@@ -150,7 +150,7 @@ export function DdlList({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-ui-gap">
         {/* 列头：左研究 / 右课程；每列头一个「+」新建该大类下的任务（空列表也保留，新建始终可达） */}
-        <div className="mb-ui-gap-sm grid grid-cols-2 gap-ui-gap-sm border-b border-ink-100 pb-ui-gap-sm">
+        <div className="af-line-b mb-ui-gap-sm grid grid-cols-2 gap-ui-gap-sm pb-ui-gap-sm">
           {(['research', 'course'] as const).map((t) => (
             <div
               key={t}
@@ -184,7 +184,7 @@ export function DdlList({
                   type="button"
                   onClick={() => setExpiredOpen((v) => !v)}
                   title={expiredOpen ? '折叠已过期' : '展开已过期'}
-                  className="flex w-full items-center gap-ui-gap-sm border-b border-ink-100 pb-ui-gap-sm text-ui-xs font-medium text-ink-400"
+                  className="af-line-b flex w-full items-center gap-ui-gap-sm pb-ui-gap-sm text-ui-xs font-medium text-ink-400"
                 >
                   {expiredOpen ? (
                     <ChevronDown className="h-ui-icon-sm w-ui-icon-sm" />
@@ -203,7 +203,7 @@ export function DdlList({
                   type="button"
                   onClick={() => setDoneOpen((v) => !v)}
                   title={doneOpen ? '折叠已完成' : '展开已完成'}
-                  className="flex w-full items-center gap-ui-gap-sm border-b border-ink-100 pb-ui-gap-sm text-ui-xs font-medium text-ink-400"
+                  className="af-line-b flex w-full items-center gap-ui-gap-sm pb-ui-gap-sm text-ui-xs font-medium text-ink-400"
                 >
                   {doneOpen ? (
                     <ChevronDown className="h-ui-icon-sm w-ui-icon-sm" />

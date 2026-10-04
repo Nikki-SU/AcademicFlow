@@ -408,7 +408,7 @@ function SearchableMultiSelect({
           className="w-full pl-8 pr-3 py-1.5 text-ui-xs border border-ink-200 rounded-control focus:outline-none focus:ring-2 focus:ring-seal-500 focus:border-transparent"
         />
       </div>
-      <div className="max-h-48 overflow-y-auto border border-ink-200 rounded-control divide-y divide-ink-100">
+      <div className="af-divided max-h-48 overflow-y-auto border border-ink-200 rounded-control">
         {filteredItems.length === 0 ? (
           <div className="py-8 text-center text-ui-xs text-ink-400">{emptyText}</div>
         ) : (
@@ -495,7 +495,7 @@ function ChapterSelector({
 
           return (
             <div key={book.id} className="border border-ink-200 rounded-control overflow-hidden">
-              <div className="px-ui-gap py-2 bg-paper-100 border-b border-ink-200 flex items-center justify-between">
+              <div className="af-line-b px-ui-gap py-2 bg-paper-100 flex items-center justify-between">
                 <div className="text-ui-xs font-medium text-ink-700 truncate flex-1">
                   {book.title}
                 </div>
@@ -517,7 +517,7 @@ function ChapterSelector({
                   </button>
                 </div>
               </div>
-              <div className="divide-y divide-ink-100">
+              <div className="af-divided">
                 {bookChapters.map((chapter) => {
                   const isSelected = selectedChapterIds.includes(chapter.id)
                   return (
@@ -605,7 +605,7 @@ function CitationScopeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm">
       <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-ink-200 flex items-center justify-between flex-shrink-0">
+        <div className="af-line-b px-5 py-4 flex items-center justify-between flex-shrink-0">
           <div>
             <h3 className="text-ui-sm font-semibold text-ink-800 flex items-center gap-2">
               <Filter className="w-4 h-4 text-seal-600" />
@@ -697,7 +697,7 @@ function CitationScopeModal({
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-ink-200 bg-paper-100 flex items-center justify-between flex-shrink-0">
+        <div className="af-line-t px-5 py-3 bg-paper-100 flex items-center justify-between flex-shrink-0">
           <div className="text-ui-xs text-ink-500">
             已选范围：<span className="font-semibold text-seal-600">{getSelectedCount()}</span>
           </div>
@@ -881,7 +881,7 @@ export default function TrustedRetrievalPanel({
 
   return (
     <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
-      <div className="px-ui-gap py-3 border-b border-ink-100 bg-gradient-to-r from-seal-50/80 to-paper-50">
+      <div className="af-line-b px-ui-gap py-3 bg-gradient-to-r from-seal-50/80 to-paper-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-seal-100 rounded-control flex items-center justify-center">
@@ -909,7 +909,7 @@ export default function TrustedRetrievalPanel({
       </div>
 
       <div className={`transition-all duration-300 ${trustedSearch ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-        <div className="px-ui-gap py-3 grid grid-cols-2 gap-3 border-b border-ink-100">
+        <div className="af-line-b px-ui-gap py-3 grid grid-cols-2 gap-3">
           <ModelSelector
             label="生成位 AI-1"
             role="ai1"

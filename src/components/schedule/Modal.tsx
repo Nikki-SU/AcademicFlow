@@ -28,7 +28,7 @@ export function Modal({
       <div
         className={`bg-paper-50 rounded-card shadow-xl w-full ${maxWidth} max-h-[85vh] flex flex-col`}
       >
-        <div className="flex items-center justify-between p-5 border-b border-ink-200">
+        <div className="af-line-b flex items-center justify-between p-5">
           <h3 className="font-semibold text-ink-800">{title}</h3>
           <button
             onClick={onClose}
@@ -40,7 +40,7 @@ export function Modal({
         </div>
         <div className="p-5 overflow-y-auto">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 p-5 border-t border-ink-200">
+          <div className="af-line-t flex items-center justify-end gap-2 p-5">
             {footer}
           </div>
         )}

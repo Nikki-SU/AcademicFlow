@@ -66,7 +66,7 @@ function StageRow({ stage, index }: { stage: StageTrace; index: number }) {
 
       {/* 展开详情 */}
       {expanded && (
-        <div className="border-t border-ink-200 bg-paper-100/50">
+        <div className="af-line-t bg-paper-100/50">
           {/* Tab 切换 */}
           <div className="flex gap-1 px-ui-gap pt-3">
             {stage.prompt && (
@@ -164,7 +164,7 @@ function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () => void 
   return (
     <div>
       {/* 顶部 */}
-      <div className="flex items-center gap-4 mb-4 pb-4 border-b border-ink-200">
+      <div className="af-line-b flex items-center gap-4 mb-4 pb-4">
         <button onClick={onBack} className="text-ink-500 hover:text-ink-800 text-xl leading-none">
           ←
         </button>

@@ -130,7 +130,7 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
             <RefreshCw className="w-4 h-4" />
             重新登录
           </button>
-          <div className="border-t border-ink-100 my-1" />
+          <div className="af-line-t my-1" />
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-red-600 hover:bg-red-50"

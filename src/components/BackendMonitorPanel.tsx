@@ -115,7 +115,7 @@ export default function BackendMonitorPanel({ taskQueue }: { taskQueue: TaskQueu
   return (
     <div className="bg-paper-50 border border-ink-200 rounded-card shadow-sm overflow-hidden">
       {/* 面板标题 */}
-      <div className="px-2.5 py-2 bg-paper-100 border-b border-ink-200">
+      <div className="af-line-b px-2.5 py-2 bg-paper-100">
         <div className="flex items-center gap-1.5 flex-wrap">
           <Activity className="w-4 h-4 text-seal-600 shrink-0" />
           <span className="font-medium text-ui-sm text-ink-800">后台监控</span>

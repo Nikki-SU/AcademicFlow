@@ -127,7 +127,7 @@ export default function TaskSwitcher({
 
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-card border border-ink-200 bg-paper-50 shadow-lift">
-          <div className="border-b border-ink-100 px-ui-gap py-2">
+          <div className="af-line-b px-ui-gap py-2">
             <p className="text-ui-xs font-medium text-ink-400">当前任务</p>
             <p className="mt-0.5 truncate text-ui-sm text-ink-800">
               {current ? current.title || '(未命名任务)' : '未选择'}
@@ -151,7 +151,7 @@ export default function TaskSwitcher({
             )}
           </div>
 
-          <div className="border-t border-ink-100 p-1.5">
+          <div className="af-line-t p-1.5">
             <Link
               to="/schedule"
               onClick={() => setOpen(false)}

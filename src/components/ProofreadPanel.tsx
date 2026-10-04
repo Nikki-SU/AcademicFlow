@@ -80,7 +80,7 @@ export default function ProofreadPanel({ md, onJump, onEditFormula, onResize }: 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* tab */}
-      <div className="px-ui-gap pt-2.5 border-b border-ink-100 bg-paper-50">
+      <div className="af-line-b px-ui-gap pt-2.5 bg-paper-50">
         <div className="flex gap-1">
           {tabs.map((t) => {
             const Icon = t.icon

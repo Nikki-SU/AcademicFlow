@@ -69,6 +69,7 @@ import {
 } from '../services/librarySearch'
 import ReadingAskPanel from '../components/ReadingAskPanel'
 import ReadingNotesPanel from '../components/ReadingNotesPanel'
+import { PillTabs } from '../components/ui/Tabs'
 import { toast } from 'sonner'
 
 /** 右栏页签：问 AI / 笔记 / 批注（文献与图书同一套） */
@@ -633,7 +634,7 @@ function Modal({ title, onClose, children, width = 'max-w-2xl' }: { title: strin
   return (
     <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
       <div className={`bg-paper-50 rounded-card shadow-xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-ink-200">
+        <div className="af-line-b flex items-center justify-between px-6 py-4">
           <h3 className="font-semibold text-ink-800">{title}</h3>
           <button onClick={onClose} className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control transition">
             <X className="w-5 h-5" />
@@ -3007,7 +3008,7 @@ export default function ReadingPage() {
         style={{ fontSize: '1rem' }}
       >
         {/* 固定：阅读对象切换（文献 / 图书 / 其他文档） */}
-        <div className="p-2 border-b border-ink-200 flex-shrink-0">
+        <div className="af-line-b p-2 flex-shrink-0">
           <div className="flex gap-0.5 rounded-control bg-ink-100 p-0.5">
             {([
               { type: 'paper' as DocType, label: '文献', Icon: BookOpen },
@@ -3205,7 +3206,7 @@ export default function ReadingPage() {
                   </>
                 )}
 
-                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-ink-100">
+                <div className="af-line-t flex items-center justify-between gap-2 mt-3 pt-2">
                   <button
                     onClick={resetFilterDraft}
                     className="px-2 py-1 text-ui-xs text-ink-500 hover:text-ink-700 hover:bg-ink-100 rounded-control-sm transition"
@@ -3311,7 +3312,7 @@ export default function ReadingPage() {
                 <button
                   key={b.id}
                   onClick={() => { setSelectedBookId(b.id); setLeftDrawer(false) }}
-                  className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                  className={`af-line-b w-full text-left p-3 hover:bg-paper-100 transition ${
                     selectedBookId === b.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
                   }`}
                 >
@@ -3367,7 +3368,7 @@ export default function ReadingPage() {
                       setEditingAnnotationId(null)
                       setLeftDrawer(false)
                     }}
-                    className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                    className={`af-line-b w-full text-left p-3 hover:bg-paper-100 transition ${
                       selectedDocumentId === d.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
                     }`}
                   >
@@ -3395,7 +3396,7 @@ export default function ReadingPage() {
                  * 方便不打开原文、直接大屏读自己的笔记（点开是只读视图）。
                  */}
                 {filteredNoteFiles.length > 0 && (
-                  <div className="border-t border-ink-200">
+                  <div className="af-line-t">
                     <div className="px-ui-gap py-1.5 text-ui-xs font-semibold text-ink-400 bg-paper-100">
                       笔记
                       <span className="ml-1.5 font-normal">{filteredNoteFiles.length}</span>
@@ -3413,7 +3414,7 @@ export default function ReadingPage() {
                             setEditingAnnotationId(null)
                             setLeftDrawer(false)
                           }}
-                          className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                          className={`af-line-b w-full text-left p-3 hover:bg-paper-100 transition ${
                             activeNote ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
                           }`}
                         >
@@ -3465,7 +3466,7 @@ export default function ReadingPage() {
                   setEditingAnnotationId(null)
                   setLeftDrawer(false)
                 }}
-                className={`w-full text-left p-3 border-b border-ink-100 hover:bg-paper-100 transition ${
+                className={`af-line-b w-full text-left p-3 hover:bg-paper-100 transition ${
                   selectedPaperId === p.id ? 'bg-seal-50 border-l-2 border-l-seal-600' : ''
                 }`}
               >
@@ -3509,7 +3510,7 @@ export default function ReadingPage() {
          * flex-1 且不配 min-h-0 —— 它的自动最小高度就是自己的标题行，
          * 所以即使上排全展开把空间吃光，它被压到极限也仍留在栏里、点得到。
          */}
-        <div className={`flex flex-col overflow-hidden border-t border-ink-200 ${outlineOpen ? 'flex-1' : 'flex-none'}`}>
+        <div className={`af-line-t flex flex-col overflow-hidden ${outlineOpen ? 'flex-1' : 'flex-none'}`}>
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
             className="w-full flex-shrink-0 flex items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
@@ -3557,7 +3558,7 @@ export default function ReadingPage() {
         {isPlain ? (
           plainId ? (
             <>
-              <div className="bg-paper-50 border-b border-ink-200 px-ui-gap py-2 flex items-center justify-between flex-shrink-0">
+              <div className="af-line-b bg-paper-50 px-ui-gap py-2 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     onClick={() => {
@@ -3670,7 +3671,7 @@ export default function ReadingPage() {
           )
         ) : selectedPaper ? (
           <>
-            <div className="bg-paper-50 border-b border-ink-200 px-ui-gap py-2 flex items-center justify-between flex-shrink-0">
+            <div className="af-line-b bg-paper-50 px-ui-gap py-2 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   onClick={() => setSelectedPaperId(null)}
@@ -3923,46 +3924,28 @@ export default function ReadingPage() {
       }`}
         style={{ fontSize: '1rem' }}
       >
-        <div className="flex border-b border-ink-200 flex-shrink-0">
-          <button
-            onClick={() => setActiveSideTab('ask')}
-            className={`flex-1 px-ui-gap-sm py-2.5 text-ui-xs font-medium transition flex items-center justify-center gap-1 ${
-              activeSideTab === 'ask'
-                ? 'text-seal-600 border-b-2 border-seal-600'
-                : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
-            }`}
-          >
-            <Sparkles className="h-ui-icon-sm w-ui-icon-sm" />
-            问 AI
-          </button>
-          <button
-            onClick={() => setActiveSideTab('notes')}
-            className={`flex-1 px-ui-gap-sm py-2.5 text-ui-xs font-medium transition flex items-center justify-center gap-1 ${
-              activeSideTab === 'notes'
-                ? 'text-seal-600 border-b-2 border-seal-600'
-                : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
-            }`}
-          >
-            <StickyNote className="h-ui-icon-sm w-ui-icon-sm" />
-            笔记
-          </button>
-          <button
-            onClick={() => setActiveSideTab('annotations')}
-            className={`flex-1 px-ui-gap-sm py-2.5 text-ui-xs font-medium transition flex items-center justify-center gap-1 ${
-              activeSideTab === 'annotations'
-                ? 'text-seal-600 border-b-2 border-seal-600'
-                : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
-            }`}
-          >
-            <Highlighter className="h-ui-icon-sm w-ui-icon-sm" />
-            批注
-            {paperAnnotations.length > 0 && (
-              <span className="px-1.5 py-0.5 text-ui-2xs bg-seal-100 text-seal-600 rounded-full font-medium">
-                {paperAnnotations.length}
-              </span>
-            )}
-          </button>
-        </div>
+        <PillTabs
+          items={[
+            { id: 'ask', label: '问 AI', icon: <Sparkles className="h-ui-icon-sm w-ui-icon-sm" /> },
+            { id: 'notes', label: '笔记', icon: <StickyNote className="h-ui-icon-sm w-ui-icon-sm" /> },
+            {
+              id: 'annotations',
+              icon: <Highlighter className="h-ui-icon-sm w-ui-icon-sm" />,
+              label: (
+                <span className="flex items-center gap-1">
+                  批注
+                  {paperAnnotations.length > 0 && (
+                    <span className="rounded-full bg-seal-100 px-1.5 py-0.5 text-ui-2xs font-medium text-seal-600">
+                      {paperAnnotations.length}
+                    </span>
+                  )}
+                </span>
+              ),
+            },
+          ]}
+          value={activeSideTab}
+          onChange={setActiveSideTab}
+        />
 
         <div className="flex-1 overflow-hidden flex flex-col">
           {activeSideTab === 'ask' ? (
@@ -3995,7 +3978,7 @@ export default function ReadingPage() {
             )
           ) : (
             <div className="flex-1 flex flex-col">
-              <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 space-y-2">
+              <div className="af-line-b px-ui-gap py-2 flex-shrink-0 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-ui-xs text-ink-500">
                     共 <span className="font-medium text-ink-700">{paperAnnotations.length}</span> 条批注
@@ -4173,7 +4156,7 @@ export default function ReadingPage() {
                 )}
               </div>
 
-              <div className="px-ui-gap py-2 border-t border-ink-100 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
+              <div className="af-line-t px-ui-gap py-2 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
                 <div className="flex items-center gap-1.5 text-ui-xs text-ink-400">
                   {annotationSaveState.status === 'saving' && (
                     <>
@@ -4356,7 +4339,7 @@ export default function ReadingPage() {
             </label>
           )}
 
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             {importMode === 'paste' && (
               <button
                 onClick={handlePasteImport}

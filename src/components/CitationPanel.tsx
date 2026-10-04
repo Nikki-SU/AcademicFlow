@@ -115,7 +115,7 @@ export default function CitationPanel({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-ui-gap py-2.5 border-b border-ink-100 bg-paper-50 space-y-2">
+      <div className="af-line-b px-ui-gap py-2.5 bg-paper-50 space-y-2">
         <div className="flex items-center gap-2">
           <BookMarked className="w-3.5 h-3.5 text-seal-600" />
           <span className="text-ui-xs font-medium text-ink-700">引用表</span>

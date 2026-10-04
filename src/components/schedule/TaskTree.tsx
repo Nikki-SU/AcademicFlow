@@ -243,7 +243,7 @@ export function TaskTree({
   /** 渲染一个大类的竖列（列头 + 可滚动的层级列表） */
   const renderColumn = (label: string, type: ProjectType, rows: Row[]) => (
     <div className="flex min-h-0 flex-col rounded-control border border-ink-100 bg-paper-100/40">
-      <div className="flex items-center justify-between border-b border-ink-100 px-ui-gap-sm py-1">
+      <div className="af-line-b flex items-center justify-between px-ui-gap-sm py-1">
         <span className="text-ui-xs font-medium text-ink-500">
           {label} <span className="text-ui-2xs font-normal text-ink-300">{rows.length}</span>
         </span>
@@ -398,7 +398,7 @@ export function TaskTree({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
-      <div className="flex items-center justify-between gap-ui-gap border-b border-ink-100 px-ui-gap py-ui-gap-sm">
+      <div className="af-line-b flex items-center justify-between gap-ui-gap px-ui-gap py-ui-gap-sm">
         <button
           onClick={() => setCollapsed((v) => !v)}
           className="flex items-center gap-ui-gap-sm text-ui-sm font-semibold text-ink-800"

@@ -47,6 +47,8 @@ export default {
         'ui-lane': 'var(--ui-lane)',
         /* 面板页头固定高度：三栏面板的横线靠它对齐（唯一来源） */
         'ui-header': 'var(--ui-header)',
+        /* 页面内容统一纵向页边距（唯一来源） */
+        'ui-page': 'var(--ui-page-y)',
       },
       /*
        * 圆角：全站只认这三档，杜绝各处即兴写 rounded-lg / md / xl 造成参差。

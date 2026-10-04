@@ -135,6 +135,14 @@
   --ui-text-2xs: 0.65rem;
   --ui-text-xs: 0.72rem;
   --ui-text-sm: 0.85rem;
+  /*
+   * 圆角容器内的分隔线颜色 —— 全站一份。
+   * 值就是调色板 ink-100。圆角容器（卡片 / 面板 / 弹窗）里要画分隔线时一律取它，
+   * 别再各写 border-ink-100 / border-ink-200 造成深浅不一（见 UX_DETAILS.md「圆角里不落通栏线」）。
+   */
+  --ui-hairline: #e9e6e1;
+  /* 页面内容的统一纵向页边距（所有页面主体都取它，别再各页写 py-8 / py-10） */
+  --ui-page-y: 1.5rem;
 
   /*
    * 荧光笔色板（全站唯一色源）
@@ -178,6 +186,56 @@
   .page-container {
     width: 100%;
     padding-inline: clamp(1rem, 2.5vw, 3rem);
+  }
+
+  /*
+   * 圆角容器内的分隔线：一律「左右内缩」，不顶到圆角边上
+   * -------------------------------------------------
+   * 用户原话：主体用了圆角，分隔线却是一条**通栏直角线**，一会儿直一会儿圆，很怪。
+   * 圆角体系下要么这条线**左右不打满**，要么干脆**不画线**、靠 hover 浅灰 / 选中主题色区分。
+   * 这里给出两种内缩画法，供「确实要一条分隔线」的地方统一取用：
+   *   .af-line-b    给一个「块」补一条内缩底线（面板页头 / 弹窗头）
+   *   .af-line-t    给一个「块」补一条内缩顶线（弹窗底部的动作条）
+   *   .af-divided   给「圆角卡片列表」补子项之间的内缩横线（替代通栏的 divide-y）
+   * 内缩量默认 --ui-gap；需要更宽时在该元素上覆盖 --af-line-inset。
+   * 颜色统一取 --ui-hairline，别再各写 border-ink-100 / border-ink-200。
+   */
+  .af-line-b,
+  .af-line-t {
+    position: relative;
+  }
+  .af-line-b::after,
+  .af-line-t::after {
+    content: '';
+    position: absolute;
+    left: var(--af-line-inset, var(--ui-gap));
+    right: var(--af-line-inset, var(--ui-gap));
+    height: 1px;
+    background-color: var(--ui-hairline);
+    pointer-events: none;
+  }
+  .af-line-b::after {
+    bottom: 0;
+  }
+  .af-line-t::after {
+    top: 0;
+  }
+  .af-divided > * + * {
+    position: relative;
+  }
+  .af-divided > * + *::before {
+    content: '';
+    position: absolute;
+    left: var(--af-line-inset, var(--ui-gap));
+    right: var(--af-line-inset, var(--ui-gap));
+    top: 0;
+    height: 1px;
+    background-color: var(--ui-hairline);
+    pointer-events: none;
+  }
+  /* .af-line-b 的「末项不留线」修饰：列表逐项画线时，最后一项不再画（替代 last:border-0） */
+  .af-line-b.af-line-b-ends:last-child::after {
+    display: none;
   }
 
   /*

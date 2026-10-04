@@ -26,7 +26,7 @@ import { useSessionImagesStore } from '../../stores/sessionImages'
 import CameraCapture from '../CameraCapture'
 import { Panel, PanelHeader, PanelBody, EmptyState } from '../ui/Panel'
 import Button from '../ui/Button'
-import { UnderlineTabs } from '../ui/Tabs'
+import { PillTabs } from '../ui/Tabs'
 
 /** 单个缩略图：自己负责把仓库路径换成可显示的 blob URL */
 function Thumb({ file, onDelete }: { file: SessionImageFile; onDelete: () => void }) {
@@ -228,7 +228,7 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
       />
 
       {/* 两个页签：原始照片 / 识别合并后的 board.md；行尾刷新与页签同基线 */}
-      <UnderlineTabs
+      <PillTabs
         items={[
           { id: 'photos', label: '照片' },
           { id: 'board', label: '识别结果', icon: <Sparkles className="h-ui-icon-sm w-ui-icon-sm" /> },
@@ -251,7 +251,7 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
       {/* 识别状态条：识别中显示进度文案，失败显示原因 */}
       {(recognizing || recError) && (
         <div
-          className={`flex shrink-0 items-center gap-ui-gap-sm border-b border-ink-100 px-ui-gap py-1.5 text-ui-2xs ${
+          className={`af-line-b flex shrink-0 items-center gap-ui-gap-sm px-ui-gap py-1.5 text-ui-2xs ${
             recError ? 'bg-red-50 text-red-600' : 'bg-seal-50 text-seal-700'
           }`}
         >

@@ -4,8 +4,10 @@
  * 体检发现全站有 **7 种页签皮肤**（灰底段控件大/小、白底盒、下划线、圆角顶 A/B、
  * 内联胶囊、顶部导航），同一种「切换视图」到处长得不一样。收敛为两种：
  *   SegmentedTabs  灰底段控件 —— 用于「页内视图模式切换」（躲在页头右侧或内容上方一行）
- *   UnderlineTabs  下划线页签 —— 用于「内容分区切换」（贴在面板内容顶部，自带分隔线）
- * 选中态一律 seal 色；圆角一律取 control / control-sm。新增切换一律从这两种里选，不得再发明。
+ *   PillTabs       圆角页签 —— 用于「内容分区切换」（贴在面板内容顶部）
+ * 两者都**不画通栏分隔线**：未选中 = 透明（hover 浅灰底），选中 = 主题色（seal）。
+ * 用户要求「圆角体系下别再出现通栏直角分隔线」——选中态用颜色区分，不用下划线（见 UX_DETAILS.md
+ * 「圆角体系下的分隔线：要么内缩，要么不画」）。新增切换一律从这两种里选，不得再发明。
  */
 import type { ReactNode } from 'react'
 
@@ -44,7 +46,7 @@ export function SegmentedTabs<T extends string>({
   )
 }
 
-export function UnderlineTabs<T extends string>({
+export function PillTabs<T extends string>({
   items,
   value,
   onChange,
@@ -59,7 +61,7 @@ export function UnderlineTabs<T extends string>({
   className?: string
 }) {
   return (
-    <div className={`flex shrink-0 items-stretch border-b border-ink-200 ${className}`}>
+    <div className={`flex shrink-0 items-center gap-1 px-ui-gap-sm py-ui-gap-sm ${className}`}>
       {items.map((it) => {
         const active = it.id === value
         return (
@@ -67,10 +69,10 @@ export function UnderlineTabs<T extends string>({
             key={it.id}
             type="button"
             onClick={() => onChange(it.id)}
-            className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap border-b-2 px-ui-gap-sm py-ui-gap-sm text-ui-xs font-medium transition ${
+            className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-control-sm px-ui-gap-sm py-1 text-ui-xs font-medium transition ${
               active
-                ? 'border-seal-600 text-seal-600'
-                : 'border-transparent text-ink-500 hover:text-ink-700'
+                ? 'bg-seal-50 text-seal-600'
+                : 'text-ink-500 hover:bg-paper-100 hover:text-ink-700'
             }`}
           >
             {it.icon}
@@ -78,11 +80,7 @@ export function UnderlineTabs<T extends string>({
           </button>
         )
       })}
-      {trailing != null && (
-        <div className="flex shrink-0 items-center border-b-2 border-transparent pr-ui-gap-sm">
-          {trailing}
-        </div>
-      )}
+      {trailing != null && <div className="flex shrink-0 items-center">{trailing}</div>}
     </div>
   )
 }

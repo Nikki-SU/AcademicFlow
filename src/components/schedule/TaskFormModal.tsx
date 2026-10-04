@@ -151,7 +151,7 @@ function TimeSection({
         <span className="text-ui-xs font-normal text-ink-400">{hint}</span>
         {!open && <span className="ml-auto text-ui-xs text-ink-500">{valueText}</span>}
       </button>
-      {open && <div className="border-t border-ink-100 p-3">{children}</div>}
+      {open && <div className="af-line-t p-3">{children}</div>}
     </div>
   )
 }

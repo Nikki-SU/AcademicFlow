@@ -3245,7 +3245,7 @@ export default function WritingPage() {
               projectsExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
-            <div className="flex items-center gap-ui-gap-sm border-b border-ink-200 px-ui-gap-sm py-1.5 flex-shrink-0">
+            <div className="af-line-b flex items-center gap-ui-gap-sm px-ui-gap-sm py-1.5 flex-shrink-0">
               <button
                 onClick={() => setProjectsExpanded(!projectsExpanded)}
                 className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 rounded-control-sm hover:bg-paper-100 transition"
@@ -3271,7 +3271,7 @@ export default function WritingPage() {
             {projectsExpanded && (
               <>
                 {(showNewProjectInput || activeProject) && (
-                  <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 space-y-2">
+                  <div className="af-line-b px-ui-gap py-2 flex-shrink-0 space-y-2">
                     {showNewProjectInput && (
                       <div className="flex gap-1">
                         <input
@@ -3324,7 +3324,7 @@ export default function WritingPage() {
                     <button
                       key={p.projectId}
                       onClick={() => setActiveProjectId(p.projectId)}
-                      className={`w-full text-left px-ui-gap py-2.5 border-b border-ink-100 hover:bg-paper-100 transition ${
+                      className={`af-line-b w-full text-left px-ui-gap py-2.5 hover:bg-paper-100 transition ${
                         activeProjectId === p.projectId ? 'bg-seal-50/60 border-l-2 border-l-seal-600' : ''
                       }`}
                     >
@@ -3344,7 +3344,7 @@ export default function WritingPage() {
 
           {/* ── 堆叠面板 2/3：文献检索（只搜库内） ── */}
           <div
-            className={`border-t border-ink-200 flex flex-col overflow-hidden ${
+            className={`af-line-t flex flex-col overflow-hidden ${
               libSearchExpanded ? 'min-h-0' : 'flex-none'
             }`}
           >
@@ -3454,7 +3454,7 @@ export default function WritingPage() {
            * overflow-hidden 兜底，避免被压过头时内容溢出盖住邻居。
            */}
           <div
-            className={`border-t border-ink-200 flex flex-col overflow-hidden ${
+            className={`af-line-t flex flex-col overflow-hidden ${
               outlineExpanded ? 'flex-1' : 'flex-none'
             }`}
           >
@@ -3531,7 +3531,7 @@ export default function WritingPage() {
         {panelEntries.map((p) => (
           <div key={p.side} className="relative min-w-0">
             <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
-              <div className="flex h-ui-header shrink-0 items-center gap-ui-gap-sm border-b border-ink-100 bg-paper-50 px-ui-gap">
+              <div className="af-line-b flex h-ui-header shrink-0 items-center gap-ui-gap-sm bg-paper-50 px-ui-gap">
                 <div className="relative" ref={p.dropdownRef}>
                   <button
                     onClick={() => p.setShowDropdown(!p.showDropdown)}
@@ -3670,7 +3670,7 @@ export default function WritingPage() {
 
           {p.mode === 'ai' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="px-ui-gap py-2 border-b border-ink-100 bg-paper-50">
+              <div className="af-line-b px-ui-gap py-2 bg-paper-50">
                 <div className="flex items-center gap-1 mb-2">
                   <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-seal-50 rounded-control">
                     <Bot className="h-ui-icon-sm w-ui-icon-sm text-seal-600" />
@@ -3888,7 +3888,7 @@ export default function WritingPage() {
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                           />
                           {msg.citations && msg.citations.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-ink-100">
+                            <div className="af-line-t mt-3 pt-3">
                               <div className="text-ui-xs font-semibold text-ink-500 mb-2 flex items-center gap-1.5">
                                 <div className="h-ui-icon w-ui-icon bg-emerald-100 rounded-full flex items-center justify-center">
                                   <BookMarked className="w-2.5 h-2.5 text-emerald-600" />
@@ -3998,7 +3998,7 @@ export default function WritingPage() {
                 <div ref={chatEndRef} />
               </div>
 
-              <div className="p-3 border-t border-ink-200 bg-paper-50">
+              <div className="af-line-t p-3 bg-paper-50">
                 {trustedSearch && (
                   <div className="mb-2 flex items-center gap-1.5 text-ui-2xs text-emerald-600">
                     <Zap className="w-3 h-3" />
@@ -4172,7 +4172,7 @@ export default function WritingPage() {
 
           {p.mode === 'library' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-3 border-b border-ink-100">
+              <div className="af-line-b p-3">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-ui-icon w-ui-icon text-ink-400" />
                   <input
@@ -4302,7 +4302,7 @@ export default function WritingPage() {
                   </div>
                 ))}
               </div>
-              <div className="p-3 border-t border-ink-200 bg-paper-100/50 space-y-2">
+              <div className="af-line-t p-3 bg-paper-100/50 space-y-2">
                 <button
                   onClick={handleOpenFolder}
                   className="w-full py-2 bg-paper-50 border border-ink-200 text-ink-600 rounded-control text-ui-xs font-medium hover:bg-seal-50 hover:border-seal-200 hover:text-seal-700 transition flex items-center justify-center gap-1.5"
@@ -4351,7 +4351,7 @@ export default function WritingPage() {
 
           {p.mode === 'knowledge' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-3 border-b border-ink-100">
+              <div className="af-line-b p-3">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-ui-icon w-ui-icon text-ink-400" />
                   <input
@@ -4654,7 +4654,7 @@ export default function WritingPage() {
                   </div>
                 )}
 
-                <div className="border-t border-ink-100 pt-3 space-y-2">
+                <div className="af-line-t pt-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-ui-xs font-medium text-ink-600">让 AI 改 LaTeX 代码</span>
                     <button
@@ -4710,7 +4710,7 @@ export default function WritingPage() {
             <div className="flex-1 flex flex-row min-h-0 overflow-hidden">
               {/* 左半：LaTeX 代码板 */}
               <div className="flex-1 min-w-0 min-h-0 flex flex-col border-r border-ink-200">
-                <div className="flex items-center gap-1.5 px-ui-gap py-1.5 bg-paper-100 border-b border-ink-200 flex-shrink-0">
+                <div className="af-line-b flex items-center gap-1.5 px-ui-gap py-1.5 bg-paper-100 flex-shrink-0">
                   <FileCode className="h-ui-icon-sm w-ui-icon-sm text-seal-600 flex-shrink-0" />
                   <span className="text-ui-xs font-semibold text-ink-700 flex-shrink-0">
                     LaTeX 代码板
@@ -4770,7 +4770,7 @@ export default function WritingPage() {
                   </div>
                 )}
                 {showFigurePanel && (
-                  <div className="flex-shrink-0 max-h-64 overflow-y-auto border-b border-ink-200 bg-paper-100/60 px-ui-gap py-2 space-y-2">
+                  <div className="af-line-b flex-shrink-0 max-h-64 overflow-y-auto bg-paper-100/60 px-ui-gap py-2 space-y-2">
                     <div className="flex items-center gap-1.5 text-ui-2xs text-ink-400">
                       <Columns2 className="w-3 h-3 text-seal-600" />
                       <span>图片排版 —— 只改排版参数，正文一个字不碰</span>
@@ -4872,7 +4872,7 @@ export default function WritingPage() {
 
               {/* 右半：编译器（浏览器内 XeLaTeX WASM，真编译） */}
               <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-                <div className="flex items-center gap-1.5 px-ui-gap py-1.5 bg-paper-100 border-b border-ink-200 flex-shrink-0">
+                <div className="af-line-b flex items-center gap-1.5 px-ui-gap py-1.5 bg-paper-100 flex-shrink-0">
                   <Play className="h-ui-icon-sm w-ui-icon-sm text-emerald-600 flex-shrink-0" />
                   <span className="text-ui-xs font-semibold text-ink-700 flex-shrink-0">编译器</span>
                   {compileStatus && (
@@ -4933,7 +4933,7 @@ export default function WritingPage() {
 
                 {/* 云端编译的 Actions 运行页 —— 第一次跑大概率要看着它调，给个直达链接 */}
                 {cloudRunUrl && (
-                  <div className="flex-shrink-0 px-ui-gap py-1 text-ui-2xs text-ink-400 border-b border-ink-100 truncate">
+                  <div className="af-line-b flex-shrink-0 px-ui-gap py-1 text-ui-2xs text-ink-400 truncate">
                     运行页：{' '}
                     <a
                       href={cloudRunUrl}
@@ -4948,7 +4948,7 @@ export default function WritingPage() {
 
                 {/* 导入宏包：运行时只内置了常用宏包，用户自己的 .sty/.cls 从这里进来 */}
                 {showPackagesPanel && (
-                  <div className="flex-shrink-0 border-b border-ink-200 bg-paper-100 px-ui-gap py-2 space-y-2 max-h-56 overflow-y-auto">
+                  <div className="af-line-b flex-shrink-0 bg-paper-100 px-ui-gap py-2 space-y-2 max-h-56 overflow-y-auto">
                     <p className="text-ui-2xs text-ink-500 leading-relaxed">
                       编译器自带常用宏包与 IEEEtran / elsarticle / acmart / revtex4-2。
                       没带的（冷门宏包、自己写的 .sty）从这里导入：
@@ -5083,7 +5083,7 @@ export default function WritingPage() {
       {showCitationModal && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-            <div className="px-ui-gap py-3 border-b border-ink-200 flex items-center justify-between">
+            <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <BookMarked className="w-5 h-5 text-seal-600" />
                 <h3 className="text-base font-semibold text-ink-800">插入引用</h3>
@@ -5100,7 +5100,7 @@ export default function WritingPage() {
               </button>
             </div>
 
-            <div className="px-ui-gap py-3 border-b border-ink-100">
+            <div className="af-line-b px-ui-gap py-3">
               <div className="flex gap-1 mb-2">
                 <button
                   onClick={() => setCitationSource('local')}
@@ -5300,7 +5300,7 @@ export default function WritingPage() {
               )}
             </div>
 
-            <div className="px-ui-gap py-3 border-t border-ink-200 bg-paper-100/50 flex items-center justify-between">
+            <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex items-center justify-between">
               <div className="text-ui-xs text-ink-500">
                 已选择 <span className="font-semibold text-seal-600">{selectedCitations.length}</span> 篇
               </div>
@@ -5331,7 +5331,7 @@ export default function WritingPage() {
       {showProjectLitModal && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
-            <div className="px-ui-gap py-3 border-b border-ink-200 flex items-center justify-between">
+            <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-ink-800">选择项目文献</h3>
                 <p className="text-ui-xs text-ink-400 mt-0.5">
@@ -5350,7 +5350,7 @@ export default function WritingPage() {
               </button>
             </div>
 
-            <div className="px-ui-gap py-2 border-b border-ink-100">
+            <div className="af-line-b px-ui-gap py-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-ui-icon-sm w-ui-icon-sm text-ink-400" />
                 <input
@@ -5413,7 +5413,7 @@ export default function WritingPage() {
                 })}
             </div>
 
-            <div className="px-ui-gap py-3 border-t border-ink-200 bg-paper-100/50 flex items-center justify-between">
+            <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex items-center justify-between">
               <span className="text-ui-xs text-ink-500">
                 已选 <span className="font-semibold text-seal-600">{projectLitSelected.length}</span> 篇
               </span>
@@ -5444,7 +5444,7 @@ export default function WritingPage() {
       {citeGate && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-            <div className="px-ui-gap py-3 border-b border-ink-200 flex items-center justify-between">
+            <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                 <div>
@@ -5515,7 +5515,7 @@ export default function WritingPage() {
               )}
             </div>
 
-            <div className="px-ui-gap py-3 border-t border-ink-200 bg-paper-100/50 flex items-center justify-between gap-2">
+            <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex items-center justify-between gap-2">
               <button
                 onClick={() => {
                   const all = [...citeGate.malformed, ...citeGate.unresolved]
@@ -5552,7 +5552,7 @@ export default function WritingPage() {
       {showActionModal && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-md flex flex-col">
-            <div className="px-ui-gap py-3 border-b border-ink-200 flex items-center justify-between">
+            <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-ink-800">添加自定义快捷指令</h3>
                 <p className="text-ui-xs text-ink-400 mt-0.5">
@@ -5612,7 +5612,7 @@ export default function WritingPage() {
               </div>
             </div>
 
-            <div className="px-ui-gap py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end gap-2">
+            <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex justify-end gap-2">
               <button
                 onClick={() => setShowActionModal(false)}
                 className="px-ui-gap py-1.5 text-ui-sm text-ink-600 hover:bg-ink-200 rounded-control transition"
@@ -5634,7 +5634,7 @@ export default function WritingPage() {
       {showPaperSelector && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
-            <div className="px-ui-gap py-3 border-b border-ink-200 flex items-center justify-between">
+            <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <h3 className="text-base font-semibold text-ink-800">选择指定文献</h3>
               <button
                 onClick={() => setShowPaperSelector(false)}
@@ -5681,7 +5681,7 @@ export default function WritingPage() {
                 )
               })}
             </div>
-            <div className="px-ui-gap py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end">
+            <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex justify-end">
               <button
                 onClick={() => setShowPaperSelector(false)}
                 className="px-ui-gap py-1.5 bg-seal-600 text-paper-50 text-ui-sm rounded-control hover:bg-seal-700 transition font-medium"
@@ -5696,7 +5696,7 @@ export default function WritingPage() {
       {showBookSelector && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-md max-h-[70vh] flex flex-col">
-            <div className="px-ui-gap py-3 border-b border-ink-200 flex items-center justify-between">
+            <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <h3 className="text-base font-semibold text-ink-800">选择指定图书</h3>
               <button
                 onClick={() => setShowBookSelector(false)}
@@ -5752,7 +5752,7 @@ export default function WritingPage() {
                 })
               )}
             </div>
-            <div className="px-ui-gap py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end">
+            <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex justify-end">
               <button
                 onClick={() => setShowBookSelector(false)}
                 className="px-ui-gap py-1.5 bg-seal-600 text-paper-50 text-ui-sm rounded-control hover:bg-seal-700 transition font-medium"
@@ -5767,7 +5767,7 @@ export default function WritingPage() {
       {showChapterSelector && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-2xl w-full max-w-md max-h-[75vh] flex flex-col">
-            <div className="px-ui-gap py-3 border-b border-ink-200 flex items-center justify-between">
+            <div className="af-line-b px-ui-gap py-3 flex items-center justify-between">
               <h3 className="text-base font-semibold text-ink-800">选择章节</h3>
               <button
                 onClick={() => setShowChapterSelector(false)}
@@ -5776,7 +5776,7 @@ export default function WritingPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="px-ui-gap py-2 border-b border-ink-100 bg-paper-100/50">
+            <div className="af-line-b px-ui-gap py-2 bg-paper-100/50">
               <div className="text-ui-xs font-medium text-ink-600 mb-1">选择图书</div>
               <div className="flex flex-wrap gap-1.5">
                 {bookReferences.map((book) => (
@@ -5845,7 +5845,7 @@ export default function WritingPage() {
                 })
               )}
             </div>
-            <div className="px-ui-gap py-3 border-t border-ink-200 bg-paper-100/50 flex justify-end">
+            <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex justify-end">
               <button
                 onClick={() => setShowChapterSelector(false)}
                 disabled={!selectedBookForChapters || selectedChapterIds.length === 0}

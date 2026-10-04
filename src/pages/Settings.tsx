@@ -145,7 +145,7 @@ function SettingsGroup(props: {
         />
       </button>
       {open && (
-        <div className="divide-y divide-ink-100 border-t border-ink-200 px-5 py-5">{children}</div>
+        <div className="divide-y divide-ink-100 af-line-t px-5 py-5">{children}</div>
       )}
     </section>
   )
@@ -496,7 +496,7 @@ function Settings() {
         </div>
       </header>
 
-      <main className="page-container py-8">
+      <main className="page-container py-ui-page">
         <div className="mx-auto flex max-w-3xl flex-col gap-4">
           {/* ── AI 服务 ── */}
           <SettingsGroup
@@ -1009,7 +1009,7 @@ function Settings() {
               hint={`写入 ${owner}/${repoName}，配置变更后自动同步`}
             >
               <div className="overflow-hidden rounded-control border border-ink-200 bg-paper-100">
-                <div className="flex items-center justify-between px-ui-gap py-1.5 bg-ink-100 border-b border-ink-200 text-ui-xs">
+                <div className="af-line-b flex items-center justify-between px-ui-gap py-1.5 bg-ink-100 text-ui-xs">
                   <span className="font-medium text-ink-700">同步明细</span>
                   <button
                     type="button"
@@ -1024,7 +1024,7 @@ function Settings() {
                 {secretItems.length === 0 ? (
                   <div className="px-ui-gap py-2 text-ui-xs text-ink-400">等待首次同步…</div>
                 ) : (
-                  <div className="divide-y divide-ink-200 text-ui-xs font-mono">
+                  <div className="af-divided text-ui-xs font-mono">
                     {secretItems.map((it) => {
                       const isSkipped = !it.valueWanted && it.putStatus === 0
                       const isFailed = !it.putOk

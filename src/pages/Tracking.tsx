@@ -1111,13 +1111,13 @@ export default function TrackingPage() {
   }, [pendingList])
 
   return (
-    <div className="page-container flex h-full flex-col py-ui-gap-lg">
+    <div className="page-container flex h-full flex-col py-ui-page">
       <div className="grid gap-ui-gap-lg lg:min-h-0 lg:flex-1 lg:grid-cols-ratio-122">
         {/* ============================================================ */}
         {/* 左①（1）：功能入口 —— 添加关键词 / 添加期刊 / 立即追踪 / DOI 入库 / 搜索 */}
         {/* ============================================================ */}
         <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50 lg:min-h-0">
-          <div className="shrink-0 border-b border-ink-100 p-4">
+          <div className="af-line-b shrink-0 p-4">
             {/* 三个动作：添加关键词 / 添加期刊 / 立即追踪（红） */}
             <div className="space-y-2">
               <button
@@ -1212,7 +1212,7 @@ export default function TrackingPage() {
               </button>
 
               {!keywordGroupsCollapsed && (
-                <div className="border-t border-ink-100 p-3">
+                <div className="af-line-t p-3">
                   {keywordGroups.length === 0 ? (
                     <div className="rounded-control border border-dashed border-ink-200 py-4 text-center text-ui-2xs text-ink-400">
                       尚未配置关键词组
@@ -1303,7 +1303,7 @@ export default function TrackingPage() {
               </button>
 
               {!journalsCollapsed && (
-                <div className="border-t border-ink-100 p-3">
+                <div className="af-line-t p-3">
                   {journals.length === 0 ? (
                     <div className="rounded-control border border-dashed border-ink-200 py-4 text-center text-ui-2xs text-ink-400">
                       尚未添加期刊
@@ -1416,7 +1416,7 @@ export default function TrackingPage() {
                           </button>
                         ))}
                       </div>
-                      <div className="border-t border-ink-100 p-2">
+                      <div className="af-line-t p-2">
                         <button
                           onClick={() => {
                             setShowSearchDropdown(false)
@@ -1457,7 +1457,7 @@ export default function TrackingPage() {
         {/* 中②（2）：待入库 —— 筛出来的候选；入库 / 删除后消失；越新越上 */}
         {/* ============================================================ */}
         <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50 lg:min-h-0">
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-ink-100 px-ui-gap py-3">
+          <div className="af-line-b flex shrink-0 items-center justify-between gap-2 px-ui-gap py-3">
             <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
               <Rss className="h-4 w-4 text-seal-600" />
               待入库
@@ -1582,7 +1582,7 @@ export default function TrackingPage() {
         {/* 右②（2）：已入库但还没传 PDF —— 催你尽快把 PDF 找进来；越旧越上 */}
         {/* ============================================================ */}
         <section className="flex min-h-ui-lane flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50 lg:min-h-0">
-          <div className="shrink-0 border-b border-ink-100 px-ui-gap py-3">
+          <div className="af-line-b shrink-0 px-ui-gap py-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
                 <FileText className="h-4 w-4 text-seal-600" />
@@ -1666,7 +1666,7 @@ export default function TrackingPage() {
       {showKeywordModal && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between p-5 border-b border-ink-200">
+            <div className="af-line-b flex items-center justify-between p-5">
               <h3 className="font-semibold text-ink-800">
                 {editingKeywordGroup ? '编辑关键词组' : '新建关键词组'}
               </h3>
@@ -1730,7 +1730,7 @@ export default function TrackingPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 p-5 border-t border-ink-200">
+            <div className="af-line-t flex items-center justify-end gap-2 p-5">
               <button
                 onClick={() => setShowKeywordModal(false)}
                 className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -1754,7 +1754,7 @@ export default function TrackingPage() {
       {showJournalModal && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between p-5 border-b border-ink-200">
+            <div className="af-line-b flex items-center justify-between p-5">
               <h3 className="font-semibold text-ink-800">
                 {editingJournal ? '编辑期刊' : '添加期刊'}
               </h3>
@@ -1817,7 +1817,7 @@ export default function TrackingPage() {
                 />
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 p-5 border-t border-ink-200">
+            <div className="af-line-t flex items-center justify-end gap-2 p-5">
               <button
                 onClick={() => setShowJournalModal(false)}
                 className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -1841,7 +1841,7 @@ export default function TrackingPage() {
       {showSearchManager && (
         <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-paper-50 rounded-card shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between p-5 border-b border-ink-200">
+            <div className="af-line-b flex items-center justify-between p-5">
               <h3 className="font-semibold text-ink-800">管理搜索源</h3>
               <div className="flex items-center gap-2">
                 <button
@@ -1894,7 +1894,7 @@ export default function TrackingPage() {
               </div>
 
               {/* 新增/编辑表单 */}
-              <div className="border-t border-ink-200 pt-4">
+              <div className="af-line-t pt-4">
                 <h4 className="text-ui-sm font-medium text-ink-700 mb-3">
                   {editingSearchSite ? '编辑搜索源' : '添加搜索源'}
                 </h4>
@@ -1954,7 +1954,7 @@ export default function TrackingPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 p-5 border-t border-ink-200">
+            <div className="af-line-t flex items-center justify-end gap-2 p-5">
               <button
                 onClick={() => {
                   setEditingSearchSite(null)

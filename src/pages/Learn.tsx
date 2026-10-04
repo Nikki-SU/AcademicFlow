@@ -1180,7 +1180,7 @@ export default function LearnPage() {
   }
 
   return (
-    <div className="page-container py-8">
+    <div className="page-container py-ui-page">
       <div className="mb-6 flex items-center justify-end">
         <button
           onClick={() => setAiGenOpen(true)}
@@ -2172,7 +2172,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
               </div>
 
               {/* 块池：点一块填一个槽 */}
-              <div className="flex flex-wrap justify-center gap-2 pt-3 border-t border-ink-100">
+              <div className="af-line-t flex flex-wrap justify-center gap-2 pt-3">
                 {question.blockPool.map((block, j) => {
                   const used = spellPicked.includes(j)
                   return (
@@ -2936,7 +2936,7 @@ function PracticePanel({
             className="bg-paper-50 rounded-card shadow-xl w-full max-w-2xl max-h-[88vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-ink-200 sticky top-0 bg-paper-50">
+            <div className="af-line-b sticky top-0 flex items-center justify-between bg-paper-50 px-6 py-4">
               <h3 className="font-semibold text-ink-800">学习卡片</h3>
               <button
                 onClick={() => setCardOpen(false)}

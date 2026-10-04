@@ -372,7 +372,7 @@ function Modal({ title, onClose, children, width = 'max-w-lg' }: { title: string
   return (
     <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4">
       <div className={`bg-paper-50 rounded-card shadow-xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-ink-200">
+        <div className="af-line-b flex items-center justify-between px-6 py-4">
           <h3 className="font-semibold text-ink-800">{title}</h3>
           <button onClick={onClose} className="p-1 text-ink-400 hover:text-ink-600 hover:bg-ink-100 rounded-control transition">
             <X className="w-5 h-5" />
@@ -2364,7 +2364,7 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="page-container py-8">
+    <div className="page-container py-ui-page">
       {/* 管理页布局：左=功能栏（类型切换 + 任务/标签）｜中=内容｜右=后台监控（1:3:1） */}
       <div className="grid items-start gap-ui-gap grid-cols-[minmax(0,1fr)] lg:grid-cols-ratio-131">
         {/* ──── 左：功能栏 ──── */}
@@ -2618,7 +2618,7 @@ export default function ManagementPage() {
       {activeTab === 'library' && (
         <div className="min-w-0 space-y-4">
             <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-1 p-3 border-b border-ink-100 bg-paper-100/50">
+              <div className="af-line-b flex items-center gap-1 p-3 bg-paper-100/50">
                 <button
                   onClick={() => {
                     setTierFilter('all')
@@ -2742,7 +2742,7 @@ export default function ManagementPage() {
 
               {/* 文献表格：一条文献 = 一行，字段横向铺开成列；格子里该换行就换行 */}
               {batchMode && pagedPapers.length > 0 && (
-                <div className="flex items-center gap-2 px-ui-gap py-2 bg-paper-100/50 border-b border-ink-100">
+                <div className="af-line-b flex items-center gap-2 px-ui-gap py-2 bg-paper-100/50">
                   <input
                     type="checkbox"
                     checked={selectedPapers.size === pagedPapers.length && pagedPapers.length > 0}
@@ -3069,7 +3069,7 @@ export default function ManagementPage() {
               )}
 
               {totalPages > 0 && (
-                <div className="flex items-center justify-between px-ui-gap py-3 border-t border-ink-100 bg-paper-100/50">
+                <div className="af-line-t flex items-center justify-between px-ui-gap py-3 bg-paper-100/50">
                   <div className="text-ui-sm text-ink-500">
                     共 {filteredPapers.length} 条，第 {libraryPage} / {totalPages} 页
                   </div>
@@ -3111,7 +3111,7 @@ export default function ManagementPage() {
       {/* ============ 期刊模板 Tab ============ */}
       {activeTab === 'templates' && (
         <div className="space-y-4">
-          <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
+          <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm af-divided overflow-hidden">
             {templates.map((tpl) => (
               <div key={tpl.id} className="flex items-center gap-3 px-ui-gap py-3 hover:bg-paper-100/70 transition">
                 <div className="w-10 h-10 shrink-0 flex items-center justify-center bg-seal-50 rounded-control">
@@ -3193,7 +3193,7 @@ export default function ManagementPage() {
       {activeTab === 'knowledge' && (
         <div className="min-w-0 space-y-4">
             {filteredBooks.length > 0 ? (
-              <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
+              <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm af-divided overflow-hidden">
                 {filteredBooks.map((book) => (
                   <div
                     key={book.id}
@@ -3321,7 +3321,7 @@ export default function ManagementPage() {
               <p>没有找到匹配的文档</p>
             </div>
           ) : (
-            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm divide-y divide-ink-100 overflow-hidden">
+            <div className="bg-paper-50 rounded-card border border-ink-200 shadow-sm af-divided overflow-hidden">
               {filteredDocuments.map((doc) => {
                 const docTaskId = taskOf(materialMeta, 'document', doc.id)
                 const docTags = tagsOf(materialMeta, 'document', doc.id)
@@ -3577,7 +3577,7 @@ export default function ManagementPage() {
               </div>
             </div>
           </div>
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
               onClick={() => setShowAddPaperModal(false)}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -3903,7 +3903,7 @@ export default function ManagementPage() {
             />
           </div>
 
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
               onClick={() => { setShowEditPaperModal(false); setEditingPaper(null); setPaperWords(null); setPaperWordsDirty(false) }}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -3930,7 +3930,7 @@ export default function ManagementPage() {
             </p>
             <TaskSelect value={batchMoveTaskId} onChange={setBatchMoveTaskId} tasks={tasks} />
           </div>
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
               onClick={() => { setShowBatchMoveModal(false); setBatchMoveTaskId('') }}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -4042,7 +4042,7 @@ export default function ManagementPage() {
               <p className="text-ui-xs text-ink-400 mt-1">保存后写入模板的 meta.md（notes），用于排版时提示写作 AI 统一格式。</p>
             </div>
           </div>
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
               onClick={() => { setShowTemplateModal(false); setEditingTemplate(null) }}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -4106,7 +4106,7 @@ export default function ManagementPage() {
               <TagEditor value={uploadBookTags} onChange={setUploadBookTags} />
             </div>
           </div>
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
               onClick={() => { setShowUploadBookModal(false); setUploadBookTaskId(''); setUploadBookTags([]) }}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -4161,7 +4161,7 @@ export default function ManagementPage() {
               <TagEditor value={bookDetailTags} onChange={setBookDetailTags} />
             </div>
           </div>
-          <div className="flex items-center justify-between gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-between gap-2 mt-6 pt-4">
             <button
               onClick={() => setShowBookDetail(null)}
               className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
@@ -4276,7 +4276,7 @@ export default function ManagementPage() {
             </label>
           )}
 
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             {importMode === 'paste' && (
               <button
                 onClick={handlePasteImport}
@@ -4331,7 +4331,7 @@ export default function ManagementPage() {
               <TagEditor value={editDocForm.tags} onChange={(tags) => setEditDocForm({ ...editDocForm, tags })} />
             </div>
           </div>
-          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-ink-100">
+          <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
               onClick={() => { if (!savingDocument) setEditingDocument(null) }}
               disabled={savingDocument}

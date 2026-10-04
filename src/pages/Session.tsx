@@ -1,9 +1,9 @@
 /**
  * 会议 / 课程页（IDE 式三栏）
  * -------------------------------------------------
- * 一个页签、两种名：
- *   - 当前任务 type = 研究 → 显示「会议」
- *   - 当前任务 type = 课程 → 显示「课程」
+ * 同一页承载两种任务（见 架构.md ADJ-44）：
+ *   - 当前任务 type = 研究 → 会议：灵活、非周期，随时可开
+ *   - 当前任务 type = 课程 → 课程：刚性，每节课是一个定时任务
  * 两者本质是同一种东西：实时记录一场「正在发生的事」（会议 / 一节课）。
  *
  * 三栏（见 架构.md §2.4 / ADJ-30；比例默认 1:3:1，可拖成 1:2:2 / 1:1:3）：
@@ -14,8 +14,8 @@
  * 录音 / 转写不绑架用户：真正的录音入口是挂在 Layout 顶层的**全局悬浮录音球**，
  * 切页面、切任务都不中断（ADJ-46）。本页中栏只是同一份状态的另一种呈现。
  */
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { GripVertical, Mic } from 'lucide-react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { GripVertical } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadProjects, type Project } from '../services/projectData'
 import { useTaskStore } from '../stores/task'
@@ -57,18 +57,6 @@ export default function SessionPage() {
       cancelled = true
     }
   }, [])
-
-  const current = useMemo(
-    () => (currentProjectId ? projects.find((p) => p.projectId === currentProjectId) ?? null : null),
-    [projects, currentProjectId],
-  )
-
-  // 课程 / 会议是同一页两种名，但结构不同（见 架构.md ADJ-44）：
-  //   课程 —— 刚性：每节课是一个定时任务，结课必为「论文」或「考试」；
-  //   会议 —— 灵活、非周期，随时可开；转写要判语种、必要时译中。
-  const isCourse = current?.type === 'course'
-  const kindText = isCourse ? '课时 = 定时任务' : '非周期 · 随时开'
-  const hint = isCourse ? '结课：论文 / 考试' : '转写自动判语种，非中文自动译中'
 
   /**
    * 三栏比例：左 : 中 : 右 = 1 : (4 − rightFr) : rightFr（总量恒 5fr）。
@@ -122,18 +110,6 @@ export default function SessionPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper-100">
-      {/* 页头：命名随当前任务 type 走；高度与下面三块面板页头同取 --ui-header */}
-      <header className="flex h-ui-header shrink-0 items-center gap-ui-gap-sm border-b border-ink-200 bg-paper-50 px-ui-gap">
-        <Mic className="h-ui-icon w-ui-icon shrink-0 text-seal-600" />
-        <span className="shrink-0 rounded-control-sm bg-ink-100 px-1.5 py-0.5 text-ui-2xs text-ink-500">
-          {kindText}
-        </span>
-        {current && (
-          <span className="min-w-0 truncate text-ui-2xs text-ink-500">{current.title || '(未命名任务)'}</span>
-        )}
-        <span className="ml-auto shrink-0 text-ui-2xs text-ink-400">{hint}</span>
-      </header>
-
       {/* 三栏默认 1:3:1，拖中缝可在 1:3:1 / 1:2:2 / 1:1:3 间切换；窄屏塌成三行堆叠。
           栅格**只有三列、等 gap**——拖动柄是叠加在缝隙上的绝对定位层（不占栏位），
           所以左↔中、中↔右的留白严格相等，最左栏与最右栏视觉对称。 */}

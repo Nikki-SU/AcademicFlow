@@ -524,7 +524,7 @@ export default function FormulaSidebar({
         </div>
       )}
       {/* 头部 */}
-      <div className="px-ui-gap py-2 border-b border-ink-200 flex items-center justify-between bg-paper-50">
+      <div className="af-line-b px-ui-gap py-2 flex items-center justify-between bg-paper-50">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setTab('create')}
@@ -690,7 +690,7 @@ export default function FormulaSidebar({
       ) : (
         /* ── 已有公式：搜索 + 点选；动作都是显式按钮 ── */
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="p-2.5 border-b border-ink-200 bg-paper-50">
+          <div className="af-line-b p-2.5 bg-paper-50">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-400" />
               <input
@@ -768,7 +768,7 @@ export default function FormulaSidebar({
           </div>
 
           {picked.size > 0 && (
-            <div className="px-2.5 py-2 border-t border-ink-200 bg-amber-50 flex items-center gap-2">
+            <div className="af-line-t px-2.5 py-2 bg-amber-50 flex items-center gap-2">
               <span className="text-ui-xs text-amber-700">已选 {picked.size} 个</span>
               <button
                 onClick={() => setPicked(new Set())}
@@ -789,7 +789,7 @@ export default function FormulaSidebar({
       )}
 
       {/* ── 底部固定工具条：字符 / 结构永远在眼前，不用滚 ── */}
-      <div className="border-t border-ink-200 bg-paper-50 flex-shrink-0">
+      <div className="af-line-t bg-paper-50 flex-shrink-0">
         <div className="max-h-28 overflow-y-auto px-2 pt-2">
           {charGroup === '结构' ? (
             <div className="flex flex-wrap gap-1">
@@ -817,7 +817,7 @@ export default function FormulaSidebar({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-1 px-2 py-1.5 border-t border-ink-100">
+        <div className="af-line-t flex items-center gap-1 px-2 py-1.5">
           {['结构', ...RARE_CHAR_GROUPS.map((g) => g.label)].map((label) => (
             <button
               key={label}

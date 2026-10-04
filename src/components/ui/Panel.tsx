@@ -37,7 +37,7 @@ export function PanelHeader({
 }) {
   return (
     <div
-      className={`flex h-ui-header shrink-0 items-center gap-ui-gap-sm border-b border-ink-100 px-ui-gap ${className}`}
+      className={`af-line-b flex h-ui-header shrink-0 items-center gap-ui-gap-sm px-ui-gap ${className}`}
     >
       <span className="flex shrink-0 items-center text-seal-600 [&>svg]:h-ui-icon [&>svg]:w-ui-icon">
         {icon}

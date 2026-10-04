@@ -235,7 +235,7 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
           ) : (
             <ul className="space-y-3">
               {segments.map((seg) => (
-                <li key={seg.id} className="border-b border-ink-100 pb-3 last:border-0">
+                <li key={seg.id} className="af-line-b af-line-b-ends pb-3">
                   <div className="flex items-center gap-ui-gap-sm text-ui-2xs">
                     <span className="font-mono text-ink-400">{formatClock(seg.at)}</span>
                     <span className="rounded-control-sm bg-seal-50 px-1.5 py-0.5 font-medium text-seal-700">

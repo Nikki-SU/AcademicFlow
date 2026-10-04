@@ -759,7 +759,7 @@ function GitHubReportDetail({ report }: { report: FullConnectivityReport }) {
         <ModeDot label="Query 模式" ok={report.queryModeOk} />
       </div>
       <div className="border border-ink-200 rounded-control-sm bg-paper-100 overflow-hidden">
-        <div className="divide-y divide-ink-200 text-ui-xs font-mono">
+        <div className="af-divided text-ui-xs font-mono">
           {report.endpoints.map((ep) => (
             <div key={ep.key} className="flex items-center gap-2 px-ui-gap py-1.5">
               <span className="w-4 text-center shrink-0">
@@ -776,7 +776,7 @@ function GitHubReportDetail({ report }: { report: FullConnectivityReport }) {
             </div>
           ))}
         </div>
-        <div className="px-ui-gap py-1.5 bg-paper-50 border-t border-ink-200 text-ui-xs text-ink-600">
+        <div className="af-line-t px-ui-gap py-1.5 bg-paper-50 text-ui-xs text-ink-600">
           {report.summary}
         </div>
       </div>

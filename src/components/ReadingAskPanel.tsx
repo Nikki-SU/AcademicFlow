@@ -470,7 +470,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* 可信检索开关 */}
-      <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 bg-paper-100/50">
+      <div className="af-line-b px-ui-gap py-2 flex-shrink-0 bg-paper-100/50">
         <button
           onClick={() => setTrusted(!trusted)}
           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-control-sm text-ui-xs transition border ${
@@ -570,7 +570,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
 
       {/* 快捷问法（有选中文字才出现） */}
       {selectedText.trim() && (
-        <div className="px-ui-gap py-2 border-t border-ink-100 flex-shrink-0 bg-seal-50/40">
+        <div className="af-line-t px-ui-gap py-2 flex-shrink-0 bg-seal-50/40">
           <div className="flex items-start gap-1.5 text-ui-2xs text-ink-500 mb-1.5">
             <Quote className="w-3 h-3 flex-shrink-0 mt-0.5" />
             <span className="line-clamp-2">{selectedText.trim()}</span>
@@ -597,7 +597,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
       )}
 
       {/* 自由提问 */}
-      <div className="px-ui-gap py-2 border-t border-ink-100 flex-shrink-0">
+      <div className="af-line-t px-ui-gap py-2 flex-shrink-0">
         <div className="flex items-end gap-1.5">
           <textarea
             value={input}

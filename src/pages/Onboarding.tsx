@@ -83,7 +83,7 @@ function Onboarding() {
         </div>
       </header>
 
-      <main className="page-container flex flex-col items-center gap-6 py-10">
+      <main className="page-container flex flex-col items-center gap-6 py-ui-page">
         <div className="w-full max-w-3xl rounded-card border border-ink-900/10 bg-paper-50 p-8 shadow-card md:p-10">
           {/* 标题 */}
           <div className="mb-8 text-center">

@@ -133,7 +133,7 @@ export default function PdfCleanupPanel() {
       ) : (
         <>
           <div className="border border-ink-200 rounded-control-sm overflow-hidden">
-            <label className="flex items-center gap-2 px-ui-gap py-2 bg-paper-100 border-b border-ink-200 text-ui-xs font-medium text-ink-700 cursor-pointer">
+            <label className="af-line-b flex items-center gap-2 px-ui-gap py-2 bg-paper-100 text-ui-xs font-medium text-ink-700 cursor-pointer">
               <input
                 type="checkbox"
                 checked={allSelected}
@@ -142,7 +142,7 @@ export default function PdfCleanupPanel() {
               />
               全选（{groups.length} 篇）
             </label>
-            <div className="max-h-64 overflow-y-auto divide-y divide-ink-100">
+            <div className="af-divided max-h-64 overflow-y-auto">
               {groups.map((g) => (
                 <label key={g.doi} className="flex items-start gap-2 px-ui-gap py-2 text-ui-xs hover:bg-paper-100 cursor-pointer">
                   <input

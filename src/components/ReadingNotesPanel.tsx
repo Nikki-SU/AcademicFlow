@@ -457,7 +457,7 @@ export default function ReadingNotesPanel({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* 顶栏：笔记切换 + 新建 / 重命名 / 删除 / 上传 / 导出 */}
-      <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 bg-paper-100/50">
+      <div className="af-line-b px-ui-gap py-2 flex-shrink-0 bg-paper-100/50">
         {editing ? (
           <div className="flex items-center gap-1.5">
             <input
@@ -579,7 +579,7 @@ export default function ReadingNotesPanel({
 
       {/* 管线转换进度（Word / PDF → markdown 笔记） */}
       {converts.length > 0 && (
-        <div className="px-ui-gap py-2 border-b border-ink-100 flex-shrink-0 bg-seal-50/40 space-y-1.5">
+        <div className="af-line-b px-ui-gap py-2 flex-shrink-0 bg-seal-50/40 space-y-1.5">
           {converts.map((c) => (
             <div key={c.name} className="flex items-center gap-2 text-ui-xs">
               {c.status === 'running' ? (
@@ -653,7 +653,7 @@ export default function ReadingNotesPanel({
       </div>
 
       {/* 底栏：保存状态 + 字数 */}
-      <div className="px-ui-gap py-2 border-t border-ink-100 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
+      <div className="af-line-t px-ui-gap py-2 flex items-center justify-between flex-shrink-0 bg-paper-100/50">
         <div className="flex items-center gap-1.5 text-ui-xs text-ink-400">
           {saveState.status === 'saving' && (
             <>

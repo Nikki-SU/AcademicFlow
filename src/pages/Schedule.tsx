@@ -553,7 +553,7 @@ export default function SchedulePage() {
   const columnBox = 'min-h-ui-lane lg:min-h-0'
 
   return (
-    <div className="page-container flex h-full flex-col py-ui-gap-lg">
+    <div className="page-container flex h-full flex-col py-ui-page">
       <header className="mb-ui-gap flex shrink-0 items-center justify-end gap-ui-gap">
         {/* 整页开关：一次隐藏 / 显示 DDL 栏与任务栏里的全部已过期 / 已完成任务 */}
         <div className="flex items-center gap-ui-gap">
