@@ -191,6 +191,29 @@ export default function RecorderBall() {
     }
   }, [expanded, pipWindow])
 
+  /**
+   * 主页面卸载 / 刷新 / 关标签时，顺手把悬浮窗关掉。
+   * 为什么必须做：documentPictureInPicture 的浮窗**不会随主页面一起关闭**，主页面刷新后它会
+   * 「孤儿化」滞留在屏幕上；用户下次录音又开一个新的球窗 —— 窗口越攒越多（用户报「刷新后
+   * 网页莫名其妙变多」）。关掉它，刷新后就只剩主页面一个。
+   */
+  useEffect(() => {
+    if (!pipWindow) return
+    const closeOnUnload = () => {
+      try {
+        pipWindow.close()
+      } catch {
+        /* 个别环境不允许关闭，忽略：录音本身不受影响 */
+      }
+    }
+    window.addEventListener('beforeunload', closeOnUnload)
+    window.addEventListener('pagehide', closeOnUnload)
+    return () => {
+      window.removeEventListener('beforeunload', closeOnUnload)
+      window.removeEventListener('pagehide', closeOnUnload)
+    }
+  }, [pipWindow])
+
   const isRecording = status === 'recording'
   const isBusy = status === 'stopping'
 
