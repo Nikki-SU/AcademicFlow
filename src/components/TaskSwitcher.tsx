@@ -34,6 +34,7 @@ export default function TaskSwitcher({
   onReload: () => void
 }) {
   const currentId = useTaskStore((s) => s.currentProjectId)
+  const isTaskLoaded = useTaskStore((s) => s.isLoaded)
   const setCurrentProject = useTaskStore((s) => s.setCurrentProject)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -78,6 +79,12 @@ export default function TaskSwitcher({
 
   const current = currentId ? byId.get(currentId) : undefined
   const currentColor = current ? colorForRoot(getRootId(current, byId)) : null
+  // 私库还没拉回来时如实说「加载中」，绝不谎报「未选任务」——否则刷新瞬间像任务丢了
+  const currentLabel = !isTaskLoaded
+    ? '任务加载中…'
+    : current
+      ? current.title || '(未命名任务)'
+      : '未选任务'
 
   const handlePick = (id: string) => {
     setOpen(false)
@@ -119,8 +126,8 @@ export default function TaskSwitcher({
           <span className="text-ui-xs font-bold text-paper-50">AF</span>
         </div>
         <span className={`h-2 w-2 shrink-0 rounded-full ${currentColor?.bg ?? 'bg-ink-200'}`} />
-        <span className="min-w-0 truncate text-ui-sm font-semibold text-ink-800">
-          {current ? current.title || '(未命名任务)' : '未选任务'}
+        <span className={`min-w-0 truncate text-ui-sm font-semibold ${isTaskLoaded ? 'text-ink-800' : 'text-ink-400'}`}>
+          {currentLabel}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -130,7 +137,7 @@ export default function TaskSwitcher({
           <div className="af-line-b px-ui-gap py-2">
             <p className="text-ui-xs font-medium text-ink-400">当前任务</p>
             <p className="mt-0.5 truncate text-ui-sm text-ink-800">
-              {current ? current.title || '(未命名任务)' : '未选择'}
+              {currentLabel}
             </p>
           </div>
 
