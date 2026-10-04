@@ -9,6 +9,9 @@
 
 const LAST_READ_KEY = 'af:last-read'
 const LAST_PROJECT_KEY = 'af:last-project'
+const READING_RATIO_KEY = 'af:reading-right-fr'
+const WRITING_RATIO_KEY = 'af:writing-right-fr'
+const SESSION_RATIO_KEY = 'af:session-right-fr'
 
 /** 上次在读哪个对象：与 Reading 页的 docRef 同构 */
 export interface LastReadRef {
@@ -54,5 +57,35 @@ export function getLastProjectId(): string | null {
 }
 
 export function setLastProjectId(projectId: string): void {
-  write(LAST_PROJECT_KEY, projectId)
+  write(LAST_PROJECT_KEY, JSON.stringify(projectId))
+}
+
+/**
+ * 三栏比例偏好（右栏 fr 值）：记住用户上次把中缝拖到哪一档，下次打开自动回到那一档。
+ * 各页各记各的；值为 null 或不在允许档位内时由调用方回落默认档（不在这里猜）。
+ */
+function readRatio(key: string): number | null {
+  const raw = read(key)
+  if (raw === null) return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+export function getReadingRightFr(): number | null {
+  return readRatio(READING_RATIO_KEY)
+}
+export function setReadingRightFr(v: number): void {
+  write(READING_RATIO_KEY, String(v))
+}
+export function getWritingRightFr(): number | null {
+  return readRatio(WRITING_RATIO_KEY)
+}
+export function setWritingRightFr(v: number): void {
+  write(WRITING_RATIO_KEY, String(v))
+}
+export function getSessionRightFr(): number | null {
+  return readRatio(SESSION_RATIO_KEY)
+}
+export function setSessionRightFr(v: number): void {
+  write(SESSION_RATIO_KEY, String(v))
 }

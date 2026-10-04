@@ -22,9 +22,14 @@ import { useTaskStore } from '../stores/task'
 import SessionTaskTree from '../components/session/SessionTaskTree'
 import SessionTranscript from '../components/session/SessionTranscript'
 import SessionImages from '../components/session/SessionImages'
+import { getSessionRightFr, setSessionRightFr } from '../services/uiState'
 
-/** 三档整页比例对应的「右栏 fr」：1→1:3:1、2→1:2:2、3→1:1:3（左栏恒 1fr，总量恒 5fr） */
-const RIGHT_FR_SNAPS = [1, 2, 3]
+/**
+ * 整页比例对应的「右栏 fr」五档：中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3
+ * （右栏 = 1 / 4/3 / 2 / 8/3 / 3，左栏恒 1fr，总量恒 5fr）。
+ * 松手吸附到最近一档；选中的档位存本机，下次打开自动回到这一档。
+ */
+const RIGHT_FR_SNAPS = [1, 4 / 3, 2, 8 / 3, 3]
 
 export default function SessionPage() {
   const currentProjectId = useTaskStore((s) => s.currentProjectId)
@@ -70,12 +75,18 @@ export default function SessionPage() {
 
   /**
    * 三栏比例：左 : 中 : 右 = 1 : (4 − rightFr) : rightFr（总量恒 5fr）。
-   *   rightFr = 1 → 1:3:1（默认，与阅读页默认一致）
-   *   rightFr = 2 → 1:2:2
-   *   rightFr = 3 → 1:1:3
-   * 拖中缝改比例，松手吸附到这三档（与阅读页同一套交互）。
+   *   rightFr = 1 → 中:右 = 3:1（默认，与阅读页默认一致）
+   *   4/3 → 2:1、2 → 1:1、8/3 → 1:2、3 → 1:3
+   * 拖中缝改比例，松手吸附到最近一档（与阅读页同一套交互）；档位存本机，下次打开自动恢复。
    */
-  const [rightFr, setRightFr] = useState(1)
+  const [rightFr, setRightFr] = useState(() => {
+    const saved = getSessionRightFr()
+    return saved !== null && RIGHT_FR_SNAPS.includes(saved) ? saved : 1
+  })
+  // 只在吸附到某一档（拖动松手后）才落盘，拖动过程中的中间值不记
+  useEffect(() => {
+    if (RIGHT_FR_SNAPS.includes(rightFr)) setSessionRightFr(rightFr)
+  }, [rightFr])
   const [isDragging, setIsDragging] = useState(false)
   const sessionGridRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
@@ -120,7 +131,7 @@ export default function SessionPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper-100">
-      {/* 三栏默认 1:3:1，拖中缝可在 1:3:1 / 1:2:2 / 1:1:3 间切换；窄屏塌成三行堆叠。
+      {/* 三栏默认 1:3:1，拖中缝可切换五档（中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3）；窄屏塌成三行堆叠。
           栅格**只有三列、等 gap**——拖动柄是叠加在缝隙上的绝对定位层（不占栏位），
           所以左↔中、中↔右的留白严格相等，最左栏与最右栏视觉对称。 */}
       <div

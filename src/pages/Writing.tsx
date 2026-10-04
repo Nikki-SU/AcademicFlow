@@ -81,7 +81,7 @@ import { DoiLink } from '../components/DoiLink'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { abortError, isAbortError } from '../services/ai/abort'
 import { loadAiSourceText } from '../services/literatureData'
-import { getLastProjectId, setLastProjectId } from '../services/uiState'
+import { getLastProjectId, setLastProjectId, getWritingRightFr, setWritingRightFr } from '../services/uiState'
 import {
   loadProjects,
   saveProjects,
@@ -485,14 +485,13 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
 }
 
 /**
- * 整页三栏比例（左导航 : 中窗格 : 右窗格），拖动松手即吸附到这三档：
- *   1 : 3 : 1  → 右窗格 rightFr = 1（默认）
- *   1 : 2 : 2  → rightFr = 2
- *   1 : 1 : 3  → rightFr = 3
+ * 整页三栏比例（左导航 : 中窗格 : 右窗格），拖动松手即吸附到五档：
+ *   中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3  →  右窗格 rightFr = 1 / 4/3 / 2 / 8/3 / 3
  * 左导航恒占整页 1/5；中 / 右在剩下的 4fr 里分：中 = 4 − rightFr，右 = rightFr。
  * 与阅读页、会议页共用同一套口径（总量恒 5fr），换页不会忽宽忽窄。
+ * 选中的档位存本机（localStorage），下次打开自动回到这一档。
  */
-const RIGHT_FR_SNAPS = [1, 2, 3]
+const RIGHT_FR_SNAPS = [1, 4 / 3, 2, 8 / 3, 3]
 
 interface BookChapter {
   id: string
@@ -883,8 +882,15 @@ export default function WritingPage() {
   const [rightPanelMode, setRightPanelMode] = useState<PanelMode>('ai')
   const [showLeftDropdown, setShowLeftDropdown] = useState(false)
   const [showRightDropdown, setShowRightDropdown] = useState(false)
-  // 默认 1:3:1（rightFr = 1，与阅读页 / 会议页默认一致）
-  const [rightFr, setRightFr] = useState(1)
+  // 默认 1:3:1（rightFr = 1，与阅读页 / 会议页默认一致）；有记住的档位则回到那一档
+  const [rightFr, setRightFr] = useState(() => {
+    const saved = getWritingRightFr()
+    return saved !== null && RIGHT_FR_SNAPS.includes(saved) ? saved : 1
+  })
+  // 只在吸附到某一档（拖动松手后）才落盘，拖动过程中的中间值不记
+  useEffect(() => {
+    if (RIGHT_FR_SNAPS.includes(rightFr)) setWritingRightFr(rightFr)
+  }, [rightFr])
   const [isDragging, setIsDragging] = useState(false)
 
   const [trustedSearch, setTrustedSearch] = useState(true)
@@ -3184,7 +3190,7 @@ export default function WritingPage() {
       setIsDragging(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-      // 松手即吸附：只允许 1:3:1 / 1:2:2 / 1:1:3 三档
+      // 松手即吸附：只允许 中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3 五档
       setRightFr((cur) =>
         RIGHT_FR_SNAPS.reduce((best, v) => (Math.abs(v - cur) < Math.abs(best - cur) ? v : best)),
       )

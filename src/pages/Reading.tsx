@@ -67,7 +67,7 @@ import {
   type NoteFileRef,
   type ReadingProgress,
 } from '../services/readingDocData'
-import { getLastRead, setLastRead } from '../services/uiState'
+import { getLastRead, setLastRead, getReadingRightFr, setReadingRightFr } from '../services/uiState'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { useTaskStore } from '../stores/task'
@@ -805,12 +805,19 @@ export default function ReadingPage() {
 
   /**
    * 宽屏阅读页「中栏 : 右栏」比例拖动。
-   * 左栏恒为 1fr，右栏在 1fr / 2fr / 3fr 三档间滑动：
-   * 右=1 是 1:3:1、右=2 是 1:2:2、右=3 是 1:1:3，
-   * 中栏 = 5 − 1 − 右，所以总量恒为 5fr，拖动时其余栏不会跳。
+   * 左栏恒为 1fr，右栏在五档间滑动（中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3）：
+   * 右 = 1 / 4/3 / 2 / 8/3 / 3，中栏 = 4 − 右，总量恒为 5fr，拖动时其余栏不会跳。
+   * 松手吸附到最近一档；选中的档位存本机（localStorage），下次打开自动回到这一档。
    */
-  const RIGHT_FR_SNAPS = [1, 2, 3]
-  const [readerRightFr, setReaderRightFr] = useState(1)
+  const RIGHT_FR_SNAPS = [1, 4 / 3, 2, 8 / 3, 3]
+  const [readerRightFr, setReaderRightFr] = useState(() => {
+    const saved = getReadingRightFr()
+    return saved !== null && RIGHT_FR_SNAPS.includes(saved) ? saved : 1
+  })
+  // 只在吸附到某一档（拖动松手后）才落盘，拖动过程中的中间值不记
+  useEffect(() => {
+    if (RIGHT_FR_SNAPS.includes(readerRightFr)) setReadingRightFr(readerRightFr)
+  }, [readerRightFr])
   const [readerDragging, setReaderDragging] = useState(false)
   const readerGridRef = useRef<HTMLDivElement>(null)
   const readerDragStartX = useRef(0)
@@ -2620,9 +2627,9 @@ export default function ReadingPage() {
   }, [docKey, paperRenderedHtml, bookRenderedHtml])
 
   /**
-   * 阅读页中缝拖动：改「中栏 : 右栏」比例（1:3:1 ↔ 1:2:2 ↔ 1:1:3）。
+   * 阅读页中缝拖动：改「中栏 : 右栏」比例（中:右 = 3:1 ↔ 2:1 ↔ 1:1 ↔ 1:2 ↔ 1:3）。
    * 左栏恒 1fr，右栏 1fr→3fr，中栏自动 3fr→1fr（总量恒 5fr）。
-   * 松手吸附到三档，避免停在不上不下的中间比例。
+   * 松手吸附到五档（中:右 = 3:1 / 2:1 / 1:1 / 1:2 / 1:3），避免停在不上不下的中间比例。
    */
   const handleReaderDividerDown = (e: React.MouseEvent) => {
     e.preventDefault()
