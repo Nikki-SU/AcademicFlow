@@ -26,7 +26,6 @@ import {
   Settings,
   Play,
   Newspaper,
-  Hash,
   FileText,
   Upload,
   ExternalLink,
@@ -117,9 +116,6 @@ const DEFAULT_SEARCH_SITES: SearchSite[] = [
   { id: 'pubmed', name: 'PubMed', urlTemplate: 'https://pubmed.ncbi.nlm.nih.gov/?term={query}', color: 'bg-seal-50 text-seal-600' },
   { id: 'arxiv', name: 'arXiv', urlTemplate: 'https://arxiv.org/search/?query={query}&searchtype=all', color: 'bg-ink-100 text-ink-600' },
 ]
-
-/** 追踪来源（计数按「候选」实算，不再写死 0） */
-const TRACKING_SOURCES = ['CrossRef', 'OpenAlex', 'arXiv', 'RSS']
 
 // ============================================================
 // SPEC §0/§2.3：用户数据全部存 GitHub 私库，不使用 localStorage。
@@ -880,17 +876,11 @@ export default function TrackingPage() {
   }
 
   // ============================================================
-  // 统计
+  // 候选集合
   // ============================================================
-
-  const enabledKeywordGroupCount = keywordGroups.filter((g) => g.enabled).length
-  const enabledJournalCount = journals.filter((j) => j.enabled).length
 
   /** 待裁决的候选（页面只显示这些；已忽略的留在 inbox 里做去重） */
   const candidates = pendingCandidates(inbox)
-  /** 各来源的命中数（按候选实算） */
-  const sourceCount = (label: string) =>
-    candidates.filter((c) => (c.source || '').toLowerCase() === label.toLowerCase()).length
 
   // ============================================================
   // 颜色选项
@@ -1118,75 +1108,41 @@ export default function TrackingPage() {
         {/* ============================================================ */}
         <section className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
           <div className="af-line-b shrink-0 p-4">
-            {/* 三个动作：添加关键词 / 添加期刊 / 立即追踪（红） */}
-            <div className="space-y-2">
+            {/* 两个添加入口并排 */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={openAddKeywordGroup}
-                className="flex w-full items-center gap-2 rounded-control border border-ink-200 px-ui-gap py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
+                className="flex items-center justify-center gap-2 rounded-control border border-ink-200 px-ui-gap py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
               >
                 <Tag className="h-4 w-4 text-ink-500" />
                 添加关键词
               </button>
               <button
                 onClick={openAddJournal}
-                className="flex w-full items-center gap-2 rounded-control border border-ink-200 px-ui-gap py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
+                className="flex items-center justify-center gap-2 rounded-control border border-ink-200 px-ui-gap py-2 text-ui-xs text-ink-700 transition hover:bg-paper-100"
               >
                 <Newspaper className="h-4 w-4 text-ink-500" />
                 添加期刊
               </button>
-              <button
-                onClick={handleTrackNow}
-                disabled={isTracking}
-                className="flex w-full items-center justify-center gap-2 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
-              >
-                {isTracking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                立即追踪
-              </button>
             </div>
-
-            {/* 统计 */}
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-control bg-seal-50 p-2.5">
-                <div className="flex items-center gap-1.5">
-                  <Hash className="h-3.5 w-3.5 text-seal-600" />
-                  <span className="text-ui-2xs font-medium text-seal-600">关键词组</span>
-                </div>
-                <div className="mt-0.5 text-lg font-bold text-seal-700">
-                  {enabledKeywordGroupCount}
-                  <span className="ml-1 text-ui-2xs font-normal text-seal-400">/ {keywordGroups.length}</span>
-                </div>
-              </div>
-              <div className="rounded-control bg-emerald-50 p-2.5">
-                <div className="flex items-center gap-1.5">
-                  <Newspaper className="h-3.5 w-3.5 text-emerald-600" />
-                  <span className="text-ui-2xs font-medium text-emerald-600">追踪期刊</span>
-                </div>
-                <div className="mt-0.5 text-lg font-bold text-emerald-700">
-                  {enabledJournalCount}
-                  <span className="ml-1 text-ui-2xs font-normal text-emerald-400">/ {journals.length}</span>
-                </div>
-              </div>
-            </div>
-            <div className="mt-2 grid grid-cols-4 gap-1.5 text-center">
-              {TRACKING_SOURCES.map((label) => {
-                const count = sourceCount(label)
-                return (
-                  <div key={label} className="rounded-control bg-paper-100 p-1.5">
-                    <div className={`text-ui-sm font-bold ${count > 0 ? 'text-ink-700' : 'text-ink-300'}`}>{count}</div>
-                    <div className="text-ui-2xs text-ink-500">{label}</div>
-                  </div>
-                )
-              })}
-            </div>
+            {/* 立即追踪单独一行 */}
+            <button
+              onClick={handleTrackNow}
+              disabled={isTracking}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
+            >
+              {isTracking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              立即追踪
+            </button>
           </div>
 
-          {/* 可滚动功能列表：关键词组 / 期刊 / DOI 入库 / 搜索 */}
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {/* 功能列表：关键词组 / 期刊并排，DOI 入库 / 搜索各占一行 */}
+          <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)_auto_auto] gap-ui-gap p-4">
             {/* ---------- 关键词组（可折叠） ---------- */}
-            <div className="rounded-control border border-ink-200">
+            <div className="flex min-h-0 flex-col rounded-control border border-ink-200">
               <button
                 onClick={() => setKeywordGroupsCollapsed(!keywordGroupsCollapsed)}
-                className="flex w-full items-center justify-between p-3 text-left transition hover:bg-paper-100"
+                className="flex w-full shrink-0 items-center justify-between p-3 text-left transition hover:bg-paper-100"
               >
                 <h3 className="flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
                   <Tag className="h-3.5 w-3.5 text-seal-600" />
@@ -1212,7 +1168,7 @@ export default function TrackingPage() {
               </button>
 
               {!keywordGroupsCollapsed && (
-                <div className="af-line-t p-3">
+                <div className="af-line-t min-h-0 flex-1 overflow-y-auto p-3">
                   {keywordGroups.length === 0 ? (
                     <div className="rounded-control border border-dashed border-ink-200 py-4 text-center text-ui-2xs text-ink-400">
                       尚未配置关键词组
@@ -1274,10 +1230,10 @@ export default function TrackingPage() {
             </div>
 
             {/* ---------- 期刊追踪（可折叠） ---------- */}
-            <div className="rounded-control border border-ink-200">
+            <div className="flex min-h-0 flex-col rounded-control border border-ink-200">
               <button
                 onClick={() => setJournalsCollapsed(!journalsCollapsed)}
-                className="flex w-full items-center justify-between p-3 text-left transition hover:bg-paper-100"
+                className="flex w-full shrink-0 items-center justify-between p-3 text-left transition hover:bg-paper-100"
               >
                 <h3 className="flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
                   <BookMarked className="h-3.5 w-3.5 text-seal-600" />
@@ -1303,7 +1259,7 @@ export default function TrackingPage() {
               </button>
 
               {!journalsCollapsed && (
-                <div className="af-line-t p-3">
+                <div className="af-line-t min-h-0 flex-1 overflow-y-auto p-3">
                   {journals.length === 0 ? (
                     <div className="rounded-control border border-dashed border-ink-200 py-4 text-center text-ui-2xs text-ink-400">
                       尚未添加期刊
@@ -1352,34 +1308,33 @@ export default function TrackingPage() {
             </div>
 
             {/* ---------- DOI 入库 ---------- */}
-            <div className="rounded-control border border-ink-200 p-3">
+            <div className="col-span-2 rounded-control border border-ink-200 p-3">
               <h3 className="mb-2 flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
                 <Plus className="h-3.5 w-3.5 text-seal-600" />
                 DOI 入库
               </h3>
-              <div className="space-y-2">
+              <div className="flex gap-2">
                 <input
                   type="text"
                   value={doiInput}
                   onChange={(e) => setDoiInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddByDoi()}
                   placeholder="输入 DOI 或 DOI 链接..."
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 text-ui-xs focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
+                  className="min-w-0 flex-1 rounded-control border border-ink-300 px-ui-gap py-2 text-ui-xs focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
                 />
                 <button
                   onClick={handleAddByDoi}
                   disabled={isAdding || !doiInput.trim()}
-                  className="flex w-full items-center justify-center gap-2 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
+                  title="入库"
+                  className="flex shrink-0 items-center justify-center rounded-control bg-seal-600 px-2.5 py-2 text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
                 >
                   {isAdding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                  通过 DOI 入库
                 </button>
               </div>
-              <p className="mt-1.5 text-ui-2xs text-ink-400">支持 doi:10.xxx、https://doi.org/10.xxx 等格式</p>
             </div>
 
             {/* ---------- 学术搜索 ---------- */}
-            <div className="rounded-control border border-ink-200 p-3">
+            <div className="col-span-2 rounded-control border border-ink-200 p-3">
               <h3 className="mb-2 flex items-center gap-1.5 text-ui-xs font-semibold text-ink-700">
                 <Globe className="h-3.5 w-3.5 text-seal-600" />
                 学术搜索
@@ -1397,7 +1352,7 @@ export default function TrackingPage() {
                     <ChevronDown className="h-3.5 w-3.5 text-ink-400" />
                   </button>
                   {showSearchDropdown && (
-                    <div className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-control border border-ink-200 bg-paper-50 shadow-lg">
+                    <div className="absolute bottom-full left-0 z-50 mb-1 w-full overflow-hidden rounded-control border border-ink-200 bg-paper-50 shadow-lg">
                       <div className="max-h-72 overflow-y-auto py-1">
                         {searchSites.map((site) => (
                           <button
@@ -1442,10 +1397,10 @@ export default function TrackingPage() {
                   />
                   <button
                     onClick={handleSearch}
-                    className="flex items-center gap-1.5 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
+                    title="搜索"
+                    className="flex shrink-0 items-center justify-center rounded-control bg-seal-600 px-2.5 py-2 text-paper-50 transition hover:bg-seal-700"
                   >
                     <Search className="h-3.5 w-3.5" />
-                    搜索
                   </button>
                 </div>
               </div>

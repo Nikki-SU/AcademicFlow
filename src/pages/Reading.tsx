@@ -2974,7 +2974,7 @@ export default function ReadingPage() {
      */
     <div
       ref={readerGridRef}
-      className="relative h-full overflow-hidden bg-paper-100 grid grid-cols-[var(--reader-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap p-ui-gap max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)] max-[1100px]:gap-0 max-[1100px]:p-0"
+      className="page-container py-ui-page relative h-full overflow-hidden bg-paper-100 grid grid-cols-[var(--reader-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)] max-[1100px]:gap-0 max-[1100px]:p-0"
       style={{
         fontSize: `${fontSize / 16}rem`,
         '--reader-cols': `minmax(0, 1fr) minmax(0, ${4 - readerRightFr}fr) minmax(0, ${readerRightFr}fr)`,

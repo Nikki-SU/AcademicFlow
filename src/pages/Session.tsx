@@ -115,7 +115,7 @@ export default function SessionPage() {
           所以左↔中、中↔右的留白严格相等，最左栏与最右栏视觉对称。 */}
       <div
         ref={sessionGridRef}
-        className="relative min-h-0 flex-1 grid grid-cols-[var(--session-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap p-ui-gap overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[repeat(3,minmax(0,1fr))]"
+        className="page-container py-ui-page relative min-h-0 flex-1 grid grid-cols-[var(--session-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[repeat(3,minmax(0,1fr))]"
         style={{
           '--session-cols': `minmax(0, 1fr) minmax(0, ${4 - rightFr}fr) minmax(0, ${rightFr}fr)`,
         } as CSSProperties}

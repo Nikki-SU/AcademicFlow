@@ -3224,7 +3224,7 @@ export default function WritingPage() {
   return (
     <div
       ref={containerRef}
-      className={`h-full flex bg-paper-100 relative overflow-hidden p-ui-gap ${
+      className={`h-full flex bg-paper-100 relative overflow-hidden page-container py-ui-page ${
         navCollapsed ? 'gap-0' : 'gap-ui-gap'
       }`}
     >
