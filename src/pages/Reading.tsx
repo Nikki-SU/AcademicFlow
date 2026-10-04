@@ -86,6 +86,7 @@ import {
 } from '../services/librarySearch'
 import ReadingAskPanel from '../components/ReadingAskPanel'
 import ReadingNotesPanel from '../components/ReadingNotesPanel'
+import { usePanelStack, StackHandle } from '../components/ui/StackedPanels'
 import { PillTabs } from '../components/ui/Tabs'
 import { toast } from 'sonner'
 
@@ -3052,6 +3053,9 @@ export default function ReadingPage() {
     </div>
   ) : null
 
+  /** 左栏两块（列表 / 大纲）各自卡片 + 可拖拽分段 */
+  const listStack = usePanelStack(2, [0.58, 0.42])
+
   return (
     /*
      * 三栏用 Grid：
@@ -3121,13 +3125,15 @@ export default function ReadingPage() {
         </button>
       )}
 
-      <aside className={`min-w-0 bg-paper-50 border border-ink-200 rounded-card flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:rounded-none max-[1100px]:border-y-0 max-[1100px]:border-l-0 max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
+      <aside
+        ref={listStack.containerRef}
+        className={`min-w-0 flex flex-col overflow-hidden max-[1100px]:fixed max-[1100px]:inset-y-0 max-[1100px]:left-0 max-[1100px]:z-40 max-[1100px]:w-[min(20rem,85vw)] max-[1100px]:shadow-2xl max-[1100px]:transition-transform max-[1100px]:duration-200 ${
         leftDrawer ? 'max-[1100px]:translate-x-0' : 'max-[1100px]:-translate-x-full'
       }`}
         style={{ fontSize: '1rem' }}
       >
-        {/* 固定：从全局添加材料 + 阅读对象切换（文献 / 图书 / 其他文档） */}
-        <div className="af-line-b p-2 flex-shrink-0 space-y-1.5">
+        {/* 固定：从全局添加材料 + 阅读对象切换（文献 / 图书 / 其他文档）—— 各自卡片 */}
+        <div className="shrink-0 rounded-card border border-ink-200 bg-paper-50 p-2 space-y-1.5">
           {/* 从全局把已有材料归入当前任务（列表默认只显示当前任务的材料，这里是入口） */}
           <button
             onClick={openAddMaterial}
@@ -3158,16 +3164,17 @@ export default function ReadingPage() {
           </div>
         </div>
 
-        {/*
-         * 堆叠面板 1/2：列表。
-         * flex-none（不主动撑高）按内容占高；空间不够时由它先收缩、内部滚动，
-         * 而不是把固定高度的头部（标题/搜索/筛选）压出去溢到下面的大纲上。
-         * overflow-hidden 是兜底：万一被压到比最小内容还矮，也只会裁掉，不会盖住邻居。
-         */}
-        <div className={`flex flex-col overflow-hidden ${listExpanded ? 'min-h-0' : 'flex-none'}`}>
+        {/* 与下方列表卡片之间的间距 */}
+        <StackHandle enabled={false} onPointerDown={() => {}} />
+
+        {/* ── 堆叠面板 1/2：列表（各自卡片，与大纲之间可拖拽分段） ── */}
+        <div
+          className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50"
+          style={listStack.flex(0, listExpanded)}
+        >
           <button
             onClick={() => setListExpanded(!listExpanded)}
-            className="w-full flex-shrink-0 flex items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+            className="af-line-b w-full flex-shrink-0 flex items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
           >
             {listExpanded ? (
               <ChevronDown className="w-3.5 h-3.5 text-ink-400" />
@@ -3694,16 +3701,19 @@ export default function ReadingPage() {
           )}
         </div>
 
-        {/*
-         * 堆叠面板 2/2：大纲（文献按当前显示模式的内容生成，图书按 content.md）。
-         * 规则：上排（列表）按自然高度，下排（大纲）适应上排、吃掉剩余空间，**不封顶**。
-         * flex-1 且不配 min-h-0 —— 它的自动最小高度就是自己的标题行，
-         * 所以即使上排全展开把空间吃光，它被压到极限也仍留在栏里、点得到。
-         */}
-        <div className={`af-line-t flex flex-col overflow-hidden ${outlineOpen ? 'flex-1' : 'flex-none'}`}>
+        <StackHandle
+          enabled={listExpanded && outlineOpen}
+          onPointerDown={listStack.onHandleDown(0)}
+        />
+
+        {/* ── 堆叠面板 2/2：大纲（各自卡片，文献按当前显示模式生成、图书按 content.md） ── */}
+        <div
+          className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50"
+          style={listStack.flex(1, outlineOpen)}
+        >
           <button
             onClick={() => setOutlineOpen(!outlineOpen)}
-            className="w-full flex-shrink-0 flex items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+            className="af-line-b w-full flex-shrink-0 flex items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
           >
             {outlineOpen ? (
               <ChevronDown className="w-3.5 h-3.5 text-ink-400" />

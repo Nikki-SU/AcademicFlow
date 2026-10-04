@@ -126,6 +126,7 @@ import FormulaSidebar, { type FormulaEditTarget } from '../components/FormulaSid
 import ProofreadPanel from '../components/ProofreadPanel'
 import CitationPanel from '../components/CitationPanel'
 import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, deleteFormulas, setImageSize } from '../services/formula'
+import { usePanelStack, StackHandle } from '../components/ui/StackedPanels'
 
 /**
  * 左右两个面板可选的功能 —— 两边完全一致，想放哪边就放哪边，互不干涉。
@@ -3327,6 +3328,9 @@ export default function WritingPage() {
   }
   const panelEntries = isPanelMerged ? [leftPanelEntry] : [leftPanelEntry, rightPanelEntry]
 
+  /** 左栏三块（项目导航 / 文献检索 / 大纲）各自卡片 + 可拖拽分段 */
+  const navStack = usePanelStack(3, [0.4, 0.3, 0.3])
+
   return (
     <div
       ref={containerRef}
@@ -3340,16 +3344,15 @@ export default function WritingPage() {
         }`}
       >
         <aside
-          className={`flex h-full min-h-0 flex-col overflow-hidden rounded-card border bg-paper-50 transition-opacity duration-300 ${
-            navCollapsed ? 'border-0 opacity-0' : 'border-ink-200 opacity-100'
+          ref={navStack.containerRef}
+          className={`flex h-full min-h-0 flex-col overflow-hidden transition-opacity duration-300 ${
+            navCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
           }`}
         >
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {/* ── 堆叠面板 1/3：项目（收起后只剩标题行，标题显示当前项目） ── */}
+          {/* ── 堆叠面板 1/3：项目（各自卡片，与下方两块之间可拖拽分段） ── */}
           <div
-            className={`flex flex-col overflow-hidden ${
-              projectsExpanded ? 'min-h-0' : 'flex-none'
-            }`}
+            className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50"
+            style={navStack.flex(0, projectsExpanded)}
           >
             <div className="af-line-b flex items-center gap-ui-gap-sm px-ui-gap-sm py-1.5 flex-shrink-0">
               <button
@@ -3539,15 +3542,19 @@ export default function WritingPage() {
             )}
           </div>
 
+          <StackHandle
+            enabled={projectsExpanded && libSearchExpanded}
+            onPointerDown={navStack.onHandleDown(0)}
+          />
+
           {/* ── 堆叠面板 2/3：文献检索（只搜库内） ── */}
           <div
-            className={`af-line-t flex flex-col overflow-hidden ${
-              libSearchExpanded ? 'min-h-0' : 'flex-none'
-            }`}
+            className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50"
+            style={navStack.flex(1, libSearchExpanded)}
           >
             <button
               onClick={() => setLibSearchExpanded(!libSearchExpanded)}
-              className="w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+              className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
             >
               {libSearchExpanded ? (
                 <ChevronDown className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
@@ -3644,20 +3651,19 @@ export default function WritingPage() {
             )}
           </div>
 
-          {/*
-           * ── 堆叠面板 3/3：大纲（收起后只剩标题行） ──
-           * 与阅读页同一规则：上排按自然高度，最后这栏适应上排、吃掉剩余空间，不封顶。
-           * flex-1 且不配 min-h-0 —— 最小高度即自己的标题行，被挤到极限也留在栏里。
-           * overflow-hidden 兜底，避免被压过头时内容溢出盖住邻居。
-           */}
+          <StackHandle
+            enabled={libSearchExpanded && outlineExpanded}
+            onPointerDown={navStack.onHandleDown(1)}
+          />
+
+          {/* ── 堆叠面板 3/3：大纲（各自卡片，收起后只剩标题行） ── */}
           <div
-            className={`af-line-t flex flex-col overflow-hidden ${
-              outlineExpanded ? 'flex-1' : 'flex-none'
-            }`}
+            className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50"
+            style={navStack.flex(2, outlineExpanded)}
           >
             <button
               onClick={() => setOutlineExpanded(!outlineExpanded)}
-              className="w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
+              className="af-line-b w-full flex-shrink-0 flex items-center gap-ui-gap-sm px-ui-gap py-2 text-ui-xs font-semibold text-ink-600 hover:bg-paper-100 transition"
             >
               {outlineExpanded ? (
                 <ChevronDown className="h-ui-icon-sm w-ui-icon-sm text-ink-400" />
@@ -3693,7 +3699,6 @@ export default function WritingPage() {
               </div>
             )}
           </div>
-        </div>
       </aside>
 
         <button
