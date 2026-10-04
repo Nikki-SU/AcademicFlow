@@ -4,7 +4,7 @@
  * 规则：处于某个**课程 / 定时任务时段**内 → 默认进入该时段归属的任务；
  * 时段结束后 → 回到进入时段前的那一次任务（「上一次的任务」）。
  *
- * 节假日感知（本轮新增）：
+ * 节假日感知：
  * - **法定放假当天**一律不切课（那天不上课）；
  * - **调休补班日**按用户登记的「按周几的课表」切课；
  * - 普通周末默认无课（官方标为补班但用户未登记 → 不切，避免乱导）。
@@ -13,10 +13,24 @@
  * - 每分钟对一次表；进入 / 离开时段才算变化，避免频繁写私库。
  * - 若用户在时段内手动切了任务，离开时段时不再粗暴回退（尊重手动选择）。
  * - 课程 / 调休 / 节假日每 5 分钟重拉一次，新加的课最迟 5 分钟内生效。
+ *
+ * 提示与持久化（ADJ-118）：
+ * - 自动切入 / 回退时各**弹一条轻提示**，让用户知道任务为何自己变了；
+ * - 「回退标记」（manual_id + slot_id）落私库 `settings/auto-task.md` ——
+ *   刷新 / 换设备后仍能正确回退，且当用户课中手动切了任务（当前任务 ≠ slot_id）时不回退。
  */
 import { useEffect, useRef } from 'react'
+import { toast } from 'sonner'
 import { loadCourses, loadExtraDays, resolveToday, timeToMinutes, type Course, type ExtraDay } from '../services/scheduleData'
 import { loadYearHolidays, todayDateStr, type HolidayMap } from '../services/holidays'
+import {
+  loadProjects,
+  loadAutoTaskMark,
+  saveAutoTaskMark,
+  clearAutoTaskMark,
+  type Project,
+  type AutoTaskMark,
+} from '../services/projectData'
 import { useTaskStore } from '../stores/task'
 
 const TICK_MS = 60_000
@@ -47,6 +61,9 @@ export function useAutoTaskBySchedule(): void {
   const coursesRef = useRef<Course[]>([])
   const extraDaysRef = useRef<ExtraDay[]>([])
   const holidaysRef = useRef<HolidayMap>(new Map())
+  const projectsRef = useRef<Project[]>([])
+  // 私库里的回退标记（刷新 / 换设备后用它回退，避免内存 ref 丢失）
+  const autoMarkRef = useRef<AutoTaskMark>({ manualId: null, slotId: null })
   const lastLoadRef = useRef(0)
   // 记录「当前自动切入的时段任务」与「切入前的那一次任务」，用于时段结束后回退
   const autoRef = useRef<{ slotTaskId: string | null; manualId: string | null }>({
@@ -55,6 +72,13 @@ export function useAutoTaskBySchedule(): void {
   })
 
   useEffect(() => {
+    const titleOf = (id: string) =>
+      projectsRef.current.find((p) => p.projectId === id)?.title || '未知任务'
+    const mark = (m: AutoTaskMark) =>
+      saveAutoTaskMark(m).catch((e) => console.warn('[autoTask] 保存回退标记失败:', e))
+    const clearMark = () =>
+      clearAutoTaskMark().catch((e) => console.warn('[autoTask] 清除回退标记失败:', e))
+
     const reload = () => {
       lastLoadRef.current = Date.now()
       const year = new Date().getFullYear()
@@ -73,6 +97,16 @@ export function useAutoTaskBySchedule(): void {
           holidaysRef.current = h
         })
         .catch((err) => console.warn('[autoTask] 读取节假日失败:', err))
+      loadProjects()
+        .then((ps) => {
+          projectsRef.current = ps
+        })
+        .catch((err) => console.warn('[autoTask] 读取任务清单失败:', err))
+      loadAutoTaskMark()
+        .then((m) => {
+          autoMarkRef.current = m
+        })
+        .catch((err) => console.warn('[autoTask] 读取回退标记失败:', err))
     }
 
     const tick = () => {
@@ -95,13 +129,32 @@ export function useAutoTaskBySchedule(): void {
       if (slotTask === prev.slotTaskId) return
 
       if (slotTask) {
-        // 进入时段：记住此刻的任务，切到课程 / 定时任务
-        autoRef.current = { slotTaskId: slotTask, manualId: currentProjectId }
-        if (currentProjectId !== slotTask) void setCurrentProject(slotTask)
+        // 进入时段：先切到课程 / 定时任务，并记住「切入前那次任务」用于回退
+        const autoSwitched = currentProjectId !== slotTask
+        autoRef.current = {
+          slotTaskId: slotTask,
+          manualId: autoSwitched ? currentProjectId : autoMarkRef.current.manualId,
+        }
+        if (autoSwitched) {
+          mark({ manualId: currentProjectId, slotId: slotTask })
+          void setCurrentProject(slotTask)
+          toast.message(`已按课表切到「${titleOf(slotTask)}」`)
+        }
       } else {
-        // 离开时段：若仍停在被自动切入的任务上，回到之前的那一次任务
-        if (prev.slotTaskId && currentProjectId === prev.slotTaskId && prev.manualId) {
-          void setCurrentProject(prev.manualId)
+        // 离开时段：回到「上一次任务」。
+        // 仅当当前仍停在自动切入的任务上才回退（用户课中手动切过 → 尊重手动选择）。
+        const persisted = autoMarkRef.current
+        const stillOnAuto =
+          (prev.slotTaskId !== null && currentProjectId === prev.slotTaskId) ||
+          (persisted.slotId !== null && currentProjectId === persisted.slotId)
+        const target = stillOnAuto ? prev.manualId ?? persisted.manualId : null
+        if (target && target !== currentProjectId) {
+          void setCurrentProject(target)
+          toast.message(`课表时段结束，已回到「${titleOf(target)}」`)
+        }
+        if (prev.slotTaskId || persisted.slotId) {
+          clearMark()
+          autoMarkRef.current = { manualId: null, slotId: null }
         }
         autoRef.current = { slotTaskId: null, manualId: null }
       }

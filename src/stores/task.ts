@@ -17,6 +17,8 @@ interface TaskState {
   isLoaded: boolean
   /** 已发起过拉取（正常 / 失败都算），用于防止并发重复请求 */
   isLoading: boolean
+  /** 已自动重试次数（读取成功即清零） */
+  retryCount: number
   /** 从私库拉取当前任务（工作区就绪后调用一次） */
   loadCurrent: () => Promise<void>
   /** 切换当前任务：先更新本地状态，再持久化到私库（返回持久化的 Promise） */
@@ -24,20 +26,34 @@ interface TaskState {
   reset: () => void
 }
 
+/** 读取失败后的自动重试：间隔 4s、最多 3 次；仍失败才退回「未选」，绝不无限「加载中」 */
+const RETRY_MS = 4000
+const MAX_RETRY = 3
+
 export const useTaskStore = create<TaskState>((set, get) => ({
   currentProjectId: null,
   isLoaded: false,
   isLoading: false,
+  retryCount: 0,
 
   loadCurrent: async () => {
     if (get().isLoaded || get().isLoading) return
     set({ isLoading: true })
     try {
       const id = await loadCurrentTaskId()
-      set({ currentProjectId: id, isLoaded: true, isLoading: false })
+      set({ currentProjectId: id, isLoaded: true, isLoading: false, retryCount: 0 })
     } catch (e) {
-      console.warn('[task] 读取当前任务失败:', e)
-      set({ isLoaded: true, isLoading: false })
+      // 只有「真失败」（非 404）才走到这里（见 projectData.readProjectId）：
+      // 断网 / 鉴权失败 → 自动重试，别把它当成「没选任务」永久吞掉。
+      const tries = get().retryCount + 1
+      if (tries <= MAX_RETRY) {
+        console.warn(`[task] 读取当前任务失败（第 ${tries} 次），${RETRY_MS / 1000}s 后重试:`, e)
+        set({ isLoading: false, retryCount: tries })
+        setTimeout(() => void get().loadCurrent(), RETRY_MS)
+      } else {
+        console.warn('[task] 多次读取当前任务均失败，暂显「未选任务」:', e)
+        set({ isLoaded: true, isLoading: false })
+      }
     }
   },
 
@@ -47,5 +63,5 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     await saveCurrentTaskId(projectId)
   },
 
-  reset: () => set({ currentProjectId: null, isLoaded: false, isLoading: false }),
+  reset: () => set({ currentProjectId: null, isLoaded: false, isLoading: false, retryCount: 0 }),
 }))

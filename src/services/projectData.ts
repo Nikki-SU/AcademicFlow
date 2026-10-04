@@ -15,6 +15,7 @@ import {
   listRepoFilesInDir,
   uploadRepoBinaryFile,
   downloadRepoBinaryFile,
+  readRepoTextFile,
 } from './github'
 import { loadLiteratures, saveLiteratures, doiToSlug } from './literatureData'
 import { loadMaterialMeta, saveMaterialMeta, dropMeta } from './materialMeta'
@@ -133,19 +134,63 @@ export async function saveProjects(projects: Project[]): Promise<void> {
  * 当前任务（跨设备同步）
  * -------------------------------------------------
  * 落私库 `settings/current-task.md`（只一行 project_id），换设备打开即同一个任务。
+ *
+ * **严格读**：`readMdFile` 会把「读取失败」吞成 null，与「文件不存在」混为一谈 ——
+ * 这正是「刷新后像丢任务」的根因（见 ADJ-118）。这里直接走 `readRepoTextFile` 保住区分：
+ * 只有 404 才算「没设过」，网络 / 鉴权等真失败一律抛出，交给上层重试。
  */
 const CURRENT_TASK_PATH = 'settings/current-task.md'
+/**
+ * 课表自动切换的「回退标记」（落私库，刷新 / 换设备都不丢）：
+ * - `manual_id`：自动切走**之前**用户手动选的那个任务（回退目标）
+ * - `slot_id`：被自动切入的时段任务（用来判断「现在还停在自动任务上吗」）
+ * 两者都有才认为「处于一次自动切换中」；用户课中手动切了任务（当前任务 ≠ slot_id）则不回退。
+ */
+const AUTO_TASK_PATH = 'settings/auto-task.md'
 
-export async function loadCurrentTaskId(): Promise<string | null> {
-  const result = await readMdFile(CURRENT_TASK_PATH)
-  const content = result?.content || ''
-  const m = content.match(/project_id\s*[:=]\s*(\S+)/)
+/** 从私库读一个「只存 project_id 一行」的 md；404 返回 null，其余失败抛出 */
+async function readProjectId(path: string): Promise<string | null> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪')
+  const result = await readRepoTextFile(ctx.owner, ctx.repo, path, ctx.token)
+  const m = (result?.content || '').match(/project_id\s*[:=]\s*(\S+)/)
   return m ? m[1] : null
 }
 
+function projectIdFileContent(title: string, projectId: string | null): string {
+  return `# ${title}\n\nproject_id:${projectId ? ` ${projectId}` : ''}\n\n---\n`
+}
+
+export async function loadCurrentTaskId(): Promise<string | null> {
+  return readProjectId(CURRENT_TASK_PATH)
+}
+
 export async function saveCurrentTaskId(projectId: string | null): Promise<void> {
-  const content = `# 当前任务\n\nproject_id:${projectId ? ` ${projectId}` : ''}\n\n---\n`
-  await writeMdFile(CURRENT_TASK_PATH, content, 'Switch current task')
+  await writeMdFile(CURRENT_TASK_PATH, projectIdFileContent('当前任务', projectId), 'Switch current task')
+}
+
+export interface AutoTaskMark {
+  manualId: string | null
+  slotId: string | null
+}
+
+export async function loadAutoTaskMark(): Promise<AutoTaskMark> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪')
+  const result = await readRepoTextFile(ctx.owner, ctx.repo, AUTO_TASK_PATH, ctx.token)
+  const c = result?.content || ''
+  const m = c.match(/manual_id\s*[:=]\s*(\S+)/)
+  const s = c.match(/slot_id\s*[:=]\s*(\S+)/)
+  return { manualId: m ? m[1] : null, slotId: s ? s[1] : null }
+}
+
+export async function saveAutoTaskMark(mark: AutoTaskMark): Promise<void> {
+  const body = `# 课表自动切换\n\nmanual_id:${mark.manualId ? ` ${mark.manualId}` : ''}\nslot_id:${mark.slotId ? ` ${mark.slotId}` : ''}\n\n---\n`
+  await writeMdFile(AUTO_TASK_PATH, body, 'Update auto task mark')
+}
+
+export async function clearAutoTaskMark(): Promise<void> {
+  await writeMdFile(AUTO_TASK_PATH, '# 课表自动切换\n\nmanual_id:\nslot_id:\n\n---\n', 'Clear auto task mark')
 }
 
 export async function loadManuscript(projectId: string): Promise<string> {
