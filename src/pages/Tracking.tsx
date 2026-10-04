@@ -205,6 +205,10 @@ export default function TrackingPage() {
   const [selectedLibraryDois, setSelectedLibraryDois] = useState<string[]>([])
   /** 中栏批量操作选中的候选 DOI */
   const [selectedCandidateDois, setSelectedCandidateDois] = useState<string[]>([])
+  /** 关键词组「管理」弹窗：批量操作选中的分组 id */
+  const [selectedKeywordGroupIds, setSelectedKeywordGroupIds] = useState<string[]>([])
+  /** 期刊「管理」弹窗：批量操作选中的期刊 id */
+  const [selectedJournalIds, setSelectedJournalIds] = useState<string[]>([])
   /** 中栏摘要译文缓存（DOI → 中文）；默认显示译文，缓存避免重复翻译 */
   const [translatedAbstracts, setTranslatedAbstracts] = useState<Record<string, string>>({})
   /** 中栏想看英文原文的候选 DOI（默认显示中文译文） */
@@ -539,7 +543,31 @@ export default function TrackingPage() {
 
   const handleDeleteKeywordGroup = (id: string) => {
     setKeywordGroups((prev) => prev.filter((g) => g.id !== id))
+    setSelectedKeywordGroupIds((prev) => prev.filter((x) => x !== id))
     toast.success('关键词组已删除')
+  }
+
+  /** 关键词组「全选」：语义是全选当前列表里的全部（无筛选） */
+  const toggleSelectAllKeywordGroups = () => {
+    const allIds = keywordGroups.map((g) => g.id)
+    const allSelected = allIds.length > 0 && allIds.every((id) => selectedKeywordGroupIds.includes(id))
+    setSelectedKeywordGroupIds(allSelected ? [] : allIds)
+  }
+
+  const handleBatchDeleteKeywordGroups = () => {
+    const count = selectedKeywordGroupIds.filter((id) => keywordGroups.some((g) => g.id === id)).length
+    if (count === 0) return
+    if (!window.confirm(`确定删除选中的 ${count} 个关键词组？此操作不可撤销。`)) return
+    const selected = new Set(selectedKeywordGroupIds)
+    setKeywordGroups((prev) => prev.filter((g) => !selected.has(g.id)))
+    setSelectedKeywordGroupIds([])
+    toast.success(`已删除 ${count} 个关键词组`)
+  }
+
+  const toggleKeywordGroupSelect = (id: string) => {
+    setSelectedKeywordGroupIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
   }
 
   const toggleKeywordGroup = (id: string) => {
@@ -627,7 +655,31 @@ export default function TrackingPage() {
 
   const handleDeleteJournal = (id: string) => {
     setJournals((prev) => prev.filter((j) => j.id !== id))
+    setSelectedJournalIds((prev) => prev.filter((x) => x !== id))
     toast.success('期刊已删除')
+  }
+
+  /** 期刊「全选」：语义是全选当前列表里的全部（无筛选） */
+  const toggleSelectAllJournals = () => {
+    const allIds = journals.map((j) => j.id)
+    const allSelected = allIds.length > 0 && allIds.every((id) => selectedJournalIds.includes(id))
+    setSelectedJournalIds(allSelected ? [] : allIds)
+  }
+
+  const handleBatchDeleteJournals = () => {
+    const count = selectedJournalIds.filter((id) => journals.some((j) => j.id === id)).length
+    if (count === 0) return
+    if (!window.confirm(`确定删除选中的 ${count} 个期刊？此操作不可撤销。`)) return
+    const selected = new Set(selectedJournalIds)
+    setJournals((prev) => prev.filter((j) => !selected.has(j.id)))
+    setSelectedJournalIds([])
+    toast.success(`已删除 ${count} 个期刊`)
+  }
+
+  const toggleJournalSelect = (id: string) => {
+    setSelectedJournalIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
   }
 
   const toggleJournal = (id: string) => {
@@ -948,6 +1000,7 @@ export default function TrackingPage() {
     const selected = new Set(selectedCandidateDois)
     const count = pendingList.filter((c) => selected.has(c.doi)).length
     if (count === 0) return
+    if (count >= 5 && !window.confirm(`确定删除选中的 ${count} 篇候选？它们将不再出现在待入库里。`)) return
     try {
       const next = inbox.map((r) =>
         selected.has(r.doi) && r.status === 'pending'
@@ -1003,6 +1056,22 @@ export default function TrackingPage() {
     selectedCandidateDois.includes(c.doi),
   ).length
 
+  /** 中栏「全选」：是否已把待入库全部勾上（用于复选框的全选 / 半选态） */
+  const allPendingSelected = pendingList.length > 0 && selectedCandidateCount === pendingList.length
+  const somePendingSelected = selectedCandidateCount > 0 && !allPendingSelected
+
+  /** 中栏「全选」：有筛选就是筛选项，这里无筛选即当前待入库全部 */
+  const toggleSelectAllCandidates = () => {
+    if (allPendingSelected) {
+      const all = new Set(pendingList.map((c) => c.doi))
+      setSelectedCandidateDois((prev) => prev.filter((d) => !all.has(d)))
+    } else {
+      setSelectedCandidateDois((prev) =>
+        Array.from(new Set([...prev, ...pendingList.map((c) => c.doi).filter(Boolean)])),
+      )
+    }
+  }
+
   // 超期（满一个月未处理）的候选直接自动删除，不再堆积（用户 2026-10-04 拍板）
   useEffect(() => {
     const cutoff = Date.now() / 1000 - 30 * 86400
@@ -1025,6 +1094,27 @@ export default function TrackingPage() {
     () => literatures.filter((l) => !l.pdfAddedAt).sort((a, b) => a.addedAt - b.addedAt),
     [literatures],
   )
+
+  /** 右栏批量操作选中的有效条目数 */
+  const selectedLibraryCount = libraryPendingPdf.filter((l) =>
+    selectedLibraryDois.includes(l.doi),
+  ).length
+
+  /** 右栏「全选」：是否已把待补 PDF 全部勾上 */
+  const allLibrarySelected = libraryPendingPdf.length > 0 && selectedLibraryCount === libraryPendingPdf.length
+  const someLibrarySelected = selectedLibraryCount > 0 && !allLibrarySelected
+
+  /** 右栏「全选」：无筛选即当前待补 PDF 列表全部 */
+  const toggleSelectAllLibrary = () => {
+    if (allLibrarySelected) {
+      const all = new Set(libraryPendingPdf.map((l) => l.doi))
+      setSelectedLibraryDois((prev) => prev.filter((d) => !all.has(d)))
+    } else {
+      setSelectedLibraryDois((prev) =>
+        Array.from(new Set([...prev, ...libraryPendingPdf.map((l) => l.doi).filter(Boolean)])),
+      )
+    }
+  }
 
   // ============================================================
   // 右栏操作：上传 PDF / 撤销入库 / 批量跳转 DOI
@@ -1095,6 +1185,24 @@ export default function TrackingPage() {
       window.open(`https://doi.org/${l.doi}`, '_blank', 'noopener,noreferrer'),
     )
     toast.message(`已打开 ${targets.length} 个 DOI 链接`)
+  }
+
+  /** 右栏批量撤销入库：选中的一次性移出文献库 */
+  const handleBatchUndoIngest = async () => {
+    const targets = libraryPendingPdf.filter((l) => l.doi && selectedLibraryDois.includes(l.doi))
+    const count = targets.length
+    if (count === 0) return
+    if (count >= 5 && !window.confirm(`确定将选中的 ${count} 篇移出文献库？此操作不可撤销。`)) return
+    try {
+      for (const l of targets) await removeLiterature(l.doi)
+      const selected = new Set(targets.map((l) => l.doi))
+      setLiteratures((prev) => prev.filter((l) => !selected.has(l.doi)))
+      setSelectedLibraryDois([])
+      toast.success(`已移出文献库 ${count} 篇`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`批量撤销入库失败：${msg}`)
+    }
   }
 
   // ============================================================
@@ -1362,13 +1470,29 @@ export default function TrackingPage() {
         {/* ============================================================ */}
         <section className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
           <div className="af-line-b flex shrink-0 items-center justify-between gap-2 px-ui-gap py-3">
-            <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
-              <Rss className="h-4 w-4 text-seal-600" />
-              待入库
+            <div className="flex min-w-0 items-center gap-2.5">
               {pendingList.length > 0 && (
-                <span className="rounded-control-sm bg-seal-50 px-1.5 py-0.5 text-ui-xs text-seal-600">{pendingList.length}</span>
+                <label className="flex flex-shrink-0 cursor-pointer items-center gap-1.5 text-ui-2xs text-ink-500" title="全选待入库">
+                  <input
+                    type="checkbox"
+                    checked={allPendingSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = somePendingSelected
+                    }}
+                    onChange={toggleSelectAllCandidates}
+                    className="h-3.5 w-3.5 accent-seal-600"
+                  />
+                  全选
+                </label>
               )}
-            </h2>
+              <h2 className="flex min-w-0 items-center gap-2 text-ui-sm font-semibold text-ink-800">
+                <Rss className="h-4 w-4 flex-shrink-0 text-seal-600" />
+                待入库
+                {pendingList.length > 0 && (
+                  <span className="rounded-control-sm bg-seal-50 px-1.5 py-0.5 text-ui-xs text-seal-600">{pendingList.length}</span>
+                )}
+              </h2>
+            </div>
             {selectedCandidateCount > 0 ? (
               <div className="flex items-center gap-1.5">
                 <button
@@ -1488,21 +1612,46 @@ export default function TrackingPage() {
         <section className="flex min-h-0 flex-col overflow-hidden rounded-card border border-ink-200 bg-paper-50">
           <div className="af-line-b shrink-0 px-ui-gap py-3">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="flex items-center gap-2 text-ui-sm font-semibold text-ink-800">
-                <FileText className="h-4 w-4 text-seal-600" />
-                待补 PDF
+              <div className="flex min-w-0 items-center gap-2.5">
                 {libraryPendingPdf.length > 0 && (
-                  <span className="rounded-control-sm bg-orange-50 px-1.5 py-0.5 text-ui-xs text-orange-600">{libraryPendingPdf.length}</span>
+                  <label className="flex flex-shrink-0 cursor-pointer items-center gap-1.5 text-ui-2xs text-ink-500" title="全选待补 PDF">
+                    <input
+                      type="checkbox"
+                      checked={allLibrarySelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someLibrarySelected
+                      }}
+                      onChange={toggleSelectAllLibrary}
+                      className="h-3.5 w-3.5 accent-seal-600"
+                    />
+                    全选
+                  </label>
                 )}
-              </h2>
-              {selectedLibraryDois.length > 0 && (
-                <button
-                  onClick={handleBatchOpenDoi}
-                  className="flex items-center gap-1.5 rounded-control bg-seal-600 px-2.5 py-1.5 text-ui-2xs font-medium text-paper-50 transition hover:bg-seal-700"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  打开 DOI（{selectedLibraryDois.length}）
-                </button>
+                <h2 className="flex min-w-0 items-center gap-2 text-ui-sm font-semibold text-ink-800">
+                  <FileText className="h-4 w-4 flex-shrink-0 text-seal-600" />
+                  待补 PDF
+                  {libraryPendingPdf.length > 0 && (
+                    <span className="rounded-control-sm bg-orange-50 px-1.5 py-0.5 text-ui-xs text-orange-600">{libraryPendingPdf.length}</span>
+                  )}
+                </h2>
+              </div>
+              {selectedLibraryCount > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleBatchUndoIngest}
+                    className="flex items-center gap-1 rounded-control border border-ink-200 px-2 py-1 text-ui-2xs font-medium text-ink-500 transition hover:bg-ink-100"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    移出（{selectedLibraryCount}）
+                  </button>
+                  <button
+                    onClick={handleBatchOpenDoi}
+                    className="flex items-center gap-1 rounded-control bg-seal-600 px-2 py-1 text-ui-2xs font-medium text-paper-50 transition hover:bg-seal-700"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    打开 DOI（{selectedLibraryCount}）
+                  </button>
+                </div>
               )}
             </div>
             <p className="mt-1 text-ui-2xs text-ink-400">决定要读的，就赶紧把 PDF 找进来，别拖着</p>
@@ -1576,18 +1725,40 @@ export default function TrackingPage() {
             className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-card bg-paper-50 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="af-line-b flex shrink-0 items-center justify-between p-5">
+            <div className="af-line-b flex shrink-0 items-center justify-between gap-3 p-5">
               <h3 className="flex items-center gap-2 font-semibold text-ink-800">
                 <Tag className="h-4 w-4 text-seal-600" />
                 关键词组
                 <span className="font-normal text-ink-400">({keywordGroups.length})</span>
               </h3>
-              <button
-                onClick={() => setShowKeywordGroupsModal(false)}
-                className="p-1 text-ink-400 transition hover:text-ink-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-3">
+                {keywordGroups.length > 0 && (
+                  <label
+                    className="flex cursor-pointer items-center gap-1.5 text-ui-2xs text-ink-500"
+                    title="全选关键词组"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedKeywordGroupIds.length === keywordGroups.length}
+                      ref={(el) => {
+                        if (el)
+                          el.indeterminate =
+                            selectedKeywordGroupIds.length > 0 &&
+                            selectedKeywordGroupIds.length < keywordGroups.length
+                      }}
+                      onChange={toggleSelectAllKeywordGroups}
+                      className="h-3.5 w-3.5 accent-seal-600"
+                    />
+                    全选
+                  </label>
+                )}
+                <button
+                  onClick={() => setShowKeywordGroupsModal(false)}
+                  className="p-1 text-ink-400 transition hover:text-ink-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-5">
               {keywordGroups.length === 0 ? (
@@ -1602,6 +1773,12 @@ export default function TrackingPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedKeywordGroupIds.includes(group.id)}
+                          onChange={() => toggleKeywordGroupSelect(group.id)}
+                          className="h-3.5 w-3.5 flex-shrink-0 accent-seal-600"
+                        />
                         <button
                           onClick={() => toggleKeywordGroup(group.id)}
                           className={`relative h-4 w-7 flex-shrink-0 rounded-full transition ${group.enabled ? 'bg-seal-600' : 'bg-ink-300'}`}
@@ -1640,22 +1817,35 @@ export default function TrackingPage() {
                 ))
               )}
             </div>
-            <div className="af-line-t flex shrink-0 items-center justify-end gap-2 p-5">
-              <button
-                onClick={() => setShowKeywordGroupsModal(false)}
-                className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
-              >
-                关闭
-              </button>
-              <button
-                onClick={() => {
-                  setShowKeywordGroupsModal(false)
-                  openAddKeywordGroup()
-                }}
-                className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
-              >
-                新建关键词组
-              </button>
+            <div className="af-line-t flex shrink-0 items-center justify-between gap-2 p-5">
+              <div>
+                {selectedKeywordGroupIds.length > 0 && (
+                  <button
+                    onClick={handleBatchDeleteKeywordGroups}
+                    className="flex items-center gap-1.5 rounded-control border border-red-200 px-ui-gap py-2 text-ui-sm font-medium text-red-600 transition hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    删除（{selectedKeywordGroupIds.length}）
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowKeywordGroupsModal(false)}
+                  className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
+                >
+                  关闭
+                </button>
+                <button
+                  onClick={() => {
+                    setShowKeywordGroupsModal(false)
+                    openAddKeywordGroup()
+                  }}
+                  className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
+                >
+                  新建关键词组
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1673,18 +1863,40 @@ export default function TrackingPage() {
             className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-card bg-paper-50 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="af-line-b flex shrink-0 items-center justify-between p-5">
+            <div className="af-line-b flex shrink-0 items-center justify-between gap-3 p-5">
               <h3 className="flex items-center gap-2 font-semibold text-ink-800">
                 <BookMarked className="h-4 w-4 text-seal-600" />
                 期刊追踪
                 <span className="font-normal text-ink-400">({journals.length})</span>
               </h3>
-              <button
-                onClick={() => setShowJournalsModal(false)}
-                className="p-1 text-ink-400 transition hover:text-ink-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-3">
+                {journals.length > 0 && (
+                  <label
+                    className="flex cursor-pointer items-center gap-1.5 text-ui-2xs text-ink-500"
+                    title="全选期刊"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedJournalIds.length === journals.length}
+                      ref={(el) => {
+                        if (el)
+                          el.indeterminate =
+                            selectedJournalIds.length > 0 &&
+                            selectedJournalIds.length < journals.length
+                      }}
+                      onChange={toggleSelectAllJournals}
+                      className="h-3.5 w-3.5 accent-seal-600"
+                    />
+                    全选
+                  </label>
+                )}
+                <button
+                  onClick={() => setShowJournalsModal(false)}
+                  className="p-1 text-ink-400 transition hover:text-ink-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-5">
               {journals.length === 0 ? (
@@ -1698,6 +1910,12 @@ export default function TrackingPage() {
                     className={`flex items-center justify-between gap-2 rounded-control p-3 transition hover:bg-paper-100 ${journal.enabled ? '' : 'opacity-60'}`}
                   >
                     <div className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedJournalIds.includes(journal.id)}
+                        onChange={() => toggleJournalSelect(journal.id)}
+                        className="h-3.5 w-3.5 flex-shrink-0 accent-seal-600"
+                      />
                       <button
                         onClick={() => toggleJournal(journal.id)}
                         className={`relative h-4 w-7 flex-shrink-0 rounded-full transition ${journal.enabled ? 'bg-seal-600' : 'bg-ink-300'}`}
@@ -1729,22 +1947,35 @@ export default function TrackingPage() {
                 ))
               )}
             </div>
-            <div className="af-line-t flex shrink-0 items-center justify-end gap-2 p-5">
-              <button
-                onClick={() => setShowJournalsModal(false)}
-                className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
-              >
-                关闭
-              </button>
-              <button
-                onClick={() => {
-                  setShowJournalsModal(false)
-                  openAddJournal()
-                }}
-                className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
-              >
-                添加期刊
-              </button>
+            <div className="af-line-t flex shrink-0 items-center justify-between gap-2 p-5">
+              <div>
+                {selectedJournalIds.length > 0 && (
+                  <button
+                    onClick={handleBatchDeleteJournals}
+                    className="flex items-center gap-1.5 rounded-control border border-red-200 px-ui-gap py-2 text-ui-sm font-medium text-red-600 transition hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    删除（{selectedJournalIds.length}）
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowJournalsModal(false)}
+                  className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
+                >
+                  关闭
+                </button>
+                <button
+                  onClick={() => {
+                    setShowJournalsModal(false)
+                    openAddJournal()
+                  }}
+                  className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
+                >
+                  添加期刊
+                </button>
+              </div>
             </div>
           </div>
         </div>
