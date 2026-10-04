@@ -31,6 +31,7 @@ import {
   ExternalLink,
   RotateCcw,
   Languages,
+  Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
@@ -53,6 +54,7 @@ import {
   type TrackingCandidate,
 } from '../services/trackingData'
 import { dispatchDailyTracking, waitForDailyTracking } from '../services/workflowClient'
+import { resolveJournals, type JournalCandidate } from '../services/journalResolve'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 
@@ -159,6 +161,10 @@ export default function TrackingPage() {
   const [journalFormIssn, setJournalFormIssn] = useState('')
   const [journalFormPublisher, setJournalFormPublisher] = useState('')
   const [journalFormRssUrl, setJournalFormRssUrl] = useState('')
+  /** 智能匹配出的期刊候选（点选即填名称/ISSN/出版社） */
+  const [journalMatches, setJournalMatches] = useState<JournalCandidate[]>([])
+  /** 智能匹配请求中（AI 归一化 + OpenAlex 回查可能较慢，需要 loading 反馈） */
+  const [isResolvingJournal, setIsResolvingJournal] = useState(false)
 
   // ---------- 搜索 ----------
   const [searchSites, setSearchSites] = useState<SearchSite[]>(DEFAULT_SEARCH_SITES)
@@ -242,11 +248,14 @@ export default function TrackingPage() {
           'journals/journal_tracking.csv',
           (rows) => {
             if (rows.length <= 1) return []
+            // 表头：id,name,rss_url,enabled,issn,publisher（后两列由 v8 迁移补齐）
             return rows.slice(1).map((r) => ({
               id: r[0] || '',
               name: r[1] || '',
               rssUrl: r[2] || undefined,
               enabled: r[3] === '1' || r[3] === 'true',
+              issn: r[4] || undefined,
+              publisher: r[5] || undefined,
             }))
           },
         )
@@ -356,8 +365,10 @@ export default function TrackingPage() {
         await writeCsvFile(
           'journals/journal_tracking.csv',
           journals,
-          ['id', 'name', 'rss_url', 'enabled'],
-          (j) => [j.id, j.name, j.rssUrl || '', j.enabled ? '1' : '0'],
+          // ⚠️ 表头必须与 v8 迁移后的表头逐字一致：
+          //   后端 daily_tracking.py 按 issn 精确检索 OpenAlex，issn 列丢了期刊就只能靠反查。
+          ['id', 'name', 'rss_url', 'enabled', 'issn', 'publisher'],
+          (j) => [j.id, j.name, j.rssUrl || '', j.enabled ? '1' : '0', j.issn || '', j.publisher || ''],
         )
       } catch (err) {
         console.error('[Tracking] 保存期刊到 GitHub 失败:', err)
@@ -560,6 +571,7 @@ export default function TrackingPage() {
     setJournalFormIssn('')
     setJournalFormPublisher('')
     setJournalFormRssUrl('')
+    setJournalMatches([])
     setShowJournalModal(true)
   }
 
@@ -569,6 +581,7 @@ export default function TrackingPage() {
     setJournalFormIssn(journal.issn || '')
     setJournalFormPublisher(journal.publisher || '')
     setJournalFormRssUrl(journal.rssUrl || '')
+    setJournalMatches([])
     setShowJournalModal(true)
   }
 
@@ -617,6 +630,47 @@ export default function TrackingPage() {
     setJournals((prev) =>
       prev.map((j) => (j.id === id ? { ...j, enabled: !j.enabled } : j)),
     )
+  }
+
+  /**
+   * 智能匹配：把用户填的模糊输入（中文名 / 简称 / 记不清的片段）解析成期刊候选。
+   * AI 未配置时 getDualEngineConfig 会抛错 —— 这里兜成可读提示，不把异常甩到界面。
+   */
+  const handleResolveJournal = async () => {
+    const q = journalFormName.trim()
+    if (!q) {
+      toast.error('请先输入期刊名称或关键词')
+      return
+    }
+    let ai: { baseUrl: string; apiKey: string; model: string }
+    try {
+      ai = useSettingsStore.getState().getDualEngineConfig().ai1
+    } catch {
+      toast.error('智能匹配需要先在设置里配置 AI-1，或直接手动填写 ISSN')
+      return
+    }
+    setIsResolvingJournal(true)
+    setJournalMatches([])
+    try {
+      const matches = await resolveJournals(q, ai)
+      if (matches.length === 0) {
+        toast.error('没找到匹配的期刊，换个写法或直接手动填写')
+      } else {
+        setJournalMatches(matches)
+      }
+    } catch {
+      toast.error('智能匹配失败，请稍后重试或直接手动填写')
+    } finally {
+      setIsResolvingJournal(false)
+    }
+  }
+
+  /** 点选候选：把权威刊名 / ISSN / 出版社填进表单 */
+  const applyJournalMatch = (m: JournalCandidate) => {
+    setJournalFormName(m.name)
+    if (m.issn) setJournalFormIssn(m.issn)
+    if (m.publisher) setJournalFormPublisher(m.publisher)
+    setJournalMatches([])
   }
 
   // ============================================================
@@ -1779,13 +1833,50 @@ export default function TrackingPage() {
                 <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">
                   期刊名称 <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={journalFormName}
-                  onChange={(e) => setJournalFormName(e.target.value)}
-                  placeholder="如：Sample Journal"
-                  className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={journalFormName}
+                    onChange={(e) => setJournalFormName(e.target.value)}
+                    placeholder="输入中文名 / 简称 / ISSN，如：JACS、美国化学会志"
+                    className="flex-1 min-w-0 px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleResolveJournal}
+                    disabled={isResolvingJournal}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-ui-sm rounded-control border border-seal-200 text-seal-700 bg-seal-50 hover:bg-seal-100 transition disabled:opacity-60"
+                  >
+                    {isResolvingJournal ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4" />
+                    )}
+                    智能匹配
+                  </button>
+                </div>
+                <p className="mt-1.5 text-ui-xs text-ink-400">
+                  不确定期刊的正式全名？输入中文名 / 简称后点「智能匹配」，自动补全正式刊名与 ISSN。
+                </p>
+                {journalMatches.length > 0 && (
+                  <div className="mt-2 border border-ink-200 rounded-control divide-y divide-ink-100 max-h-52 overflow-auto">
+                    {journalMatches.map((m, i) => (
+                      <button
+                        key={`${m.issn || m.name}-${i}`}
+                        type="button"
+                        onClick={() => applyJournalMatch(m)}
+                        className="w-full text-left px-3 py-2 hover:bg-seal-50 transition"
+                      >
+                        <div className="text-ui-sm text-ink-800 font-medium">{m.name}</div>
+                        <div className="text-ui-xs text-ink-400 mt-0.5">
+                          {m.issn ? `ISSN ${m.issn}` : '无 ISSN'}
+                          {m.publisher ? ` · ${m.publisher}` : ''}
+                          {m.worksCount ? ` · 收录 ${m.worksCount.toLocaleString()} 篇` : ''}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

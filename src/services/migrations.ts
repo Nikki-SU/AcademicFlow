@@ -304,6 +304,36 @@ const coursesRepeatField: Migration = {
   },
 }
 
+/**
+ * v7 → v8：期刊表补 issn / publisher 列
+ * 期刊追踪已改为「按 ISSN 精确检索」（后端 daily_tracking.py 用 ISSN 拉 OpenAlex），
+ * 但旧 journals/journal_tracking.csv 只有 id/name/rss_url/enabled 四列，ISSN 无处可存 ——
+ * 前端即使填了也会在写回时被丢弃。这里就地补两列（老行补空），之后前端便可直接假定六列。
+ */
+const JOURNALS_PATH = 'journals/journal_tracking.csv'
+const journalsIssnField: Migration = {
+  id: 'journals-issn-field-v1',
+  affects: ['tracking'],
+  since: 8,
+  label: '升级期刊表（新增 issn / publisher：按 ISSN 精确追踪）',
+  detect: async () => {
+    const header = await readCsvHeader(JOURNALS_PATH)
+    return !!header && !header.includes('issn')
+  },
+  run: async () => {
+    const rows = await readCsvFile<string[]>(JOURNALS_PATH, (r) => r.slice(1), true)
+    // 直迁（ADJ-60）下 run 会无条件执行：没有期刊数据（文件不存在 / 空表）就什么都不做，不凭空建表
+    if (rows.length === 0) return
+    const out = rows.map((r) => [r[0] || '', r[1] || '', r[2] || '', r[3] || '', '', ''])
+    await writeCsvFile(
+      JOURNALS_PATH,
+      out,
+      ['id', 'name', 'rss_url', 'enabled', 'issn', 'publisher'],
+      (r) => r,
+    )
+  },
+}
+
 // ============================================================
 // 文档级迁移工具（遍历仓库文件 → 探测 → 就地改名 / 重写）
 // ============================================================
@@ -884,6 +914,7 @@ export const MIGRATIONS: Migration[] = [
   coursesRepeatField,
   readingNotesMulti,
   materialsTaskTags,
+  journalsIssnField,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
@@ -927,7 +958,7 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
  * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 7
+export const DATA_VERSION = 8
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']
