@@ -114,8 +114,8 @@ import {
   type TaskFilterOption,
   type CitationRef as ServiceCitationRef,
 } from '../services/projectData'
-import { loadLiteratures, loadTitleCns, type Literature } from '../services/literatureData'
-import { listBooks, type BookSummary } from '../services/textbookData'
+import { loadLiteratures, loadTitleCns, saveLiteratures, type Literature } from '../services/literatureData'
+import { listBooks, saveTextbooks, type BookSummary } from '../services/textbookData'
 import { loadMaterialMeta, saveMaterialMeta, setMeta } from '../services/materialMeta'
 import { callAI } from '../services/ai/client'
 import {
@@ -1022,6 +1022,13 @@ export default function WritingPage() {
   const [projectLitSearch, setProjectLitSearch] = useState('')
   const [projectLitSelected, setProjectLitSelected] = useState<string[]>([])
   const [projectLitTargetId, setProjectLitTargetId] = useState<string | null>(null)
+  /** 弹层视图：'select' = 选已有材料；'create' = 新建一份材料（知识库全局） */
+  const [projectLitCreateMode, setProjectLitCreateMode] = useState(false)
+  // 「添加项目材料」弹层里「新建」：往全局库新增一份文献 / 图书，再归入本项目
+  const [newMaterialTab, setNewMaterialTab] = useState<'paper' | 'book'>('paper')
+  const [newMaterialTitle, setNewMaterialTitle] = useState('')
+  const [newMaterialDoi, setNewMaterialDoi] = useState('')
+  const [isCreatingMaterial, setIsCreatingMaterial] = useState(false)
 
   // ── 侧栏「文献检索」—— 只搜库内；库外检索是 AI 助手里「找文献」的活 ──
   const [libSearchExpanded, setLibSearchExpanded] = useState(true)
@@ -2142,6 +2149,7 @@ export default function WritingPage() {
     setProjectLitTab('paper')
     setProjectLitSearch('')
     setProjectLitSelected([])
+    setProjectLitCreateMode(false)
     setShowProjectLitModal(true)
   }
 
@@ -2221,6 +2229,126 @@ export default function WritingPage() {
     setShowProjectLitModal(false)
     setProjectLitSelected([])
     setProjectLitTargetId(null)
+  }
+
+  /**
+   * 弹层「新建」：往全局库新增一份文献 / 图书，并归入本项目（知识库全局、调用局部）。
+   * 新建成功后切回「选已有」tab 并清空新建表单，用户可继续勾选更多已有材料。
+   */
+  const handleCreateNewMaterial = async () => {
+    const projectId = projectLitTargetId
+    const title = newMaterialTitle.trim()
+    if (!projectId) return
+    if (!title) {
+      toast.error('请填写材料标题')
+      return
+    }
+    if (isCreatingMaterial) return
+    setIsCreatingMaterial(true)
+    try {
+      if (newMaterialTab === 'paper') {
+        const doi = newMaterialDoi.trim()
+        if (!doi) {
+          toast.error('文献需要填写 DOI')
+          return
+        }
+        const normalizedDoi = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').replace(/\/+$/, '')
+        const existing = await loadLiteratures()
+        if (existing.some((p) => p.doi.toLowerCase() === normalizedDoi.toLowerCase())) {
+          toast.error('这篇文献已在库中，请在「选已有」里勾选')
+          return
+        }
+        const now = Date.now()
+        const newLit: Literature = {
+          doi: normalizedDoi,
+          title,
+          journal: '',
+          year: new Date().getFullYear(),
+          authors: '',
+          keywords: '',
+          abstractEn: '',
+          abstractCn: '',
+          tier: 2,
+          hasGraphicalAbstract: false,
+          addedAt: now,
+          pdfAddedAt: 0,
+          source: 'manual',
+          trackingGroup: '',
+          mdStatus: 'none',
+          correspondingAuthor: '',
+        }
+        await saveLiteratures([...existing, newLit])
+        setAvailablePapers((prev) => [...prev, newLit])
+        // 归入本项目（paper 引用 + material meta）
+        setCitations((prev) => {
+          const ref: CitationRef = {
+            id: normalizedDoi,
+            doi: normalizedDoi,
+            title,
+            authors: '',
+            year: newLit.year,
+            journal: '',
+            type: 'paper',
+            projectId,
+          }
+          const exist = prev.some((c) => c.projectId === projectId && c.type === 'paper' && c.doi === normalizedDoi)
+          const updated = exist ? prev : [...prev, ref]
+          const refs = updated.filter((c) => c.projectId === projectId && c.type === 'paper')
+          savePaperReferences(projectId, refs).catch(() => toast.error('保存项目文献失败，请检查仓库权限'))
+          return updated
+        })
+        try {
+          const meta = await loadMaterialMeta()
+          await saveMaterialMeta(setMeta(meta, 'paper', normalizedDoi, { taskId: projectId }))
+        } catch (err) {
+          console.error('[Writing] 同步材料归属失败:', err)
+        }
+      } else {
+        const existing = await listBooks()
+        const bookId = title
+        if (existing.some((b) => b.id === bookId)) {
+          toast.error('这本书已在库中，请在「选已有」里勾选')
+          return
+        }
+        const newBook = { id: bookId, title, hasContent: false }
+        await saveTextbooks([...existing.map((b) => ({ textbookId: b.id, title: b.title, author: '', publisher: '', year: 0, notes: '', addedAt: Date.now() })), {
+          textbookId: bookId, title, author: '', publisher: '', year: 0, notes: '', addedAt: Date.now(),
+        }])
+        setAvailableBooks((prev) => [...prev, newBook])
+        setCitations((prev) => {
+          const ref: CitationRef = {
+            id: bookId,
+            doi: '',
+            title,
+            authors: '',
+            year: 0,
+            journal: '',
+            type: 'book',
+            projectId,
+          }
+          const exist = prev.some((c) => c.projectId === projectId && c.type === 'book' && c.id === bookId)
+          const updated = exist ? prev : [...prev, ref]
+          const refs = updated.filter((c) => c.projectId === projectId && c.type === 'book')
+          saveBookReferences(projectId, refs).catch(() => toast.error('保存项目图书失败，请检查仓库权限'))
+          return updated
+        })
+        try {
+          const meta = await loadMaterialMeta()
+          await saveMaterialMeta(setMeta(meta, 'book', bookId, { taskId: projectId }))
+        } catch (err) {
+          console.error('[Writing] 同步材料归属失败:', err)
+        }
+      }
+      // 新建成功：切回「选已有」、清空表单
+      setNewMaterialTitle('')
+      setNewMaterialDoi('')
+      setProjectLitTab(newMaterialTab)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`新建材料失败：${msg}`, { duration: 8000 })
+    } finally {
+      setIsCreatingMaterial(false)
+    }
   }
 
   // ── 插入引用：在线检索（Crossref，中英文关键词都支持）──
@@ -5595,8 +5723,37 @@ export default function WritingPage() {
 
             <div className="af-line-b px-ui-gap py-2 space-y-2">
               {projectLitResearchOnly ? (
-                <div className="text-ui-xs text-ink-400">
-                  研究任务只能引用期刊文献（图书 / 其他很难引用）
+                <div className="flex items-center gap-1 bg-paper-100 rounded-control p-0.5">
+                  {([
+                    ['paper', '文献'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => {
+                        setProjectLitCreateMode(false)
+                        setProjectLitTab(value)
+                        setProjectLitSelected([])
+                        setProjectLitSearch('')
+                      }}
+                      className={`flex-1 rounded-control-sm px-2 py-1 text-ui-xs transition ${
+                        !projectLitCreateMode && projectLitActiveTab === value
+                          ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
+                          : 'text-ink-500 hover:text-ink-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setProjectLitCreateMode(true)}
+                    className={`flex-1 rounded-control-sm px-2 py-1 text-ui-xs transition ${
+                      projectLitCreateMode
+                        ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
+                        : 'text-ink-500 hover:text-ink-700'
+                    }`}
+                  >
+                    新建
+                  </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-1 bg-paper-100 rounded-control p-0.5">
@@ -5607,12 +5764,13 @@ export default function WritingPage() {
                     <button
                       key={value}
                       onClick={() => {
+                        setProjectLitCreateMode(false)
                         setProjectLitTab(value)
                         setProjectLitSelected([])
                         setProjectLitSearch('')
                       }}
                       className={`flex-1 rounded-control-sm px-2 py-1 text-ui-xs transition ${
-                        projectLitActiveTab === value
+                        !projectLitCreateMode && projectLitActiveTab === value
                           ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
                           : 'text-ink-500 hover:text-ink-700'
                       }`}
@@ -5620,26 +5778,94 @@ export default function WritingPage() {
                       {label}
                     </button>
                   ))}
+                  <button
+                    onClick={() => setProjectLitCreateMode(true)}
+                    className={`flex-1 rounded-control-sm px-2 py-1 text-ui-xs transition ${
+                      projectLitCreateMode
+                        ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
+                        : 'text-ink-500 hover:text-ink-700'
+                    }`}
+                  >
+                    新建
+                  </button>
                 </div>
               )}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-ui-icon-sm w-ui-icon-sm text-ink-400" />
-                <input
-                  type="text"
-                  value={projectLitSearch}
-                  onChange={(e) => setProjectLitSearch(e.target.value)}
-                  placeholder={
-                    projectLitActiveTab === 'book'
-                      ? '搜索图书库（书名）...'
-                      : '搜索文献库（标题 / 作者 / 期刊 / DOI）...'
-                  }
-                  className="w-full pl-8 pr-3 py-1.5 text-ui-sm border border-ink-200 rounded-control focus:outline-none focus:border-seal-400"
-                />
-              </div>
+              {!projectLitCreateMode && (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-ui-icon-sm w-ui-icon-sm text-ink-400" />
+                  <input
+                    type="text"
+                    value={projectLitSearch}
+                    onChange={(e) => setProjectLitSearch(e.target.value)}
+                    placeholder={
+                      projectLitActiveTab === 'book'
+                        ? '搜索图书库（书名）...'
+                        : '搜索文献库（标题 / 作者 / 期刊 / DOI）...'
+                    }
+                    className="w-full pl-8 pr-3 py-1.5 text-ui-sm border border-ink-200 rounded-control focus:outline-none focus:border-seal-400"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {projectLitActiveTab === 'paper' ? (
+              {projectLitCreateMode ? (
+                <div className="space-y-3">
+                  <div className="text-ui-2xs text-ink-400">
+                    新建的材料会写入全局库（所有任务都能用），同时归入本任务 —— 知识库全局、调用局部。
+                  </div>
+                  {/* 新建类型切换 */}
+                  <div className="flex items-center gap-1 bg-paper-100 rounded-control p-0.5">
+                    {([
+                      ['paper', '文献'],
+                      ['book', '图书'],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => setNewMaterialTab(value)}
+                        className={`flex-1 rounded-control-sm px-2 py-1 text-ui-xs transition ${
+                          newMaterialTab === value
+                            ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
+                            : 'text-ink-500 hover:text-ink-700'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    <label className="block text-ui-xs text-ink-600 mb-1">
+                      {newMaterialTab === 'book' ? '书名' : '标题'}
+                    </label>
+                    <input
+                      type="text"
+                      value={newMaterialTitle}
+                      onChange={(e) => setNewMaterialTitle(e.target.value)}
+                      placeholder={newMaterialTab === 'book' ? '输入书名' : '输入文献标题'}
+                      className="w-full px-3 py-1.5 text-ui-sm border border-ink-200 rounded-control focus:outline-none focus:border-seal-400"
+                    />
+                  </div>
+                  {newMaterialTab === 'paper' && (
+                    <div>
+                      <label className="block text-ui-xs text-ink-600 mb-1">DOI</label>
+                      <input
+                        type="text"
+                        value={newMaterialDoi}
+                        onChange={(e) => setNewMaterialDoi(e.target.value)}
+                        placeholder="如 10.1021/jacs.12345678（可贴完整链接）"
+                        className="w-full px-3 py-1.5 text-ui-sm border border-ink-200 rounded-control focus:outline-none focus:border-seal-400"
+                      />
+                    </div>
+                  )}
+                  <button
+                    onClick={() => void handleCreateNewMaterial()}
+                    disabled={isCreatingMaterial || !newMaterialTitle.trim() || (newMaterialTab === 'paper' && !newMaterialDoi.trim())}
+                    className="w-full px-ui-gap py-1.5 text-ui-sm bg-seal-600 text-paper-50 rounded-control hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isCreatingMaterial ? '创建中…' : `新建并加入本任务`}
+                  </button>
+                </div>
+              ) : projectLitActiveTab === 'paper' ? (
                 <>
                   {availablePapers.length === 0 && (
                     <div className="text-center py-8 text-ui-sm text-ink-400">
@@ -5743,27 +5969,37 @@ export default function WritingPage() {
             </div>
 
             <div className="af-line-t px-ui-gap py-3 bg-paper-100/50 flex items-center justify-between">
-              <span className="text-ui-xs text-ink-500">
-                已选 <span className="font-semibold text-seal-600">{projectLitSelected.length}</span> 项
-              </span>
+              {projectLitCreateMode ? (
+                <span className="text-ui-xs text-ink-500">新建后自动归入本任务，也可继续在「选已有」里补充</span>
+              ) : (
+                <span className="text-ui-xs text-ink-500">
+                  已选 <span className="font-semibold text-seal-600">{projectLitSelected.length}</span> 项
+                </span>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => {
-                    setShowProjectLitModal(false)
-                    setProjectLitTargetId(null)
-                    setProjectLitSelected([])
+                    if (projectLitCreateMode) {
+                      setProjectLitCreateMode(false)
+                    } else {
+                      setShowProjectLitModal(false)
+                      setProjectLitTargetId(null)
+                      setProjectLitSelected([])
+                    }
                   }}
                   className="px-ui-gap py-1.5 text-ui-sm text-ink-600 hover:bg-ink-200 rounded-control transition"
                 >
-                  跳过
+                  {projectLitCreateMode ? '返回选已有' : '跳过'}
                 </button>
-                <button
-                  onClick={handleAddProjectLiterature}
-                  disabled={projectLitSelected.length === 0}
-                  className="px-ui-gap py-1.5 text-ui-sm bg-seal-600 text-paper-50 rounded-control hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  添加
-                </button>
+                {!projectLitCreateMode && (
+                  <button
+                    onClick={handleAddProjectLiterature}
+                    disabled={projectLitSelected.length === 0}
+                    className="px-ui-gap py-1.5 text-ui-sm bg-seal-600 text-paper-50 rounded-control hover:bg-seal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    添加
+                  </button>
+                )}
               </div>
             </div>
           </div>
