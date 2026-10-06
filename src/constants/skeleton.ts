@@ -121,10 +121,11 @@ const CSV_HEADERS = {
   tracking_inbox: 'doi,title,journal,year,authors,keywords,abstract_en,source,tracking_group,found_at,status',
   // ⚠️ 必须与 src/services/trackingPlanData.ts 的 TRACKING_PLAN_HEADERS 逐字一致（顺序也一致）：
   //    定时追踪计划表。一个计划 = 时间规则 + 多个期刊（组内 OR）+ 一个关键词表达式。
-  //    interval ∈ daily|weekly|biweekly|monthly；hour/minute 为北京时间；
-  //    weekdays 为 1-7（周一=1，weekly/biweekly 用）；day_of_month 为 1-28（monthly 用）；
+  //    interval ∈ daily|weekly|semimonthly|monthly；hour/minute 为北京时间；
+  //    weekdays 为 1-7（周一=1，仅 weekly 用）；day_of_month 为 1-28（仅 monthly 用）；
+  //    semimonthly 固定「月初 1 日 + 月中 15 日」，不占 weekdays/day_of_month；
   //    journal_ids 为期刊 id 的逗号分隔（OR）；expression 为该计划自己的布尔表达式（可自定义）；
-  //    last_run_date 由后端回写（YYYY-MM-DD），用于到期判断。
+  //    last_run_date 由后端回写（YYYY-MM-DD），用于当天防重。
   tracking_plans: 'plan_id,plan_name,enabled,interval,hour,minute,weekdays,day_of_month,journal_ids,expression,translate_abstract,last_run_date,created_at',
   // ⚠️ 必须与 src/services/materialMeta.ts 的 MATERIAL_META_HEADERS 逐字一致（顺序也一致）：
   //    材料元数据（任务归属 + 标签）。task_id 空串 = 未归属；tags 用「;」分隔。
@@ -207,6 +208,11 @@ name: Daily Tracking
 
 on:
   workflow_dispatch:
+    inputs:
+      plan_id:
+        description: '立即试跑的计划 id（留空 = 常规立即追踪）'
+        required: false
+        type: string
   schedule:
 __TRACKING_CRON_LINES__
 
@@ -235,6 +241,8 @@ jobs:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           # 触发源：schedule → 走「定时计划」路径；workflow_dispatch → 走「立即追踪」路径
           TRIGGER_EVENT: \${{ github.event_name }}
+          # workflow_dispatch 可带 plan_id：非空 → 立即试跑该计划（一次性，不写 last_run_date）
+          TRIGGER_PLAN_ID: \${{ github.event.inputs.plan_id }}
         run: |
           python .github/scripts/daily_tracking.py
 
@@ -300,6 +308,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -315,6 +324,9 @@ LOGS_DIR = BASE_DIR / "logs" / "tracking"
 OPENALEX_API = "https://api.openalex.org/works"
 OPENALEX_SOURCES_API = "https://api.openalex.org/sources"
 USER_AGENT = "AcademicFlow/1.0 (mailto:bot@academicflow.local)"
+# 抓取并发度：多个计划 / 期刊同时抓，降低墙钟时间（省 Actions 时长）。
+# 4 路足够压住等待，又低于 OpenAlex 礼貌池 10 req/s 的限速，避免被限流。
+MAX_FETCH_WORKERS = 4
 
 
 def load_keyword_groups():
@@ -370,6 +382,7 @@ def load_all_journals():
 
 # 计划表列契约（必须与前端 src/services/trackingPlanData.ts 的
 # TRACKING_PLAN_HEADERS 逐字一致、顺序一致；新列一律追加在末尾）
+# interval ∈ daily|weekly|semimonthly|monthly；semimonthly = 每月月初 1 日 + 月中 15 日。
 PLAN_HEADERS = [
     "plan_id", "plan_name", "enabled", "interval", "hour", "minute",
     "weekdays", "day_of_month", "journal_ids", "expression",
@@ -389,20 +402,19 @@ def _split_ids(v):
     return [x for x in re.split(r"[,\\s]+", (v or "").strip()) if x]
 
 
-def load_plans():
-    """加载「启用」的定时追踪计划（结构化）"""
+def _read_plans_raw():
+    """读 tracking/plans.csv 的全部计划（**不按 enabled 过滤**）"""
     plans = []
     if not PLANS_CSV.exists():
         return plans
     with open(PLANS_CSV, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            if (row.get("enabled", "") or "").strip().lower() not in ("true", "1", "yes"):
-                continue
             weekdays = [int(x) for x in _split_ids(row.get("weekdays")) if x.isdigit()]
             plans.append({
                 "plan_id": (row.get("plan_id", "") or "").strip(),
                 "plan_name": (row.get("plan_name", "") or "").strip(),
+                "enabled": (row.get("enabled", "") or "").strip().lower() in ("true", "1", "yes"),
                 "interval": (row.get("interval", "") or "daily").strip() or "daily",
                 "hour": _safe_int(row.get("hour"), 0, 23, 9),
                 "minute": _safe_int(row.get("minute"), 0, 59, 0),
@@ -416,8 +428,21 @@ def load_plans():
     return plans
 
 
+def load_plans():
+    """加载「启用」的定时追踪计划（结构化）"""
+    return [p for p in _read_plans_raw() if p["enabled"]]
+
+
+def load_plan_by_id(plan_id):
+    """立即试跑用：按 id 取单个计划，**不过滤 enabled**（可先试后启用）"""
+    for p in _read_plans_raw():
+        if p["plan_id"] == plan_id:
+            return p
+    return None
+
+
 def write_plans_last_run(ran):
-    """把本次真正执行过的计划的 last_run_date 回写为北京当天（用于去重 + 每两周锚点）。
+    """把本次真正执行过的计划的 last_run_date 回写为北京当天（用于当天防重）。
     ran = {plan_id: 'YYYY-MM-DD'}；原地重写 plans.csv，保留其它列原值。"""
     if not ran or not PLANS_CSV.exists():
         return
@@ -977,20 +1002,12 @@ def _plan_day_matches(plan, bj):
     interval = plan["interval"]
     if interval == "daily":
         return True
-    if interval in ("weekly", "biweekly"):
+    if interval == "weekly":
         wd = plan["weekdays"][0] if plan["weekdays"] else 1  # 1=周一
-        if bj.isoweekday() != wd:
-            return False
-        if interval == "biweekly":
-            anchor = plan["last_run_date"]
-            if not anchor:
-                return True  # 无锚点：先跑一次，之后以本次为锚
-            try:
-                a = datetime.strptime(anchor, "%Y-%m-%d").date()
-            except ValueError:
-                return True
-            return (bj.date() - a).days % 14 == 0
-        return True
+        return bj.isoweekday() == wd
+    if interval == "semimonthly":
+        # 每半个月 = 每月月初 1 日 + 月中 15 日（二者恰好相隔 14 天）
+        return bj.day in (1, 15)
     if interval == "monthly":
         return bj.day == plan["day_of_month"]
     return False
@@ -1006,8 +1023,90 @@ def is_plan_due(plan, bj):
     return (bj.hour, bj.minute) >= (plan["hour"], plan["minute"])
 
 
+def _build_plan_tasks(plan, journmap):
+    """把一个计划摊成「网络抓取任务」：
+    每个（选了且存在的）期刊一个任务；没有期刊但有表达式时，退化为「按关键词检索」一个任务。"""
+    tasks = []
+    journals = [journmap[jid] for jid in plan["journal_ids"] if jid in journmap]
+    if journals:
+        for jrn in journals:
+            tasks.append({"kind": "journal", "journal": jrn})
+    elif plan["expression"]:
+        q = build_broad_query(plan["expression"])
+        if q:
+            tasks.append({"kind": "keyword", "query": q})
+    return tasks
+
+
+def _fetch_tasks(tasks, from_date, to_date):
+    """**并发**抓取（线程池，限流防限速）；返回与 tasks 等长的结果列表。
+    journal → (papers, via, total)；keyword → list[work]；失败为 None。"""
+    results = [None] * len(tasks)
+    if not tasks:
+        return results
+    with ThreadPoolExecutor(max_workers=MAX_FETCH_WORKERS) as ex:
+        future_map = {}
+        for i, t in enumerate(tasks):
+            if t["kind"] == "journal":
+                fut = ex.submit(collect_journal_papers, t["journal"], from_date, to_date)
+            else:
+                fut = ex.submit(search_openalex, t["query"], from_date, to_date, 200)
+            future_map[fut] = i
+        for fut in as_completed(future_map):
+            i = future_map[fut]
+            try:
+                results[i] = fut.result()
+            except Exception as e:
+                print(f"[ERROR] 抓取任务失败: {e}")
+                results[i] = None
+    return results
+
+
+def _consume_plan(plan, journmap, tasks, fetches, accepted, tag):
+    """把抓取结果按计划表达式过滤，命中的放进 accepted；返回 (result, found_any)。
+    tasks / fetches 同序，保证日志按计划、按期刊可读。"""
+    name = plan["plan_name"] or plan["plan_id"]
+    expr = plan["expression"]
+    missing = [jid for jid in plan["journal_ids"] if jid not in journmap]
+    if missing:
+        print(f"[WARN] 计划「{name}」引用了不存在的期刊 id: {', '.join(missing)}")
+
+    result = {"name": name, "expression": expr, "total_found": 0, "new_papers": []}
+    found_any = False
+    for i, t in enumerate(tasks):
+        res = fetches[i]
+        if t["kind"] == "journal":
+            jrn = t["journal"]
+            print(f"\\n[INFO] {tag}「{name}」追踪期刊: {jrn['name']}")
+            if res is None:
+                print("       来源: error，检索到: 0 篇")
+                continue
+            papers, via, total = res
+            print(f"       来源: {via}，检索到: {total} 篇")
+            result["total_found"] += total
+            if via == "none":
+                continue
+            found_any = True
+            for paper in papers:
+                paper["tracking_group"] = f"{tag}：{name}"
+                if expr and not evaluate_expression(expr, paper_text(paper)):
+                    continue
+                accepted.append({"paper": paper, "plan_name": name})
+        else:
+            print(f"\\n[INFO] {tag}「{name}」按关键词检索: {expr}")
+            works = res or []
+            result["total_found"] = len(works)
+            found_any = True
+            for work in works:
+                paper = openalex_to_literature(work, f"{tag}：{name}")
+                if evaluate_expression(expr, paper_text(paper)):
+                    accepted.append({"paper": paper, "plan_name": name})
+    return result, found_any
+
+
 def run_scheduled(bj):
-    """定时追踪：**先探针**（读计划 → 判断到期），不到期直接返回，零网络请求。"""
+    """定时追踪：**先探针**（读计划 → 判断到期），不到期直接返回，零网络请求；
+    到期则把各计划 / 期刊的抓取任务摊平后**并发**跑（合并成一次 job，但抓取并行）。"""
     print("=" * 60)
     print("AcademicFlow Scheduled Tracking")
     print("=" * 60)
@@ -1028,52 +1127,20 @@ def run_scheduled(bj):
     from_date = (bj - timedelta(days=7)).strftime("%Y-%m-%d")
     to_date = date_str
 
+    # 把所有到期计划的抓取任务摊平，**并发**抓取（合并成一次 job，但按多路并行）
+    plan_tasks = [_build_plan_tasks(p, journmap) for p in due]
+    all_tasks = [t for tasks in plan_tasks for t in tasks]
+    print(f"[INFO] 并发抓取任务 {len(all_tasks)} 个（{MAX_FETCH_WORKERS} 路并发）")
+    fetches = _fetch_tasks(all_tasks, from_date, to_date)
+
     accepted = []
     plan_results = []
     ran = {}
-
-    for plan in due:
-        name = plan["plan_name"] or plan["plan_id"]
-        expr = plan["expression"]
-        journals = [journmap[jid] for jid in plan["journal_ids"] if jid in journmap]
-        missing = [jid for jid in plan["journal_ids"] if jid not in journmap]
-        if missing:
-            print(f"[WARN] 计划「{name}」引用了不存在的期刊 id: {', '.join(missing)}")
-
-        result = {"name": name, "expression": expr, "total_found": 0, "new_papers": []}
-        found_any = False
-
-        if journals:
-            for jrn in journals:
-                print(f"\\n[INFO] 计划「{name}」追踪期刊: {jrn['name']}")
-                papers, via, total = collect_journal_papers(jrn, from_date, to_date)
-                print(f"       来源: {via}，检索到: {total} 篇")
-                result["total_found"] += total
-                if via == "none":
-                    continue
-                found_any = True
-                for paper in papers:
-                    paper["tracking_group"] = f"计划：{name}"
-                    if expr and not evaluate_expression(expr, paper_text(paper)):
-                        continue
-                    accepted.append({"paper": paper, "plan_name": name})
-                if via == "openalex":
-                    time.sleep(0.5)
-        elif expr:
-            query = build_broad_query(expr)
-            if query:
-                print(f"\\n[INFO] 计划「{name}」按关键词检索: {expr}")
-                works = search_openalex(query, from_date, to_date, per_page=200)
-                result["total_found"] = len(works)
-                found_any = True
-                for work in works:
-                    paper = openalex_to_literature(work, f"计划：{name}")
-                    if evaluate_expression(expr, paper_text(paper)):
-                        accepted.append({"paper": paper, "plan_name": name})
-                time.sleep(0.5)
-        else:
-            print(f"[WARN] 计划「{name}」既没有可用期刊、也没有表达式，跳过")
-
+    cursor = 0
+    for plan, tasks in zip(due, plan_tasks):
+        sub = fetches[cursor:cursor + len(tasks)]
+        cursor += len(tasks)
+        result, found_any = _consume_plan(plan, journmap, tasks, sub, accepted, "计划")
         plan_results.append(result)
         if found_any:
             ran[plan["plan_id"]] = date_str
@@ -1104,8 +1171,65 @@ def run_scheduled(bj):
     return 0
 
 
+def run_plan_once(plan_id):
+    """立即试跑（手动触发、**一次性**）：只跑指定 id 的单个计划，**不写 last_run_date**。
+    与定时追踪共用同一套抓取/过滤管线，只是限定为单计划、且不参与「当天防重」。"""
+    print("=" * 60)
+    print("AcademicFlow Plan Test Run")
+    print("=" * 60)
+
+    plan = load_plan_by_id(plan_id)
+    if not plan:
+        print(f"[ERROR] 找不到计划 id={plan_id}，请检查 plans.csv。")
+        return 1
+
+    bj = _beijing_now()
+    name = plan["plan_name"] or plan["plan_id"]
+    print(f"[INFO] 试跑计划: {name}（id={plan['plan_id']}）")
+    print(f"[INFO] 北京时间: {bj.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    journmap = load_all_journals()
+    existing_dois = load_seen_dois()
+    print(f"[INFO] 已见过的 DOI 数: {len(existing_dois)}")
+
+    date_str = bj.strftime("%Y-%m-%d")
+    from_date = (bj - timedelta(days=7)).strftime("%Y-%m-%d")
+    to_date = date_str
+
+    tasks = _build_plan_tasks(plan, journmap)
+    print(f"[INFO] 抓取任务 {len(tasks)} 个（{MAX_FETCH_WORKERS} 路并发）")
+    fetches = _fetch_tasks(tasks, from_date, to_date)
+
+    accepted = []
+    result, _ = _consume_plan(plan, journmap, tasks, fetches, accepted, "试跑")
+
+    new_papers = []
+    for item in accepted:
+        paper = item["paper"]
+        doi = paper["doi"].strip().lower()
+        if not doi or doi in existing_dois:
+            continue
+        existing_dois.add(doi)
+        new_papers.append(paper)
+        for r in [result]:
+            if r["name"] == item["plan_name"]:
+                r["new_papers"].append(paper)
+                break
+
+    if new_papers:
+        print(f"\\n[INFO] 共 {len(new_papers)} 篇候选，写入 tracking/inbox.csv ...")
+        append_candidates(new_papers)
+    else:
+        print("\\n[INFO] 没有新的候选文献。")
+
+    write_log(date_str, [result], [], group_label="计划")
+    # 注意：立即试跑是**一次性**验证，不写 last_run_date，不影响定时追踪的防重。
+    print("\\n[INFO] 立即试跑完成。")
+    return 0
+
+
 def run_immediate():
-    """立即追踪（手动触发）：按当前启用的关键词组 × 期刊跑一次。"""
+    """立即追踪（手动触发、无 plan_id 时）：按当前启用的关键词组 × 期刊跑一次。"""
     bj = _beijing_now()
     print("=" * 60)
     print("AcademicFlow Immediate Tracking")
@@ -1252,9 +1376,13 @@ def run_immediate():
 
 
 def main():
-    """入口：cron 触发走「计划」路径；手动触发（立即追踪）走旧路径。"""
+    """入口：cron 触发走「计划」路径；
+    手动触发时若带 plan_id → 立即试跑该计划（一次性），否则走常规立即追踪。"""
     if (os.environ.get("TRIGGER_EVENT", "") or "").strip() == "schedule":
         return run_scheduled(_beijing_now())
+    plan_id = (os.environ.get("TRIGGER_PLAN_ID", "") or "").strip()
+    if plan_id:
+        return run_plan_once(plan_id)
     return run_immediate()
 
 

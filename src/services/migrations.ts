@@ -42,6 +42,7 @@ import { migrateBase64Images } from './editorImages'
 import { readAnyDocument } from './blocks.mjs'
 import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockDoc } from './translation'
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
+import { TRACKING_PLANS_PATH } from './trackingPlanData'
 
 /**
  * 迁移影响的功能域（对应主导航页面）。
@@ -331,6 +332,44 @@ const journalsIssnField: Migration = {
       ['id', 'name', 'rss_url', 'enabled', 'issn', 'publisher'],
       (r) => r,
     )
+  },
+}
+
+/**
+ * v8 → v9：定时计划「每两周」→「每半个月」
+ * 旧的「每两周·固定星期几」需要锚点（首次命中的星期几）才能算下一次，锚点缺失时会「算不出下次时间」；
+ * 且间隔跨月对不齐。改为固定的「月初 1 日 + 月中 15 日」两个自然日（恰好 14 天），无需锚点、永远算得出。
+ * 就地改写 plans.csv 里 interval=biweekly 的行：interval → semimonthly，weekdays 清空（semimonthly 不用）。
+ */
+const trackingPlanSemimonthly: Migration = {
+  id: 'tracking-plan-semimonthly-v1',
+  affects: ['tracking'],
+  since: 9,
+  label: '升级定时计划（每两周 → 每半个月：月初 1 日 + 月中 15 日）',
+  detect: async () => {
+    const rows = await readCsvFile<string[]>(TRACKING_PLANS_PATH, (r) => r, true)
+    if (rows.length <= 1) return false
+    const idx = rows[0].indexOf('interval')
+    if (idx < 0) return false
+    return rows.slice(1).some((r) => (r[idx] || '').trim() === 'biweekly')
+  },
+  run: async () => {
+    const rows = await readCsvFile<string[]>(TRACKING_PLANS_PATH, (r) => r, true)
+    // 直迁（ADJ-60）下 run 会无条件执行：没有计划数据（文件不存在 / 空表）就什么都不做
+    if (rows.length <= 1) return
+    const headers = rows[0]
+    const iInterval = headers.indexOf('interval')
+    const iWeekdays = headers.indexOf('weekdays')
+    if (iInterval < 0) return
+    const out = rows.slice(1).map((r) => {
+      const row = r.slice()
+      if ((row[iInterval] || '').trim() === 'biweekly') {
+        row[iInterval] = 'semimonthly'
+        if (iWeekdays >= 0) row[iWeekdays] = ''
+      }
+      return row
+    })
+    await writeCsvFile(TRACKING_PLANS_PATH, out, headers, (r) => r)
   },
 }
 
@@ -915,6 +954,7 @@ export const MIGRATIONS: Migration[] = [
   readingNotesMulti,
   materialsTaskTags,
   journalsIssnField,
+  trackingPlanSemimonthly,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
@@ -958,7 +998,7 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
  * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 8
+export const DATA_VERSION = 9
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']

@@ -9,16 +9,19 @@
  *
  * 列契约（前后端共享，**改动必须两边同步**）：
  *   plan_id,plan_name,enabled,interval,hour,minute,weekdays,day_of_month,journal_ids,expression,translate_abstract,last_run_date,created_at
- *   - interval ∈ daily | weekly | biweekly | monthly
+ *   - interval ∈ daily | weekly | semimonthly | monthly
  *   - hour / minute 为**北京时间**
- *   - weekdays 逗号分隔（1-7，周一=1；weekly / biweekly 用）
- *   - day_of_month 为 1-28（monthly 用）
+ *   - weekdays 逗号分隔（1-7，周一=1；仅 weekly 用）
+ *   - day_of_month 为 1-28（仅 monthly 用）；semimonthly 固定「月初 1 日 + 月中 15 日」，不占此列
  *   - journal_ids 逗号分隔（组内 OR），引用 journals/journal_tracking.csv 的 id
- *   - last_run_date 由后端回写（YYYY-MM-DD），用于到期判断
+ *   - last_run_date 由后端回写（YYYY-MM-DD），用于到期判断 / 当天防重
  */
 import { readCsvFile, writeCsvFile } from './userData'
 
-export type PlanInterval = 'daily' | 'weekly' | 'biweekly' | 'monthly'
+export type PlanInterval = 'daily' | 'weekly' | 'semimonthly' | 'monthly'
+
+/** 「每半个月」的固定运行日：月初 1 日 + 月中 15 日（二者恰好相隔 14 天） */
+export const SEMIMONTHLY_DAYS = [1, 15]
 
 export interface TrackingPlan {
   planId: string
@@ -29,7 +32,7 @@ export interface TrackingPlan {
   hour: number
   /** 北京时间 0-59 */
   minute: number
-  /** weekly / biweekly 用：1-7（周一=1）；其余场景为空数组 */
+  /** 仅 weekly 用：1-7（周一=1）；其余场景为空数组 */
   weekdays: number[]
   /** monthly 用：1-28；其余场景为 0 */
   dayOfMonth: number
@@ -55,7 +58,7 @@ export const TRACKING_PLAN_HEADERS = [
 export const PLAN_INTERVALS: { value: PlanInterval; label: string }[] = [
   { value: 'daily', label: '每天' },
   { value: 'weekly', label: '每周' },
-  { value: 'biweekly', label: '每两周' },
+  { value: 'semimonthly', label: '每半个月' },
   { value: 'monthly', label: '每月' },
 ]
 
@@ -123,7 +126,7 @@ export async function saveTrackingPlans(plans: TrackingPlan[]): Promise<void> {
       p.interval,
       String(p.hour),
       String(p.minute),
-      p.interval === 'weekly' || p.interval === 'biweekly' ? p.weekdays.join(',') : '',
+      p.interval === 'weekly' ? p.weekdays.join(',') : '',
       p.interval === 'monthly' ? String(p.dayOfMonth) : '',
       p.journalIds.join(','),
       p.expression,
@@ -145,8 +148,8 @@ export function describeSchedule(p: TrackingPlan): string {
   switch (p.interval) {
     case 'weekly':
       return `每周·${weekdayLabel(p.weekdays[0] || 1)} ${time}`
-    case 'biweekly':
-      return `每两周·${weekdayLabel(p.weekdays[0] || 1)} ${time}`
+    case 'semimonthly':
+      return `每半个月·${SEMIMONTHLY_DAYS.join('日/')}日 ${time}`
     case 'monthly':
       return `每月${p.dayOfMonth}日 ${time}`
     default:
@@ -166,8 +169,8 @@ export function describeSchedule(p: TrackingPlan): string {
  * 边界说明：
  *   - monthly 且「退一天后退到 0」（即每月 1 日 + 凌晨）无法用 cron 表达，
  *     退回每天（`*`），再由脚本内的到期探针 is_plan_due 兜底判断；
- *   - biweekly 无法用 cron 表达「隔周」，退化成每周同一星期几，
- *     隔周由脚本按 last_run_date 锚点跳过（多跑一次/两周，仍是安全的）。
+ *   - semimonthly 同理：月初 1 日 + 凌晨退一天会退到上月末（非固定号数），无法表达，
+ *     此时整体退回每天（`*`），隔日判断交给探针。
  *
  * 无论 cron 排得多准，脚本内的到期探针仍是**最终闸门**（双保险）。
  */
@@ -182,7 +185,10 @@ export function planCronSpecs(plans: TrackingPlan[]): string[] {
     if (p.interval === 'monthly') {
       const d = p.dayOfMonth + shift
       dom = d >= 1 ? String(d) : '*'
-    } else if (p.interval === 'weekly' || p.interval === 'biweekly') {
+    } else if (p.interval === 'semimonthly') {
+      const days = SEMIMONTHLY_DAYS.map((d) => d + shift)
+      dom = days.every((d) => d >= 1) ? days.join(',') : '*'
+    } else if (p.interval === 'weekly') {
       const jsDow = (p.weekdays[0] || 1) % 7 // 周一=1 … 周日=0
       dow = String(((jsDow + shift) % 7 + 7) % 7)
     }
@@ -195,7 +201,7 @@ export function planCronSpecs(plans: TrackingPlan[]): string[] {
 function cronSpecCmp(a: string, b: string): number {
   const [am, ah, ad, , aw] = a.split(' ')
   const [bm, bh, bd, , bw] = b.split(' ')
-  const num = (v: string) => (v === '*' ? -1 : Number(v))
+  const num = (v: string) => (v === '*' ? -1 : Number(v.split(',')[0]))
   return (
     Number(ah) - Number(bh) ||
     Number(am) - Number(bm) ||
@@ -205,7 +211,6 @@ function cronSpecCmp(a: string, b: string): number {
 }
 
 const BJ_OFFSET_MS = 8 * 3600 * 1000
-const DAY_MS = 24 * 3600 * 1000
 
 /** 把「北京墙上时间」拼回真实 UTC 时刻 */
 function fromBeijingWall(y: number, mo: number, d: number, h: number, mi: number): Date {
@@ -222,36 +227,19 @@ export function nextRunAt(p: TrackingPlan, from: Date = new Date()): Date | null
   if (!p.enabled) return null
   const { y, mo, d } = beijingToday(from)
 
-  // biweekly 的锚点：优先用上次运行日，否则用创建日（北京日）
-  let anchorMs = Number.NaN
-  if (p.interval === 'biweekly') {
-    if (p.lastRunDate) anchorMs = Date.parse(`${p.lastRunDate}T00:00:00Z`)
-    else if (p.createdAt) anchorMs = Date.UTC(
-      beijingToday(new Date(p.createdAt)).y,
-      beijingToday(new Date(p.createdAt)).mo,
-      beijingToday(new Date(p.createdAt)).d,
-    )
-  }
-
   const jsWeekday = (p.weekdays[0] || 1) % 7 // 1-7(周一=1) → JS 0-6(周日=0)
 
   for (let offset = 0; offset < 400; offset++) {
     const day = new Date(Date.UTC(y, mo, d + offset))
-    const tagDateMs = day.getTime()
     const wd = day.getUTCDay()
     const dom = day.getUTCDate()
 
     let match = false
     if (p.interval === 'daily') match = true
     else if (p.interval === 'weekly') match = wd === jsWeekday
-    else if (p.interval === 'biweekly') match = wd === jsWeekday
+    else if (p.interval === 'semimonthly') match = SEMIMONTHLY_DAYS.includes(dom)
     else if (p.interval === 'monthly') match = dom === p.dayOfMonth
     if (!match) continue
-
-    if (p.interval === 'biweekly' && Number.isFinite(anchorMs)) {
-      const diffDays = Math.round((tagDateMs - anchorMs) / DAY_MS)
-      if (((diffDays % 14) + 14) % 14 !== 0) continue
-    }
 
     const cand = fromBeijingWall(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), p.hour, p.minute)
     if (cand.getTime() > from.getTime()) return cand
@@ -264,7 +252,7 @@ export function validatePlan(p: TrackingPlan): string | null {
   if (!p.planName.trim()) return '请填写计划名称'
   if (p.hour < 0 || p.hour > 23) return '小时需在 0-23 之间'
   if (p.minute < 0 || p.minute > 59) return '分钟需在 0-59 之间'
-  if (p.interval === 'weekly' || p.interval === 'biweekly') {
+  if (p.interval === 'weekly') {
     if (!(p.weekdays[0] >= 1 && p.weekdays[0] <= 7)) return '请选择星期几'
   }
   if (p.interval === 'monthly') {

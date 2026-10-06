@@ -222,7 +222,7 @@ export default function TrackingPage() {
   /** 北京时间 0-23 / 0-59 */
   const [planFormHour, setPlanFormHour] = useState(9)
   const [planFormMinute, setPlanFormMinute] = useState(0)
-  /** weekly / biweekly 用（1-7，周一=1） */
+  /** weekly 用（1-7，周一=1） */
   const [planFormWeekday, setPlanFormWeekday] = useState(1)
   /** monthly 用（1-28） */
   const [planFormDayOfMonth, setPlanFormDayOfMonth] = useState(1)
@@ -230,6 +230,8 @@ export default function TrackingPage() {
   const [planFormJournalIds, setPlanFormJournalIds] = useState<string[]>([])
   const [planFormTokens, setPlanFormTokens] = useState<ExprToken[]>([])
   const [planFormInput, setPlanFormInput] = useState('')
+  /** 正在「立即试跑」的计划 id（该行按钮 loading；一次性，不影响定时） */
+  const [testingPlanId, setTestingPlanId] = useState<string | null>(null)
 
   // ---------- 右栏：已入库但还没传 PDF ----------
   /** 文献库（literatures/literatures.csv）全量，右栏只取 pdfAddedAt === 0 的 */
@@ -725,8 +727,7 @@ export default function TrackingPage() {
       interval: planFormInterval,
       hour: planFormHour,
       minute: planFormMinute,
-      weekdays:
-        planFormInterval === 'weekly' || planFormInterval === 'biweekly' ? [planFormWeekday] : [],
+      weekdays: planFormInterval === 'weekly' ? [planFormWeekday] : [],
       dayOfMonth: planFormInterval === 'monthly' ? planFormDayOfMonth : 0,
       journalIds: planFormJournalIds,
       expression: serializeExpression(planFormTokens),
@@ -802,8 +803,7 @@ export default function TrackingPage() {
     interval: planFormInterval,
     hour: planFormHour,
     minute: planFormMinute,
-    weekdays:
-      planFormInterval === 'weekly' || planFormInterval === 'biweekly' ? [planFormWeekday] : [],
+    weekdays: planFormInterval === 'weekly' ? [planFormWeekday] : [],
     dayOfMonth: planFormInterval === 'monthly' ? planFormDayOfMonth : 0,
     journalIds: planFormJournalIds,
     expression: '',
@@ -1107,10 +1107,50 @@ export default function TrackingPage() {
     }
   }
 
+  /**
+   * 立即试跑单个计划（一次性验证）：只跑这一个计划的管线，不写 last_run_date、不影响定时防重。
+   * 与「立即追踪」共用同一后端 workflow，只是带上 plan_id。
+   */
+  const handleTestPlan = async (plan: TrackingPlan) => {
+    const { token, user } = useAuthStore.getState()
+    if (!token || !user || !repo) {
+      toast.error('未登录或工作区未就绪')
+      return
+    }
+    if (!plan.journalIds.length && !plan.expression.trim()) {
+      toast.error('该计划未选期刊、也没有关键词表达式，跑不出结果')
+      return
+    }
+    setTestingPlanId(plan.planId)
+    try {
+      const beforeDois = new Set((await loadTrackingInbox()).map((r) => r.doi))
+      const sinceIso = new Date().toISOString()
+      await dispatchDailyTracking(user.login, repo.name, token, plan.planId)
+
+      const result = await waitForDailyTracking(user.login, repo.name, token, sinceIso)
+      if (result === 'failure') {
+        toast.error(`计划「${plan.planName}」试跑失败，请到 Actions 查看日志`)
+      } else if (result === 'timeout') {
+        toast.message('试跑仍在运行，稍后会自动出现在候选里')
+      }
+
+      const rows = await loadTrackingInbox(true)
+      setInbox(rows)
+      const found = pendingCandidates(rows).filter((r) => !beforeDois.has(r.doi)).length
+      if (result === 'success') {
+        toast.success(`计划「${plan.planName}」试跑完成，新增候选 ${found} 篇`)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`试跑失败：${msg}`)
+    } finally {
+      setTestingPlanId(null)
+    }
+  }
+
   // ============================================================
   // 候选裁决：入库 / 忽略
   // ============================================================
-
   const candidateToLiterature = (c: TrackingCandidate): Literature => ({
     doi: c.doi,
     title: c.title,
@@ -2119,6 +2159,18 @@ export default function TrackingPage() {
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-0.5">
                           <button
+                            onClick={() => handleTestPlan(plan)}
+                            disabled={testingPlanId !== null}
+                            title="立即试跑一次（一次性，不影响定时）"
+                            className="rounded-control-sm p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600 disabled:opacity-40"
+                          >
+                            {testingPlanId === plan.planId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Play className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
                             onClick={() => openEditPlan(plan)}
                             className="rounded-control-sm p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
                           >
@@ -2238,7 +2290,7 @@ export default function TrackingPage() {
                       </option>
                     ))}
                   </select>
-                  {(planFormInterval === 'weekly' || planFormInterval === 'biweekly') && (
+                  {planFormInterval === 'weekly' && (
                     <select
                       value={planFormWeekday}
                       onChange={(e) => setPlanFormWeekday(Number(e.target.value))}

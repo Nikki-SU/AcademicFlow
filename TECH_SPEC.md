@@ -598,9 +598,11 @@ Markdown 结构化配置，示例：
 - 若要接入新的数据源（CrossRef / arXiv / RSS），adapter 各自决定「下推多少到服务端 + 剩多少留本地」，**布尔语义一律以本地求值为准**。
 
 **调度（定期追踪）**：
-- 用户可建多个「定期追踪计划」，每个计划 = 时间规则（一天 / 一周 / 半个月 / 一个月 + 北京时间 时:分）+ 多个期刊（OR）+ 一个关键词表达式，存 `tracking/plans.csv`。
+- 用户可建多个「定期追踪计划」，每个计划 = 时间规则（每天 / 每周 / 每半个月 / 每月 + 北京时间 时:分）+ 多个期刊（OR）+ 一个关键词表达式，存 `tracking/plans.csv`。**「每半个月」固定落在月初 1 日 + 月中 15 日**（两者恰好相隔 14 天，锚点唯一、下次时间可算；不再用「每两周 · 固定星期几」），「固定星期几」只在「每周」时填。
 - **按需排 cron**：前端按所有启用计划实际用到的「日子 + 时刻」重写 `daily-tracking.yml` 的 `schedule`（UTC，北京时间 UTC+8；出发时刻 < 08:00 时对应 UTC 落在前一日，日期随之 -1）；没有启用计划则不写任何 cron。
 - **探针**：每次触发由 `daily-tracking.py` 先读 `plans.csv`，判「日子到期 → 时刻到期」，未到期直接退出、零网络请求；到期才执行追踪并回写 `last_run_date`（先探针、再判断、再执行，控制成本与频率）。
+- **合并成一次 job + 抓取并行**：同一时刻到期的多个计划**合并进同一次 Actions run**（省 job 数 / 额度），但抓取阶段**并发** —— `run_scheduled` 先把各计划展开成扁平任务列表，交 `_fetch_tasks` 用 `ThreadPoolExecutor`（`MAX_FETCH_WORKERS = 4`）并发抓取，再 `_consume_plan` 逐计划消费，wall-clock 压到最慢的单个任务。
+- **立即跑 / 定时跑两种模式**：`workflow_dispatch` 可带 `inputs.plan_id`（→ `TRIGGER_PLAN_ID`），`main()` 在非 schedule 触发且带 `plan_id` 时路由到 `run_plan_once(plan_id)` —— 只跑指定计划、**与定时追踪共用同一套抓取 / 过滤管线**，但**一次性、不写 `last_run_date`**（不影响定时防重）；立即跑是**独立动作、不作常态**。
 - Actions 里跑一段 JS/Python 脚本（打包在软件里，初始化时写入使用者仓库）
 - 结果 push 回私库：`logs/tracking/{yyyy-mm-dd}.md`（含每条 DOI 卡片）+ 更新 `literatures.csv`（新条目 tier=1）
 - 推送渠道：

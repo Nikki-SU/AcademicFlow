@@ -240,20 +240,27 @@ const DAILY_TRACKING_WORKFLOW_FILE = 'daily-tracking.yml'
 const DAILY_TRACKING_WORKFLOW_PATH = '.github/workflows/daily-tracking.yml'
 const DAILY_TRACKING_REF = 'main'
 
-/** 触发私库的「每日追踪」（等同在 Actions 页面点一次 Run workflow） */
+/**
+ * 触发私库的「每日追踪」（等同在 Actions 页面点一次 Run workflow）。
+ * 传入 planId 时走「立即试跑该计划」分支（一次性，不写 last_run_date）；
+ * 不传则走常规立即追踪（按启用的关键词组 × 期刊）。
+ */
 export async function dispatchDailyTracking(
   owner: string,
   repo: string,
   token: string,
+  planId?: string,
 ): Promise<void> {
+  const body: { ref: string; inputs?: Record<string, string> } = { ref: DAILY_TRACKING_REF }
+  if (planId) body.inputs = { plan_id: planId }
   const res = await githubFetch(
     `/repos/${owner}/${repo}/actions/workflows/${DAILY_TRACKING_WORKFLOW_FILE}/dispatches`,
     token,
-    { method: 'POST', body: JSON.stringify({ ref: DAILY_TRACKING_REF }) },
+    { method: 'POST', body: JSON.stringify(body) },
   )
   if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`触发追踪失败：HTTP ${res.status} ${body.slice(0, 200)}`)
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`触发追踪失败：HTTP ${res.status} ${errBody.slice(0, 200)}`)
   }
 }
 
