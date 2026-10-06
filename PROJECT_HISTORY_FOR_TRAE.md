@@ -1,5 +1,7 @@
 # AcademicFlow 项目记忆（M3.6.3 阶段，2026-07-15）
 
+> ⚠️ 本文件为 2026-07-15 的历史项目记忆，其中『当前状态』（§3、§8、HEAD、部署 URL）为当时快照，已过时；当前架构以 架构.md 与代码为准。
+
 ## 0. 文档定位
 
 这是给 **Trae IDE AI** 的项目背景 + 历史教训 + 当前状态文档。配合 `TECH_SPEC_FOR_TRAE.md`（产品架构 + 实现细节）和 `TRAE_PROMPT.md`（任务指令）使用。
@@ -14,6 +16,8 @@
 ## 1. 项目一句话
 
 **AcademicFlow** = 给化学专业科研工作者用的「论文写作（投稿编译 LaTeX/Word）+ 学术词汇学习（SM-2 间隔重复）+ 期刊关键词追踪（4 源并行）」全流程工具。
+
+> 📌 当前已扩展：日程、会议·课程转写、管理。
 
 **架构核心**：BYO（Bring Your Own）= 用你自己的 GitHub 仓库 + 你自己的 API key，零服务器成本（前端 GitHub Pages + Worker Deno Deploy）。
 
@@ -51,8 +55,8 @@
 
 | 仓库 | 用途 | 当前 HEAD |
 |---|---|---|
-| `Nikki-SU/AcademicFlow` | 前端（GitHub Pages 静态 SPA，Vite + React 18 + TS + Tailwind） | `5a52f5b30f3b46e4f45f2d73b1ac54bc25441661` |
-| `Nikki-SU/AcademicFlow-Worker` | Worker（Deno Deploy，OSS 签名代理 + 8MB PDF 中转） | v10 production = `dff336edc28c539af62eb783faf5c13e2481dc72` |
+| `Nikki-SU/AcademicFlow` | 前端（GitHub Pages 静态 SPA，Vite + React 18 + TS + Tailwind） | `5a52f5b30f3b46e4f45f2d73b1ac54bc25441661`（**历史快照，非当前**） |
+| `Nikki-SU/AcademicFlow-Worker` | Worker（Deno Deploy，OSS 签名代理 + 8MB PDF 中转） | v10 production = `dff336edc28c539af62eb783faf5c13e2481dc72`（**历史快照，非当前**） |
 
 ### 3.2 关键文件（`Nikki-SU/AcademicFlow` 仓库根）
 
@@ -144,6 +148,8 @@
 
 **方案**：**本地代理**（不限时长），客户端 → 本地代理 → worker → OSS，绕开远端代理 50s 上限。Rosa 用此方案**已经成功**。
 
+> 📌 该 Deno worker 方案已废弃，当前 MinerU 用 BYO 云端代理（runner 直调 mineru.net + 前端写 GitHub Secrets），见 src/services/mineruConnectivity.ts。
+
 **核心教训（Trae 必看）**：
 
 1. **诊断上传类问题，第一轮先画完整链路**（client → 中间节点 → 后端 → 存储），逐节点问 boundary（timeout / 带宽 / 中转次数 / 是否国内）
@@ -168,6 +174,8 @@
 - v10 仍在 Deno Deploy 上跑（Rosa 自己的 Deno 账号）
 - v11 本地写好未推
 - **Worker 仓是否清理 / 迁 Cloudflare Workers / 改用 client 直传 OSS，待 Rosa 决定**
+
+> 📌 该 Deno worker 方案已废弃，当前 MinerU 用 BYO 云端代理（runner 直调 mineru.net + 前端写 GitHub Secrets），见 src/services/mineruConnectivity.ts。
 
 **Trae 你不要做这个决定**，让 Rosa 自己定。**前端搭大框架时暂时假设 worker URL 仍是 `https://academicflow-worker.nikki-su.deno.net`**，等 Rosa 决策后再改。
 

@@ -1,5 +1,7 @@
 # Trae 提示词 — AcademicFlow 10 次速通搭大框架
 
+> ⚠️ 本提示词为 2026 年「10 次速通从零搭框架」的一次性历史任务指令，该任务已完成；其中认证（Device Flow 双路径）、密钥存储（只 IndexedDB）等描述为当时口径，当前实现见 架构.md 与代码（PAT 单路径 + Secrets + credentialsVault 三层）。
+
 > **Trae 直接从 GitHub 读取本文件及所有配套文档**，Rosa 不复制粘贴任何 md 内容。
 > **本文件 URL**：`https://raw.githubusercontent.com/Nikki-SU/AcademicFlow/main/TRAE_PROMPT.md`
 > **配套文档**（必读）：
@@ -135,7 +137,7 @@ git worktree remove .worktrees/<你的任务名> && git branch -D <你的任务�
 **v0.2.5 已经定的不要问**。具体：
 
 - ❌ AI 选型 → **§6.4 已定**（使用者在 `settings/global.md` 自填 AI-1/AI-2 服务商与模型；推荐不同家，异构降共谋）
-- ❌ GitHub 认证 flow / Token 存储 → **§1.12.1 / §1.12.2 已定**（Device Flow + Fine-grained PAT 双路径平权；IndexedDB 明文 + CSP/SRI/依赖锁死）
+- ❌ GitHub 认证 flow / Token 存储 → **§1.12.1 / §1.12.2 已定**（Device Flow + Fine-grained PAT 双路径平权；IndexedDB 明文 + CSP/SRI/依赖锁死）（**已演进：PAT 单路径 + Secrets + credentialsVault 三层，见架构.md**）
 - ❌ 私库不存在时怎么处理 → **§7 / §7.1.1 已定**（自动创建 + 最小 API 序列）
 - ❌ 仓库策略 → 默认在 `Nikki-SU/AcademicFlow` 现有仓库上继续（保留所有现有文件）
 - ❌ 包管理器 / Tailwind 版本 / 路由库 / Tectonic 位置 / CSL 来源 / 字段命名 / 项目结构 → Trae 看 `package.json` / `tailwind.config.js` / §13.5 / §13.6 自己定
@@ -152,7 +154,7 @@ git worktree remove .worktrees/<你的任务名> && git branch -D <你的任务�
 
 - **仓库策略**：默认在 `Nikki-SU/AcademicFlow` 现有仓库上继续，保留所有现有文件
 - **AI 选型**：使用者在 `settings/global.md` 自填（§6.4）；Trae 不用预设默认值，让 UI 提示用户填
-- **认证 flow / Token 存储**：按 §1.12.1 / §1.12.2 实现
+- **认证 flow / Token 存储**：按 §1.12.1 / §1.12.2 实现（**已演进：PAT 单路径 + Secrets + credentialsVault 三层，见架构.md**）
 - **私库创建**：按 §7 / §7.1.1 实现
 - **包管理器**：看 `package-lock.json` 决定 pnpm/npm/yarn
 - **Tailwind 版本**：看 `tailwind.config.js` 决定 v3/v4

@@ -2,6 +2,8 @@
 
 > 工作代号：**AcademicFlow**（正式名称待定）
 > 版本：v0.2.5（需求 + 架构 + 接口定义阶段，不含代码）
+>
+> **⚠️ 演进说明（2026-10-06）**：本文为 v0.2.5 需求/架构定稿，部分章节已随实现演进修正，与本仓库当前代码的差异请以 `架构.md` 与代码为准。已就地修正的冲突点：§1.12 认证由「Device Flow 主 + PAT 兜底」改为 **Fine-grained PAT 单路径**；§1.11 编辑器由「候选池 v0.3 敲定」改为 **已定 Vditor 3.10.9**；§4.8 密钥存储由「只存 IndexedDB」改为 **IndexedDB + GitHub Actions Secrets（repoSecrets.ts）+ 私库加密保险箱（credentialsVault.ts）三层**。其余章节（如 §2.1 认证流程图、§5.0 认证 UI 流程、§7 分发流程）仍保留 v0.2.5 旧口径，如需准确现状请查 `架构.md`。
 > 编制日期：2026-07-10
 > 版本历史：
 > - v0.1（2026-07-10 16:27）：首版全量交付
@@ -107,30 +109,22 @@
   - **内联就地编辑**：光标离开当前行/块时，md 语法自动渲染成最终样式；光标进入时显示源码可继续编辑。或至少做到**源码与渲染同框、无编辑/预览切换按钮**——不做"编辑/预览"分栏或分模式（这是老 Cat 的错误做法）。
   - **禁止弹窗打断工作流**（对齐 USER.md 长期偏好）：图片、公式、表格、链接、思维导图、链表、引用等元素一律**内联插入 + 就地编辑**，不弹独立编辑器窗口、不做模态框输入。若不得不弹辅助面板（如表格行列数选择器），必须是**页内 overlay + 点击外部即关**，不是操作系统级 modal dialog。
   - Rosa 22:01 原话：「内联就能改、改不要任何弹窗，并且可以导出带图的 PDF」。这是**感受硬约束**。
-- **技术选型软化为候选池（v0.2.3 修正 v0.2.2 的过强判断）**：
-  - **候选 A｜Vditor ^3.10.x（首选，上一代 PaperAssistant 已实测跑通）**：国产 markdown 编辑器（作者 88250，思源笔记同厂）；官方支持三模式：`wysiwyg`（所见即所得）/ `ir`（即时渲染，最接近 Obsidian Live Preview）/ `sv`（分屏，不采用）。上一代 PaperAssistant 用 `mode: "wysiwyg"` 实测跑通了 Rosa 全部感受要求（工具栏含 headings/bold/italic/list/quote/code/link/table/image/undo/redo/fullscreen/edit-mode，`insertValue` 支持 base64 图片内嵌，`preview.math.engine: "KaTeX"`）。**具体模式（wysiwyg vs ir）v0.3 敲定**。前端依赖极轻（PaperAssistant 前端 package.json 仅 `react + react-dom + vditor` 三个运行时依赖）。
-  - **候选 B｜Milkdown / Crepe（ProseMirror 系）**：官方定位即 Obsidian 风 Live Preview，开箱支持所见即所得 + 内联块类型 + Markdown 双向序列化。生态更活跃、可扩展性强，但需要更多集成工作。
-  - **候选 C｜CodeMirror 6 + Live Preview 装饰器**：Obsidian 严格同款技术栈，最接近 Obsidian 效果，但集成与装饰器工作量最大。
-  - **候选 D｜TipTap（ProseMirror 系）**：v0.2.2 曾判"淘汰"，v0.2.3 撤回该结论并**有条件回归候选池**——若能配置为源码-渲染同框内联模式（而非 Notion 风块式），仍可参与对比；但需在原型阶段验证能否达到感受硬约束。
-- **v0.3 原型对比敲定，本版本不锁死**：v0.3 交互原型阶段用同一份 md 素材（含标题、粗体、公式、表格、图片、代码块、引用）分别在四个候选上做**5 分钟内联编辑测试**，按感受硬约束打分（内联无弹窗 / 公式表格图片内联 / 段间切换流畅 / 打包体积 / 与 md 落盘的双向序列化保真度）择优。选定后回填本节。
+- **技术选型：已定 Vditor 3.10.9**（`src/components/VditorEditor.tsx`，全站唯一 Markdown 编辑器；v0.2.5 曾以"候选池 v0.3 敲定"描述，后续原型阶段已实测敲定，本节旧候选池方案作废）：
+  - **Vditor ^3.10.9**（国产 markdown 编辑器，作者 88250，思源笔记同厂）：官方支持三模式 `wysiwyg`（所见即所得）/ `ir`（即时渲染）/ `sv`（分屏，不采用）。上一代 PaperAssistant 用 `mode: "wysiwyg"` 实测跑通了 Rosa 全部感受要求（工具栏含 headings/bold/italic/list/quote/code/link/table/image/undo/redo/fullscreen/edit-mode，`insertValue` 支持 base64 图片内嵌，`preview.math.engine: "KaTeX"`）。最终实现使用 Vditor，KaTeX 渲染公式。
+  - 候选 B｜Milkdown / Crepe、候选 C｜CodeMirror 6 + Live Preview、候选 D｜TipTap 在 v0.3 原型对比中**未采用**，不再作为候选项。
 - **不设"预判淘汰"（v0.2.3 教训条目，见 §8）**：Rosa 提及"Obsidian""WPS 智能文档""Writer-Cat"等对标产品都是**感受提示**，不是**技术硬约束**。上一代 PaperAssistant 用 Vditor `wysiwyg` 满足了 Rosa 的相同要求，就是最强反例——技术层不该被产品名绑架。
 
 ### 1.12 GitHub 认证与 Token 存储硬约束（v0.2.5 新增）
 
 **背景**：本项目分发形态是"GitHub Pages 静态 SPA + 使用者各自 GitHub 私库"（见 §0.4 与 §2.3），前端无后端、无 `client_secret` 存放位置，任何要求"服务器换 code 拿 token"的传统 OAuth Web Flow 都不可行。以下硬约束是这条根约束的必然推论。
 
-#### 1.12.1 认证 flow：双路径
-- **主路径｜GitHub Device Flow**（无后端、无密钥）：
-  - 前端调 `POST https://github.com/login/device/code`（仅需 `client_id`，公开常量），拿到 `device_code`、`user_code`、`verification_uri`、`interval`、`expires_in`。
-  - UI 显示 8 位 `user_code` + 提供"复制并跳转授权"按钮，跳转 `verification_uri`（`https://github.com/login/device`）新标签。
-  - 使用者在 GitHub 页面粘 `user_code` 完成授权后，前端按 `interval` 轮询 `POST https://github.com/login/oauth/access_token`，成功即拿到 `access_token`。
-  - **权限范围**：Device Flow 仅支持 **classic scope**（`repo` 一档，覆盖使用者全部私有仓库的读写；不支持 fine-grained 单库授权）。这是 GitHub 平台限制，非本项目决策。
-- **兜底路径｜Fine-grained Personal Access Token（PAT）手贴**：
+#### 1.12.1 认证 flow：Fine-grained PAT 单路径（v0.2.5 后演进，Device Flow 已下线）
+- **路径｜Fine-grained Personal Access Token（PAT）手贴**（`src/pages/Login.tsx` 实测，唯一认证路径）：
   - UI 提供"手动输入 PAT"入口，同时提供**跳转到 GitHub PAT 创建页 + 一键填充模板参数**（仓库单选、权限模板 `Contents: Read and write` + `Metadata: Read-only` + `Workflows: Read and write`、过期时间建议 90 天/1 年）的引导。
-  - 使用者创建完 PAT 手贴回 UI，前端校验 token 有效性（`GET /user`）后保存。
-  - **权限范围**：可精确到**单个仓库**、按最小权限勾选；对权限敏感的使用者是首选路径。
+  - 使用者创建完 PAT 手贴回 UI，前端校验 token 有效性（`GET /user`，`verifyPAT`）后保存。
+  - **权限范围**：可精确到**单个仓库**、按最小权限勾选。
   - **过期**：fine-grained PAT 强制过期（最长 1 年），到期需重建；UI 需在过期前 7 天开始横幅提醒。
-- **两条路径地位**：Device Flow = 首选（onboarding 顺滑、无过期）；PAT = 平权兜底（权限最小化、有过期）。使用者在首次登录页自主选择，不由软件替他决定；两条路径**功能完全对等**，登录成功后进入的软件状态无区别。
+- **Device Flow 已下线**：早期版本曾规划「Device Flow 主 + PAT 兜底」双路径（本小节旧版），但实现中已移除 Device Flow（无 `POST /login/device/code` 流程），`device_flow` 仅作为历史类型值残留于 `types.ts` / `db.ts` / `Layout.tsx`。当前为 **PAT 单路径**。
 
 #### 1.12.2 Token 存储：IndexedDB + 明文标注
 - **存储位置**：**IndexedDB**（不是 localStorage、不是 cookie、不是 sessionStorage）。理由：
@@ -482,7 +476,10 @@ Markdown 结构化配置，示例：
 - editor_theme: light / dark
 ```
 
-**注意**：所有 API key **不写进 md 文件**，只存在浏览器 **IndexedDB `settings` object store**（v0.2.5 修正，与 §1.12.2 GitHub token 存储位置统一，也是 §2.3 硬性禁忌"禁止 localStorage 存敏感凭据"的直接落地）；每次跨设备重新填。这是安全底线。
+**注意**：所有 API key **不写进 md / csv 业务文件**。存储与跨设备恢复实际为三层（已演进，替代 v0.2.5 的「只存 IndexedDB、每次跨设备重填」旧口径）：
+1. **本地 IndexedDB `settings` object store**（本机副本，浏览器直连场景如 ASR 用）；
+2. **GitHub Actions Secrets**（`src/services/repoSecrets.ts`，libsodium `crypto_box_seal` 密封盒写入私库）——供后端 runner 在 GitHub Actions 里读 `process.env.*` 调用上游，**只写不可读**；
+3. **私库 `settings/credentials.vault.json`**（`src/services/credentialsVault.ts`，用 PAT 派生密钥 AES-GCM 加密）——用于**新设备自动回填**：登录同一 GitHub 账号后 App 启动自动解密、只回填空缺字段（GitHub Secrets 只写不可读、无法跨设备恢复，故需要这一层）。
 
 ---
 
@@ -1044,7 +1041,7 @@ v0.1 §9 提出的 7 个未决问题，v0.2 全部关闭。以下是决策与依
 
 ## §12 引用与编译流程细节（v0.2.5 §5.8 实现级补充）
 
-> 本节是 v0.2.5 §5.8 的实现级补充，给 Trae 直接照着写代码。v0.2.5 原文一字不动。
+> 本节是 v0.2.5 §5.8 的实现级补充，给 Trae 直接照着写代码。v0.2.5 原文已随实现演进更新（见文件头部演进说明），本节施工指南以当前代码为准。
 
 ### 12.1 引用语法（输入层）
 
@@ -1279,5 +1276,5 @@ academicflow/
 
 ---
 
-*本文档 = v0.2.5 全文（一字不动）+ §12 引用与编译流程细节（Rosa 拍板补充）+ §13 Trae 10 次速通施工指南 + §14 Trae 提示词使用说明。*
+*本文档 = v0.2.5 全文（原文已随实现演进更新，见文件头部演进说明）+ §12 引用与编译流程细节（Rosa 拍板补充）+ §13 Trae 10 次速通施工指南 + §14 Trae 提示词使用说明。*
 *总大小 ≈ 100KB，Trae 一次可读完。*
