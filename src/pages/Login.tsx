@@ -69,7 +69,7 @@ function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-paper-100 p-6">
       <div className="w-full max-w-lg overflow-hidden rounded-card border border-ink-200 bg-paper-50 shadow-card">
-        <div className="h-[3px] bg-seal-600" />
+        <div className="h-[0.19rem] bg-seal-600" />
 
         <div className="p-8 md:p-10">
           <div className="mb-7 flex items-center gap-3.5">
@@ -77,7 +77,7 @@ function Login() {
               <BookOpen className="h-5 w-5 text-paper-50" strokeWidth={1.75} />
             </div>
             <div>
-              <h1 className="text-[26px] font-semibold leading-none tracking-tight text-ink-900">
+              <h1 className="text-[1.625rem] font-semibold leading-none tracking-tight text-ink-900">
                 AcademicFlow
               </h1>
               <p className="mt-1.5 text-ui-xs text-ink-500">

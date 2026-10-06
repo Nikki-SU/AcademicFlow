@@ -331,10 +331,10 @@ const EditBlockCard = memo(function EditBlockCard({
     >
       {/* 落点提示：一条 3px 的横杠，插在上面还是下面看得清清楚楚 */}
       {dropEdge === 'before' && (
-        <span className="absolute -top-[3px] left-2 right-2 h-[3px] rounded-full bg-seal-500 pointer-events-none" />
+        <span className="absolute -top-[0.19rem] left-2 right-2 h-[0.19rem] rounded-full bg-seal-500 pointer-events-none" />
       )}
       {dropEdge === 'after' && (
-        <span className="absolute -bottom-[3px] left-2 right-2 h-[3px] rounded-full bg-seal-500 pointer-events-none" />
+        <span className="absolute -bottom-[0.19rem] left-2 right-2 h-[0.19rem] rounded-full bg-seal-500 pointer-events-none" />
       )}
 
       <div className="flex items-center justify-between mb-2 gap-2">
@@ -3094,7 +3094,7 @@ export default function ReadingPage() {
       className="page-container py-ui-page relative h-full overflow-hidden bg-paper-100 grid grid-cols-[var(--reader-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[auto_minmax(0,1fr)] max-[1100px]:gap-0 max-[1100px]:p-0"
       style={{
         fontSize: `${fontSize / 16}rem`,
-        '--reader-cols': `minmax(0, 1fr) minmax(0, ${4 - readerRightFr}fr) minmax(0, ${readerRightFr}fr)`,
+        '--reader-cols': `minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * ${4 - readerRightFr} / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * ${readerRightFr} / 5))`,
       } as CSSProperties}
     >
       {/* 窄屏专用：两个抽屉开关 */}
