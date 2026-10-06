@@ -88,9 +88,9 @@ let initSegmentBytes: Uint8Array | null = null
 /** 每片时长（ms）：只切 dataavailable 事件，录音本身不中断 */
 const SEGMENT_MS = 10000
 /** 单片转写的「正常」超时（ms）：一次尝试卡住就中止它，交给本地暂存 + 重试。
- *  45s 是给慢模型（如 TeleAI/TeleSpeechASR）留的余量；快的模型（SenseVoiceSmall）
- *  一般几秒内出字，不会触到这条线。 */
-const CHUNK_TIMEOUT_MS = 45000
+ *  25s 是用户定下的故意收紧的线：异常（如选到了慢模型）要在 25s 内让用户意识到，
+ *  而不是靠放宽超时掩盖。快模型（SenseVoiceSmall / Qwen3-ASR）单片几秒内出字，不会触线。 */
+const CHUNK_TIMEOUT_MS = 25000
 /** 补转写（重试暂存片）的超时（ms）：宽裕些，宁可慢也要把它转出来 */
 const DRAIN_TIMEOUT_MS = 90000
 /** 同时进行的转写请求上限（直连 ASR，请求独立；顺序由 seq 保证，不靠串行）。
