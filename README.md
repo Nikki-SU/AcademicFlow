@@ -21,7 +21,7 @@ AcademicFlow 是一个**纯前端 SPA**，把用户自己的 GitHub 私库作为
 
 ## 数据主权声明
 
-AcademicFlow **无任何后端服务器**。所有数据（笔记、论文、词汇、AI 调用）均通过用户自己的凭据直连 GitHub / 硅基流动 / Free Dictionary，**工具作者在架构上无法获取任何用户数据**。代码开源可审计（AGPL-3.0），出站请求可通过浏览器 DevTools → Network 面板自行核验。
+AcademicFlow **没有作者自建的服务器**：所有重计算（AI 双引擎、PDF→md、翻译、编译等）都跑在**用户自己的 GitHub 私库 + GitHub Actions** 上，前端只做分发与轮询（浏览器直连硅基流动仅限会议转写/翻译）。所有数据（笔记、论文、词汇、AI 调用）都通过用户自己的凭据与私库处理，**工具作者在架构上无法获取任何用户数据**。代码开源可审计（AGPL-3.0），出站请求可通过浏览器 DevTools → Network 面板自行核验。
 
 ## 数据资源与第三方许可
 
@@ -39,7 +39,7 @@ AcademicFlow 在用户本地或用户自己的 GitHub 私库中处理数据，�
 
 ## MinerU PDF → Markdown（GitHub Actions runner 直调）
 
-论文导入需要把 PDF 转成 Markdown（保留公式和图片），AcademicFlow 用 [MinerU v4 API](https://mineru.net)。MinerU 服务端不返回 CORS 头、浏览器不能直连，因此 PDF → Markdown 的调用**不在浏览器里做**，而是由 **GitHub Actions 后端 runner 直接调用**（`.github/scripts/*.mjs → https://mineru.net/api/v4`）。前端只把 `MINERU_API_TOKEN` 写入私库的 GitHub Secrets，不直接发 MinerU 业务请求。
+论文导入需要把 PDF 转成 Markdown（保留公式和图片），AcademicFlow 用 [MinerU v4 API](https://mineru.net)。MinerU 服务端不返回 CORS 头、浏览器不能直连，因此 PDF → Markdown 的调用**不在浏览器里做**，而是由 **GitHub Actions 后端 runner 直接调用**（安装到用户私库后的 `.github/scripts/*.mjs → https://mineru.net/api/v4`）。前端只把 `MINERU_API_TOKEN` 写入私库的 GitHub Secrets，不直接发 MinerU 业务请求。
 
 > 早期版本曾用「用户自部署的透传代理（Deno Deploy / Cloudflare Workers）」转发 MinerU，该方案因 Deno Deploy 50s 超时 + GitHub Pages HTTPS → HTTP Mixed Content 双重阻塞已废弃（见 `src/services/mineruConnectivity.ts` 注释）。
 

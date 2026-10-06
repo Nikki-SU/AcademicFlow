@@ -15,7 +15,7 @@
  * 音频**不进私库**：音频只在内存里转写，用完即弃；这里只落文本与图片。
  */
 import { readMdFile, writeMdFile, getRepoContext } from './userData'
-import { githubFetch, listRepoFilesInDir, deleteRepoFiles } from './github'
+import { githubFetch, listRepoFilesInDir, deleteRepoFiles, writeFileBatch } from './github'
 import { uploadEditorImage } from './editorImages'
 import { dispatchSessionImages, pollSessionImagesProgress } from './workflowClient'
 import { serializeBlocks, readDocument, type Item, type BlockNode } from './blocks.mjs'
@@ -95,6 +95,54 @@ export async function uploadSessionImage(
   })
 }
 
+/**
+ * 上传任意课程材料（PDF / PPT / Word 等）到某课时的 materials/，返回仓库路径。
+ * 走 writeFileBatch 二进制写入，保留原始文件名（避免图片命名规范化逻辑干扰）。
+ */
+export async function uploadSessionMaterial(
+  taskId: string,
+  sessionId: string,
+  file: File,
+): Promise<string> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('未登录或工作区未就绪')
+  const buf = await file.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  const safeName = file.name.replace(/[/\\]+/g, '_')
+  const path = `${sessionDir(taskId, sessionId)}/materials/${Date.now()}_${safeName}`
+  await writeFileBatch(
+    [{ path, content: btoa(bin), encoding: 'base64' }],
+    'Add session course material',
+    ctx.owner,
+    ctx.repo,
+    ctx.token,
+  )
+  return path
+}
+
+/** 列出某课时的课程材料（materials/ 下非图片文件）；目录不存在返回空数组 */
+export async function listSessionMaterials(
+  taskId: string,
+  sessionId: string,
+): Promise<SessionImageFile[]> {
+  const ctx = getRepoContext()
+  if (!ctx) return []
+  const files = await listRepoFilesInDir(
+    ctx.owner,
+    ctx.repo,
+    `${sessionDir(taskId, sessionId)}/materials`,
+    ctx.token,
+  )
+  return files
+    .filter((f) => !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
 /** 读取某课时的照片识别结果 board.md；没有 / 读不到返回 null（空状态），不抛 */
 export async function readSessionBoard(
   taskId: string,
@@ -106,6 +154,15 @@ export async function readSessionBoard(
   } catch {
     return null
   }
+}
+
+/** 覆盖写入某课时的照片识别结果 board.md（用户手动编辑后落库）；写失败 throw */
+export async function saveSessionBoard(
+  taskId: string,
+  sessionId: string,
+  md: string,
+): Promise<void> {
+  await writeMdFile(sessionBoardPath(taskId, sessionId), md, 'Save session board')
 }
 
 /** 逐张删除采集图片（走 Tree API 批量删除）。失败会 throw，由调用方 toast，不静默。 */
@@ -291,6 +348,19 @@ export async function saveTranscript(
 /** 转写稿（AI 修饰后）路径：projects/{taskId}/sessions/{sessionId}/polished.md */
 export function sessionPolishedPath(taskId: string, sessionId: string): string {
   return `${sessionDir(taskId, sessionId)}/polished.md`
+}
+
+/**
+ * 用户手动编辑原始转写（transcript.md）后整体覆盖写回。
+ * 与 saveTranscript 不同：不按时刻归并，直接以编辑后的 md 为准。
+ * 写失败 throw，由调用方 toast。
+ */
+export async function saveTranscriptRaw(
+  taskId: string,
+  sessionId: string,
+  md: string,
+): Promise<void> {
+  await writeMdFile(`${sessionDir(taskId, sessionId)}/transcript.md`, md, 'Save session transcript')
 }
 
 /**

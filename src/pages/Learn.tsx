@@ -44,12 +44,11 @@ type TabId = 'words' | 'sentences' | 'translation'
 type WordQuestionType =
   | 'en_select_cn'     // 英文单词 → 选中文释义
   | 'cn_select_en'     // 中文释义 → 选英文单词
-  | 'en_select_def'    // 英文单词 → 选定义（第一次接触用中文定义，之后用英文定义）
-  | 'def_select_en'    // 定义 → 选英文单词（同上）
-  | 'sent_select_cn'   // 例句挖空 → 选中文释义
-  | 'sent_select_def'  // 例句挖空 → 选定义
   | 'listen_select_cn' // 听音（只放音，不显示单词）→ 选中文释义（需语音模式）
   | 'cn_select_sound'  // 中文释义 → 选读音（每个选项挂小喇叭逐个试听，需语音模式）
+  | 'en_select_def'    // 英文单词 → 选定义（第一次接触用中文定义，之后用英文定义）
+  | 'def_select_en'    // 定义 → 选英文单词（同上）
+  | 'sent_select_en'   // 例句挖空 → 选英文单词
   | 'spell_block'      // 拼写：给中文，按词素块拼出英文（拆不出词素时退化成单字母块）
 
 interface StudyStats {
@@ -61,12 +60,11 @@ interface StudyStats {
 const WORD_QUESTION_TYPES: { key: WordQuestionType; label: string; icon: typeof Brain }[] = [
   { key: 'en_select_cn', label: '英选中', icon: BookOpen },
   { key: 'cn_select_en', label: '中选英', icon: Languages },
-  { key: 'en_select_def', label: '英选定义', icon: FileText },
-  { key: 'def_select_en', label: '定义选英', icon: PenTool },
-  { key: 'sent_select_cn', label: '例句选中', icon: MessageSquare },
-  { key: 'sent_select_def', label: '例句选定义', icon: Type },
   { key: 'listen_select_cn', label: '听音选中', icon: Volume2 },
   { key: 'cn_select_sound', label: '中选读音', icon: Headphones },
+  { key: 'en_select_def', label: '英选定义', icon: FileText },
+  { key: 'def_select_en', label: '定义选英', icon: PenTool },
+  { key: 'sent_select_en', label: '例句选英', icon: MessageSquare },
   { key: 'spell_block', label: '拼写', icon: Pencil },
 ]
 
@@ -174,8 +172,7 @@ function isWordEligible(w: WordData, type: WordQuestionType): boolean {
     case 'cn_select_en': return hasMeaning && !!w.word.trim()
     case 'en_select_def': return !!w.word.trim() && hasDef
     case 'def_select_en': return hasDef && !!w.word.trim()
-    case 'sent_select_cn': return hasSentence && hasMeaning
-    case 'sent_select_def': return hasSentence && hasDef
+    case 'sent_select_en': return hasSentence && !!w.word.trim()
     // 听音/读音题只要求"有单词 + 有中文释义"：释义是选项或题面
     case 'listen_select_cn': return !!w.word.trim() && hasMeaning
     case 'cn_select_sound': return !!w.word.trim() && hasMeaning
@@ -274,10 +271,8 @@ function buildQuestion(
       question = word.word; answer = wordDefinition(word); break
     case 'def_select_en':
       question = wordDefinition(word); answer = word.word; break
-    case 'sent_select_cn':
-      question = blankSentence(word.exampleEn, word.word); answer = word.meaning; isSentence = true; break
-    case 'sent_select_def':
-      question = blankSentence(word.exampleEn, word.word); answer = wordDefinition(word); isSentence = true; break
+    case 'sent_select_en':
+      question = blankSentence(word.exampleEn, word.word); answer = word.word; isSentence = true; break
     // 题面只显示"听发音"按钮，单词藏在 question 里给播放用（不渲染出来）
     case 'listen_select_cn':
       question = word.word; answer = word.meaning; break
@@ -292,20 +287,19 @@ function buildQuestion(
   const answerOf = (w: WordData): string => {
     switch (type) {
       case 'en_select_cn':
-      case 'sent_select_cn':
       case 'listen_select_cn': return w.meaning
       case 'cn_select_en':
       case 'def_select_en':
+      case 'sent_select_en':
       case 'cn_select_sound':
       case 'spell_block': return w.word
-      case 'en_select_def':
-      case 'sent_select_def': return wordDefinition(w)
+      case 'en_select_def': return wordDefinition(w)
     }
   }
   // 定义题（问题=英文单词、选项=定义）：干扰项必须跟答案同一语言 ——
   // 同一组里可能有"首轮用中文定义"的新词和"之后用英文定义"的学习中词，
   // 不筛的话选项里中英混排，用户看语言就能选出答案。
-  const sameDefSide = type === 'en_select_def' || type === 'sent_select_def'
+  const sameDefSide = type === 'en_select_def'
   const targetSide = definitionSide(word)
   const candidates = pool.filter(
     (x) => x.id !== word.id && (!sameDefSide || definitionSide(x) === targetSide),

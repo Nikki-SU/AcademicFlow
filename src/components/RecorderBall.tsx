@@ -361,7 +361,7 @@ export default function RecorderBall() {
           ? `flex h-screen w-screen flex-col items-center justify-center overflow-hidden ${
               expanded ? 'gap-2 p-3' : 'p-1'
             }`
-          : 'fixed bottom-6 right-6 z-40 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2'
+          : 'fixed bottom-24 right-6 z-40 flex max-w-[calc(100vw-3rem)] flex-col items-end gap-2'
       }
     >
       {expanded && (

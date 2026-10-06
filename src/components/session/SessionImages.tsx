@@ -9,13 +9,16 @@
  * 图片与识别结果始终是一致的。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ImagePlus, Image as ImageIcon, Loader2, Trash2, Camera, Sparkles, RefreshCw } from 'lucide-react'
+import { ImagePlus, Image as ImageIcon, Loader2, Trash2, Camera, Sparkles, RefreshCw, FileText } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   deleteTaskImages,
   listSessionImages,
   uploadSessionImage,
+  uploadSessionMaterial,
+  listSessionMaterials,
   readSessionBoard,
+  saveSessionBoard,
   notifySessionImagesChanged,
   SESSION_IMAGES_CHANGED,
   type SessionImageFile,
@@ -24,6 +27,7 @@ import { forgetRepoImage, repoImageBlobUrl } from '../../services/editorImages'
 import { useSessionStore } from '../../stores/session'
 import { useSessionImagesStore } from '../../stores/sessionImages'
 import CameraCapture from '../CameraCapture'
+import VditorEditor from '../VditorEditor'
 import { Panel, PanelHeader, PanelBody, EmptyState } from '../ui/Panel'
 import Button from '../ui/Button'
 import { PillTabs } from '../ui/Tabs'
@@ -85,26 +89,32 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const recError = useSessionImagesStore((s) => (s.key === recKey ? s.error : null))
 
   const [images, setImages] = useState<SessionImageFile[]>([])
+  const [materials, setMaterials] = useState<SessionImageFile[]>([])
   const [board, setBoard] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('photos')
   const [isLoading, setIsLoading] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [editingBoard, setEditingBoard] = useState(false)
+  const [boardDraft, setBoardDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const reload = useCallback(async () => {
     if (!taskId || !sessionId) {
       setImages([])
+      setMaterials([])
       setBoard(null)
       return
     }
     setIsLoading(true)
     try {
-      const [imgs, md] = await Promise.all([
+      const [imgs, mats, md] = await Promise.all([
         listSessionImages(taskId, sessionId),
+        listSessionMaterials(taskId, sessionId),
         readSessionBoard(taskId, sessionId),
       ])
       setImages(imgs)
+      setMaterials(mats)
       setBoard(md)
     } catch (err) {
       console.error('[SessionImages] 读取照片失败:', err)
@@ -159,13 +169,30 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   }
 
   const handleFiles = async (files: FileList | null) => {
-    const list = Array.from(files ?? []).filter((f) => f.type.startsWith('image/'))
+    const list = Array.from(files ?? [])
     if (inputRef.current) inputRef.current.value = ''
-    if (list.length === 0) {
-      toast.warning('请选择图片文件')
-      return
+    if (list.length === 0) return
+    const imgs = list.filter((f) => f.type.startsWith('image/'))
+    const mats = list.filter((f) => !f.type.startsWith('image/'))
+    if (imgs.length > 0) await uploadImages(imgs)
+    if (mats.length > 0) await uploadMaterials(mats)
+  }
+
+  /** 上传课程材料（PDF / PPT / Word 等）到 materials/，传完刷新列表 */
+  const uploadMaterials = async (list: File[]) => {
+    if (!taskId || !sessionId || list.length === 0) return
+    setIsUploading(true)
+    try {
+      for (const file of list) {
+        await uploadSessionMaterial(taskId, sessionId, file)
+      }
+      await reload()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`课程材料上传失败：${msg}`, { duration: 8000 })
+    } finally {
+      setIsUploading(false)
     }
-    await uploadImages(list)
   }
 
   const handleDelete = async (file: SessionImageFile) => {
@@ -179,6 +206,45 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`删除失败：${msg}`, { duration: 8000 })
     }
+  }
+
+  /** 删除一份课程材料（走同一 Tree 批量删除） */
+  const handleDeleteMaterial = async (m: SessionImageFile) => {
+    const label = window.confirm(`删除课程材料「${m.name.replace(/^\d+_/, '')}」？此操作会提交到私库。`)
+    if (!label) return
+    try {
+      await deleteTaskImages([m.path])
+      await reload()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`删除失败：${msg}`, { duration: 8000 })
+    }
+  }
+
+  /** 进入编辑态：把当前 board 内容装进草稿 */
+  const startEditBoard = () => {
+    if (!taskId || !sessionId || board === null) return
+    setBoardDraft(board)
+    setEditingBoard(true)
+  }
+
+  /** 保存编辑后的 board.md；成功即退出编辑态并刷新 */
+  const saveBoardEdit = async () => {
+    if (!taskId || !sessionId) return
+    try {
+      await saveSessionBoard(taskId, sessionId, boardDraft)
+      setEditingBoard(false)
+      setBoard(boardDraft)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`保存识别结果失败：${msg}`, { duration: 8000 })
+    }
+  }
+
+  /** 取消编辑：丢弃草稿回到只读 */
+  const cancelBoardEdit = () => {
+    setEditingBoard(false)
+    setBoardDraft('')
   }
 
   // 识别可能跑几分钟，期间不禁用拍照/传图 —— 新图会在本轮跑完后自动补识别
@@ -218,7 +284,7 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.pdf,.ppt,.pptx,.doc,.docx"
         multiple
         className="hidden"
         onChange={(e) => void handleFiles(e.target.files)}
@@ -263,25 +329,97 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
         {!taskId ? (
           <EmptyState icon={<ImageIcon />} title="先选一个任务" />
         ) : tab === 'photos' ? (
-          isLoading && images.length === 0 ? (
-            <p className="py-10 text-center text-ui-sm text-ink-400">加载照片…</p>
-          ) : images.length === 0 ? (
-            <EmptyState
-              icon={<Camera />}
-              title="还没有照片"
-              hint="点「拍照」拍板书 / 幻灯片，拍完自动识别"
-            />
-          ) : (
-            <div className="grid grid-cols-2 gap-ui-gap-sm">
-              {images.map((file) => (
-                <Thumb key={file.path} file={file} onDelete={() => void handleDelete(file)} />
-              ))}
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {isLoading && images.length === 0 && materials.length === 0 ? (
+                <p className="py-10 text-center text-ui-sm text-ink-400">加载…</p>
+              ) : (
+                <>
+                  {images.length > 0 && (
+                    <div className="p-ui-gap">
+                      <div className="mb-1.5 text-ui-2xs font-medium text-ink-500">板书 / 幻灯片照片</div>
+                      <div className="grid grid-cols-2 gap-ui-gap-sm">
+                        {images.map((file) => (
+                          <Thumb key={file.path} file={file} onDelete={() => void handleDelete(file)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {materials.length > 0 && (
+                    <div className="af-line-t p-ui-gap">
+                      <div className="mb-1.5 text-ui-2xs font-medium text-ink-500">课程材料（PDF / PPT / Word）</div>
+                      <div className="space-y-1">
+                        {materials.map((m) => (
+                          <div
+                            key={m.path}
+                            className="flex items-center gap-2 rounded-control-sm border border-ink-200 bg-paper-100/60 px-2 py-1.5"
+                          >
+                            <FileText className="h-ui-icon-sm w-ui-icon-sm text-seal-600 flex-shrink-0" />
+                            <span className="min-w-0 flex-1 truncate text-ui-xs text-ink-700" title={m.name}>
+                              {m.name.replace(/^\d+_/, '')}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="删除这份材料"
+                              onClick={() => void handleDeleteMaterial(m)}
+                            >
+                              <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {images.length === 0 && materials.length === 0 && (
+                    <EmptyState
+                      icon={<Camera />}
+                      title="还没有照片 / 课程材料"
+                      hint="点「拍照」拍板书 / 幻灯片（自动识别成板书稿），或「选择文件」传 PDF / PPT / Word 课程材料"
+                    />
+                  )}
+                </>
+              )}
             </div>
-          )
+          </div>
+        ) : editingBoard ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 items-center justify-between px-ui-gap py-1.5">
+              <span className="text-ui-2xs text-ink-500">编辑识别结果（保存后写回 board.md）</span>
+              <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" onClick={cancelBoardEdit}>
+                  取消
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => void saveBoardEdit()}>
+                  保存
+                </Button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <VditorEditor
+                value={boardDraft}
+                onChange={setBoardDraft}
+                height="100%"
+                docPath={`projects/${taskId}/sessions/${sessionId}/session.md`}
+              />
+            </div>
+          </div>
         ) : board ? (
-          <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
-            {board}
-          </pre>
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 items-center justify-between px-ui-gap py-1.5">
+              <span className="text-ui-2xs text-ink-500">
+                识别结果（识别可能出错，可编辑修正）
+              </span>
+              <Button variant="secondary" size="sm" onClick={startEditBoard} icon={<Sparkles />}>
+                编辑
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-ui-gap pb-ui-gap">
+              <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
+                {board}
+              </pre>
+            </div>
+          </div>
         ) : (
           <EmptyState
             icon={<Sparkles />}
