@@ -3475,7 +3475,7 @@ export default function WritingPage() {
     >
       <div
         className={`relative flex-shrink-0 transition-all duration-300 ${
-          navCollapsed ? 'w-0' : 'w-1/5 min-w-[15rem]'
+          navCollapsed ? 'w-0' : 'w-[calc((100vw-5vw-2*var(--ui-gap))/5)] min-w-0'
         }`}
       >
         <aside

@@ -65,21 +65,20 @@ export default {
       /*
        * 全站多栏比例模板（唯一来源）
        * -------------------------------------------------
-       * 一个页面**只用这几种固定比例**，不再各页各写一段 minmax(...)__minmax(...)。
+       * 分栏比例也以页面宽（vw）为参照，且**严格满足层级数学约束**：
+       *   列宽和 + 列间距和 = 页面可用宽（100vw - 左右页边距 2×2.5vw）
+       * 每列用 calc 从「可用宽 - gap 和」按比例切分，绝不溢出、不留白。
        * 想全局调比例，改这里一处即可；页面侧只写 `lg:grid-cols-ratio-121` 这种语义类。
-       *   1:4（两栏） / 1:1:1 / 1:2:1 / 1:1.5:1.5 / 1:1:2 / 1:2:2 / 1:3:1 / 1:1:3
-       * 各栏一律 minmax(0, …)：允许收缩到 0，窄屏不会把网格撑破（列内自己滚动）。
-       * 窄屏塌成单列由页面侧 `grid-cols-1`（默认）负责。
        */
       gridTemplateColumns: {
-        'ratio-14': 'minmax(0, 1fr) minmax(0, 4fr)',
-        'ratio-111': 'repeat(3, minmax(0, 1fr))',
-        'ratio-121': 'minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr)',
-        'ratio-115-115': 'minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1.5fr)',
-        'ratio-112': 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr)',
-        'ratio-122': 'minmax(0, 1fr) minmax(0, 2fr) minmax(0, 2fr)',
-        'ratio-131': 'minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr)',
-        'ratio-113': 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 3fr)',
+        'ratio-14': 'minmax(0, calc((100vw - 5vw - var(--ui-gap)) * 1 / 5)) minmax(0, calc((100vw - 5vw - var(--ui-gap)) * 4 / 5))',
+        'ratio-111': 'repeat(3, minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 3)))',
+        'ratio-121': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4))',
+        'ratio-115-115': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 1.5 / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 1.5 / 4))',
+        'ratio-112': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 4))',
+        'ratio-122': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 5))',
+        'ratio-131': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 3 / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 5))',
+        'ratio-113': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 3 / 5))',
       },
       colors: {
         paper: {

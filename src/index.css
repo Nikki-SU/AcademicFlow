@@ -16,7 +16,7 @@
    * 只有正文与编辑器（markdown / LaTeX）保持精确字号，不跟视口漂移。
    */
   html {
-    font-size: clamp(14px, 1.11vw, 20px);
+    font-size: 1.11vw;
   }
 
   html,
@@ -110,31 +110,32 @@
    * 单位是 rem（相对根字号），数值即当时 clamp 的中段值，观感与改前一致。
    * 注意：正文与编辑器字号不在此列，仍保持精确（见文件顶部说明）。
    */
-  /* 间距：sm 紧凑 / 中 / lg 页面级 */
-  --ui-gap-sm: 0.4rem;
-  --ui-gap: 0.8rem;
-  --ui-gap-lg: 1.1rem;
+  /* 间距：sm 紧凑 / 中 / lg 页面级 —— 全部以页面宽（vw）为参照 */
+  --ui-gap-sm: 0.44vw;
+  --ui-gap: 0.89vw;
+  --ui-gap-lg: 1.22vw;
   /* 树形缩进一档 */
-  --ui-indent: 0.7rem;
+  --ui-indent: 0.78vw;
   /* 时间轴左列宽 */
-  --ui-axis: 2.15rem;
+  --ui-axis: 2.39vw;
   /* 图标：常规 / 小 */
-  --ui-icon: 0.95rem;
-  --ui-icon-sm: 0.8rem;
+  --ui-icon: 1.05vw;
+  --ui-icon-sm: 0.89vw;
   /* 颜色圆点 */
-  --ui-dot: 0.55rem;
-  /* 课程表时间轴的最小竖向高度（列撑满剩余空间的兜底下限，仅窄屏生效） */
-  --ui-lane: clamp(20rem, 56vh, 40rem);
+  --ui-dot: 0.61vw;
+  /* 课程表时间轴的最小竖向高度（列撑满剩余空间的兜底下限，仅窄屏生效）—— 以页面高（vh）为参照 */
+  --ui-lane: clamp(30vh, 56vh, 59vh);
   /*
    * 面板页头固定高度 —— **全站多栏页面板横线靠它对齐**。
    * 三栏面板的页头（图标 + 标题 + 右侧动作）都取这个高度，
    * 页签、工具条一律下沉到页头之下，不再各自撑高页头造成参差。
+   * 高度以页面高（vh）为参照：2.5rem(40px@1080p) ≈ 3.7vh。
    */
-  --ui-header: 2.5rem;
-  /* 字号（界面专用；正文/编辑器字号不走这里） */
-  --ui-text-2xs: 0.65rem;
-  --ui-text-xs: 0.72rem;
-  --ui-text-sm: 0.85rem;
+  --ui-header: 3.7vh;
+  /* 字号（界面专用；正文/编辑器字号不走这里）—— 以页面宽（vw）为参照 */
+  --ui-text-2xs: 0.72vw;
+  --ui-text-xs: 0.8vw;
+  --ui-text-sm: 0.94vw;
   /*
    * 圆角容器内的分隔线颜色 —— 全站一份。
    * 值就是调色板 ink-100。圆角容器（卡片 / 面板 / 弹窗）里要画分隔线时一律取它，
@@ -185,7 +186,7 @@
 @layer components {
   .page-container {
     width: 100%;
-    padding-inline: clamp(1rem, 2.5vw, 3rem);
+    padding-inline: 2.5vw;
   }
 
   /*
