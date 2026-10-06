@@ -67,6 +67,22 @@ const CHAT_MODEL_DENY_KEYWORDS = [
   'vl/',
 ]
 
+/**
+ * 判定一个 model id 是否为语音转写（ASR）类模型（用于会议转写下拉过滤）。
+ * 硅基流动的转写模型命名风格：TeleAI/TeleSpeechASR、FunAudioLLM/SenseVoiceSmall、
+ * Qwen/Qwen3-ASR-* 等；再兜一层 Whisper / SenseVoice 这类通用 ASR 关键词。
+ */
+export function isAsrModel(modelId: string): boolean {
+  if (!modelId || !modelId.trim()) return false
+  const id = modelId.trim()
+  return (
+    /(^|\/)(\w+[-.])?asr/i.test(id) ||
+    /sensevoice/i.test(id) ||
+    /telespeech/i.test(id) ||
+    /whisper/i.test(id)
+  )
+}
+
 /** 判定一个 model id 是否为 chat/reasoning 类模型（用于 UI 下拉过滤） */
 export function isChatModel(modelId: string): boolean {
   if (!modelId || !modelId.trim()) return false

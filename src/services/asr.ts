@@ -295,6 +295,33 @@ export async function probeModels(cfg: AsrConfig, signal?: AbortSignal): Promise
 }
 
 /**
+ * 拉取完整模型 id 清单：GET {baseUrl}/models（OpenAI 兼容）。
+ * 供设置页「会议转写」三个模型下拉过滤使用 —— 不硬编码清单，
+ * 用户 Key 下实际有哪些模型，拉一次就知道。非 2xx 抛错（带响应片段）。
+ */
+export async function fetchModelIds(
+  baseUrl: string,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const res = await fetch(joinUrl(baseUrl, '/models'), {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal,
+  })
+  if (!res.ok) {
+    const snippet = await errorSnippet(res)
+    throw new Error(`HTTP ${res.status}：${snippet}`)
+  }
+  const data = (await res.json().catch(() => null)) as
+    | { data?: Array<{ id?: unknown }> }
+    | null
+  if (!Array.isArray(data?.data)) throw new Error('模型清单响应缺少 data 数组')
+  return data.data
+    .map((m) => (typeof m?.id === 'string' ? m.id : ''))
+    .filter((id) => id.trim() !== '')
+}
+
+/**
  * 录一小段真实音频（走与生产录音完全相同的 MediaRecorder 链路）。
  * 连通性测试用它去真调转写端点，才能证明「录音能不能出字」。
  */

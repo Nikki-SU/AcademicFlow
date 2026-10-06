@@ -30,10 +30,12 @@ import APIKeyInput from '../components/settings/APIKeyInput'
 import DualEngineTestPanel from '../components/settings/DualEngineTestPanel'
 import ConnectivityPanel from '../components/settings/ConnectivityPanel'
 import AsrTestPanel from '../components/settings/AsrTestPanel'
+import AsrModelPicker, { type ModelPreset } from '../components/settings/AsrModelPicker'
 import { PipelineDebugPanel } from '../components/PipelineDebugPanel'
 import BackendCapabilitiesPanel from '../components/settings/BackendCapabilitiesPanel'
 import PdfCleanupPanel from '../components/settings/PdfCleanupPanel'
-import { isChatModel } from '../services/ai/models'
+import { isChatModel, isAsrModel } from '../services/ai/models'
+import { fetchModelIds } from '../services/asr'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -86,6 +88,23 @@ const THINKING_OPTIONS: { value: AIThinkingMode; label: string }[] = [
   { value: 'low', label: '开启 · 低强度' },
   { value: 'high', label: '开启 · 高强度' },
   { value: 'max', label: '开启 · 最高强度' },
+]
+
+/**
+ * 会议转写三个模型下拉的「推荐」预置（官方免费 / 常用）。
+ * 不是硬性清单 —— 旁边「拉取清单」会按用户 Key 列出真实可用模型，
+ * 预置只是给「没拉取也能直接用」的默认选项，且把快慢差异标注出来。
+ */
+const ASR_TRANSCRIBE_PRESETS: ModelPreset[] = [
+  { value: 'FunAudioLLM/SenseVoiceSmall', label: 'FunAudioLLM/SenseVoiceSmall · 出字快（推荐）' },
+  { value: 'TeleAI/TeleSpeechASR', label: 'TeleAI/TeleSpeechASR · 中文准但较慢' },
+]
+const ASR_TRANSLATE_PRESETS: ModelPreset[] = [
+  { value: 'tencent/Hunyuan-MT-7B', label: 'tencent/Hunyuan-MT-7B · 专用翻译（免费）' },
+  { value: 'Qwen/Qwen2.5-7B-Instruct', label: 'Qwen/Qwen2.5-7B-Instruct · 通用（免费）' },
+]
+const ASR_POLISH_PRESETS: ModelPreset[] = [
+  { value: 'Qwen/Qwen2.5-7B-Instruct', label: 'Qwen/Qwen2.5-7B-Instruct · 通用（免费）' },
 ]
 
 /** 按阶段的思考模式设置行 */
@@ -418,6 +437,37 @@ function Settings() {
     }
   }
 
+  // ── 会议转写：模型清单拉取（浏览器直连硅基流动 GET /models，三处下拉共用） ──
+  const [asrModelIds, setAsrModelIds] = useState<string[]>([])
+  const [asrListLoading, setAsrListLoading] = useState(false)
+  const [asrListFetchedAt, setAsrListFetchedAt] = useState<number | null>(null)
+
+  const handleFetchAsrList = async () => {
+    if (!asrApiKey.trim()) {
+      toast.error('先填硅基流动 API Key')
+      return
+    }
+    setAsrListLoading(true)
+    try {
+      const ids = await fetchModelIds(asrBaseUrl, asrApiKey)
+      setAsrModelIds(ids)
+      setAsrListFetchedAt(Date.now())
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`模型清单拉取失败：${msg}`, { duration: 8000 })
+    } finally {
+      setAsrListLoading(false)
+    }
+  }
+
+  // 同一份原始清单，按用途过滤：转写 → ASR 类；翻译 / 修饰 → chat 类
+  const asrTranscribeIds = asrModelIds.filter(isAsrModel)
+  const asrChatIds = asrModelIds.filter(isChatModel)
+  const asrFetchedLabel =
+    asrModelIds.length > 0
+      ? `清单 ${asrModelIds.length} 个（转写可用 ${asrTranscribeIds.length}） · ${formatFetchedAt(asrListFetchedAt)}`
+      : '未拉取 —— 点「拉取清单」按你的 Key 列出可用模型'
+
   // 拉取清单过滤出 chat 类（下拉用），AI-1 / AI-2 对称
   const slot1ChatIds = slot1Models.map((m) => m.id).filter(isChatModel)
   const slot2ChatIds = slot2Models.map((m) => m.id).filter(isChatModel)
@@ -613,17 +663,18 @@ function Settings() {
                   className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
                 />
               </div>
-              <div className="space-y-2">
-                <label className="block text-ui-sm font-medium text-ink-700">转写模型</label>
-                <input
-                  type="text"
-                  value={asrModel}
-                  onChange={(e) => updateSettings({ asrModel: e.target.value })}
-                  placeholder="TeleAI/TeleSpeechASR"
-                  spellCheck={false}
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                />
-              </div>
+              <AsrModelPicker
+                label="转写模型"
+                value={asrModel}
+                onChange={(v) => updateSettings({ asrModel: v })}
+                presets={ASR_TRANSCRIBE_PRESETS}
+                fetched={asrTranscribeIds}
+                canFetch={!!asrApiKey.trim()}
+                isFetching={asrListLoading}
+                fetchedLabel={asrFetchedLabel}
+                onFetch={() => void handleFetchAsrList()}
+                hint="SenseVoiceSmall 出字快、多语言；TeleSpeechASR 中文更准但明显更慢，易拖过超时线。"
+              />
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
@@ -633,28 +684,33 @@ function Settings() {
                 />
                 <span className="text-ui-sm font-medium text-ink-700">非中文自动译成中文</span>
               </label>
-              <div className="space-y-2">
-                <label className="block text-ui-sm font-medium text-ink-700">翻译模型</label>
-                <input
-                  type="text"
-                  value={asrTranslateModel}
-                  onChange={(e) => updateSettings({ asrTranslateModel: e.target.value })}
-                  placeholder="留空 = 不翻译"
-                  spellCheck={false}
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="block text-ui-sm font-medium text-ink-700">转写稿 AI 修饰模型</label>
-                <input
-                  type="text"
-                  value={asrPolishModel}
-                  onChange={(e) => updateSettings({ asrPolishModel: e.target.value })}
-                  placeholder="留空 = 不启用（如 Qwen/Qwen2.5-7B-Instruct）"
-                  spellCheck={false}
-                  className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-seal-500"
-                />
-              </div>
+              <AsrModelPicker
+                label="翻译模型"
+                value={asrTranslateModel}
+                onChange={(v) => updateSettings({ asrTranslateModel: v })}
+                presets={ASR_TRANSLATE_PRESETS}
+                fetched={asrChatIds}
+                canFetch={!!asrApiKey.trim()}
+                isFetching={asrListLoading}
+                fetchedLabel={asrFetchedLabel}
+                onFetch={() => void handleFetchAsrList()}
+                allowEmpty
+                emptyLabel="留空 = 不翻译"
+              />
+              <AsrModelPicker
+                label="转写稿 AI 修饰模型"
+                value={asrPolishModel}
+                onChange={(v) => updateSettings({ asrPolishModel: v })}
+                presets={ASR_POLISH_PRESETS}
+                fetched={asrChatIds}
+                canFetch={!!asrApiKey.trim()}
+                isFetching={asrListLoading}
+                fetchedLabel={asrFetchedLabel}
+                onFetch={() => void handleFetchAsrList()}
+                allowEmpty
+                emptyLabel="留空 = 不启用"
+                hint="用通用对话模型把口语化转写整理成书面段落。"
+              />
 
               <details className="rounded-control border border-ink-200 bg-paper-100/60 px-ui-gap py-2.5 text-ui-xs text-ink-600">
                 <summary className="flex cursor-pointer items-center gap-2">

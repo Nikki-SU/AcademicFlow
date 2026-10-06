@@ -131,10 +131,12 @@ const DEFAULT_SETTINGS: SettingsData = {
   thinkingAi1: 'off',
   thinkingAi2: 'off',
   // 会议/课程转写（ASR）：浏览器直连硅基流动。默认全用免费模型：
-  // 转写 TeleSpeechASR（电信系列，免费）、翻译 Hunyuan-MT-7B（免费）。
+  // 转写 SenseVoiceSmall（多语言、出字快、免费）、翻译 Hunyuan-MT-7B（免费）。
+  // 注：TeleAI/TeleSpeechASR 也是免费的，但它是自回归大模型、出字明显更慢，
+  // 单片 10s 音频常拖过 25s 超时线 —— 不再作默认。
   asrBaseUrl: 'https://api.siliconflow.cn/v1',
   asrApiKey: '',
-  asrModel: 'TeleAI/TeleSpeechASR',
+  asrModel: 'FunAudioLLM/SenseVoiceSmall',
   asrTranslateModel: 'tencent/Hunyuan-MT-7B',
   // 转写稿 AI 修饰：用通用对话模型把口语化转写整理成书面段落；留空 = 不启用
   asrPolishModel: '',
@@ -525,7 +527,13 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
           if (loaded.thinkingAi2 !== undefined) patch.thinkingAi2 = normalizeSlotThinking(loaded.thinkingAi2, DEFAULT_SETTINGS.thinkingAi2)
           // 会议转写（ASR）：4 个非敏感字段
           if (loaded.asrBaseUrl !== undefined) patch.asrBaseUrl = String(loaded.asrBaseUrl)
-          if (loaded.asrModel !== undefined) patch.asrModel = String(loaded.asrModel)
+          if (loaded.asrModel !== undefined) {
+            // 旧默认迁移：TeleAI/TeleSpeechASR 曾是「程序塞进去的默认」（当时模型
+            // 只能手填、没得选），它出字慢、常拖过超时线。值恰好等于旧默认的
+            // 设备（= 用户没主动改过）一律换成新的快默认；想用旧模型仍可在下拉里切回。
+            const v = String(loaded.asrModel)
+            patch.asrModel = v === 'TeleAI/TeleSpeechASR' ? 'FunAudioLLM/SenseVoiceSmall' : v
+          }
           // 翻译 / 修饰模型：空串是合法值（= 不启用），直接透传
           if (loaded.asrTranslateModel !== undefined) patch.asrTranslateModel = String(loaded.asrTranslateModel)
           if (loaded.asrPolishModel !== undefined) patch.asrPolishModel = String(loaded.asrPolishModel)
