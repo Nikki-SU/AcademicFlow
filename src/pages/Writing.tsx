@@ -977,6 +977,9 @@ export default function WritingPage() {
   } | null>(null)
   const [showNewProjectInput, setShowNewProjectInput] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
+  // 加号新建项目：类型 + 挂载关系。默认跟随当前选中任务（作为其子任务），类型继承父任务。
+  const [newProjectType, setNewProjectType] = useState<ProjectType>('research')
+  const [newProjectAsChild, setNewProjectAsChild] = useState(true)
   const [citations, setCitations] = useState<CitationRef[]>([])
   const [showAddCitationForm, setShowAddCitationForm] = useState(false)
   const [newCitation, setNewCitation] = useState({
@@ -1045,6 +1048,13 @@ export default function WritingPage() {
   const exportMdRef = useRef<() => void>(() => {})
   const chatEndRef = useRef<HTMLDivElement>(null)
   const aiInputRef = useRef<HTMLTextAreaElement>(null)
+  /** AI 输入框自动增高：按内容 scrollHeight 自适应，向上顶（下方消息区 flex-1 被压缩），封顶后内部滚 */
+  const autoGrowAiInput = useCallback(() => {
+    const el = aiInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }, [])
   /** 当前 AI 助手指令的取消句柄：点「停止」立刻不再接收后端输出（详见 ai/abort.ts） */
   const aiAbortRef = useRef<AbortController | null>(null)
   const leftDropdownRef = useRef<HTMLDivElement>(null)
@@ -3188,6 +3198,10 @@ export default function WritingPage() {
     const name = newProjectName.trim()
     if (name) {
       const projectId = String(Date.now())
+      // 挂载关系：默认作为当前选中任务（AcademicFlow 标识旁）的子任务；未选/未勾选则建根任务。
+      // 类型：默认跟随父任务（子任务），否则用用户选的类型。
+      const parent = newProjectAsChild ? projects.find((p) => p.projectId === currentProjectId) : undefined
+      const resolvedType = parent ? parent.type : newProjectType
       const newProject: Project = {
         projectId,
         title: name,
@@ -3196,8 +3210,8 @@ export default function WritingPage() {
         status: 'draft',
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        type: 'research',
-        parentId: null,
+        type: resolvedType,
+        parentId: parent ? parent.projectId : null,
         startAt: 0,
         dueAt: 0,
         done: false,
@@ -3211,6 +3225,8 @@ export default function WritingPage() {
       })
       setActiveProjectId(projectId)
       setNewProjectName('')
+      setNewProjectType('research')
+      setNewProjectAsChild(true)
       setShowNewProjectInput(false)
       // 新建项目 → 立刻挑这个任务要用的材料（正式加入其引用库）；可跳过，之后也能随时补
       openProjectLitModal(projectId)
@@ -3458,28 +3474,63 @@ export default function WritingPage() {
                 {(showNewProjectInput || activeProject) && (
                   <div className="af-line-b px-ui-gap py-2 flex-shrink-0 space-y-2">
                     {showNewProjectInput && (
-                      <div className="flex gap-1">
-                        <input
-                          type="text"
-                          value={newProjectName}
-                          onChange={(e) => setNewProjectName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleCreateProject()
-                            if (e.key === 'Escape') {
-                              setShowNewProjectInput(false)
-                              setNewProjectName('')
-                            }
-                          }}
-                          placeholder="输入项目名称"
-                          autoFocus
-                          className="flex-1 px-2 py-1 text-ui-sm border border-ink-200 rounded-control-sm focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
-                        />
-                        <button
-                          onClick={handleCreateProject}
-                          className="px-2 py-1 bg-seal-600 text-paper-50 text-ui-xs rounded-control-sm hover:bg-seal-700 transition"
-                        >
-                          创建
-                        </button>
+                      <div className="space-y-2">
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={newProjectName}
+                            onChange={(e) => setNewProjectName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleCreateProject()
+                              if (e.key === 'Escape') {
+                                setShowNewProjectInput(false)
+                                setNewProjectName('')
+                              }
+                            }}
+                            placeholder="输入项目名称"
+                            autoFocus
+                            className="flex-1 px-2 py-1 text-ui-sm border border-ink-200 rounded-control-sm focus:outline-none focus:border-seal-400 focus:ring-1 focus:ring-seal-100"
+                          />
+                          <button
+                            onClick={handleCreateProject}
+                            className="px-2 py-1 bg-seal-600 text-paper-50 text-ui-xs rounded-control-sm hover:bg-seal-700 transition"
+                          >
+                            创建
+                          </button>
+                        </div>
+                        {/* 挂载关系：默认作为当前任务的子任务 */}
+                        {currentProjectId && projects.some((p) => p.projectId === currentProjectId) && (
+                          <label className="flex items-center gap-1.5 text-ui-xs text-ink-600 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={newProjectAsChild}
+                              onChange={(e) => setNewProjectAsChild(e.target.checked)}
+                              className="accent-seal-600"
+                            />
+                            作为「{projects.find((p) => p.projectId === currentProjectId)?.title}」的子任务
+                          </label>
+                        )}
+                        {/* 类型：仅在创建根任务时可自由选（子任务继承父类型） */}
+                        {(!newProjectAsChild || !currentProjectId) && (
+                          <div className="flex gap-1 bg-paper-100 rounded-control p-0.5">
+                            {([
+                              ['research', '研究'],
+                              ['course', '课程'],
+                            ] as const).map(([value, label]) => (
+                              <button
+                                key={value}
+                                onClick={() => setNewProjectType(value)}
+                                className={`flex-1 rounded-control-sm px-2 py-0.5 text-ui-xs transition ${
+                                  newProjectType === value
+                                    ? 'bg-paper-50 text-seal-600 font-medium shadow-sm'
+                                    : 'text-ink-500 hover:text-ink-700'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     {activeProject && (
@@ -3879,6 +3930,12 @@ export default function WritingPage() {
                   <span className="text-ui-xs font-medium text-ink-600 flex items-center gap-1.5">
                     <Zap className="h-ui-icon-sm w-ui-icon-sm text-amber-500" />
                     可信检索
+                    <span
+                      title="AI-1 生成内容并标注原文引用，AI-2 核查事实准确性"
+                      className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-ink-100 text-ink-400 text-[10px] cursor-help leading-none"
+                    >
+                      ?
+                    </span>
                   </span>
                   <div className="flex items-center gap-1">
                     <button
@@ -3892,9 +3949,6 @@ export default function WritingPage() {
                       )}
                     </button>
                   </div>
-                </div>
-                <div className="mt-1.5 text-ui-2xs text-ink-400 leading-relaxed">
-                  AI-1 生成内容并标注原文引用，AI-2 核查事实准确性
                 </div>
 
                 {trustedSearch && (
@@ -4191,13 +4245,6 @@ export default function WritingPage() {
               </div>
 
               <div className="af-line-t p-3 bg-paper-50">
-                {trustedSearch && (
-                  <div className="mb-2 flex items-center gap-1.5 text-ui-2xs text-emerald-600">
-                    <Zap className="w-3 h-3" />
-                    <span>可信检索模式 · AI-1生成 + AI-2审阅</span>
-                  </div>
-                )}
-
                 {/* 快捷指令：点一下点亮，发送框就地换成这条指令要的空 —— 选和填在同一处，
                     不必跳到面板顶端去看另一块表单。再点一下（或点别的指令）即取消。 */}
                 <div className="flex flex-wrap items-center gap-1.5 mb-2">
@@ -4327,16 +4374,19 @@ export default function WritingPage() {
                     <textarea
                       ref={aiInputRef}
                       value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
+                      onChange={(e) => {
+                        setInputValue(e.target.value)
+                        autoGrowAiInput()
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
                           handleSendMessage()
                         }
                       }}
-                      rows={2}
+                      rows={1}
                       placeholder="给 AI 一个需求…（Enter 发送，Shift+Enter 换行）"
-                      className="flex-1 px-ui-gap py-2 text-ui-sm border border-ink-200 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50 resize-y min-h-[2.375rem] max-h-[10rem]"
+                      className="flex-1 px-ui-gap py-2 text-ui-sm border border-ink-200 rounded-control focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 bg-paper-100/50 resize-none overflow-y-auto min-h-[2.375rem] max-h-[10rem]"
                     />
                     <button
                       onClick={() => handleSendMessage()}
