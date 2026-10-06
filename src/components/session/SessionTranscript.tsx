@@ -8,7 +8,7 @@
  * 读不到一律给空状态，不报错弹窗。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Mic, Square, Loader2, FileText, Sparkles, Eye, EyeOff } from 'lucide-react'
+import { Mic, Square, Loader2, Sparkles, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRecorderStore } from '../../stores/recorder'
 import { useSettingsStore } from '../../stores/settings'
@@ -16,9 +16,11 @@ import {
   loadLatestTranscript,
   extractTranscriptText,
   savePolishedTranscript,
+  saveTranscriptRaw,
 } from '../../services/sessionData'
 import { polishTranscript, type TranscriptBlock } from '../../services/asr'
 import TranscriptEditor from './TranscriptEditor'
+import VditorEditor from '../VditorEditor'
 import { Panel, PanelHeader, PanelBody, EmptyState } from '../ui/Panel'
 import Button from '../ui/Button'
 
@@ -63,6 +65,8 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
   const [lastLoading, setLastLoading] = useState(false)
   const [polishing, setPolishing] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
+  const [editingRaw, setEditingRaw] = useState(false)
+  const [rawDraft, setRawDraft] = useState('')
   const [now, setNow] = useState(Date.now())
 
   const isRecording = status === 'recording'
@@ -100,6 +104,8 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
         setSessionId(r?.sessionId ?? null)
         setBlocks(r?.blocks ?? null)
         setShowRaw(false)
+        setEditingRaw(false)
+        setRawDraft('')
       })
       .finally(() => {
         if (cancelled) return
@@ -169,6 +175,33 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
       setPolishing(false)
     }
   }, [taskId, sessionId, lastText])
+
+  /** 进入「编辑原始转写」态：把当前原文装进草稿 */
+  const startEditRaw = () => {
+    if (lastContent === null) return
+    setRawDraft(lastContent)
+    setEditingRaw(true)
+  }
+
+  /** 保存编辑后的原始转写；成功即退出编辑态并刷新本地状态 */
+  const saveRawEdit = async () => {
+    if (!taskId || !sessionId) return
+    try {
+      await saveTranscriptRaw(taskId, sessionId, rawDraft)
+      setEditingRaw(false)
+      setLastContent(rawDraft)
+      setLastText(extractTranscriptText(rawDraft))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`转写保存失败：${msg}`, { duration: 8000 })
+    }
+  }
+
+  /** 取消编辑：丢弃草稿回到只读 */
+  const cancelRawEdit = () => {
+    setEditingRaw(false)
+    setRawDraft('')
+  }
 
   const elapsed = startedAt ? now - startedAt : 0
 
@@ -260,15 +293,38 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
             hint="点「开始录音」，或从右下角悬浮球开录（需先在设置里配好 Key）"
           />
         ) : showRaw ? (
-          <div>
-            <div className="mb-2 flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
-              <FileText className="h-ui-icon-sm w-ui-icon-sm" />
-              原始转写（只读）
+          editingRaw ? (
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex shrink-0 items-center justify-between">
+                <span className="text-ui-xs text-ink-500">编辑原始转写（保存后写回 transcript.md）</span>
+                <div className="flex items-center gap-1.5">
+                  <Button variant="ghost" size="sm" onClick={cancelRawEdit}>
+                    取消
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={() => void saveRawEdit()}>
+                    保存
+                  </Button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <VditorEditor value={rawDraft} onChange={setRawDraft} height="100%" />
+              </div>
             </div>
-            <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
-              {lastContent}
-            </pre>
-          </div>
+          ) : (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-ui-xs text-ink-500">
+                  原始转写（转写可能出错，可编辑修正）
+                </span>
+                <Button variant="secondary" size="sm" onClick={startEditRaw}>
+                  编辑
+                </Button>
+              </div>
+              <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
+                {lastContent}
+              </pre>
+            </div>
+          )
         ) : blocks ? (
           <div>
             <div className="mb-2 flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
@@ -277,11 +333,32 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
             </div>
             <TranscriptEditor blocks={blocks} onChange={setBlocks} />
           </div>
+        ) : editingRaw ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="mb-2 flex shrink-0 items-center justify-between">
+              <span className="text-ui-xs text-ink-500">编辑原始转写（保存后写回 transcript.md）</span>
+              <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" onClick={cancelRawEdit}>
+                  取消
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => void saveRawEdit()}>
+                  保存
+                </Button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <VditorEditor value={rawDraft} onChange={setRawDraft} height="100%" />
+            </div>
+          </div>
         ) : (
           <div>
-            <div className="mb-2 flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
-              <FileText className="h-ui-icon-sm w-ui-icon-sm" />
-              最近一次会话（原始转写）
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-ui-xs text-ink-500">
+                最近一次会话（原始转写，转写可能出错，可编辑修正）
+              </span>
+              <Button variant="secondary" size="sm" onClick={startEditRaw}>
+                编辑
+              </Button>
             </div>
             <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
               {lastContent}
@@ -289,7 +366,9 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
             <div className="mt-4 rounded-control border border-seal-200 bg-seal-50/50 p-3 text-ui-xs text-ink-600">
               这份是语音原话，还比较口语。点右上角
               <span className="mx-1 font-medium text-seal-700">「AI 修饰」</span>
-              重新分段、去掉口头禅，整理成可用的书面转写稿。
+              重新分段、去掉口头禅，整理成可用的书面转写稿；或点
+              <span className="mx-1 font-medium text-seal-700">「编辑」</span>
+              直接改原文。
             </div>
           </div>
         )}

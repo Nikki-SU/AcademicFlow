@@ -109,6 +109,7 @@ import {
   buildTaskFilterOptions,
   taskFilterMatches,
   type Project,
+  type ProjectType,
   type QuickAction,
   type TaskFilterOption,
   type CitationRef as ServiceCitationRef,
