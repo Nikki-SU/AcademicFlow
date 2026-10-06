@@ -138,7 +138,7 @@ export default function SessionPage() {
         ref={sessionGridRef}
         className="page-container py-ui-page relative min-h-0 flex-1 grid grid-cols-[var(--session-cols)] grid-rows-[minmax(0,1fr)] gap-ui-gap overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:grid-rows-[repeat(3,minmax(0,1fr))]"
         style={{
-          '--session-cols': `minmax(0, 1fr) minmax(0, ${4 - rightFr}fr) minmax(0, ${rightFr}fr)`,
+          '--session-cols': `minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * ${4 - rightFr} / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * ${rightFr} / 5))`,
         } as CSSProperties}
       >
         <div className="min-w-0">

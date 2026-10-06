@@ -3895,7 +3895,7 @@ export default function WritingPage() {
         }`}
         style={
           {
-            '--writing-cols': `minmax(0, ${4 - rightFr}fr) minmax(0, ${rightFr}fr)`,
+            '--writing-cols': `minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * ${4 - rightFr} / 5)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * ${rightFr} / 5))`,
           } as CSSProperties
         }
       >
