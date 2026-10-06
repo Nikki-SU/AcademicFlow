@@ -1,14 +1,17 @@
 name: session_images
 
-# 会议/课程照片 → MinerU → **一节课一份** board.md
+# 会议/课程「照片 + 课程材料」→ MinerU → markdown
 #
 # 与 book_convert 的区别：图书是「一整本 PDF → content.md」，这里是
-# 「一节课的多张照片 → 各自识别 → 合并成同一份 markdown」。多张进、一份出。
+# 「一节课的多张照片 → 各自识别 → 合并成同一份 board.md；课程材料（PDF/PPT/Word）
+# → 每份转成 materials-md/{名}.md」。多张照片进、一份 board 出；材料一份进、一份 md 出。
 #
 # 触发：repository_dispatch event_type=session_images，payload { task_id, session_id }
-# 源目录：projects/{task_id}/sessions/{session_id}/images/
+# 源目录：projects/{task_id}/sessions/{session_id}/images/ 与 materials/
 # 产物：  projects/{task_id}/sessions/{session_id}/board.md        （所有照片识别合并）
-#         projects/{task_id}/sessions/{session_id}/board-images/   （识别抽出的图）
+#         projects/{task_id}/sessions/{session_id}/board-images/   （照片识别抽出的图）
+#         projects/{task_id}/sessions/{session_id}/materials-md/   （每份材料一份 md）
+#         projects/{task_id}/sessions/{session_id}/materials-md-images/（材料识别抽出的图）
 on:
   repository_dispatch:
     types: [session_images]
@@ -31,7 +34,9 @@ concurrency:
 jobs:
   convert:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 一节课 = 照片识别 + 材料转换双任务，可能装 LibreOffice + 两轮 MinerU batch；
+    # 60 分钟兜底，避免「活干到一半被 timeout 掐掉」变成做一半。
+    timeout-minutes: 60
     permissions:
       contents: write
 
@@ -45,6 +50,36 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+
+      # Word/PPT → PDF 靠 LibreOffice headless。runner 是全新 VM、镜像层不跨 run 复用，
+      # 若每次现装要 1~2 分钟。这里把 apt 下载的 .deb 缓存进 GitHub Actions 缓存：
+      # 命中时 apt 直接读本地 .deb 安装（秒级），未命中才联网下载并回填缓存。
+      # 缓存 key 带本 workflow 文件的哈希——改了下面的安装列表就自动换 key，绝不装到旧包。
+      - name: Restore apt package cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.apt-cache/archives
+          key: apt-lo-cjk-${{ runner.os }}-${{ hashFiles('.github/workflows/session_images.yml') }}
+          restore-keys: |
+            apt-lo-cjk-${{ runner.os }}-
+
+      # 装精简版 LibreOffice（-nogui，避开交互式组件）+ 中文字体（避免中文变方框）+ qpdf（超长 PDF 切段）。
+      # -o Dir::Cache::archives 让 apt 从缓存目录读/写 .deb；
+      # -o APT::Keep-Downloaded-Packages 让装完的 .deb 留在缓存里（apt 默认会删，删了就白缓存了）。
+      - name: Install LibreOffice + CJK fonts + qpdf
+        run: |
+          ARCHIVE_DIR="$HOME/.apt-cache/archives"
+          sudo mkdir -p "$ARCHIVE_DIR/partial"
+          sudo chown -R "$USER" "$HOME/.apt-cache"
+          sudo apt-get update -qq
+          sudo apt-get \
+            -o Dir::Cache::archives="$ARCHIVE_DIR" \
+            -o APT::Keep-Downloaded-Packages="true" \
+            install -y -qq --no-install-recommends \
+            libreoffice-writer-nogui libreoffice-core-nogui fonts-noto-cjk qpdf
+          sudo chown -R "$USER" "$HOME/.apt-cache"
+          soffice --version
+          qpdf --version
 
       - name: Configure git
         run: |

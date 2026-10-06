@@ -17,11 +17,15 @@ import {
   uploadSessionImage,
   uploadSessionMaterial,
   listSessionMaterials,
+  listSessionMaterialsMd,
   readSessionBoard,
+  readSessionMaterialMd,
   saveSessionBoard,
+  saveSessionMaterialMd,
   notifySessionImagesChanged,
   SESSION_IMAGES_CHANGED,
   type SessionImageFile,
+  type SessionMaterialMd,
 } from '../../services/sessionData'
 import { forgetRepoImage, repoImageBlobUrl } from '../../services/editorImages'
 import { useSessionStore } from '../../stores/session'
@@ -90,6 +94,7 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
 
   const [images, setImages] = useState<SessionImageFile[]>([])
   const [materials, setMaterials] = useState<SessionImageFile[]>([])
+  const [materialMds, setMaterialMds] = useState<SessionMaterialMd[]>([])
   const [board, setBoard] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('photos')
   const [isLoading, setIsLoading] = useState(false)
@@ -97,25 +102,41 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const [cameraOpen, setCameraOpen] = useState(false)
   const [editingBoard, setEditingBoard] = useState(false)
   const [boardDraft, setBoardDraft] = useState('')
+  // 材料转换结果查看：viewingMaterial 非空时主区切到该材料的 md 视图
+  const [viewingMaterial, setViewingMaterial] = useState<SessionMaterialMd | null>(null)
+  const [materialMd, setMaterialMd] = useState<string | null>(null)
+  const [materialDraft, setMaterialDraft] = useState('')
+  const [editingMaterial, setEditingMaterial] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // reload 里要刷新「正在查看的材料」，但 reload 本身不该随 viewingMaterial 重建，用 ref 镜像
+  const viewingRef = useRef<SessionMaterialMd | null>(null)
 
   const reload = useCallback(async () => {
     if (!taskId || !sessionId) {
       setImages([])
       setMaterials([])
+      setMaterialMds([])
       setBoard(null)
+      setViewingMaterial(null)
       return
     }
     setIsLoading(true)
     try {
-      const [imgs, mats, md] = await Promise.all([
+      const [imgs, mats, mds, md] = await Promise.all([
         listSessionImages(taskId, sessionId),
         listSessionMaterials(taskId, sessionId),
+        listSessionMaterialsMd(taskId, sessionId),
         readSessionBoard(taskId, sessionId),
       ])
       setImages(imgs)
       setMaterials(mats)
+      setMaterialMds(mds)
       setBoard(md)
+      // 正在查看的材料若已出转换结果（或内容有更新），一并刷新
+      const cur = viewingRef.current
+      if (cur) {
+        setMaterialMd(await readSessionMaterialMd(taskId, sessionId, cur.name))
+      }
     } catch (err) {
       console.error('[SessionImages] 读取照片失败:', err)
       toast.error('读取照片失败，请重试')
@@ -178,7 +199,7 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
     if (mats.length > 0) await uploadMaterials(mats)
   }
 
-  /** 上传课程材料（PDF / PPT / Word 等）到 materials/，传完刷新列表 */
+  /** 上传课程材料（PDF / PPT / Word 等）到 materials/，传完触发 MinerU 转换（与照片同一条管线） */
   const uploadMaterials = async (list: File[]) => {
     if (!taskId || !sessionId || list.length === 0) return
     setIsUploading(true)
@@ -187,6 +208,9 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
         await uploadSessionMaterial(taskId, sessionId, file)
       }
       await reload()
+      // 材料必须进 session_images 管线（PDF 直送 MinerU，Word/PPT 先转 PDF），
+      // 否则只会躺在 materials/ 里不产生任何 Markdown —— 与照片上传一致地触发识别。
+      useSessionImagesStore.getState().start(taskId, sessionId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`课程材料上传失败：${msg}`, { duration: 8000 })
@@ -245,6 +269,46 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const cancelBoardEdit = () => {
     setEditingBoard(false)
     setBoardDraft('')
+  }
+
+  /** 打开某份材料的转换结果视图（只读 md + 可编辑修正，与 board 一致） */
+  const openMaterialView = async (m: SessionMaterialMd) => {
+    viewingRef.current = m
+    setViewingMaterial(m)
+    setEditingMaterial(false)
+    setMaterialMd(null)
+    setMaterialDraft('')
+    if (!taskId || !sessionId) return
+    setMaterialMd(await readSessionMaterialMd(taskId, sessionId, m.name))
+  }
+
+  /** 返回材料列表（关闭查看视图） */
+  const closeMaterialView = () => {
+    viewingRef.current = null
+    setViewingMaterial(null)
+    setEditingMaterial(false)
+    setMaterialMd(null)
+    setMaterialDraft('')
+  }
+
+  /** 进入材料 md 编辑态 */
+  const startEditMaterial = () => {
+    if (materialMd === null) return
+    setMaterialDraft(materialMd)
+    setEditingMaterial(true)
+  }
+
+  /** 保存材料 md 编辑；写失败 toast，不静默 */
+  const saveMaterialEdit = async () => {
+    if (!taskId || !sessionId || !viewingMaterial) return
+    try {
+      await saveSessionMaterialMd(taskId, sessionId, viewingMaterial.name, materialDraft)
+      setEditingMaterial(false)
+      setMaterialMd(materialDraft)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`保存材料转换结果失败：${msg}`, { duration: 8000 })
+    }
   }
 
   // 识别可能跑几分钟，期间不禁用拍照/传图 —— 新图会在本轮跑完后自动补识别
@@ -328,6 +392,55 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
       <PanelBody>
         {!taskId ? (
           <EmptyState icon={<ImageIcon />} title="先选一个任务" />
+        ) : viewingMaterial ? (
+          editingMaterial ? (
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex shrink-0 items-center justify-between px-ui-gap py-1.5">
+                <span className="text-ui-2xs text-ink-500">编辑「{viewingMaterial.displayName}」转换结果</span>
+                <div className="flex items-center gap-1.5">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingMaterial(false)}>
+                    取消
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={() => void saveMaterialEdit()}>
+                    保存
+                  </Button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <VditorEditor
+                  value={materialDraft}
+                  onChange={setMaterialDraft}
+                  height="100%"
+                  docPath={`projects/${taskId}/sessions/${sessionId}/session.md`}
+                />
+              </div>
+            </div>
+          ) : materialMd ? (
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex shrink-0 items-center justify-between px-ui-gap py-1.5">
+                <Button variant="ghost" size="sm" onClick={closeMaterialView}>
+                  ← 返回
+                </Button>
+                <span className="min-w-0 flex-1 truncate text-center text-ui-2xs text-ink-500" title={viewingMaterial.displayName}>
+                  {viewingMaterial.displayName} 的转换结果
+                </span>
+                <Button variant="secondary" size="sm" onClick={startEditMaterial} icon={<Sparkles />}>
+                  编辑
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-ui-gap pb-ui-gap">
+                <pre className="whitespace-pre-wrap break-words font-sans text-ui-sm leading-relaxed text-ink-700">
+                  {materialMd}
+                </pre>
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Sparkles />}
+              title="这份材料还没有转换结果"
+              hint="上传后会自动触发识别，跑完这里就是 Markdown（可编辑修正）"
+            />
+          )
         ) : tab === 'photos' ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -347,27 +460,49 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
                   )}
                   {materials.length > 0 && (
                     <div className="af-line-t p-ui-gap">
-                      <div className="mb-1.5 text-ui-2xs font-medium text-ink-500">课程材料（PDF / PPT / Word）</div>
+                      <div className="mb-1.5 text-ui-2xs font-medium text-ink-500">
+                        课程材料（PDF / PPT / Word）—— 上传后自动转成 Markdown
+                      </div>
                       <div className="space-y-1">
-                        {materials.map((m) => (
-                          <div
-                            key={m.path}
-                            className="flex items-center gap-2 rounded-control-sm border border-ink-200 bg-paper-100/60 px-2 py-1.5"
-                          >
-                            <FileText className="h-ui-icon-sm w-ui-icon-sm text-seal-600 flex-shrink-0" />
-                            <span className="min-w-0 flex-1 truncate text-ui-xs text-ink-700" title={m.name}>
-                              {m.name.replace(/^\d+_/, '')}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              title="删除这份材料"
-                              onClick={() => void handleDeleteMaterial(m)}
+                        {materials.map((m) => {
+                          const mdRes = materialMds.find((md) => md.name === `${m.name}.md`)
+                          return (
+                            <div
+                              key={m.path}
+                              className="flex items-center gap-2 rounded-control-sm border border-ink-200 bg-paper-100/60 px-2 py-1.5"
                             >
-                              <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
-                            </Button>
-                          </div>
-                        ))}
+                              <FileText className="h-ui-icon-sm w-ui-icon-sm text-seal-600 flex-shrink-0" />
+                              <span className="min-w-0 flex-1 truncate text-ui-xs text-ink-700" title={m.name}>
+                                {m.name.replace(/^\d+_/, '')}
+                              </span>
+                              {mdRes ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void openMaterialView(mdRes)}
+                                  title="查看这份材料转换出的 Markdown（可编辑修正）"
+                                  className="shrink-0 rounded-control-sm bg-seal-50 px-1.5 py-0.5 text-ui-2xs font-medium text-seal-700 hover:bg-seal-100"
+                                >
+                                  已转 Markdown
+                                </button>
+                              ) : (
+                                <span
+                                  className="shrink-0 text-ui-2xs text-ink-400"
+                                  title="上传后自动触发识别，跑完这里出现 Markdown"
+                                >
+                                  {recognizing ? '转换中…' : '待转换'}
+                                </span>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                title="删除这份材料"
+                                onClick={() => void handleDeleteMaterial(m)}
+                              >
+                                <Trash2 className="h-ui-icon-sm w-ui-icon-sm" />
+                              </Button>
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )}

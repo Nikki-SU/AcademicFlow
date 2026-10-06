@@ -54,6 +54,11 @@ export function sessionBoardPath(taskId: string, sessionId: string): string {
   return `${sessionDir(taskId, sessionId)}/board.md`
 }
 
+/** 课程材料转换结果目录：projects/{taskId}/sessions/{sessionId}/materials-md（后台 workflow 产出） */
+export function sessionMaterialsMdDir(taskId: string, sessionId: string): string {
+  return `${sessionDir(taskId, sessionId)}/materials-md`
+}
+
 /** 一张采集图片（listRepoFilesInDir 的最小信息） */
 export interface SessionImageFile {
   name: string
@@ -143,6 +148,77 @@ export async function listSessionMaterials(
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** 一份课程材料的转换结果（materials-md/ 下的 md），name 为仓库里的完整文件名 */
+export interface SessionMaterialMd {
+  name: string
+  path: string
+  size: number
+  /** 展示名：去掉「时间戳_」前缀和 .md 后缀，与材料列表的去前缀展示一致 */
+  displayName: string
+}
+
+/** 去「时间戳_」前缀：前端上传材料时命名为 `${Date.now()}_${safeName}`，展示与匹配都去掉它 */
+function stripMaterialTsPrefix(name: string): string {
+  return name.replace(/^\d{10,}_/, '')
+}
+
+/**
+ * 列出某课时课程材料的转换结果（materials-md/ 下的 .md）。
+ * 后台 workflow（session_images）每份材料产出一份 md：`materials-md/{材料名}.md`，
+ * 材料名沿用上传时的 `${Date.now()}_{原名}`，所以带时间戳前缀。
+ * 目录不存在 / 未登录返回空数组（空状态），不报错。
+ */
+export async function listSessionMaterialsMd(
+  taskId: string,
+  sessionId: string,
+): Promise<SessionMaterialMd[]> {
+  const ctx = getRepoContext()
+  if (!ctx) return []
+  const files = await listRepoFilesInDir(
+    ctx.owner,
+    ctx.repo,
+    sessionMaterialsMdDir(taskId, sessionId),
+    ctx.token,
+  )
+  return files
+    .filter((f) => f.name.toLowerCase().endsWith('.md'))
+    .map((f) => ({
+      name: f.name,
+      path: f.path,
+      size: f.size,
+      displayName: stripMaterialTsPrefix(f.name.replace(/\.md$/i, '')),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** 读取某份课程材料的转换结果 md；没有 / 读不到返回 null（空状态），不抛 */
+export async function readSessionMaterialMd(
+  taskId: string,
+  sessionId: string,
+  mdFileName: string,
+): Promise<string | null> {
+  try {
+    const doc = await readMdFile(`${sessionMaterialsMdDir(taskId, sessionId)}/${mdFileName}`)
+    return doc?.content ?? null
+  } catch {
+    return null
+  }
+}
+
+/** 覆盖写入某份课程材料的转换结果 md（用户手动编辑后落库）；写失败 throw */
+export async function saveSessionMaterialMd(
+  taskId: string,
+  sessionId: string,
+  mdFileName: string,
+  md: string,
+): Promise<void> {
+  await writeMdFile(
+    `${sessionMaterialsMdDir(taskId, sessionId)}/${mdFileName}`,
+    md,
+    'Save session material md',
+  )
+}
+
 /** 读取某课时的照片识别结果 board.md；没有 / 读不到返回 null（空状态），不抛 */
 export async function readSessionBoard(
   taskId: string,
@@ -181,12 +257,14 @@ export function notifySessionImagesChanged(taskId: string, sessionId: string): v
 }
 
 /**
- * 触发并等待「本节课照片 → MinerU → board.md」。
+ * 触发并等待「本节课照片 / 课程材料 → MinerU → board.md / materials-md」。
  *
- * 先 dispatch（后端从私库读 images/，逐张识别后合并成一份 board.md），
- * 再轮询 .progress.json 跟踪进度。**完成判据是产物 board.md 出现**，不能只盯
- * `stage === 'done'` 这一帧 —— 后端写完 board 会立刻把进度文件删掉，很容易错过。
- * 失败 / 超时一律 throw，由上层 toast，不静默。
+ * 先 dispatch（后端从私库读 images/ 与 materials/，照片识别后合并成一份 board.md，
+ * 每份材料转成一份 materials-md/{名}.md），再轮询 .progress.json 跟踪进度。
+ * **完成判据是产物出现**（board.md 或至少一份材料 md），不能只盯
+ * `stage === 'done'` 这一帧 —— 后端写完产物会立刻把进度文件删掉，很容易错过。
+ * 只传材料不传照片也是合法的一轮（后端直接提交材料 md）。失败 / 超时一律 throw，
+ * 由上层 toast，不静默。
  */
 export async function recognizeSessionImages(
   taskId: string,
@@ -207,16 +285,23 @@ export async function recognizeSessionImages(
       if (p.message) onProgress?.(p.message)
       if (p.stage === 'failed') throw new Error(p.error || p.message || '照片识别失败')
       if (p.stage === 'done') {
-        if (await readSessionBoard(taskId, sessionId)) return
+        if (await hasSessionOutput(taskId, sessionId)) return
       } else {
         sawRunning = true
       }
     } else if (sawRunning) {
       // 进度文件被后端清掉 = 这一轮跑完了；读产物，读到即成功
-      if (await readSessionBoard(taskId, sessionId)) return
+      if (await hasSessionOutput(taskId, sessionId)) return
     }
   }
-  throw new Error('照片识别超时，请稍后在「管理」页查看进度')
+  throw new Error('照片 / 材料识别超时，请稍后在「管理」页查看进度')
+}
+
+/** 会话产物判据：有 board.md 或至少一份材料 md 即算完成（照片 / 材料两条路都覆盖） */
+async function hasSessionOutput(taskId: string, sessionId: string): Promise<boolean> {
+  if (await readSessionBoard(taskId, sessionId)) return true
+  const mds = await listSessionMaterialsMd(taskId, sessionId)
+  return mds.length > 0
 }
 
 /** Unix ms → 本地 HH:MM:SS */
