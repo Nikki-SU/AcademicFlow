@@ -183,7 +183,7 @@ export default function CameraCapture({
         >
           {busy ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
         </button>
-        <span className="w-[44px]" aria-hidden />
+        <span className="w-[3.06vw]" aria-hidden />
       </div>
     </div>
   )

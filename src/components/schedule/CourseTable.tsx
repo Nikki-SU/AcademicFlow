@@ -507,9 +507,9 @@ export function CourseTable({
                           className="absolute inset-x-0 flex h-3 -translate-y-1/2 items-center gap-1"
                         >
                           <span
-                            className={`h-[3px] flex-1 rounded-full bg-hl-red-deep transition ${
+                            className={`h-[0.21vw] flex-1 rounded-full bg-hl-red-deep transition ${
                               active
-                                ? 'shadow-[0_0_0_2px_rgba(158,58,50,0.30)]'
+                                ? 'shadow-[0_0_0_0.14vw_rgba(158,58,50,0.30)]'
                                 : 'opacity-80 hover:opacity-100'
                             }`}
                           />

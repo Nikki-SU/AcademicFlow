@@ -87,7 +87,7 @@ function AuthDropdown({ user, method, expiresAt, logout, navigate, orientation }
         className="flex items-center gap-2 px-2 py-1 rounded-control-sm bg-paper-100 hover:bg-ink-100 transition"
       >
         <div
-          className="w-6 h-6 rounded-full bg-paper-100 border border-ink-200 flex items-center justify-center text-[14px] leading-none shrink-0"
+          className="w-6 h-6 rounded-full bg-paper-100 border border-ink-200 flex items-center justify-center text-ui-sm leading-none shrink-0"
           title={user?.login ?? '未登录'}
         >
           🕊️

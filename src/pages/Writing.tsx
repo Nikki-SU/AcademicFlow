@@ -4061,7 +4061,7 @@ export default function WritingPage() {
                     可信检索
                     <span
                       title="AI-1 生成内容并标注原文引用，AI-2 核查事实准确性"
-                      className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-ink-100 text-ink-400 text-[10px] cursor-help leading-none"
+                      className="inline-flex h-ui-icon-sm w-ui-icon-sm items-center justify-center rounded-full bg-ink-100 text-ink-400 text-ui-2xs cursor-help leading-none"
                     >
                       ?
                     </span>
