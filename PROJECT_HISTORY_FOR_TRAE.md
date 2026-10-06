@@ -148,7 +148,7 @@
 
 **方案**：**本地代理**（不限时长），客户端 → 本地代理 → worker → OSS，绕开远端代理 50s 上限。Rosa 用此方案**已经成功**。
 
-> 📌 该 Deno worker 方案已废弃，当前 MinerU 用 BYO 云端代理（runner 直调 mineru.net + 前端写 GitHub Secrets），见 src/services/mineruConnectivity.ts。
+> 📌 该 Deno worker 方案已废弃，当前 MinerU 由 GitHub Actions runner 直接调用（前端只写 GitHub Secrets，无代理服务），见 src/services/mineruConnectivity.ts。
 
 **核心教训（Trae 必看）**：
 
@@ -175,7 +175,7 @@
 - v11 本地写好未推
 - **Worker 仓是否清理 / 迁 Cloudflare Workers / 改用 client 直传 OSS，待 Rosa 决定**
 
-> 📌 该 Deno worker 方案已废弃，当前 MinerU 用 BYO 云端代理（runner 直调 mineru.net + 前端写 GitHub Secrets），见 src/services/mineruConnectivity.ts。
+> 📌 该 Deno worker 方案已废弃，当前 MinerU 由 GitHub Actions runner 直接调用（前端只写 GitHub Secrets，无代理服务），见 src/services/mineruConnectivity.ts。
 
 **Trae 你不要做这个决定**，让 Rosa 自己定。**前端搭大框架时暂时假设 worker URL 仍是 `https://academicflow-worker.nikki-su.deno.net`**，等 Rosa 决策后再改。
 

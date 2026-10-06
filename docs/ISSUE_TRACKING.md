@@ -2,7 +2,7 @@
 
 > **⚠️ 本文件为历史快照（2026-09-10），已过时，仅存档。**
 > 文中「本地 Deno 代理 `worker/deno.js`」「`src/services/mineru/client.ts`」「Tauri 桌面应用方向」均已废弃：
-> 现已改为 **用户自部署的 BYO 云端代理（Deno Deploy / Cloudflare Workers）**，MinerU 客户端改为 `src/services/mineruConnectivity.ts`，产品形态保持纯 Web SPA。
+> 现已改为 **GitHub Actions runner 直接调用 MinerU / AI 上游**（前端只写 GitHub Secrets，不部署任何代理服务），MinerU 客户端改为 `src/services/mineruConnectivity.ts`，产品形态保持纯 Web SPA。
 > 当前架构与数据模型请以根目录 `架构.md` 为准。
 >
 > 本文档用于同步当前项目状态、核心问题、已做修改及下一步计划。
