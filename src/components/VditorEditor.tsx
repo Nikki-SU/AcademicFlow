@@ -101,6 +101,104 @@ function normalizeSource(s: string): string {
 }
 
 /**
+ * 内置格式按钮（加粗/斜体/删除线/行内代码/链接/标题/列表…）点击后，Vditor 在 IR /
+ * wysiwyg 模式都会把光标落回选区末尾（process_processToolbar 末尾的 setRangeByWbr）——
+ * 于是「选中一段 → 加粗 → 再斜体」这种连续操作做不到：点第一次选区就没了。
+ * 这批按钮操作后，我们把选区重新铺回「同一段文字」上（见 restoreSelectionAfterFormat）。
+ *
+ * 集合 = 只改「标记 / 结构」、不改选中文字内容的按钮；undo/redo/upload/自定义插入
+ * （insert-formula / insert-code / insert-table / export-md）不在其列。
+ * 注：headings 父按钮只展开子菜单（不格式化），不列入；子项 h1~h6 才触发格式化。
+ */
+const FORMAT_RESTORE_TYPES = new Set([
+  'bold', 'italic', 'strike', 'inline-code', 'link', 'code',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'list', 'ordered-list', 'check', 'quote', 'line', 'indent', 'outdent',
+])
+
+/** 编辑器内容区内全部文本节点 + 拼接后的完整文本（排除浮动面板/提示等非内容节点） */
+function textNodeStream(root: HTMLElement): { nodes: Text[]; text: string } {
+  const nodes: Text[] = []
+  let text = ''
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let n = walker.nextNode()
+  while (n) {
+    const t = n as Text
+    const host = t.parentElement
+    if (host && !host.closest('.vditor-panel,.vditor-tip,.vditor-resize,.vditor-toolbar')) {
+      nodes.push(t)
+      text += t.data
+    }
+    n = walker.nextNode()
+  }
+  return { nodes, text }
+}
+
+/** 把文本流里的 [start, end) 偏移还原成 Range（越界 / 找不到节点返回 null） */
+function rangeFromOffsets(
+  root: HTMLElement,
+  nodes: Text[],
+  text: string,
+  start: number,
+  end: number,
+): Range | null {
+  if (start < 0 || end < 0 || start >= end || end > text.length) return null
+  let cur = 0
+  let startNode: Text | null = null
+  let startOff = 0
+  let endNode: Text | null = null
+  let endOff = 0
+  for (const node of nodes) {
+    const len = node.data.length
+    if (!startNode && cur + len >= start) {
+      startNode = node
+      startOff = start - cur
+    }
+    if (!endNode && cur + len >= end) {
+      endNode = node
+      endOff = end - cur
+      break
+    }
+    cur += len
+  }
+  if (!startNode || !endNode) return null
+  if (!root.contains(startNode) || !root.contains(endNode)) return null
+  const range = document.createRange()
+  range.setStart(startNode, startOff)
+  range.setEnd(endNode, endOff)
+  return range
+}
+
+/** 把 Range 的起止容器 / 偏移换算成「文本流」里的字符偏移（-1 = 找不到） */
+function offsetsOfRange(nodes: Text[], range: Range): { start: number; end: number } | null {
+  const findOffset = (container: Node, offset: number): number => {
+    if (container.nodeType === Node.TEXT_NODE) {
+      let cur = 0
+      for (const n of nodes) {
+        if (n === container) return cur + offset
+        cur += n.data.length
+      }
+      return -1
+    }
+    // 元素节点：取其中第一个文本节点在流里的偏移（块级选中时的 fallback）
+    const first = document
+      .createTreeWalker(container as Element, NodeFilter.SHOW_TEXT)
+      .nextNode() as Text | null
+    if (!first) return -1
+    let cur = 0
+    for (const n of nodes) {
+      if (n === first) return cur
+      cur += n.data.length
+    }
+    return -1
+  }
+  const start = findOffset(range.startContainer, range.startOffset)
+  const end = findOffset(range.endContainer, range.endOffset)
+  if (start < 0 || end < 0 || end <= start) return null
+  return { start, end }
+}
+
+/**
  * 去掉 Markdown 标记，只留「文字骨架」。
  *
  * 用途只有一个：**表格**的兜底比对。实测 IR 模式下表格没有源码视图
@@ -527,6 +625,13 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const vditorRef = useRef<Vditor | null>(null)
+  /**
+   * 内置格式按钮（加粗/斜体…）点击前的选区快照，用于操作完成后把选区铺回同一段文字。
+   * 为什么不能直接恢复旧的 Range：Vditor 格式化会触发 IR 重渲染、整块 DOM 重建，
+   * 旧 Range 指向的节点已脱离文档。所以只记「选中文字 + 它在文本流里的起始偏移」，
+   * 重渲染后在**新的**文本流里就近重新定位这段文字（见 restore 的 effect）。
+   */
+  const pendingFormatRef = useRef<{ text: string; start: number; retries: number } | null>(null)
   /**
    * 自己记住「用户最后停在编辑器里的选区」。
    * ------------------------------------------------------------
@@ -1346,6 +1451,135 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
     }
     el.addEventListener('mousedown', onMouseDown, true)
     return () => el.removeEventListener('mousedown', onMouseDown, true)
+  }, [])
+
+  /**
+   * 内置格式按钮（加粗 / 斜体 / 删除线 / 行内代码 / 链接 / 标题 / 列表…）操作后**恢复选区**。
+   *
+   * 为什么需要这一步（上面 mousedown 拦截只管得住「点按钮那一刻」）：
+   * Vditor 对这些按钮的格式化走 `process_processToolbar`，末尾必然 `setRangeByWbr` 把光标
+   * 落回选区末尾 —— 于是「先加粗再斜体」的连续操作做不到：点第一次选区就没了、光标跳末尾。
+   * 这里在操作前把选区文字快照进 pendingFormatRef；操作完成后（Vditor 已完成格式化与 IR
+   * 重渲染）再按文字在**新的** DOM 里重新定位并选中 —— 实现 Word 式的连续操作。
+   *
+   * 触发源有两条，都要覆盖：
+   *   - 鼠标点工具栏按钮：mousedown 快照 → click（捕获阶段）调度恢复；
+   *   - 键盘快捷键（Ctrl/Cmd+B/I/D/K）：Vditor 用 `dispatchEvent(new CustomEvent('click'))`
+   *     触发（bubbles=false），冒泡不到容器，click 监听收不到 —— 必须直接在 keydown 里
+   *     快照 + 调度恢复。
+   */
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const isFormatButton = (target: EventTarget | null): boolean => {
+      const t = target as HTMLElement | null
+      const btn = t?.closest<HTMLElement>(
+        '.vditor-toolbar [data-type], .vditor-hint [data-tag]',
+      )
+      if (!btn) return false
+      const type = btn.getAttribute('data-type') ?? btn.getAttribute('data-tag') ?? ''
+      return FORMAT_RESTORE_TYPES.has(type)
+    }
+
+    /** Vditor 默认快捷键里会触发「格式化 + 丢选区」的那几个（bold/italic/strike/link） */
+    const isFormatHotkey = (e: KeyboardEvent): boolean => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return false
+      const key = e.key.toLowerCase()
+      return key === 'b' || key === 'i' || key === 'd' || key === 'k'
+    }
+
+    // 快照选区：把「选中文字 + 它在文本流里的起始偏移」记进 pendingFormatRef。
+    // 只在有非空选区时记录；没选区（光标闪烁）时格式化不丢选区，无需恢复。
+    // 文字取 sel.toString()（用户真正选中的可见文字，不含 ** 等标记字符）——
+    // 不能从 text 流切片：IR 模式下源码视图会把标记字符也算进 textContent。
+    const snapshotSelection = () => {
+      const root = editorElement(vditorRef.current)
+      const sel = window.getSelection()
+      if (!root || !sel || sel.rangeCount === 0) return
+      const range = sel.getRangeAt(0)
+      if (range.collapsed) return
+      const { nodes } = textNodeStream(root)
+      const off = offsetsOfRange(nodes, range)
+      if (!off) return
+      const selText = sel.toString()
+      if (!selText.trim()) return
+      pendingFormatRef.current = { text: selText, start: off.start, retries: 0 }
+    }
+
+    // 恢复选区：格式化完成后，Vditor 把光标折叠在选区末尾 —— 只有检测到「选区已折叠」
+    // 才动手恢复（避免把用户还没开始的选区提前铺回去）；重渲染是异步的，找不到文字就重试。
+    const restoreSelection = () => {
+      const pending = pendingFormatRef.current
+      if (!pending) return
+      const root = editorElement(vditorRef.current)
+      const sel = window.getSelection()
+      // 格式化未完成（选区仍展开 / 编辑器不可达）→ 稍后重试
+      if (!root || !sel || sel.rangeCount === 0 || !sel.getRangeAt(0).collapsed) {
+        if (pending.retries < 10) {
+          pending.retries++
+          setTimeout(restoreSelection, 30)
+        } else {
+          pendingFormatRef.current = null
+        }
+        return
+      }
+      const { nodes, text } = textNodeStream(root)
+      let index = text.indexOf(pending.text)
+      if (index < 0) {
+        if (pending.retries < 10) {
+          pending.retries++
+          setTimeout(restoreSelection, 30)
+        } else {
+          pendingFormatRef.current = null
+        }
+        return
+      }
+      // 多次出现时取与快照偏移最接近的一个（格式化只改标记不改文字，偏移漂移很小）
+      let best = index
+      let bestDist = Math.abs(index - pending.start)
+      for (let i = text.indexOf(pending.text, index + 1); i >= 0; i = text.indexOf(pending.text, i + 1)) {
+        const d = Math.abs(i - pending.start)
+        if (d < bestDist) {
+          bestDist = d
+          best = i
+        }
+      }
+      const range = rangeFromOffsets(root, nodes, text, best, best + pending.text.length)
+      pendingFormatRef.current = null
+      if (!range) return
+      sel.removeAllRanges()
+      sel.addRange(range)
+      savedRangeRef.current = range.cloneRange()
+    }
+
+    // 鼠标路径：mousedown 快照（此刻选区完整），click（捕获阶段，早于 Vditor 的
+    // target 阶段 handler）调度恢复 —— setTimeout 保证在 Vditor 格式化完成后执行。
+    const onMouseDown = (e: MouseEvent) => {
+      if (!isFormatButton(e.target)) return
+      snapshotSelection()
+    }
+    const onClick = () => {
+      if (!pendingFormatRef.current) return
+      setTimeout(restoreSelection, 0)
+    }
+
+    // 键盘路径：keydown（捕获阶段，早于 Vditor 的 keydown handler）快照 + 调度恢复
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isFormatHotkey(e)) return
+      snapshotSelection()
+      setTimeout(restoreSelection, 0)
+    }
+
+    el.addEventListener('mousedown', onMouseDown, true)
+    el.addEventListener('click', onClick, true)
+    el.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      el.removeEventListener('mousedown', onMouseDown, true)
+      el.removeEventListener('click', onClick, true)
+      el.removeEventListener('keydown', onKeyDown, true)
+      pendingFormatRef.current = null
+    }
   }, [])
 
   // 容器尺寸变化（拖分界线 / 改窗口）→ 同步 Vditor 高度，内容区始终内部滚动
