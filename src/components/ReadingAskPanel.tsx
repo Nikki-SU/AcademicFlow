@@ -3,12 +3,22 @@
  * -------------------------------------------------
  * 图书和文献共用（两者只在 pipeline 上有区别，阅读侧完全对称）。
  *
- * 两种回答路径，由「可信检索」开关决定：
- *   开 → 先联网检索一轮，把「正文 + 检索结果」一起作为 ground truth 喂给 AI-1，
- *        AI-2 逐条核查有没有编造（回答带 pass/fail 审阅结论）
- *   关 → 不喂原文，让 DeepSeek 联网检索后自由回答（附来源列表）
+ * 两个彼此独立的开关，组合出四种回答路径：
+ *   可信检索（开/关）—— 回答是否受「依据」约束、是否交 AI-2 逐条核查有没有编造。
+ *     开 → 把正文（+可选联网结果）作为 ground truth 喂给 AI-1，走双引擎 + AI-2 审阅。
+ *     关 → 不喂原文，AI 自由回答，无审阅。
+ *   联网（开/关）—— 回答前是否先联网检索。
+ *     开 → 先联网检索一轮：可信路径把结果并入「依据」，自由路径把来源附在答案末尾。
+ *     关 → 不联网，只靠正文与模型自身知识。
  *
- * 两条路都会联网 —— 区别在于回答受不受「依据」约束、有没有 AI-2 审阅。
+ * 四组合：
+ *   可信 + 联网 → 正文 + 检索结果 → 双引擎审阅（答案末尾附来源）
+ *   可信        → 只依据正文       → 双引擎审阅
+ *   联网        → 联网自由问答     → 单模型 + 来源列表（无审阅）
+ *   都不开      → 纯模型问答       → 单模型，无依据、无来源、无审阅
+ *
+ * 联网检索走「配成 DeepSeek 的槽位」（AI-1 优先，否则 AI-2）—— DeepSeek 原生
+ * web_search 只在 DeepSeek 的 Anthropic 兼容端点可用，后端会自动挑出该槽位。
  *
  * 对话记录按「一篇文献 / 一本书一个大对话」持久化到
  *   literatures/{slug}/ai-chat.md 或 textbooks/{书名}/ai-chat.md
@@ -33,6 +43,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { callWebSearch, type WebSearchSource } from '../services/ai/web-search'
+import { callAI } from '../services/ai/client'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { isAbortError } from '../services/ai/abort'
 import { useSettingsStore } from '../stores/settings'
@@ -99,11 +110,17 @@ const SOURCE_MAX = 12000
 /** 多轮上下文最多回带多少字符 */
 const HISTORY_MAX = 3000
 
-/** 联网检索用的系统提示（两条路径共用） */
+/** 联网检索用的系统提示（可信路径与自由路径共用） */
 const SEARCH_SYSTEM =
   '你是学术阅读助手。用户在读一篇文献或一本书，会就其中某个词或某段文字提问。' +
   '先联网检索再回答，说明该概念在学术界的通行含义、学科背景和典型用法。' +
   '引用检索到的说法要给出处；不确定的地方明确说不确定，不要编造文献、作者或出处。用中文回答。'
+
+/** 纯模型问答的系统提示（不联网、不喂原文，只靠模型自身知识回答） */
+const PLAIN_SYSTEM =
+  '你是学术阅读助手。用户在读一篇文献或一本书，会就其中某个词或某段文字提问。' +
+  '用你自己的知识回答，说得准确、简洁。' +
+  '不确定的地方明确说不确定，不要编造文献、作者或出处。用中文回答。'
 
 /**
  * 注入「依据」的检索来源条数上限。
@@ -222,6 +239,7 @@ export default function ReadingAskPanel({
   const [messages, setMessages] = useState<ReadingChatMessage[]>([])
   const [input, setInput] = useState('')
   const [trusted, setTrusted] = useState(true)
+  const [web, setWeb] = useState(false)
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -316,11 +334,11 @@ export default function ReadingAskPanel({
   }, [messages])
 
   const send = useCallback(
-    async (question: string, useTrusted: boolean, focusText: string) => {
+    async (question: string, useTrusted: boolean, useWeb: boolean, focusText: string) => {
       const q = question.trim()
       if (!q || busy || !docRef) return
 
-      // 联网检索走的是 AI-1 位的凭据，所以它的推理模式也跟 AI-1 位设置走。
+      // 联网检索走「配成 DeepSeek 的槽位」的凭据（后端自动挑），推理模式沿用 AI-1 位设置。
       // '' 表示不干预 → 传 undefined，后端就不发 thinking（保持模型默认）。
       const webSearchThinking = useSettingsStore.getState().thinkingAi1 || undefined
 
@@ -334,7 +352,7 @@ export default function ReadingAskPanel({
       setMessages((prev) => [...prev, userMsg])
       setInput('')
       setBusy(true)
-      setStage('联网检索中…')
+      setStage(useWeb ? '联网检索中…' : 'AI-1 生成中…')
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -357,39 +375,41 @@ export default function ReadingAskPanel({
             throw new Error('这篇文章还没有正文，可信检索没有可锚定的原文')
           }
 
-          // 可信检索也要能查外部资料：先联网检索一轮，把结果并进「依据」再交给双引擎。
+          // 联网开关打开时：先联网检索一轮，把结果并进「依据」再交给双引擎。
           // 这样 AI-2 判的是「原文或检索结果有没有支持」，双引擎的判定语义没变，只是依据变宽了。
-          setStage('联网检索中…')
           let webMaterial = ''
           let webSources: WebSearchSource[] = []
-          try {
-            const search = await callWebSearch({
-              system: SEARCH_SYSTEM,
-              user: [
-                docTitle ? `【正在读】${docTitle}` : '',
-                focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
-                `【问题】\n${q}`,
-              ].filter(Boolean).join('\n\n'),
-              maxUses: 3,
-              thinking: webSearchThinking,
-              signal,
-            })
-            webSources = search.sources
-            if (search.content.trim()) {
-              webMaterial = [
-                '【联网检索结果（与正文同为可信依据）】',
-                search.content.trim(),
-                webSources.length
-                  ? `【检索来源】\n${webSources.slice(0, SEARCH_MATERIAL_SOURCES).map((s, i) => `${i + 1}. ${s.title || s.url}`).join('\n')}`
-                  : '',
-              ].filter(Boolean).join('\n\n')
+          if (useWeb) {
+            setStage('联网检索中…')
+            try {
+              const search = await callWebSearch({
+                system: SEARCH_SYSTEM,
+                user: [
+                  docTitle ? `【正在读】${docTitle}` : '',
+                  focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
+                  `【问题】\n${q}`,
+                ].filter(Boolean).join('\n\n'),
+                maxUses: 3,
+                thinking: webSearchThinking,
+                signal,
+              })
+              webSources = search.sources
+              if (search.content.trim()) {
+                webMaterial = [
+                  '【联网检索结果（与正文同为可信依据）】',
+                  search.content.trim(),
+                  webSources.length
+                    ? `【检索来源】\n${webSources.slice(0, SEARCH_MATERIAL_SOURCES).map((s, i) => `${i + 1}. ${s.title || s.url}`).join('\n')}`
+                    : '',
+                ].filter(Boolean).join('\n\n')
+              }
+            } catch (err) {
+              // 用户点了「停止」不是检索失败，别吞掉它去跑下一步
+              if (isAbortError(err)) throw err
+              // 检索失败不该让整个提问失败 —— 退回「只依据正文」的可信检索
+              console.warn('[ReadingAsk] 可信检索的联网检索失败，退回只依据正文:', err)
+              toast.warning('联网检索失败，本次只依据正文做可信检索')
             }
-          } catch (err) {
-            // 用户点了「停止」不是检索失败，别吞掉它去跑下一步
-            if (isAbortError(err)) throw err
-            // 检索失败不该让整个提问失败 —— 退回「只依据正文」的可信检索
-            console.warn('[ReadingAsk] 可信检索的联网检索失败，退回只依据正文:', err)
-            toast.warning('联网检索失败，本次只依据正文做可信检索')
           }
 
           const sourceMaterial = [docMaterial, webMaterial].filter(Boolean).join('\n\n')
@@ -442,9 +462,9 @@ export default function ReadingAskPanel({
               deliveredFiles: deliveredChips,
             },
           ])
-        } else {
-          // 联网问答：后端用 AI1_* 直连 DeepSeek 的 Anthropic 兼容端点 + 内置
-          // web_search 工具，所以这条路径不需要本地 API Key，也就不经过 settings。
+        } else if (useWeb) {
+          // 联网自由问答：后端直连 DeepSeek 的 Anthropic 兼容端点 + 内置 web_search
+          // 工具（自动挑配成 DeepSeek 的槽位）；不喂原文、也不经 settings 的本地 Key。
           const sys = SEARCH_SYSTEM
           const userContent = [
             historyContext ? `【此前的对话】\n${historyContext}` : '',
@@ -480,6 +500,52 @@ export default function ReadingAskPanel({
               id: `a_${Date.now()}`,
               role: 'assistant',
               content: appendSources(parsed.content || '（AI 没有返回内容）', resp.sources),
+              createdAt: Date.now(),
+              deliveredFiles: deliveredChips,
+            },
+          ])
+        } else {
+          // 纯模型问答：不喂原文、不联网，直接走 chat handler（AI-1 槽位），让模型用
+          // 自身知识回答。仍允许交付文件 —— 前端解析 @@FILE@@ 块后落库为「其他文档」。
+          const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
+          const userContent = [
+            historyContext ? `【此前的对话】\n${historyContext}` : '',
+            `【正在读】${docTitle}`,
+            focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
+            `【问题】\n${q}`,
+            DELIVER_FILES_PROMPT,
+          ].filter(Boolean).join('\n\n')
+
+          setStage('AI-1 生成中…')
+          const resp = await callAI({
+            baseUrl: ai1.baseUrl,
+            apiKey: ai1.apiKey,
+            model: ai1.model,
+            messages: [
+              { role: 'system', content: PLAIN_SYSTEM },
+              { role: 'user', content: userContent },
+            ],
+            thinking: ai1.thinking,
+            signal,
+          })
+
+          const parsed = parseDeliveredFileBlocks(resp.content || '')
+          let deliveredChips: DeliveredFileChip[] = []
+          if (parsed.files.length > 0) {
+            try {
+              deliveredChips = await deliverFilesToTask(parsed.files, ownerTaskId)
+            } catch (err) {
+              console.warn('[ReadingAsk] 交付文件登记失败:', err)
+              toast.warning('回答已生成，但交付文件登记失败')
+            }
+          }
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_${Date.now()}`,
+              role: 'assistant',
+              content: parsed.content || '（AI 没有返回内容）',
               createdAt: Date.now(),
               deliveredFiles: deliveredChips,
             },
@@ -526,7 +592,7 @@ export default function ReadingAskPanel({
     setStage('正在停止…')
   }, [])
 
-  /** 预设问法 1：查这个词的学术含义 —— 需要外部知识，走联网检索（可信检索关） */
+  /** 预设问法 1：查这个词的学术含义 —— 需要外部知识，开联网、关可信检索 */
   const askAcademicMeaning = () => {
     const word = selectedText.trim() || input.trim()
     if (!word) {
@@ -534,10 +600,11 @@ export default function ReadingAskPanel({
       return
     }
     setTrusted(false)
-    void send(`「${word}」在学术界通常指什么？请说明它的学科背景、常见用法与代表性含义。`, false, '')
+    setWeb(true)
+    void send(`「${word}」在学术界通常指什么？请说明它的学科背景、常见用法与代表性含义。`, false, true, '')
   }
 
-  /** 预设问法 2：结合本文解释这段文字 —— 必须锚定原文，走可信检索（开） */
+  /** 预设问法 2：结合本文解释这段文字 —— 必须锚定原文，开可信检索、关联网 */
   const askExplainInContext = () => {
     const text = selectedText.trim() || input.trim()
     if (!text) {
@@ -545,7 +612,8 @@ export default function ReadingAskPanel({
       return
     }
     setTrusted(true)
-    void send('请结合本文上下文解释这段文字的意思，不要引入原文没有的说法。', true, text)
+    setWeb(false)
+    void send('请结合本文上下文解释这段文字的意思，不要引入原文没有的说法。', true, false, text)
   }
 
   const clearChat = () => {
@@ -571,25 +639,44 @@ export default function ReadingAskPanel({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* 可信检索开关 */}
+      {/* 两个独立开关：可信检索（左）· 联网（右） */}
       <div className="af-line-b px-ui-gap py-2 flex-shrink-0 bg-paper-100/50">
-        <button
-          onClick={() => setTrusted(!trusted)}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-control-sm text-ui-xs transition border ${
-            trusted
-              ? 'bg-seal-50 border-seal-200 text-seal-700'
-              : 'bg-paper-50 border-ink-200 text-ink-500 hover:bg-paper-100'
-          }`}
-          title={
-            trusted
-              ? '可信检索：先联网检索，回答依据「正文 + 检索结果」，AI-2 逐条核查是否编造'
-              : '自由问答：不喂原文，DeepSeek 联网检索后回答，不做审阅（适合查外部知识）'
-          }
-        >
-          {trusted ? <ShieldCheck className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
-          <span className="font-medium">可信检索</span>
-          <span className="ml-auto">{trusted ? '开' : '关'}</span>
-        </button>
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => setTrusted(!trusted)}
+            className={`flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 rounded-control-sm text-ui-xs transition border ${
+              trusted
+                ? 'bg-seal-50 border-seal-200 text-seal-700'
+                : 'bg-paper-50 border-ink-200 text-ink-500 hover:bg-paper-100'
+            }`}
+            title={
+              trusted
+                ? '可信检索：回答依据「正文（+联网检索结果）」，AI-2 逐条核查是否编造'
+                : '自由问答：不喂原文，AI 凭自身知识（或联网）回答，不做审阅'
+            }
+          >
+            <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="font-medium truncate">可信检索</span>
+            <span className="ml-auto flex-shrink-0">{trusted ? '开' : '关'}</span>
+          </button>
+          <button
+            onClick={() => setWeb(!web)}
+            className={`flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 rounded-control-sm text-ui-xs transition border ${
+              web
+                ? 'bg-seal-50 border-seal-200 text-seal-700'
+                : 'bg-paper-50 border-ink-200 text-ink-500 hover:bg-paper-100'
+            }`}
+            title={
+              web
+                ? '联网：回答前先联网检索（自动走配成 DeepSeek 的槽位）'
+                : '不联网：只用正文与模型自身知识回答'
+            }
+          >
+            <Globe className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="font-medium truncate">联网</span>
+            <span className="ml-auto flex-shrink-0">{web ? '开' : '关'}</span>
+          </button>
+        </div>
         <div className="mt-1.5 flex items-center justify-between text-ui-2xs text-ink-400">
           <span className="truncate">{docTitle}</span>
           <button
@@ -679,7 +766,7 @@ export default function ReadingAskPanel({
               onClick={askAcademicMeaning}
               disabled={busy}
               className="flex-1 px-2 py-1.5 text-ui-xs bg-paper-50 border border-ink-200 rounded-control-sm hover:border-seal-400 hover:text-seal-600 transition disabled:opacity-40 text-left"
-              title="关闭可信检索，让 AI 联网检索该词的学术含义"
+              title="开启联网、关闭可信检索：让 AI 联网检索该词的学术含义"
             >
               查学术含义
             </button>
@@ -687,7 +774,7 @@ export default function ReadingAskPanel({
               onClick={askExplainInContext}
               disabled={busy}
               className="flex-1 px-2 py-1.5 text-ui-xs bg-paper-50 border border-ink-200 rounded-control-sm hover:border-seal-400 hover:text-seal-600 transition disabled:opacity-40 text-left"
-              title="开启可信检索，结合本文原文与联网检索解释这段文字"
+              title="开启可信检索、关闭联网：结合本文原文解释这段文字"
             >
               结合本文解释
             </button>
@@ -704,7 +791,7 @@ export default function ReadingAskPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                void send(input, trusted, selectedText)
+                void send(input, trusted, web, selectedText)
               }
             }}
             rows={2}
@@ -712,7 +799,7 @@ export default function ReadingAskPanel({
             className="flex-1 px-2 py-1.5 text-ui-xs border border-ink-200 rounded-control-sm resize-none focus:outline-none focus:border-seal-400"
           />
           <button
-            onClick={() => void send(input, trusted, selectedText)}
+            onClick={() => void send(input, trusted, web, selectedText)}
             disabled={busy || !input.trim()}
             className="p-2 bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
             title="发送"
