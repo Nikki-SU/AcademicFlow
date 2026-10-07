@@ -26,6 +26,32 @@ import { loadTrackingPlans, planCronSpecs } from './trackingPlanData'
 
 const MAX_PIPELINE_FILE = 500 * 1024 // 500KB — 所有 pipeline 文件都远小于此
 
+/** b64 常量 → 内容；写入 / 检测共用（检测要拿本地期望内容去比对私库版本） */
+const b64Map: Record<string, string> = {
+  PAPER_CONVERT_YML_B64,
+  AI_CALL_YML_B64,
+  PAPER_CONVERT_MJS_B64,
+  AI_CALL_MJS_B64,
+  BLOCKS_MJS_B64,
+  DUAL_ENGINE_RUNNER_MJS_B64,
+  MINERU_CONNECTIVITY_TEST_YML_B64,
+  MINERU_CONNECTIVITY_TEST_MJS_B64,
+  AI_CONNECTIVITY_TEST_YML_B64,
+  AI_CONNECTIVITY_TEST_MJS_B64,
+}
+
+/**
+ * 本地嵌入的期望内容（重装时会写进私库的那份）。
+ * - daily-tracking.yml 的 schedule 取决于当前启用计划，是动态内容，这里返回 null，
+ *   调用方单独按计划现算再比对；
+ * - 其它文件用 raw（yml / mjs 直接 import）或 b64 常量（UTF-8 文本的标准 base64）。
+ */
+function localExpectedContent(f: (typeof PIPELINE_FILES)[number]): string | null {
+  if ('raw' in f) return f.raw
+  const b64 = b64Map[f.b64Key]
+  return b64 ? base64ToUtf8(b64) : null
+}
+
 /**
  * 老版 workflow/脚本文件名（已废弃）。
  * 它们与新版文件使用相同的 repository_dispatch event_type，会重复触发，
@@ -70,24 +96,47 @@ export async function detectLegacyPipelineFiles(
   return legacy
 }
 
+export interface PipelineCheckResult {
+  installed: boolean
+  missing: string[]
+  legacy: string[]
+  /** 私库内容与前端嵌入版本不一致（落后于新版）的文件路径 */
+  outdated: string[]
+  sizes: Record<string, number>
+}
+
 /**
- * 检测用户私库是否已经安装了后端 workflow
- * 逐个试读 PIPELINE_FILES 里的文件（yml + mjs），全部存在 → 已安装
+ * 检测用户私库的后端 workflow 是否就绪，且是否与前端嵌入版本一致。
+ *
+ * 逐文件读 PIPELINE_FILES：
+ *   - 读不到 / 太小 → missing（没装或空文件）
+ *   - 读到了，但内容 ≠ 本地期望版本 → outdated（装的是旧版，静默用旧后端正是各种
+ *     「前端改了、私库还在跑老行为」的根因，比如课程材料不进管线的旧 session_images）
+ * 再加 legacy 残留检测。三者全清才算 installed。
  */
 export async function checkPipelineInstalled(
   owner: string,
   repo: string,
   token: string,
-): Promise<{ installed: boolean; missing: string[]; legacy: string[]; sizes: Record<string, number> }> {
+): Promise<PipelineCheckResult> {
   const missing: string[] = []
+  const outdated: string[] = []
   const sizes: Record<string, number> = {}
+  // daily-tracking 的期望内容取决于当前启用计划，需先取计划再逐文件比对
+  const plans = await loadTrackingPlans()
   for (const f of PIPELINE_FILES) {
     try {
       const res = await githubFetch(`/repos/${owner}/${repo}/contents/${encodeURI(f.path)}`, token)
       if (res.ok) {
-        const data = (await res.json()) as { size?: number }
+        const data = (await res.json()) as { size?: number; content?: string }
         sizes[f.path] = data.size ?? 0
-        if ((data.size ?? 0) < 50) missing.push(f.path) // 太小可能是空文件
+        const remoteContent = data.content ? base64ToUtf8(data.content) : ''
+        if (remoteContent.length < 50) { missing.push(f.path); continue } // 太小可能是空文件
+        const expected =
+          f.path === '.github/workflows/daily-tracking.yml'
+            ? buildDailyTrackingYml(planCronSpecs(plans))
+            : localExpectedContent(f)
+        if (expected !== null && remoteContent !== expected) outdated.push(f.path)
       } else {
         missing.push(f.path)
       }
@@ -97,7 +146,13 @@ export async function checkPipelineInstalled(
   }
   // 还要确认老版文件已清理干净，否则老 workflow 会和新版重复触发
   const legacy = await detectLegacyPipelineFiles(owner, repo, token)
-  return { installed: missing.length === 0 && legacy.length === 0, missing, legacy, sizes }
+  return {
+    installed: missing.length === 0 && legacy.length === 0 && outdated.length === 0,
+    missing,
+    legacy,
+    outdated,
+    sizes,
+  }
 }
 
 /**
@@ -110,18 +165,6 @@ export async function writePipelineFiles(
   repo: string,
   token: string,
 ): Promise<PipelineInstallResult> {
-  const b64Map: Record<string, string> = {
-    PAPER_CONVERT_YML_B64,
-    AI_CALL_YML_B64,
-    PAPER_CONVERT_MJS_B64,
-    AI_CALL_MJS_B64,
-    BLOCKS_MJS_B64,
-    DUAL_ENGINE_RUNNER_MJS_B64,
-    MINERU_CONNECTIVITY_TEST_YML_B64,
-    MINERU_CONNECTIVITY_TEST_MJS_B64,
-    AI_CONNECTIVITY_TEST_YML_B64,
-    AI_CONNECTIVITY_TEST_MJS_B64,
-  }
   const details: { path: string; ok: boolean; error?: string }[] = []
   const written: string[] = []
   const skipped: string[] = []
@@ -132,14 +175,10 @@ export async function writePipelineFiles(
       // 动态 cron：该文件的 schedule 取决于当前启用计划，重装时按 plans.csv 现算，
       // 不能直接用默认（无 cron）版本，否则会把用户已有的定时计划清空。
       content = buildDailyTrackingYml(planCronSpecs(await loadTrackingPlans()))
-    } else if ('raw' in f) {
-      content = f.raw
     } else {
-      const b64 = b64Map[f.b64Key]
-      if (!b64) { details.push({ path: f.path, ok: false, error: `missing b64 constant: ${f.b64Key}` }); continue }
-      // b64 是「UTF-8 文本的标准 base64」—— 必须按 UTF-8 解码。
-      // 用 atob 会得到 latin1 串，再被 writeRepoTextFile 的 utf8ToBase64 二次编码 → 中文变乱码。
-      content = base64ToUtf8(b64)
+      const expected = localExpectedContent(f)
+      if (expected === null) { details.push({ path: f.path, ok: false, error: `missing content constant for ${f.path}` }); continue }
+      content = expected
     }
     if (content.length > MAX_PIPELINE_FILE) {
       details.push({ path: f.path, ok: false, error: `file too large: ${content.length} bytes` })
