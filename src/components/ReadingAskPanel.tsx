@@ -45,6 +45,8 @@ import { toast } from 'sonner'
 import { callWebSearch, type WebSearchSource } from '../services/ai/web-search'
 import { callAI } from '../services/ai/client'
 import { runDualEngine } from '../services/ai/dual-engine'
+import { buildReadingSourceMaterial } from '../services/ai/readingSource'
+import { historyTokenBudget, resolveContextWindow } from '../services/ai/modelWindow'
 import { isAbortError } from '../services/ai/abort'
 import { useSettingsStore } from '../stores/settings'
 import { loadReadingChat, saveReadingChat, type DocRef } from '../services/readingDocData'
@@ -102,13 +104,6 @@ function splitUserContent(content: string): { question: string; quote: string } 
   if (at < 0) return { question: content, quote: '' }
   return { question: content.slice(0, at), quote: content.slice(at + 5).trim() }
 }
-
-/** 源材料窗口大小：选中处前后各取这么多字符 */
-const SOURCE_WINDOW = 4000
-/** 不选文字时，正文最多送这么多字符当依据 */
-const SOURCE_MAX = 12000
-/** 多轮上下文最多回带多少字符 */
-const HISTORY_MAX = 3000
 
 /** 联网检索用的系统提示（可信路径与自由路径共用） */
 const SEARCH_SYSTEM =
@@ -185,27 +180,6 @@ function mdToMessages(md: string): ReadingChatMessage[] {
   }
   flush()
   return out
-}
-
-/**
- * 构造可信检索的源材料（唯一 ground truth）。
- * 选中文字一定放进去 —— 否则 AI-2 会把「引用原文」判成 AI-1 编造的。
- */
-function buildSourceMaterial(docMarkdown: string, focusText: string): string {
-  const parts: string[] = []
-  if (focusText.trim()) parts.push(`【用户选中的正文片段】\n${focusText.trim()}`)
-
-  if (!docMarkdown.trim()) return parts.join('\n\n')
-
-  const idx = focusText.trim() ? docMarkdown.indexOf(focusText.trim()) : -1
-  if (idx >= 0) {
-    const start = Math.max(0, idx - SOURCE_WINDOW)
-    const end = Math.min(docMarkdown.length, idx + focusText.length + SOURCE_WINDOW)
-    parts.push(`【选中文片段所在的上下文】\n${docMarkdown.slice(start, end)}`)
-  } else {
-    parts.push(`【正文开头节选】\n${docMarkdown.slice(0, SOURCE_MAX)}`)
-  }
-  return parts.join('\n\n')
 }
 
 /** 来源列表最多展示几条（DeepSeek 一次检索能返回十几条，全列出来会淹掉答案本身） */
@@ -324,23 +298,28 @@ export default function ReadingAskPanel({
     onJumped?.()
   }, [jumpToMessageId, loaded, onJumped])
 
-  const historyContext = useMemo(() => {
-    if (messages.length === 0) return ''
-    const tail = messages
-      .slice(-6)
-      .map((m) => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
-      .join('\n')
-    return tail.slice(-HISTORY_MAX)
-  }, [messages])
-
   const send = useCallback(
     async (question: string, useTrusted: boolean, useWeb: boolean, focusText: string) => {
       const q = question.trim()
       if (!q || busy || !docRef) return
 
+      // 当前端实际使用的槽位配置（可信检索需要 ai1 + ai2，自由问答只需 ai1）
+      const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
+
       // 联网检索走「配成 DeepSeek 的槽位」的凭据（后端自动挑），推理模式沿用 AI-1 位设置。
       // '' 表示不干预 → 传 undefined，后端就不发 thinking（保持模型默认）。
       const webSearchThinking = useSettingsStore.getState().thinkingAi1 || undefined
+
+      // 多轮上下文：保留最近 6 条，并按模型窗口派生的预算裁剪。
+      // 注意：这是「对话记录」的预算，与图书正文无关 —— 图书正文不再截断（见 readingSource）。
+      const rawHistory = messages
+        .slice(-6)
+        .map((m) => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
+        .join('\n')
+      const historyBudget = historyTokenBudget(
+        Math.min(resolveContextWindow(ai1.model), resolveContextWindow(ai2.model)),
+      )
+      const historyContext = historyBudget > 0 ? rawHistory.slice(-historyBudget) : ''
 
       const now = Date.now()
       const userMsg: ReadingChatMessage = {
@@ -369,8 +348,19 @@ export default function ReadingAskPanel({
 
       try {
         if (useTrusted) {
-          const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
-          const docMaterial = buildSourceMaterial(docMarkdown, focusText)
+          // 源材料构造：整本塞得下就送全文，否则走「目录 → AI 选章 → 送选中章节正文」两阶段。
+          // 不再硬编码截断原文 —— 送不送得下、截不截，由模型真实窗口决定（见 modelWindow / readingSource）。
+          const src = await buildReadingSourceMaterial({
+            docMarkdown,
+            focusText,
+            question: q,
+            historyContext,
+            ai1,
+            ai2,
+            signal,
+            onStage: setStage,
+          })
+          const docMaterial = src.material
           if (!docMaterial.trim()) {
             throw new Error('这篇文章还没有正文，可信检索没有可锚定的原文')
           }
@@ -420,7 +410,11 @@ export default function ReadingAskPanel({
             focusText.trim() ? `【需要解释的文字】\n${focusText.trim()}` : '',
           ].filter(Boolean).join('\n\n')
 
-          setStage('AI-1 生成中…')
+          setStage(
+            src.mode === 'chapters' && src.pickedTitles.length
+              ? `已依据章节：${src.pickedTitles.join('、')}，AI-1 生成中…`
+              : 'AI-1 生成中…',
+          )
           const result = await runDualEngine({
             taskType: 'faithfulness_check',
             sourceMaterial,
@@ -507,7 +501,6 @@ export default function ReadingAskPanel({
         } else {
           // 纯模型问答：不喂原文、不联网，直接走 chat handler（AI-1 槽位），让模型用
           // 自身知识回答。仍允许交付文件 —— 前端解析 @@FILE@@ 块后落库为「其他文档」。
-          const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
           const userContent = [
             historyContext ? `【此前的对话】\n${historyContext}` : '',
             `【正在读】${docTitle}`,
@@ -583,7 +576,7 @@ export default function ReadingAskPanel({
         setStage('')
       }
     },
-    [busy, docRef, docMarkdown, docTitle, historyContext],
+    [busy, docRef, docMarkdown, docTitle, messages],
   )
 
   /** 停止本次提问：前端立刻不再接收后端输出，并让后端也停下（省额度） */
