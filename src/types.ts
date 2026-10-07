@@ -503,6 +503,14 @@ export interface AIResponse {
  */
 export type DualEngineTaskType = 'faithfulness_check' | 'latex_conversion'
 
+/** AI 交付的单个文件（后端从 AI-1 输出的 @@FILE@@ 标记块中剥离） */
+export interface DeliveredFile {
+  /** 文件名（不含扩展名，简洁中文）；解析失败时为空串，由前端兜底命名 */
+  title: string
+  /** 文件完整 Markdown 正文 */
+  content: string
+}
+
 /** 双引擎运行参数（供 dual-engine.ts 使用） */
 export interface DualEngineRunParams {
   taskType: DualEngineTaskType
@@ -512,6 +520,14 @@ export interface DualEngineRunParams {
   maxAttempts?: number
   ai1?: AISlotConfig
   ai2?: AISlotConfig
+  /**
+   * 开启「文件交付」：AI-1 被要求把成篇成果用 @@FILE@@ 标记块交付，
+   * 后端会把这些块从 ai1Output 剥离并放进 deliveredFiles。
+   *
+   * ⚠️ 必须 opt-in：runDualEngine 有 11 个调用方，只有问答类入口才该开启；
+   * 默认 false，未开启时 prompt 与此前逐字节相同（守住前缀缓存）。
+   */
+  deliverFiles?: boolean
   onProgress?: DualEngineProgressCallback
   /** 用户点「停止」时 abort：前端立刻不再轮询，并尽力取消后端 run */
   signal?: AbortSignal
@@ -678,6 +694,11 @@ export interface DualEngineResult {
   ai2Silent?: boolean
   /** 提前收尾的原因：'' | 'ai2_silent' | 'budget_exceeded' | 'call_failed' */
   stopReason?: string
+  /**
+   * 交付模式下 AI-1 交付的文件（已从 ai1Output 剥离）。
+   * 未开启交付（deliverFiles 未传）时为空数组。
+   */
+  deliveredFiles?: DeliveredFile[]
   /** 首轮 AI-1 token 使用（保留向后兼容，= attempts[0].ai1Usage） */
   ai1Usage: AIResponse['usage']
   /** 首轮 AI-2 token 使用（保留向后兼容，= attempts[0].ai2Usage） */

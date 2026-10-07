@@ -27,6 +27,6 @@ export interface AppVersion {
 
 export const APP_VERSION: AppVersion = {
   data: 9,     // = migrations DATA_VERSION（迁移新增时与此同步 +1）
-  backend: 1,  // 后端 workflow / runner 脚本有任何改动就 +1（初始 1 已含 session_images 超时调整）
-  frontend: 5, // 前端界面 / 交互改动就 +1（1→2：阅读页问 AI 面板「原点」+ 精简文案；2→3：VditorEditor 内置格式按钮操作后恢复选区，支持「先加粗再斜体」连续操作；3→4：VditorEditor 初始化改为「延迟创建 + 卸载取消」，修掉 React 18 StrictMode 双重挂载导致的编辑器串根 / 选区恢复失灵；4→5：会议转写默认模型按实测改为 Qwen3-ASR-1.7B，预置与提示文案同步更新）
+  backend: 2,  // 后端 workflow / runner 脚本有任何改动就 +1（1→2：dual_engine_runner 加 opt-in 文件交付——AI-1 按 @@FILE@@ 标记块交付、核查前剥离、结果回传 deliveredFiles）
+  frontend: 6, // 前端界面 / 交互改动就 +1（1→2：阅读页问 AI 面板「原点」+ 精简文案；2→3：VditorEditor 内置格式按钮操作后恢复选区，支持「先加粗再斜体」连续操作；3→4：VditorEditor 初始化改为「延迟创建 + 卸载取消」，修掉 React 18 StrictMode 双重挂载导致的编辑器串根 / 选区恢复失灵；4→5：会议转写默认模型按实测改为 Qwen3-ASR-1.7B，预置与提示文案同步更新；5→6：问 AI 支持交付文件（阅读页 / 写作页接入 + 「已交付文件」卡片）+ readRepoTextFile >1MB 走 Git Blob API 兜底）
 }

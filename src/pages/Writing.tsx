@@ -117,6 +117,7 @@ import {
 import { loadLiteratures, loadTitleCns, saveLiteratures, type Literature } from '../services/literatureData'
 import { listBooks, saveTextbooks, type BookSummary } from '../services/textbookData'
 import { loadMaterialMeta, saveMaterialMeta, setMeta } from '../services/materialMeta'
+import { deliverFilesToTask, type DeliveredFileChip } from '../services/ai/deliveredFiles'
 import { callAI } from '../services/ai/client'
 import {
   searchCrossref,
@@ -129,6 +130,7 @@ import { downloadRepoBinaryFile, readRepoTextFile, uploadRepoBinaryFile } from '
 import { dispatchAiCall } from '../services/workflowClient'
 import { getRepoContext } from '../services/userData'
 import VditorEditor, { type VditorEditorHandle, type VditorToolbarItem } from '../components/VditorEditor'
+import { DeliveredFilesCard } from '../components/DeliveredFilesCard'
 import FormulaSidebar, { type FormulaEditTarget } from '../components/FormulaSidebar'
 import ProofreadPanel from '../components/ProofreadPanel'
 import CitationPanel from '../components/CitationPanel'
@@ -528,6 +530,12 @@ interface AIMessage {
   content: string
   citations?: CitationRef[]
   reviewStatus?: 'pending' | 'pass' | 'fail'
+  /**
+   * 本条回答交付的文件（已注册为全局「其他文档」）。
+   * 只作界面「交付回执」，不写进 memory.md —— 文件正文已永久存进文档库，
+   * 记忆里再存一份只会让 memory 翻倍膨胀（messagesToMemory 只取 role/content）。
+   */
+  deliveredFiles?: DeliveredFileChip[]
 }
 
 interface OutlineItem {
@@ -1820,6 +1828,9 @@ export default function WritingPage() {
         // 这只是"AI-2 打回后自动重写"的机会数，通过就停；降到 2 轮，最坏 4 次调用。
         maxAttempts: 2,
         signal: controller.signal,
+        // 允许 AI 把成篇成果（完整报告 / 清单 / 大纲等）作为独立文件交付 ——
+        // runner 会在 AI-2 核查前剥离 @@FILE@@ 块并回传 deliveredFiles，避免被误删。
+        deliverFiles: true,
         onProgress: (event) => {
           // AI-1 完成后立即把生成内容回填到消息（提升体感速度）
           if (event.stage === 'ai1_done' && event.ai1Output) {
@@ -1868,6 +1879,16 @@ export default function WritingPage() {
 
       const attached = opts?.attachCitations?.() ?? []
 
+      // 交付文件已由后端剥离并回传 → 落库为全局「其他文档」+ 归入当前写作任务。
+      // 落库失败不吞回答本身：给提示，正文照常写回。
+      let deliveredChips: DeliveredFileChip[] = []
+      try {
+        deliveredChips = await deliverFilesToTask(result.deliveredFiles, activeProjectId || '')
+      } catch (err) {
+        console.warn('[Writing] 交付文件登记失败:', err)
+        toast.warning('回答已生成，但交付文件登记失败')
+      }
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === genMsgId
@@ -1877,6 +1898,7 @@ export default function WritingPage() {
                   stripNotInSource(result.ai1Output || '（AI-1 未返回内容）') + missingNote + reviewNote,
                 citations: attached.length > 0 ? attached : undefined,
                 reviewStatus: passed ? ('pass' as const) : ('fail' as const),
+                deliveredFiles: deliveredChips.length > 0 ? deliveredChips : undefined,
               }
             : m
         )
@@ -4310,6 +4332,9 @@ export default function WritingPage() {
                                 ))}
                               </div>
                             </div>
+                          )}
+                          {msg.deliveredFiles && msg.deliveredFiles.length > 0 && (
+                            <DeliveredFilesCard files={msg.deliveredFiles} />
                           )}
                           {(msg.reviewStatus === 'pass' || msg.reviewStatus === 'fail') && (
                             <button

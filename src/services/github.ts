@@ -823,9 +823,29 @@ export async function readRepoTextFile(
     const err = await res.text().catch(() => '')
     throw new GitHubAPIError(res.status, err, `读取文件失败：${err}`)
   }
-  const data = (await res.json()) as { content: string; sha: string; encoding: string }
-  const content = base64ToUtf8(data.content.replace(/\n/g, ''))
-  return { content, sha: data.sha }
+  const data = (await res.json()) as {
+    content?: string
+    sha: string
+    encoding?: string
+    size?: number
+  }
+  const inlineB64 = (data.content ?? '').replace(/\n/g, '')
+  if (inlineB64) {
+    return { content: base64ToUtf8(inlineB64), sha: data.sha }
+  }
+  // 内联内容为空 —— 文件超过 1MB，Contents API 只回 encoding:"none"（见 downloadRepoBinaryFile 说明）。
+  // 用 blob sha 走 Git Blob API 兜底（上限 100MB）。AI 交付文件会让结果 JSON 越过 1MB，
+  // 没有这条兜底就会静默返回空正文：调用方 JSON.parse('') 抛错 → 被当成「还没 commit」→ 干等到轮询超时。
+  const blobRes = await githubFetch(`/repos/${owner}/${repo}/git/blobs/${data.sha}`, token)
+  if (!blobRes.ok) {
+    const err = await blobRes.text().catch(() => '')
+    throw new GitHubAPIError(blobRes.status, err, `读取文件失败（blob）：${err}`)
+  }
+  const blobData = (await blobRes.json()) as { content?: string; encoding?: string }
+  return {
+    content: base64ToUtf8((blobData.content ?? '').replace(/\n/g, '')),
+    sha: data.sha,
+  }
 }
 
 /**

@@ -110,6 +110,8 @@ export async function runDualEngine(
     maxAttempts: params.maxAttempts,
     ai1: params.ai1,
     ai2: params.ai2,
+    // opt-in 文件交付：只有问答类入口会传 true，其余调用方为 undefined（prompt 逐字节不变）
+    deliverFiles: params.deliverFiles,
   }
 
   // 通知 UI "后端任务已触发"

@@ -38,6 +38,14 @@ import { isAbortError } from '../services/ai/abort'
 import { useSettingsStore } from '../stores/settings'
 import { loadReadingChat, saveReadingChat, type DocRef } from '../services/readingDocData'
 import { renderMarkdownToHtml } from '../services/markdown-renderer'
+import {
+  DELIVER_FILES_PROMPT,
+  deliverFilesToTask,
+  parseDeliveredFileBlocks,
+  type DeliveredFileChip,
+} from '../services/ai/deliveredFiles'
+import { loadMaterialMeta, taskOf } from '../services/materialMeta'
+import { DeliveredFilesCard } from './DeliveredFilesCard'
 
 export interface ReadingChatMessage {
   id: string
@@ -46,6 +54,12 @@ export interface ReadingChatMessage {
   createdAt: number
   /** 有值 = 走了可信检索（双引擎），值是 AI-2 的审阅结论 */
   reviewStatus?: 'pass' | 'fail'
+  /**
+   * 本条回答交付的文件（已注册为全局「其他文档」）。
+   * 只作界面「交付回执」，不写进对话 md —— 文件本身已永久存进文档库，不需要在
+   * 聊天记录里再存一份正文（否则 md 会翻倍膨胀）。
+   */
+  deliveredFiles?: DeliveredFileChip[]
 }
 
 /** 一条带引文的提问 → 在正文边上画一个「原点」 */
@@ -326,6 +340,15 @@ export default function ReadingAskPanel({
       abortRef.current = controller
       const signal = controller.signal
 
+      // 交付文件要归到「这篇材料所属的任务」下面 —— 直接查 materials/meta.csv 的归属，
+      // 不额外加 prop、也不依赖宿主页面传参。查不到（或读取失败）就只做全局「其他文档」。
+      let ownerTaskId = ''
+      try {
+        ownerTaskId = taskOf(await loadMaterialMeta(), docRef.kind, docRef.id)
+      } catch (err) {
+        console.warn('[ReadingAsk] 读取材料归属失败，交付文件将不带任务归属:', err)
+      }
+
       try {
         if (useTrusted) {
           const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
@@ -386,6 +409,9 @@ export default function ReadingAskPanel({
             ai2,
             maxAttempts: 3,
             signal,
+            // 允许 AI 把成篇成果作为独立文件交付 —— runner 会在 AI-2 核查前剥离
+            // @@FILE@@ 块并回传 deliveredFiles，避免被误判成「编造内容」删除。
+            deliverFiles: true,
             onProgress: (ev) => {
               if (ev.stage === 'ai2_running' || ev.stage === 'ai2_self_correct_running') {
                 setStage(`AI-2 审阅中（第 ${ev.attempt}/${ev.maxAttempts} 轮）…`)
@@ -395,6 +421,16 @@ export default function ReadingAskPanel({
             },
           })
 
+          // 交付文件已由后端剥离并回传，这里落库为全局「其他文档」+ 归入本任务。
+          // 落库失败不吞回答本身：给出提示，正文照常展示。
+          let deliveredChips: DeliveredFileChip[] = []
+          try {
+            deliveredChips = await deliverFilesToTask(result.deliveredFiles, ownerTaskId)
+          } catch (err) {
+            console.warn('[ReadingAsk] 交付文件登记失败:', err)
+            toast.warning('回答已生成，但交付文件登记失败')
+          }
+
           setMessages((prev) => [
             ...prev,
             {
@@ -403,6 +439,7 @@ export default function ReadingAskPanel({
               content: appendSources(result.ai1Output || '（AI 没有返回内容）', webSources),
               createdAt: Date.now(),
               reviewStatus: result.finalPassed ? 'pass' : 'fail',
+              deliveredFiles: deliveredChips,
             },
           ])
         } else {
@@ -414,6 +451,7 @@ export default function ReadingAskPanel({
             `【正在读】${docTitle}`,
             focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
             `【问题】\n${q}`,
+            DELIVER_FILES_PROMPT,
           ].filter(Boolean).join('\n\n')
 
           const resp = await callWebSearch({
@@ -423,13 +461,27 @@ export default function ReadingAskPanel({
             signal,
           })
 
+          // 联网问答链路是无状态直连，没有后端落库 —— 由前端从回复里解析 @@FILE@@ 块，
+          // 剥离后的正文才是展示内容，交付文件落库为全局「其他文档」+ 归入本任务。
+          const parsed = parseDeliveredFileBlocks(resp.content || '')
+          let deliveredChips: DeliveredFileChip[] = []
+          if (parsed.files.length > 0) {
+            try {
+              deliveredChips = await deliverFilesToTask(parsed.files, ownerTaskId)
+            } catch (err) {
+              console.warn('[ReadingAsk] 交付文件登记失败:', err)
+              toast.warning('回答已生成，但交付文件登记失败')
+            }
+          }
+
           setMessages((prev) => [
             ...prev,
             {
               id: `a_${Date.now()}`,
               role: 'assistant',
-              content: appendSources(resp.content || '（AI 没有返回内容）', resp.sources),
+              content: appendSources(parsed.content || '（AI 没有返回内容）', resp.sources),
               createdAt: Date.now(),
+              deliveredFiles: deliveredChips,
             },
           ])
         }
@@ -590,6 +642,9 @@ export default function ReadingAskPanel({
                   >
                     {m.reviewStatus === 'pass' ? '✓ 已核查' : '⚠ 未通过核查'}
                   </div>
+                )}
+                {m.role === 'assistant' && m.deliveredFiles && m.deliveredFiles.length > 0 && (
+                  <DeliveredFilesCard files={m.deliveredFiles} />
                 )}
               </div>
             </div>

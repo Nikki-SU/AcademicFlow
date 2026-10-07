@@ -17,6 +17,9 @@ const EMPTY_USAGE = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
 const NOT_IN_SOURCE_TAG = '[NOT_IN_SOURCE]'
 const EVIDENCE_START = '@@EVIDENCE@@'
 const EVIDENCE_END = '@@END_EVIDENCE@@'
+// 【文件交付块】标记。仅在调用方显式开启 input.deliverFiles 时才要求 AI-1 输出。
+const FILE_START = '@@FILE@@'
+const FILE_END = '@@END_FILE@@'
 
 // 输出预算。必须给推理模型留出足够的 headroom：
 // reasoning token 和正文**共用**这一个 max_tokens，额度不够时模型会把额度全烧在
@@ -178,6 +181,28 @@ const NOT_IN_SOURCE_INSTRUCTIONS = [
   '     @@END_EVIDENCE@@',
 ].join('\n')
 
+/**
+ * 【文件交付指令】—— 仅在 `input.deliverFiles === true` 时追加到 AI-1 的用户消息里。
+ *
+ * 为什么不放进 NOT_IN_SOURCE_INSTRUCTIONS（system）：system 一旦带上这段，前缀缓存
+ * 对所有任务全部失效；而且这段是"按需"的，未开启交付的 10 个调用方必须一个字都看不到。
+ * 所以它只出现在用户消息的【源材料/任务指令】之后（见 buildSourcePrefix），
+ * 既守住前缀逐字节相同的约束，又做到按调用方 opt-in。
+ */
+const DELIVER_FILES_INSTRUCTIONS = [
+  '',
+  '【文件交付（本次任务允许你把成篇成果作为独立文件交付）】',
+  '当任务指令要求你产出适合单独保存的完整文档（如完整的报告、清单、大纲、表格汇编、代码文件等）时，',
+  '**必须**用下面的固定标记块把每个文件包起来；标记块放在总结正文之后、【引用原文标注】块之前：',
+  '     @@FILE@@{"title":"文件名（不含扩展名，简洁中文）"}',
+  '     文件的完整 Markdown 正文',
+  '     @@END_FILE@@',
+  '1. @@FILE@@ 后面**必须紧跟一个合法 JSON**，且只含 "title" 一个字段（字符串）；不要加任何别的字段，不要用代码块包 JSON。',
+  '2. 标记块与正文之间不要插入任何说明文字；标记块本身不会被当作总结正文。',
+  '3. 一个文件一个标记块；没有需要单独保存的成果时，**不要**输出任何 @@FILE@@ 标记。',
+  '4. 交付文件的内容同样**只依据【源材料】**，遵守上面的全部约束。',
+].join('\n')
+
 const DEFAULT_AI1_ROLE = [
   '你是一名严谨的学术总结助手。用户会提供一段【源材料】和一条【任务指令】，你需要按指令做总结。',
   '',
@@ -203,7 +228,11 @@ const DEFAULT_AI1_ROLE = [
  *    下面 buildAI1System / AI2_SYSTEM 被首轮与重写轮共用，就是为了守住这条。
  */
 function buildSourcePrefix(params) {
-  return ['【源材料】', params.sourceMaterial, '', '【任务指令】', params.ai1Instruction].join('\n')
+  const parts = ['【源材料】', params.sourceMaterial, '', '【任务指令】', params.ai1Instruction]
+  // 交付指令只加在【任务指令】之后，且仅在调用方 opt-in 时追加 —— 未开启交付的调用方
+  // prompt 一字不变（守住上面「前缀逐字节相同」的约束，其余 10 个调用方零影响）。
+  if (params.deliverFiles) parts.push(DELIVER_FILES_INSTRUCTIONS)
+  return parts.join('\n')
 }
 
 /** AI-1 的 system —— 首轮与重写轮**必须完全一样**（重写轮的差异文案见 buildAI1RewriteMessages） */
@@ -386,6 +415,49 @@ function parseAI1Evidence(rawOutput) {
 }
 
 /**
+ * 抽取并剥离 AI-1 输出里的【文件交付块】。
+ *
+ * 契约（仅 input.deliverFiles=true 时生效，见 DELIVER_FILES_INSTRUCTIONS）：
+ *   @@FILE@@{"title":"文件名"}
+ *   <Markdown 正文>
+ *   @@END_FILE@@
+ *
+ * 为什么必须在这里剥离：交付块不是"总结正文"。若留在 ai1Output 里，AI-2 会把它当成
+ * 编造内容判 added，重写反馈又会要求 AI-1「必须删除」—— 交付的成果就被忠实性循环吃掉了。
+ * 所以先把交付块摘出来单独返回，ai1Output 只保留真正的总结正文；AI-2 核查、重写反馈
+ * 看到的都是剥离后的正文。
+ *
+ * 解析口径（先约束再容错）：title 必须是 @@FILE@@ 后紧跟的合法 JSON（只认 title 字段）。
+ * JSON 解析失败**不回退猜测** —— 正文是确定正确的逐字内容，照常保留；title 留空由前端补默认名。
+ */
+function extractDeliveredFiles(raw) {
+  const lines = String(raw ?? '').split('\n')
+  const kept = []
+  const files = []
+  let i = 0
+  while (i < lines.length) {
+    if (lines[i].trim().startsWith(FILE_START)) {
+      const metaText = lines[i].trim().slice(FILE_START.length).trim()
+      let title = ''
+      try {
+        const m = JSON.parse(metaText)
+        title = typeof m?.title === 'string' ? m.title.trim() : ''
+      } catch { title = '' }
+      const body = []
+      let j = i + 1
+      while (j < lines.length && lines[j].trim() !== FILE_END) { body.push(lines[j]); j++ }
+      const content = body.join('\n').trim()
+      if (content) files.push({ title, content })
+      i = j < lines.length ? j + 1 : j
+      continue
+    }
+    kept.push(lines[i])
+    i++
+  }
+  return { content: kept.join('\n').trim(), files }
+}
+
+/**
  * 引证核对的匹配口径：忽略空白与 Markdown 强调符。
  *
  * 之前是裸 `sourceMaterial.includes(span)`，而模型复述原文时几乎必然会把换行重排、
@@ -439,12 +511,14 @@ function decideNextReason(previous) {
 
 async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previousAttempt) {
   let ai1RawOutput, ai1Output, ai1Usage = EMPTY_USAGE, ai1Ms = 0, ai1Invoked = false, ai1EvidenceCheck = null
+  let deliveredFiles = []
 
   // AI-1 阶段
   if (reason === 'ai2_self_correct') {
     ai1Output = previousAttempt.ai1Output
     ai1RawOutput = previousAttempt.ai1Output
     ai1EvidenceCheck = previousAttempt.ai1EvidenceCheck
+    deliveredFiles = previousAttempt.deliveredFiles || []
   } else {
     const t0 = Date.now()
     const messages = reason === 'first_run'
@@ -456,7 +530,12 @@ async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previ
     ai1Usage = resp.usage
     ai1Invoked = true
     const parsed = parseAI1Evidence(ai1RawOutput)
-    ai1Output = parsed.content
+    // 交付块要先于 AI-2 核查摘出来：否则会被当成"编造内容"判 added 并被重写删除（见函数说明）。
+    const delivered = params.deliverFiles
+      ? extractDeliveredFiles(parsed.content)
+      : { content: parsed.content, files: [] }
+    ai1Output = delivered.content
+    deliveredFiles = delivered.files
     ai1EvidenceCheck = verifyAI1Evidence(params.sourceMaterial, parsed.evidenceSpans)
 
     if (!ai1EvidenceCheck.ok) {
@@ -467,6 +546,7 @@ async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previ
       }
       return {
         attempt: attemptIndex, reason, ai1Output, ai1Invoked, ai1Usage, ai1Ms, ai1EvidenceCheck,
+        deliveredFiles,
         ai2Feedback: emptyFeedback, ai2RawOutput: '', ai2Usage: EMPTY_USAGE, ai2Ms: 0,
         passed: false, previousAI1Output: previousAttempt?.ai1Output ?? null,
       }
@@ -520,6 +600,7 @@ async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previ
   }
   return {
     attempt: attemptIndex, reason, ai1Output, ai1Invoked, ai1Usage, ai1Ms, ai1EvidenceCheck,
+    deliveredFiles,
     ai2Feedback, ai2RawOutput, ai2Usage: ai2Resp?.usage || EMPTY_USAGE, ai2Ms,
     passed, ai2Silent,
     // AI-2 哑了不是 AI-1 的错：再让它改一遍也没有复核结果，多跑一轮只是白花钱。
@@ -532,7 +613,9 @@ async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previ
 
 /**
  * 后端 runner 的主函数 —— 被 ai-service.mjs 的 dual_engine handler 调用
- * @param {object} input - { taskType, sourceMaterial, ai1Instruction, ai1RolePrompt, maxAttempts }
+ * @param {object} input - { taskType, sourceMaterial, ai1Instruction, ai1RolePrompt, maxAttempts, deliverFiles }
+ *   deliverFiles=true 时 AI-1 会被要求把成篇成果用 @@FILE@@ 标记块交付，
+ *   runner 把交付块从正文剥离后单独放在结果的 deliveredFiles 里（默认 false，其余调用方零影响）。
  * @returns {Promise<object>} DualEngineResult
  */
 export async function runDualEngine(input) {
@@ -542,6 +625,8 @@ export async function runDualEngine(input) {
     ai1Instruction: input.ai1Instruction || '',
     ai1RolePrompt: input.ai1RolePrompt,
     maxAttempts: Math.max(1, input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS),
+    // 交付模式：仅显式开启时生效（见 DELIVER_FILES_INSTRUCTIONS / extractDeliveredFiles）
+    deliverFiles: !!input.deliverFiles,
     // 可选 provider 覆盖 — DualEngineTestPanel 用；不传则用 GitHub Secrets
     ai1_provider: input.ai1 && input.ai1.baseUrl ? input.ai1 : null,
     ai2_provider: input.ai2 && input.ai2.baseUrl ? input.ai2 : null,
@@ -590,6 +675,8 @@ export async function runDualEngine(input) {
     ai1Output: last.ai1Output,
     ai2Feedback: last.ai2Feedback,
     ai2RawOutput: last.ai2RawOutput,
+    /** 交付模式下的文件清单（已从 ai1Output 剥离）；未开启交付时为空数组 */
+    deliveredFiles: last.deliveredFiles || [],
     attempts,
     maxAttempts,
     finalPassed: last.passed,
