@@ -93,6 +93,12 @@ export interface WordData {
   streak: number
   /** 累计答错次数（>=3 进错词本） */
   wrongCount: number
+  /**
+   * roundTypes：**本轮**已答对过的题型（一轮 = 把当前适用的题型各答对一遍）。
+   * 跨会话持久化 —— 没掌握就关页面，下次回来从这里接着答，不重新开始一轮
+   * （学习 / 复习都靠它续上；走满一轮或掌握时清空）。
+   */
+  roundTypes: string[]
 }
 
 export interface SentenceData {
@@ -158,6 +164,9 @@ const VOCAB_HEADERS = [
   //   morphemes —— 词根词缀切分（JSON 数组，元素 {text,type,meaning}）。
   //   必须与 .github/scripts/paper_convert.mjs 的 VOCAB_HEADERS 完全一致、顺序也一致。
   'morphemes',
+  //   round_types —— 本轮已答对过的题型（JSON 字符串数组）。纯前端字段：
+  //   后端 runner 只追加新行（去重只认 word_en），不重写整表，缺列给安全默认 []。
+  'round_types',
 ]
 
 const VALID_WORD_STATUS = new Set(['new', 'learning', 'learned', 'mastered', 'error_book'])
@@ -253,6 +262,24 @@ export function serializeMorphemes(morphemes: Morpheme[] | undefined): string {
       meaning: String(m?.meaning ?? '').trim(),
     }))
     .filter((m) => m.text)
+  return list.length ? JSON.stringify(list) : ''
+}
+
+/** 解析 round_types 列（CSV 里是 JSON 字符串数组）。空值 / 坏 JSON / 非数组一律 [] */
+export function parseRoundTypes(raw: string | undefined): string[] {
+  const t = (raw || '').trim()
+  if (!t) return []
+  try {
+    const arr = JSON.parse(t)
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string' && x.trim()) : []
+  } catch {
+    return []
+  }
+}
+
+/** 序列化 round_types → JSON 字符串数组（空数组写空串，与 parseRoundTypes 往返一致） */
+export function serializeRoundTypes(roundTypes: string[] | undefined): string {
+  const list = (roundTypes || []).filter((x) => typeof x === 'string' && x.trim())
   return list.length ? JSON.stringify(list) : ''
 }
 
@@ -479,6 +506,7 @@ export async function loadWords(force = false): Promise<WordData[]> {
             exampleZh: (r[15] || '').trim() || undefined,
             // 词素切分只认正常行（历史脏数据行列位整体错位，读出来必然对不上）
             morphemes: [] as Morpheme[],
+            roundTypes: [] as string[],
           }
           const s7 = (r[7] || '').trim()
           const s8 = (r[8] || '').trim()
@@ -544,6 +572,7 @@ export async function loadWords(force = false): Promise<WordData[]> {
             wrongCount: hasNewCols ? num(r[13]) : 0,
             streak: hasNewCols ? num(r[14]) : 0,
             morphemes: parseMorphemes(r[16]),
+            roundTypes: parseRoundTypes(r[17]),
           }
         })
     },
@@ -556,7 +585,7 @@ export async function saveWords(words: WordData[]): Promise<void> {
     VOCAB_PATH,
     words,
     VOCAB_HEADERS,
-    // 严格 17 列、按表头顺序
+    // 严格按表头顺序
     (w) => [
       w.word,
       w.meaning,
@@ -575,6 +604,7 @@ export async function saveWords(words: WordData[]): Promise<void> {
       String(w.streak),
       w.exampleZh || '',
       serializeMorphemes(w.morphemes),
+      serializeRoundTypes(w.roundTypes),
     ],
   )
 }

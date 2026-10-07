@@ -181,6 +181,19 @@ function isWordEligible(w: WordData, type: WordQuestionType): boolean {
   }
 }
 
+/**
+ * 某题型轮里真正要出题的词：剔除**本轮已答对过该题型**的词。
+ * 跨会话续学靠它 —— 上一会话没走完一轮（roundTypes 已持久化），
+ * 这次回来只答还没答对的题型，不重新开始一轮。
+ */
+function roundEligible(
+  pool: WordData[],
+  type: WordQuestionType,
+  correctTypes: Record<string, string[]>,
+): WordData[] {
+  return pool.filter((w) => isWordEligible(w, type) && !(correctTypes[w.id] || []).includes(type))
+}
+
 interface GeneratedWordQuestion {
   wordId: string
   type: WordQuestionType
@@ -1102,6 +1115,7 @@ export default function LearnPage() {
           sm2Ease: 2.5,
           streak: 0,
           wrongCount: 0,
+          roundTypes: [],
         }))
         setWords((prev) => [...prev, ...newWords])
       }
@@ -1478,6 +1492,11 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const [showAddModal, setShowAddModal] = useState(false)
   /** 「一键修复」进行中 —— 防连点；AI 补全那步会慢 */
   const [repairing, setRepairing] = useState(false)
+  /** AI-1 是否已配置：语义字段（释义/定义/例句译文）只有 AI 能补，没配就明说 */
+  const aiReady = useSettingsStore((s) => {
+    const cfg = s.getDualEngineConfig()
+    return !!(cfg.ai1 && cfg.ai1.baseUrl && cfg.ai1.apiKey && cfg.ai1.model)
+  })
 
   const [session, setSession] = useState<StudySession | null>(null)
   const [question, setQuestion] = useState<GeneratedWordQuestion | null>(null)
@@ -1693,18 +1712,27 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const presentQuestion = useCallback((s: StudySession) => {
     // 换题先掐掉上一题的朗读，免得听音题的发音跟下一题叠在一起
     stopSpeaking()
-    const type = activeTypes[s.typeIdx]
-    if (!type) {
-      // 静音模式可能把当前这一轮题型整轮剔掉（设置变了之类的边角情形）：安全收尾
+    const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
+    // 当前题型轮若被「本轮已答对的题型」清空（跨会话续学时上回已答完这轮），
+    // 自动跳到下一个还有词可出的题型轮，而不是直接收尾。
+    let typeIdx = s.typeIdx
+    let eligible: WordData[] = []
+    while (typeIdx < activeTypes.length) {
+      const e = roundEligible(pool, activeTypes[typeIdx], s.correctTypes)
+      if (e.length > 0) { eligible = e; break }
+      typeIdx++
+    }
+    if (!eligible.length) {
+      // 所有题型轮都已答完 → 安全收尾
       setFinished(s)
       setSession(null)
       setQuestion(null)
       return
     }
-    const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    const eligible = pool.filter((w) => isWordEligible(w, type))
+    // 跳过空题型轮时 wordIdx 归零（下一轮从头出词）；否则沿用当前轮位置
+    const advancedType = typeIdx !== s.typeIdx
     // 有待重做的错题时优先它；否则按 wordIdx 走第一遍
-    const wid = s.retryId ?? eligible[s.wordIdx]?.id
+    const wid = s.retryId ?? eligible[advancedType ? 0 : s.wordIdx]?.id
     if (!wid) {
       // 理论上不该发生：安全收尾
       setFinished(s)
@@ -1713,7 +1741,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       return
     }
     const w = byId.get(wid)
-    const q = w ? buildQuestion(w, type, eligible, affixes) : null
+    const q = w ? buildQuestion(w, activeTypes[typeIdx], eligible, affixes) : null
     if (!q) {
       setFinished(s)
       setSession(null)
@@ -1723,6 +1751,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     // 本会话第一次见这个词（仅 learn 模式）→ 答完之后要把卡片亮出来给用户看
     const isFirst = s.mode === 'learn' && !s.askedOnce.includes(wid)
     if (isFirst) s = { ...s, askedOnce: [...s.askedOnce, wid] }
+    if (advancedType) s = { ...s, typeIdx, wordIdx: 0 }
     setSession(s)
     setQuestion(q)
     setSelected(null)
@@ -1739,10 +1768,16 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const beginSession = useCallback((mode: 'learn' | 'review', allWords: WordData[]): boolean => {
     const queue = pickStudyQueue(allWords, mode, settings.queueLength)
     if (queue.length === 0) return false
-    // 选第一个对这组词"有题可出"的题型
+    // 从持久化的 roundTypes 恢复本轮进度：上回已答对的题型直接算数，
+    // 这次回来只答还没答对的，不重新开始一轮（跨会话续学）。
+    const correctTypes: Record<string, string[]> = {}
+    for (const w of queue) {
+      if (w.roundTypes && w.roundTypes.length > 0) correctTypes[w.id] = [...w.roundTypes]
+    }
+    // 选第一个对这组词"有题可出"的题型（剔除本轮已答对过的题型）
     let typeIdx = -1
     activeTypes.some((t, i) => {
-      if (queue.some((w) => isWordEligible(w, t))) { typeIdx = i; return true }
+      if (queue.some((w) => roundEligible([w], t, correctTypes).length > 0)) { typeIdx = i; return true }
       return false
     })
     if (typeIdx < 0) return false
@@ -1753,7 +1788,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       typeIdx,
       wordIdx: 0,
       retryId: null,
-      correctTypes: {},
+      correctTypes,
       askedOnce: [],
       correctCount: 0,
       wrongCount: 0,
@@ -1766,7 +1801,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   const advance = useCallback((s: StudySession) => {
     const types = activeTypes
     const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    const eligibleNow = pool.filter((w) => isWordEligible(w, types[s.typeIdx]))
+    // 剔除本轮已答对过该题型的词 —— 跨会话续学时，上回答过的题型轮可能只剩半截
+    const eligibleNow = roundEligible(pool, types[s.typeIdx], s.correctTypes)
 
     // 本轮还没走完 → 下一词（错题已在 handleNext 里就地重做过，这里不会漏题）
     if (s.wordIdx < eligibleNow.length - 1) {
@@ -1775,7 +1811,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     }
     // 本轮清空 → 切下一个"有题可出"的题型
     for (let ni = s.typeIdx + 1; ni < types.length; ni++) {
-      const eligibleNext = pool.filter((w) => isWordEligible(w, types[ni]))
+      const eligibleNext = roundEligible(pool, types[ni], s.correctTypes)
       if (eligibleNext.length > 0) {
         presentQuestion({ ...s, typeIdx: ni, wordIdx: 0, retryId: null })
         return
@@ -1848,7 +1884,13 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
             status: rounds >= masterRounds ? 'mastered' : 'learned',
             // 下一次该隔多久再复习：复习模式按 SM-2 放大，学习模式走艾宾浩斯阶梯
             sm2Interval: mode === 'review' ? nextSm2Interval(cur) : nextLearnInterval(cur),
+            // 一轮走完（或直接掌握）：本轮已答题型清空，下一轮从头再来
+            roundTypes: [],
           }
+        } else {
+          // 本轮还没走满：把已答对的题型写进 roundTypes 并随 CSV 持久化 ——
+          // 没掌握就关页面，下次回来从这里接着答，不重新开始一轮。
+          next = { ...next, roundTypes: doneTypes }
         }
         nextWord = next
       }
@@ -1933,8 +1975,9 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
     const wid = question.wordId
     setWords((prev) => prev.map((w) =>
       w.id === wid
-        // 斩词 = 用户说"这个词我会了"：轮次直接记满，跟正常走满轮次掌握保持一致
-        ? { ...w, status: 'mastered', reviewCount: Math.max(w.reviewCount, settings.masterRounds) }
+        // 斩词 = 用户说"这个词我会了"：轮次直接记满，跟正常走满轮次掌握保持一致；
+        // 本轮已答题型一并清空（已掌握的词不再参与出题）
+        ? { ...w, status: 'mastered', reviewCount: Math.max(w.reviewCount, settings.masterRounds), roundTypes: [] }
         : w,
     ))
     if (session) {
@@ -2443,7 +2486,10 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
                 })()}），会影响定义/例句类题型出题。
               </p>
               <p className="text-ui-xs text-amber-600 mt-1">
-                规则会校正数值、丢弃脏词素，并清掉旧版「释义与定义被错填成同一个值」的脏数据；释义/定义/例句译文这些语义字段由 AI 补对。
+                规则会校正数值、丢弃脏词素，并清掉旧版「释义与定义被错填成同一个值」的脏数据；释义/定义/例句译文这些语义字段由 AI 补对
+                {aiReady
+                  ? '。'
+                  : '。当前未配置 AI 服务，点「一键修复」只做规则部分，语义字段不会变 —— 请先在设置里配置 AI 服务。'}
               </p>
             </div>
             <button
@@ -3713,6 +3759,7 @@ function AddWordModal({ onClose, onAdd }: { onClose: () => void; onAdd: (word: W
       sm2Ease: 2.5,
       streak: 0,
       wrongCount: 0,
+      roundTypes: [],
     }
     onAdd(newWord)
   }

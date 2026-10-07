@@ -47,6 +47,7 @@ import {
 } from '../services/literatureData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { translateText } from '../services/asr'
+import { isAbortError } from '../services/ai/abort'
 import { useSettingsStore } from '../stores/settings'
 import {
   loadTrackingInbox,
@@ -327,8 +328,9 @@ export default function TrackingPage() {
       }
 
       // 定时追踪计划（时间规则 + 多期刊 + 单个表达式）
+      let loadedPlans: TrackingPlan[] = []
       try {
-        const loadedPlans = await loadTrackingPlans()
+        loadedPlans = await loadTrackingPlans()
         if (!cancelled && loadedPlans.length > 0) setPlans(loadedPlans)
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载定时计划失败:', err)
@@ -375,7 +377,17 @@ export default function TrackingPage() {
         console.warn('[Tracking] 从 GitHub 加载搜索源失败，使用默认值:', err)
       }
 
-      if (!cancelled) dataLoadedRef.current = true
+      if (!cancelled) {
+        dataLoadedRef.current = true
+        // 首次进入就同步一次 workflow 的 schedule（幂等，内容一致会跳过）：
+        // 老版本私库里残留的「每天跑」cron 靠这里清掉；计划变化时另有防抖同步。
+        const { token, user } = useAuthStore.getState()
+        if (token && user && repo) {
+          syncTrackingCron(user.login, repo.name, token, loadedPlans).catch((err) =>
+            console.warn('[Tracking] 同步定时 cron 失败:', err),
+          )
+        }
+      }
     }
     loadData()
     return () => {
@@ -1451,6 +1463,23 @@ export default function TrackingPage() {
     }
   }
 
+  /**
+   * 标题翻译带超时：请求一旦挂起（网络黑洞 / 服务端不响应），fetch 永远不返回，
+   * 之前会让「翻译中」永远挂着。30 秒收不到结果直接判失败并提示，别让用户干等。
+   */
+  const translateTitleWithTimeout = async (text: string): Promise<string> => {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 30_000)
+    try {
+      return await translateText(text, readTranslateCfg(), ctrl.signal)
+    } catch (err) {
+      if (isAbortError(err)) throw new Error('翻译超时（30 秒未返回），请检查网络或 API 配置后重试')
+      throw err
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   /** 标题只有不含中文（即英文等外文）时才需要翻译 */
   const isEnglishTitle = (title: string) => !!title.trim() && !/[\u4e00-\u9fff]/.test(title)
 
@@ -1475,9 +1504,14 @@ export default function TrackingPage() {
       return
     }
     if (translatingRef.current.has(c.doi)) return
+    // 没配翻译 key 就别空转：直接告诉用户去设置里配，而不是挂着「翻译中」
+    if (!readTranslateCfg().apiKey) {
+      toast.error('未配置翻译 API Key，请先在设置页的「会议与转写」里填写')
+      return
+    }
     markTranslating(c.doi, true)
     try {
-      const zh = await translateText(text, readTranslateCfg())
+      const zh = await translateTitleWithTimeout(text)
       setTranslatedTitle(c.doi, zh)
       setShowOriginalTitleDois((prev) => prev.filter((d) => d !== c.doi))
     } catch (err) {
@@ -1512,7 +1546,7 @@ export default function TrackingPage() {
         if (cancelled) return
         markTranslating(c.doi, true)
         try {
-          const zh = await translateText((c.title || '').trim(), readTranslateCfg())
+          const zh = await translateTitleWithTimeout((c.title || '').trim())
           if (cancelled) return
           setTranslatedTitle(c.doi, zh)
         } catch (err) {
@@ -1651,7 +1685,7 @@ export default function TrackingPage() {
                       <Search className="h-3 w-3" />
                     </div>
                     <span className="flex-1 truncate text-left text-ink-700">{selectedSearchSite?.name}</span>
-                    <ChevronDown className="h-3.5 w-3.5 text-ink-400" />
+                    <ChevronDown className={`h-3.5 w-3.5 text-ink-400 transition-transform ${showSearchDropdown ? 'rotate-180' : ''}`} />
                   </button>
                   {showSearchDropdown && (
                     <div className="absolute bottom-full left-0 z-50 mb-1 w-full overflow-hidden rounded-control border border-ink-200 bg-paper-50 shadow-lg">
@@ -1901,13 +1935,13 @@ export default function TrackingPage() {
                 </div>
               )}
             </div>
-            <p className="mt-1 text-ui-2xs text-ink-400">决定要读的，就赶紧把 PDF 找进来，别拖着</p>
+            <p className="mt-1 text-ui-2xs text-ink-400">这里列出你标记为「决定要读」、还没补 PDF 的文献</p>
           </div>
           <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
             {libraryPendingPdf.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center py-12 text-ink-400">
                 <CheckCircle2 className="mb-3 h-10 w-10 opacity-30" />
-                <p className="text-ui-xs font-medium">都补上 PDF 了，没有拖欠</p>
+                <p className="text-ui-xs font-medium">没有待补 PDF</p>
               </div>
             ) : (
               libraryPendingPdf.map((lit) => (
