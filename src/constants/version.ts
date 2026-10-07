@@ -28,5 +28,5 @@ export interface AppVersion {
 export const APP_VERSION: AppVersion = {
   data: 9,     // = migrations DATA_VERSION（迁移新增时与此同步 +1）
   backend: 1,  // 后端 workflow / runner 脚本有任何改动就 +1（初始 1 已含 session_images 超时调整）
-  frontend: 3, // 前端界面 / 交互改动就 +1（1→2：阅读页问 AI 面板「原点」+ 精简文案；2→3：VditorEditor 内置格式按钮操作后恢复选区，支持「先加粗再斜体」连续操作）
+  frontend: 4, // 前端界面 / 交互改动就 +1（1→2：阅读页问 AI 面板「原点」+ 精简文案；2→3：VditorEditor 内置格式按钮操作后恢复选区，支持「先加粗再斜体」连续操作；3→4：VditorEditor 初始化改为「延迟创建 + 卸载取消」，修掉 React 18 StrictMode 双重挂载导致的编辑器串根 / 选区恢复失灵）
 }

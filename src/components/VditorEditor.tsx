@@ -911,7 +911,16 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       it === 'code' ? codeItem : it === 'table' ? tableItem : it,
     )
 
-    const instance = new Vditor(el, {
+    // ── React 18 StrictMode 稳健性 ──
+    // 开发模式 React 会对每个 effect 跑「挂载 → 卸载 → 再挂载」两遍。Vditor 构造是异步的：
+    // 若第一个实例在初始化途中被 destroy（Vditor.destroy 只把容器 innerHTML 重置，
+    // 拦不住其后的异步写入），它迟到的 DOM 会盖到第二个实例上，两个内容根互相串通——
+    // 表现为「格式按钮点了没反应 / 选区恢复失败」。这里把创建推迟到下一个宏任务并在卸载时
+    // 取消：StrictMode 下第一个 setup 紧接着就被 cleanup 取消，最终只创建一个实例。
+    // 生产环境不会双重挂载，行为与原先一致。
+    let instance: Vditor | null = null
+    const createTimer = setTimeout(() => {
+      instance = new Vditor(el, {
       // ── 离线资源：不写这一项就会去 unpkg 拉 lute/katex，墙内必挂 ──
       cdn: VDITOR_CDN,
       // 图标 sprite 由模块顶部 ensureVditorIconSprite() 用外部脚本注入（见那里的说明）；
@@ -986,12 +995,13 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
       // （dist/index.js 里编辑器内联渲染读的就是它），但它的 .d.ts 没声明这个字段。
       // 只为这一个多余的键加断言，不把整个 options 变成 any。
     } as ConstructorParameters<typeof Vditor>[1])
-
-    vditorRef.current = instance
+      vditorRef.current = instance
+    }, 0)
 
     return () => {
+      clearTimeout(createTimer)
       try {
-        instance.destroy()
+        instance?.destroy()
       } catch {
         /* 卸载期销毁失败无所谓 */
       }
@@ -1625,10 +1635,11 @@ const VditorEditor = forwardRef<VditorEditorHandle, VditorEditorProps>(function 
 
   // 外部 value 变化（切换文献 / 重新加载）→ 灌进编辑器；同值不动，避免打断输入
   useEffect(() => {
-    if (!vditorRef.current) return
     if (value === lastValueRef.current) return
+    // 实例可能还没创建（挂载后那个创建宏任务尚未执行）——先把最新值记进 lastValueRef，
+    // 构造时读的就是它，值不会丢；实例在就顺带灌进编辑器。
     lastValueRef.current = value
-    vditorRef.current.setValue(value)
+    vditorRef.current?.setValue(value)
     // 整篇重建 DOM → 之前记的那份 Range 指向的节点已经脱离了文档。
     // 不清掉的话，Vditor 会继续拿着它 insertNode：内容悄悄落进游离子树，
     // 既不在光标处、也不在开头，用户只看到「点了没反应」。

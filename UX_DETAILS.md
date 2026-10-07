@@ -369,6 +369,13 @@ el.addEventListener('mousedown', (e) => {
 
 这条几乎零成本，但体验差别极大 —— 它是「这个编辑器好不好用」的第一印象。
 
+### 编辑器实例只能有一个（React 18 StrictMode 双重挂载会串根）(2026-10-07 踩坑)
+
+- **现象**：生产包里选区恢复一切正常，可 `npm run dev` 下「选区恢复 / 格式按钮」时好时坏（约 2/3 失败），像随机 bug。本地开发环境刚复现完，重新加载可能又好了。
+- **为什么**：React 18 的 `StrictMode`（开发模式专属）对每个 effect 跑「挂载 → 卸载 → 再挂载」两遍。Vditor 的构造是**异步**的：若第一个实例在初始化途中被 `destroy`，而 `Vditor.destroy` **只把容器 `innerHTML` 重置**、拦不住它迟到的异步写入，那第一个实例迟到的 DOM 会盖到第二个实例上 —— 两个内容根互相串通（`editorElement` 拿到的是错的那个），表现为「格式按钮点了没反应 / 选区恢复失败」。生产环境不双重挂载，所以线上一直是对的 —— 这就是它「只在 dev 偶发、测试时抓不住」的原因。**别把 dev 偶发当成测不出来，dev 与线上走的代码路径不同本身就是信号。**
+- **怎么做**（[VditorEditor.tsx](file:///workspace/src/components/VditorEditor.tsx) 的初始化 effect）：把 `new Vditor(...)` 推迟到下一个宏任务 `setTimeout(..., 0)` 执行，卸载时 `clearTimeout` 取消 + `instance?.destroy()`。StrictMode 下第一个 setup 紧接着就被 cleanup 取消，根本没创建实例，最终只创建一个。副作用配套：值同步 effect 不能再因「实例还没建好」提前 return，要先 `lastValueRef.current = value` 再把值灌进存在的实例（否则初始 value 会丢）。
+- **判据**：任何「异步构造 + 事后还要往容器里写」的第三方编辑器 / 组件（编辑器、地图、图表、播放器），接到 React 里都要问一句：StrictMode 双挂载时，第一个实例的迟到写入会不会污染第二个？容器是不是**独占**的？不独占就得延迟创建 + 卸载取消。
+
 ### 不要放与业务语义冲突的内置按钮
 
 通用编辑器自带的按钮里，总有几个在你的业务里另有含义。**留着它们不是中性行为，而是误导**。
