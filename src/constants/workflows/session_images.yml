@@ -34,9 +34,12 @@ concurrency:
 jobs:
   convert:
     runs-on: ubuntu-latest
-    # 一节课 = 照片识别 + 材料转换双任务，可能装 LibreOffice + 两轮 MinerU batch；
-    # 60 分钟兜底，避免「活干到一半被 timeout 掐掉」变成做一半。
-    timeout-minutes: 60
+    # 超时是「异常检测线」，不是「任务时长预算」：正常总耗时分钟级
+    # （checkout/setup-node ~1min + LibreOffice 冷装 1~2min（缓存命中秒级）+
+    # MinerU 转换几分钟，照片识别每张一次调用更快），45 分钟余量已极大；
+    # 设更大只会让异常（卡死/死循环）被埋得更深。
+    # 注意 timeout-minutes 从 job 开始执行算起，不含 runner 排队时间。
+    timeout-minutes: 45
     permissions:
       contents: write
 
