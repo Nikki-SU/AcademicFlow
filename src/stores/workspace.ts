@@ -24,6 +24,7 @@ import {
 } from '../services/github'
 import type { WorkspaceState } from '../types'
 import { useAuthStore } from './auth'
+import { ensurePipelineSynced } from '../services/pipelineAutoSync'
 
 interface WorkspaceActions {
   /**
@@ -85,6 +86,10 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>(
           return
         }
         set({ repo, isChecked: true, isLoading: false })
+        // 后端 workflow 自动同步：版本更新时静默把前端嵌入的 workflow 写入私库，
+        // 用户无需再去设置页手动点"重写后端"（fire-and-forget，失败不阻塞工作区就绪；
+        // 失败未记闸门，下次进入应用会自动重试）。
+        void ensurePipelineSynced(user.login, repo.name, token)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         set({

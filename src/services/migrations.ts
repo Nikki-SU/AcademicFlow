@@ -43,6 +43,7 @@ import { readAnyDocument } from './blocks.mjs'
 import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockDoc } from './translation'
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
 import { TRACKING_PLANS_PATH } from './trackingPlanData'
+import { APP_VERSION } from '../constants/version'
 
 /**
  * 迁移影响的功能域（对应主导航页面）。
@@ -995,10 +996,11 @@ export async function markMigrationsApplied(ids: string[]): Promise<void> {
 }
 
 /**
- * 应用当前的数据格式版本号。**每新增一条迁移就 +1**（比较用严格相等）。
+ * 应用当前的数据格式版本号（多段版本号体系的 data 段，见 constants/version.ts）。
+ * **每新增一条迁移就 +1**（比较用严格相等）。
  * 用户私库里存一份副本，启动时比对：一致 → 秒开放行；不一致 → 才逐条探测 / 迁移。
  */
-export const DATA_VERSION = 9
+export const DATA_VERSION = APP_VERSION.data
 
 const DATA_VERSION_PATH = 'settings/data-version.csv'
 const DATA_VERSION_HEADERS = ['version', 'updated_at']

@@ -4,7 +4,8 @@
  * 为什么不内嵌在 WORKSPACE_SKELETON：
  *   - workflow yml + runner 脚本合计 ~470KB base64
  *   - 如果初始骨架生成时就塞进去，骨架初始化包膨胀、且老用户升级没有路径
- *   - 这里做成可检测 + 可手动触发写入，老用户也能一键升级
+ *   - 这里做成可检测 + 可写入；写入由 pipelineAutoSync 在版本更新后**自动**触发，
+ *     用户无需手动操作（旧版「设置页点重写后端」已移除）
  *
  * ⚠️ 写入是**无条件覆盖**（见 writePipelineFiles）：本地嵌入的副本必须与
  *    academicflow-workspace@main 上正在运行的版本保持一致。任何一边先行改动而
@@ -23,8 +24,49 @@ import {
 } from '../constants/skeleton'
 import { githubFetch, writeRepoTextFile, deleteRepoFiles, base64ToUtf8 } from './github'
 import { loadTrackingPlans, planCronSpecs } from './trackingPlanData'
+import { APP_VERSION } from '../constants/version'
 
 const MAX_PIPELINE_FILE = 500 * 1024 // 500KB — 所有 pipeline 文件都远小于此
+
+/**
+ * 私库里的「后端 workflow 版本副本」（与 data-version.csv 同机制，ADJ-126）。
+ * writePipelineFiles 成功时写入当前 `APP_VERSION.backend`；自动同步启动时读它比对：
+ *   一致 → 直接跳过（1 次 API 读，不做全量内容比对）；
+ *   缺失 / 落后 → 强制重写 workflow + 写回新版本（不兼容旧版一律更新）。
+ */
+export const BACKEND_VERSION_PATH = 'settings/backend-version.csv'
+
+/** 读私库记录的后端 workflow 版本。读不到 / 非法 → null（视为未安装，强制同步） */
+export async function loadStoredBackendVersion(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<number | null> {
+  try {
+    const res = await githubFetch(`/repos/${owner}/${repo}/contents/${encodeURI(BACKEND_VERSION_PATH)}`, token)
+    if (!res.ok) return null
+    const data = (await res.json()) as { content?: string }
+    if (!data.content) return null
+    const line = (base64ToUtf8(data.content).split(/\r?\n/)[1] ?? '').trim()
+    const v = Number(line.split(',')[0])
+    return Number.isFinite(v) ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** 把当前后端版本写进私库副本（workflow 写入成功后调用；失败仅告警，下次同步自动重写） */
+async function writeBackendVersion(owner: string, repo: string, token: string): Promise<void> {
+  try {
+    const content = `version,updated_at\n${APP_VERSION.backend},${Date.now()}\n`
+    await writeRepoTextFile(
+      owner, repo, BACKEND_VERSION_PATH, content, token,
+      '[academicflow] record backend pipeline version',
+    )
+  } catch (err) {
+    console.warn('[repoBootstrap] 写入后端版本副本失败（下次同步会重试）:', err)
+  }
+}
 
 /** b64 常量 → 内容；写入 / 检测共用（检测要拿本地期望内容去比对私库版本） */
 const b64Map: Record<string, string> = {
@@ -215,6 +257,9 @@ export async function writePipelineFiles(
     details.push({ path: '(legacy cleanup)', ok: false, error: e?.message || String(e) })
     return { ok: false, written, skipped, legacyDeleted, details }
   }
+
+  // 全部写入成功后记录版本副本（ADJ-126）：下次启动读它比对，一致即跳过全量检测
+  await writeBackendVersion(owner, repo, token)
 
   return { ok: true, written, skipped, legacyDeleted, details }
 }

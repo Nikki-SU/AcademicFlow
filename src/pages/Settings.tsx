@@ -865,7 +865,7 @@ function Settings() {
             <PdfCleanupPanel />
           </Section>
 
-          <Section id="backend-rewrite" icon={Server} title="重写后端">
+          <Section id="backend-rewrite" icon={Server} title="后端工作流">
             <BackendCapabilitiesPanel />
           </Section>
 

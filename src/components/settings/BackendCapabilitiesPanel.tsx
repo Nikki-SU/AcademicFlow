@@ -1,17 +1,21 @@
 /**
- * 后端处理能力面板 —— Settings 页
+ * 后端工作流面板 —— Settings 页
  *
- * 三个按钮：
- *   1. 检测 4 个 workflow (paper_convert / ai_call / 两个 connectivity_test) 是否安装
- *   2. 重写 4 个 yml + 4 个 runner 脚本（并清理旧版 pipeline/ai-service 残留）
- *   3. 配置 GitHub Actions Secrets（打开新窗口 + 引导模板）
+ * 后端 workflow（paper_convert / book_convert / ai_call / session_images 等）
+ * 由应用**自动同步**：版本更新后进入应用即静默检测私库，落后 / 缺失 / 残留旧版
+ * 时自动写入，用户无需手动操作（见 services/pipelineAutoSync.ts）。
+ * 本面板只承担：
+ *   1. 展示自动同步状态（就绪 / 同步中 / 失败可重试）
+ *   2. 手动「检测」刷新状态与明细
+ *   3. 引导配置 GitHub Actions Secrets（8 个，只能用户在 GitHub 上手动填）
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Server, RefreshCw, Wrench, ExternalLink, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
-import { checkPipelineInstalled, writePipelineFiles, REQUIRED_SECRETS } from '../../services/repoBootstrap'
+import { checkPipelineInstalled, REQUIRED_SECRETS } from '../../services/repoBootstrap'
+import { ensurePipelineSynced } from '../../services/pipelineAutoSync'
 import { getLatestRun } from '../../services/workflowClient'
 
 export default function BackendCapabilitiesPanel() {
@@ -22,7 +26,9 @@ export default function BackendCapabilitiesPanel() {
   const token = auth.token ?? ''
 
   const [checking, setChecking] = useState(false)
-  const [installing, setInstalling] = useState(false)
+  const [autoState, setAutoState] = useState<'idle' | 'running' | 'ready' | 'failed'>('idle')
+  const [autoDetail, setAutoDetail] = useState<'synced' | 'up-to-date'>()
+  const [autoError, setAutoError] = useState('')
   const [checkResult, setCheckResult] = useState<{
     installed: boolean
     missing: string[]
@@ -32,6 +38,41 @@ export default function BackendCapabilitiesPanel() {
   } | null>(null)
   const [runStatus, setRunStatus] = useState<{ pipeline?: string; ai?: string }>({})
 
+  /** 自动同步（含失败重试共用入口）：检测私库 → 落后则自动写入 → 刷新状态 */
+  const syncOnce = useCallback(async () => {
+    if (!owner || !repo || !token) { toast.error('未登录或私库未配置'); return }
+    setAutoState('running')
+    try {
+      const r = await ensurePipelineSynced(owner, repo, token)
+      if (r.status === 'failed') {
+        setAutoState('failed')
+        setAutoError(r.error)
+        return
+      }
+      setAutoState('ready')
+      setAutoDetail(r.status)
+
+      // 同步后刷新只读状态：详情 + 最近 run
+      try {
+        const check = await checkPipelineInstalled(owner, repo, token)
+        setCheckResult(check)
+        const pRun = await getLatestRun('paper_convert', owner, repo, token)
+        const aRun = await getLatestRun('ai_call', owner, repo, token)
+        setRunStatus({
+          pipeline: pRun ? `${pRun.conclusion || pRun.status}` : '从未运行',
+          ai: aRun ? `${aRun.conclusion || aRun.status}` : '从未运行',
+        })
+      } catch { /* 详情刷新失败不影响主状态 */ }
+    } catch (e) {
+      setAutoState('failed')
+      setAutoError(e instanceof Error ? e.message : String(e))
+    }
+  }, [owner, repo, token])
+
+  // 进入面板即自动执行一次（build id 闸门保证同一版本只真正检测一次）
+  useEffect(() => { void syncOnce() }, [syncOnce])
+
+  /** 手动刷新状态与明细（只读，不写入） */
   const runCheck = useCallback(async () => {
     if (!owner || !repo || !token) { toast.error('未登录或私库未配置'); return }
     setChecking(true)
@@ -43,71 +84,47 @@ export default function BackendCapabilitiesPanel() {
         if (r.missing.length > 0) parts.push(`缺 ${r.missing.length} 个新文件`)
         if (r.outdated.length > 0) parts.push(`${r.outdated.length} 个文件版本落后`)
         if (r.legacy.length > 0) parts.push(`残留 ${r.legacy.length} 个旧版文件`)
-        toast.warning(parts.join('；') + '，请点"重写后端"一键修复')
+        toast.warning(parts.join('；') + '，应用会自动同步修复')
       }
-
-      // 同时查最近 run 状态
-      try {
-        const pRun = await getLatestRun('paper_convert', owner, repo, token)
-        const aRun = await getLatestRun('ai_call', owner, repo, token)
-        setRunStatus({
-          pipeline: pRun ? `${pRun.conclusion || pRun.status}` : '从未运行',
-          ai: aRun ? `${aRun.conclusion || aRun.status}` : '从未运行',
-        })
-      } catch { /* ignore run query errors */ }
     } catch (e: any) {
       toast.error(`检测失败：${e?.message || e}`)
     } finally { setChecking(false) }
   }, [owner, repo, token])
 
-  const runInstall = useCallback(async () => {
-    if (!owner || !repo || !token) { toast.error('未登录或私库未配置'); return }
-    setInstalling(true)
-    try {
-      const r = await writePipelineFiles(owner, repo, token)
-      if (!r.ok) {
-        toast.error(`写入失败：${r.details?.filter(d => !d.ok).map(d => `${d.path}: ${d.error}`).join('; ') || 'unknown'}`)
-      } else {
-        await runCheck() // 重新检测
-      }
-    } catch (e: any) {
-      toast.error(`写入失败：${e?.message || e}`)
-    } finally { setInstalling(false) }
-  }, [owner, repo, token, runCheck])
-
   const secretsUrl = owner && repo
     ? `https://github.com/${owner}/${repo}/settings/secrets/actions`
     : '#'
 
-  const installed = checkResult?.installed
-
   return (
     <div className="space-y-4">
       <p className="text-ui-xs text-ink-500">
-        后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上。你需要在私库安装
-        <b> paper_convert.yml / book_convert.yml / ai_call.yml </b>
-        三个主 workflow（外加两个连通性自测 workflow，以及「云端编译」用的
-        <b> latex_compile.yml</b>），并配置 8 个 Secrets。<b>老用户</b>：点"检测"看看私库是否已经升级。
+        后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上（
+        <b> paper_convert / book_convert / ai_call / session_images</b> 等 workflow）。
+        <b>后端工作流由应用自动同步</b>：每次版本更新后会自动检测并写入私库，无需手动操作；
+        这里只展示同步状态，并引导配置 GitHub Actions 所需的 8 个 Secrets。
       </p>
 
       {/* 状态条 */}
       <div className={`flex items-center gap-2 p-3 rounded-control-sm border text-ui-sm ${
-        installed === true ? 'bg-green-50 border-green-200 text-green-800'
-        : installed === false ? 'bg-amber-50 border-amber-200 text-amber-800'
+        autoState === 'ready' ? 'bg-green-50 border-green-200 text-green-800'
+        : autoState === 'failed' ? 'bg-red-50 border-red-200 text-red-800'
+        : autoState === 'running' ? 'bg-blue-50 border-blue-200 text-blue-800'
         : 'bg-paper-100 border-ink-200 text-ink-600'
       }`}>
-        {installed === true ? (
-          <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已就绪（新版），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
-        ) : installed === false ? (
-          <><AlertTriangle className="w-4 h-4 text-amber-600" /> 后端未完全就绪（
-            缺 {checkResult?.missing?.length ?? '?'} 个新文件 · {checkResult?.outdated?.length ?? '?'} 个版本落后 · 残留 {checkResult?.legacy?.length ?? '?'} 个旧版文件）
-          </>
+        {autoState === 'running' ? (
+          <><Loader2 className="w-4 h-4 animate-spin" /> 正在自动同步后端工作流…</>
+        ) : autoState === 'ready' ? (
+          autoDetail === 'synced'
+            ? <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已自动升级到新版（无需手动操作），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
+            : <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已就绪（新版），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
+        ) : autoState === 'failed' ? (
+          <><AlertTriangle className="w-4 h-4 text-red-600" /> 后端自动同步失败：<span className="font-mono text-ui-xs">{autoError}</span></>
         ) : (
-          <><Server className="w-4 h-4 text-ink-400" /> 状态未知，点下方"检测"按钮</>
+          <><Server className="w-4 h-4 text-ink-400" /> 状态未知</>
         )}
       </div>
 
-      {/* 三个按钮 */}
+      {/* 操作区：检测（只读）+ 配置 Secrets；「重写后端」已移除，由自动同步承担 */}
       <div className="grid grid-cols-3 gap-2">
         <button
           type="button"
@@ -116,19 +133,21 @@ export default function BackendCapabilitiesPanel() {
           className="flex items-center justify-center gap-1.5 px-ui-gap py-2 text-ui-sm border border-ink-300 rounded-control-sm
                      hover:bg-paper-100 disabled:text-ink-300 disabled:cursor-not-allowed"
         >
-          {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Server className="w-3.5 h-3.5" />}
+          {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           检测
         </button>
-        <button
-          type="button"
-          onClick={runInstall}
-          disabled={installing || !owner || !repo}
-          className="flex items-center justify-center gap-1.5 px-ui-gap py-2 text-ui-sm border border-seal-300 bg-seal-50 text-seal-700 rounded-control-sm
-                     hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed"
-        >
-          {installing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          重写后端
-        </button>
+        {autoState === 'failed' && (
+          <button
+            type="button"
+            onClick={syncOnce}
+            disabled={!owner || !repo}
+            className="flex items-center justify-center gap-1.5 px-ui-gap py-2 text-ui-sm border border-seal-300 bg-seal-50 text-seal-700 rounded-control-sm
+                       hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            重试同步
+          </button>
+        )}
         <a
           href={secretsUrl}
           target="_blank"
@@ -142,10 +161,10 @@ export default function BackendCapabilitiesPanel() {
         </a>
       </div>
 
-      {/* 检测结果详情 */}
+      {/* 检测结果明细（仅展示；修复由自动同步完成） */}
       {checkResult && !checkResult.installed && checkResult.missing.length > 0 && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-control-sm space-y-1">
-          <div className="text-ui-xs font-semibold text-amber-800">缺失文件：</div>
+          <div className="text-ui-xs font-semibold text-amber-800">缺失文件（自动同步会补上）：</div>
           {checkResult.missing.map(p => (
             <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-amber-700">
               <XCircle className="w-3 h-3" /> {p}
@@ -157,7 +176,7 @@ export default function BackendCapabilitiesPanel() {
       {checkResult && checkResult.legacy.length > 0 && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-control-sm space-y-1">
           <div className="text-ui-xs font-semibold text-red-800">
-            残留的旧版文件（会与新版重复触发 / 造成 "no jobs were run"），点"重写后端"自动清理：
+            残留的旧版文件（会与新版重复触发 / 造成 "no jobs were run"，自动同步会清理）：
           </div>
           {checkResult.legacy.map(p => (
             <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-red-700">
@@ -170,7 +189,7 @@ export default function BackendCapabilitiesPanel() {
       {checkResult && checkResult.outdated.length > 0 && (
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-control-sm space-y-1">
           <div className="text-ui-xs font-semibold text-blue-800">
-            以下文件版本落后于新版（私库还在跑旧行为，如旧版 session_images 不带课程材料转换），点"重写后端"升级：
+            以下文件版本落后于新版（如旧版 session_images 不带课程材料转换），自动同步会升级：
           </div>
           {checkResult.outdated.map(p => (
             <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-blue-700">
@@ -188,7 +207,7 @@ export default function BackendCapabilitiesPanel() {
         </summary>
         <div className="p-3 space-y-2">
           <p className="text-ui-xs text-ink-600 leading-relaxed">
-            上一步"重写后端"只是把 workflow 文件塞进了你的私库。要让 pipeline 真跑起来，必须在 GitHub
+            后端 workflow 由应用自动同步安装。要让 pipeline 真跑起来，必须在 GitHub
             Settings → Secrets and variables → Actions 里创建下面 8 个 Repository Secret。
           </p>
           <div className="grid gap-1.5">
