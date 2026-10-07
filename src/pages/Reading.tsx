@@ -169,6 +169,12 @@ function withEditType(node: BlockNode, value: string): BlockNode {
 const EDIT_DRAG_STEP_PX = 30
 
 /**
+ * 字号倍率档位：基准 16px = 1X。
+ * 用户只看到倍率（1X / 1.25X / … / 3X），不暴露 px / rem 这种他们读不懂的单位。
+ */
+const FONT_RATIOS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
+
+/**
  * 把块文档拆成"单元"。译文块不单独出现 —— 它按 `ref`（无编号的按紧邻上一个块）
  * 归到对应源块的 `cn` 里；块外文本不渲染，但原样留在 `items` 里，保存时一并写回。
  *
@@ -707,7 +713,8 @@ export default function ReadingPage() {
   /** 同一个请求只自动滚一次，滚完用户自己翻页不会被拽回去 */
   const findScrolledRef = useRef('')
   const [filterType, setFilterType] = useState<FilterType>('all')
-  const [fontSize, setFontSize] = useState(16)
+  const [fontRatioIdx, setFontRatioIdx] = useState(0)
+  const fontSize = FONT_RATIOS[fontRatioIdx] * 16
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [currentNoteMd, setCurrentNoteMd] = useState('')
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
@@ -945,10 +952,8 @@ export default function ReadingPage() {
         if (!cancelled) {
           const paperList = lits.map(literatureToPaper)
           setPapers(paperList)
-          // 默认打开第一篇；但如果 URL 指名了要读哪篇，就别抢，等参数生效
-          if (paperList.length > 0 && !docParam?.startsWith('paper:')) {
-            setSelectedPaperId(paperList[0].id)
-          }
+          // 不默认选中第一篇：没指名、也没有上次阅读记录时，中栏保持空状态
+          // （点名跳转由 docParam effect、上次阅读由 lastRead effect 负责，这里不抢）
         }
       } catch (err) {
         console.error('[Reading] 加载文献列表失败:', err)
@@ -2080,7 +2085,7 @@ export default function ReadingPage() {
    */
   const fontSizeAnchorRef = useRef<{ block: string; offset: number } | null>(null)
   const changeFontSize = useCallback(
-    (next: number) => {
+    (nextIdx: number) => {
       const box = scrollRef.current
       const el = pickCurrentBlock()
       const id = el?.getAttribute('data-block-id')
@@ -2090,7 +2095,7 @@ export default function ReadingPage() {
           offset: el.getBoundingClientRect().top - box.getBoundingClientRect().top,
         }
       }
-      setFontSize(next)
+      setFontRatioIdx(Math.max(0, Math.min(FONT_RATIOS.length - 1, nextIdx)))
     },
     [pickCurrentBlock],
   )
@@ -3809,15 +3814,17 @@ export default function ReadingPage() {
                   <div className="w-px h-5 bg-ink-200 mx-1" />
                   {ttsControls}
                   <button
-                    onClick={() => changeFontSize(Math.max(12, fontSize - 1))}
-                    className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition"
+                    onClick={() => changeFontSize(fontRatioIdx - 1)}
+                    disabled={fontRatioIdx === 0}
+                    className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <ZoomOut className="w-4 h-4" />
                   </button>
-                  <span className="text-ui-xs text-ink-400 w-8 text-center">{fontSize / 16}rem</span>
+                  <span className="text-ui-xs text-ink-400 w-9 text-center tabular-nums">{fontSize / 16}X</span>
                   <button
-                    onClick={() => changeFontSize(Math.min(24, fontSize + 1))}
-                    className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition"
+                    onClick={() => changeFontSize(fontRatioIdx + 1)}
+                    disabled={fontRatioIdx === FONT_RATIOS.length - 1}
+                    className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
@@ -3896,26 +3903,24 @@ export default function ReadingPage() {
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div className="min-w-0">
-                  <div className="text-ui-sm font-medium text-ink-700 truncate">
-                    {selectedPaper.title}
-                  </div>
-                  <div className="text-ui-xs text-ink-400 truncate">
-                    {selectedPaper.authors} · {selectedPaper.journal} · {selectedPaper.year}
-                  </div>
+                {/* 只留标题一行：作者/期刊/年份已在左侧列表选中项里，头条重复展示没有用 */}
+                <div className="text-ui-sm font-medium text-ink-700 truncate">
+                  {selectedPaper.title}
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 <button
-                  onClick={() => changeFontSize(Math.max(12, fontSize - 1))}
-                  className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition"
+                  onClick={() => changeFontSize(fontRatioIdx - 1)}
+                  disabled={fontRatioIdx === 0}
+                  className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <ZoomOut className="w-4 h-4" />
                 </button>
-                <span className="text-ui-xs text-ink-400 w-8 text-center">{fontSize / 16}rem</span>
+                <span className="text-ui-xs text-ink-400 w-9 text-center tabular-nums">{fontSize / 16}X</span>
                 <button
-                  onClick={() => changeFontSize(Math.min(24, fontSize + 1))}
-                  className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition"
+                  onClick={() => changeFontSize(fontRatioIdx + 1)}
+                  disabled={fontRatioIdx === FONT_RATIOS.length - 1}
+                  className="p-1.5 text-ink-500 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <ZoomIn className="w-4 h-4" />
                 </button>
