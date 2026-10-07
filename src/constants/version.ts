@@ -28,5 +28,5 @@ export interface AppVersion {
 export const APP_VERSION: AppVersion = {
   data: 9,     // = migrations DATA_VERSION（迁移新增时与此同步 +1）
   backend: 1,  // 后端 workflow / runner 脚本有任何改动就 +1（初始 1 已含 session_images 超时调整）
-  frontend: 1, // 前端界面 / 交互改动就 +1
+  frontend: 2, // 前端界面 / 交互改动就 +1（+1：阅读页问 AI 面板「原点」+ 精简界面文案）
 }

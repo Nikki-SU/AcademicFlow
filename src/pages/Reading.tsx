@@ -82,7 +82,7 @@ import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml, copySelectionForWord } from '../services/markdown-renderer'
 import { renderAlignedMdHtml, type TranslationMode } from '../services/translation'
 import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem, type BlockNode } from '../services/blocks.mjs'
-import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits } from '../services/text-highlight'
+import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits, collectTextSegments, findSpan } from '../services/text-highlight'
 import {
   searchLibrary,
   getSearchIndex,
@@ -90,7 +90,7 @@ import {
   KIND_LABEL,
   type SearchHit,
 } from '../services/librarySearch'
-import ReadingAskPanel from '../components/ReadingAskPanel'
+import ReadingAskPanel, { type AskAnchor } from '../components/ReadingAskPanel'
 import ReadingNotesPanel from '../components/ReadingNotesPanel'
 import { usePanelStack, StackHandle, STACK_SNAP_RATIOS } from '../components/ui/StackedPanels'
 import { PillTabs } from '../components/ui/Tabs'
@@ -715,6 +715,14 @@ export default function ReadingPage() {
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [fontRatioIdx, setFontRatioIdx] = useState(0)
   const fontSize = FONT_RATIOS[fontRatioIdx] * 16
+  /** 正文卡片：原点绝对定位在它内部，随正文一起滚动 */
+  const readerCardRef = useRef<HTMLDivElement>(null)
+  /** 问 AI 面板上报的「原点」锚点（带引文的提问） */
+  const [askAnchors, setAskAnchors] = useState<AskAnchor[]>([])
+  /** 点原点后要滚动到的消息 id */
+  const [askJumpId, setAskJumpId] = useState<string | null>(null)
+  /** 原点在正文卡片里的纵向位置 */
+  const [askDots, setAskDots] = useState<Array<{ id: string; question: string; top: number }>>([])
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [currentNoteMd, setCurrentNoteMd] = useState('')
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
@@ -2635,6 +2643,37 @@ export default function ReadingPage() {
   }, [docKey, paperRenderedHtml, bookRenderedHtml])
 
   /**
+   * 原点定位：把「问 AI 面板上报的引文锚点」落到正文卡片里的纵向位置。
+   * 用与批注高亮同一套文本匹配（折叠空白容错），找不到就不画。
+   * 位置随正文重渲染 / 字号 / 模式切换重算；绝对定位在卡片内，滚动自然跟随。
+   */
+  useEffect(() => {
+    const card = readerCardRef.current
+    const root = readerRef.current
+    if (!card || !root || askAnchors.length === 0) {
+      setAskDots((prev) => (prev.length === 0 ? prev : []))
+      return
+    }
+    const { text, segs } = collectTextSegments(root)
+    if (!text) {
+      setAskDots([])
+      return
+    }
+    const cardRect = card.getBoundingClientRect()
+    const next: Array<{ id: string; question: string; top: number }> = []
+    for (const a of askAnchors) {
+      const span = findSpan(text, a.quote)
+      if (!span) continue
+      const seg = segs.find((s) => span.start >= s.start && span.start < s.end)
+      const el = seg?.node.parentElement
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      next.push({ id: a.id, question: a.question, top: r.top - cardRect.top + r.height / 2 })
+    }
+    setAskDots(next)
+  }, [askAnchors, docKey, fontSize, paperRenderedHtml, bookRenderedHtml])
+
+  /**
    * 阅读页中缝拖动：改「中栏 : 右栏」比例（1:3:1 ↔ 1:2:2 ↔ 1:1:3）。
    * 左栏恒 1fr，右栏 1fr→3fr，中栏自动 3fr→1fr（总量恒 5fr）。
    * 松手吸附到三档，避免停在不上不下的中间比例。
@@ -3844,7 +3883,7 @@ export default function ReadingPage() {
                     className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)]"
                     style={{ fontSize: `${fontSize / 16}rem` }}
                   >
-                    <div className="bg-paper-50 rounded-card shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
+                    <div ref={readerCardRef} className="bg-paper-50 rounded-card shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
                       <div
                         ref={readerRef}
                         onMouseOver={handleReaderHover}
@@ -3863,6 +3902,21 @@ export default function ReadingPage() {
                         className="relative prose-reader measure-reader"
                         dangerouslySetInnerHTML={{ __html: bookRenderedHtml }}
                       />
+                      {askDots.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          data-ask-dot={d.id}
+                          onClick={() => setAskJumpId(d.id)}
+                          style={{ top: d.top }}
+                          className="group absolute -right-2.5 -translate-y-1/2 z-10 flex items-center"
+                        >
+                          <span className="w-2.5 h-2.5 rounded-full bg-seal-400 ring-2 ring-paper-50 shadow-sm transition group-hover:scale-125" />
+                          <span className="pointer-events-none absolute right-full mr-2 hidden group-hover:block max-w-[16rem] whitespace-normal rounded-control bg-ink-800 px-2 py-1 text-ui-xs leading-snug text-paper-50 shadow-lg text-left">
+                            {d.question}
+                          </span>
+                        </button>
+                      ))}
                       {selectionToolbar}
                     </div>
                   </div>
@@ -4032,9 +4086,8 @@ export default function ReadingPage() {
                       {editUnits.length === 0 ? (
                         <div className="bg-paper-50 rounded-card shadow-sm border border-ink-200 p-[var(--reader-cardpad)]">
                           <p className="text-ui-sm text-ink-500 mb-3">
-                            这份文件还没有块结构（多半是 MinerU 的 <code className="px-1 bg-ink-100 rounded-control-sm">full.md</code>），
-                            只能按整篇改。转成 <code className="px-1 bg-ink-100 rounded-control-sm">{articleSourceLabel}</code> 之后
-                            就会按「块」分开编辑，中英各一个框。
+                            还没有块结构（多半是 MinerU 的 <code className="px-1 bg-ink-100 rounded-control-sm">full.md</code>），
+                            只能按整篇改。转成 <code className="px-1 bg-ink-100 rounded-control-sm">{articleSourceLabel}</code> 后按「块」分开编辑。
                           </p>
                           <textarea
                             value={editPlainDraft}
@@ -4046,13 +4099,8 @@ export default function ReadingPage() {
                       ) : (
                         <>
                           <p className="text-ui-xs text-ink-400 px-1">
-                            共 {editUnits.length} 个块，英文一个框、中文一个框，块标记由系统持有（不显示，也就删不掉）。
-                            删掉某一整块 = 中英一起删。换位两种办法：按住块名那条横条
-                            <span className="text-ink-500">上下拖</span>
-                            （拖多远就挪几位，不用拖到目标块的一半），或者直接点右侧的 ↑ ↓ 一位一位挪。
-                            类型认错了（比如标题被当成正文）就点块名右边的下拉直接改，编号与译文都会跟着走。
-                            保存时会自动核对块数并重排编号。
-                            {editModeTextCount > 0 && `另有 ${editModeTextCount} 处块外文本会原样保留。`}
+                            共 {editUnits.length} 个块。拖块名换位，点右侧下拉改类型，保存时自动重排编号。
+                            {editModeTextCount > 0 && `另有 ${editModeTextCount} 处块外文本原样保留。`}
                           </p>
                           {editUnits.map((u, i) => (
                             <EditBlockCard
@@ -4079,7 +4127,7 @@ export default function ReadingPage() {
                   className="w-[min(100%,var(--reader-column))] mx-auto px-[var(--reader-gutter)] py-[clamp(0.75rem,2vw,2rem)]"
                   style={{ fontSize: `${fontSize / 16}rem` }}
                 >
-                  <div className="bg-paper-50 rounded-card shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
+                  <div ref={readerCardRef} className="bg-paper-50 rounded-card shadow-sm border border-ink-200 p-[var(--reader-cardpad)] relative">
                     <div
                       ref={readerRef}
                       onMouseOver={handleReaderHover}
@@ -4098,6 +4146,21 @@ export default function ReadingPage() {
                       className="relative prose-reader measure-reader"
                       dangerouslySetInnerHTML={{ __html: paperRenderedHtml }}
                     />
+                    {askDots.map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        data-ask-dot={d.id}
+                        onClick={() => setAskJumpId(d.id)}
+                        style={{ top: d.top }}
+                        className="group absolute -right-2.5 -translate-y-1/2 z-10 flex items-center"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-seal-400 ring-2 ring-paper-50 shadow-sm transition group-hover:scale-125" />
+                        <span className="pointer-events-none absolute right-full mr-2 hidden group-hover:block max-w-[16rem] whitespace-normal rounded-control bg-ink-800 px-2 py-1 text-ui-xs leading-snug text-paper-50 shadow-lg text-left">
+                          {d.question}
+                        </span>
+                      </button>
+                    ))}
                     {selectionToolbar}
                   </div>
                 </div>
@@ -4176,6 +4239,9 @@ export default function ReadingPage() {
               docTitle={docTitle}
               docMarkdown={isPlain ? plainMarkdown : askSourceText}
               selectedText={selectedText}
+              onAskAnchors={setAskAnchors}
+              jumpToMessageId={askJumpId}
+              onJumped={() => setAskJumpId(null)}
             />
           ) : activeSideTab === 'notes' ? (
             docRef ? (

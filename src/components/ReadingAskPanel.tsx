@@ -48,6 +48,14 @@ export interface ReadingChatMessage {
   reviewStatus?: 'pass' | 'fail'
 }
 
+/** 一条带引文的提问 → 在正文边上画一个「原点」 */
+export interface AskAnchor {
+  /** 对应消息 id，点原点时用来跳转定位 */
+  id: string
+  question: string
+  quote: string
+}
+
 interface Props {
   docRef: DocRef | null
   docTitle: string
@@ -55,6 +63,19 @@ interface Props {
   docMarkdown: string
   /** 正文里当前选中的文字，可能为空 */
   selectedText: string
+  /** 把「带引文的提问」上报给阅读页，在正文边上画原点 */
+  onAskAnchors?: (anchors: AskAnchor[]) => void
+  /** 阅读页点原点后要滚动到的消息 id */
+  jumpToMessageId?: string | null
+  /** 已滚动到位，通知阅读页清空 */
+  onJumped?: () => void
+}
+
+/** 拆出用户消息里的「问题」与「引文」（引文形如 "\n\n> 选中文字"） */
+function splitUserContent(content: string): { question: string; quote: string } {
+  const at = content.indexOf('\n\n> ')
+  if (at < 0) return { question: content, quote: '' }
+  return { question: content.slice(0, at), quote: content.slice(at + 5).trim() }
 }
 
 /** 源材料窗口大小：选中处前后各取这么多字符 */
@@ -175,7 +196,15 @@ function appendSources(content: string, sources: WebSearchSource[]): string {
   return `${content}\n\n---\n\n**参考来源**\n\n${items.join('\n')}${more}`
 }
 
-export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selectedText }: Props) {
+export default function ReadingAskPanel({
+  docRef,
+  docTitle,
+  docMarkdown,
+  selectedText,
+  onAskAnchors,
+  jumpToMessageId,
+  onJumped,
+}: Props) {
   const [messages, setMessages] = useState<ReadingChatMessage[]>([])
   const [input, setInput] = useState('')
   const [trusted, setTrusted] = useState(true)
@@ -240,6 +269,28 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, busy])
+
+  // ── 带引文的提问 → 上报原点（正文里锚定过的位置） ──
+  const askAnchors = useMemo<AskAnchor[]>(
+    () =>
+      messages
+        .filter((m) => m.role === 'user')
+        .map((m) => ({ id: m.id, ...splitUserContent(m.content) }))
+        .filter((a) => a.quote.length >= 2),
+    [messages],
+  )
+
+  useEffect(() => {
+    onAskAnchors?.(askAnchors)
+  }, [askAnchors, onAskAnchors])
+
+  // ── 阅读页点原点跳过来 → 滚动到对应消息 ──
+  useEffect(() => {
+    if (!jumpToMessageId || !loaded) return
+    const el = document.getElementById(`ask-msg-${jumpToMessageId}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    onJumped?.()
+  }, [jumpToMessageId, loaded, onJumped])
 
   const historyContext = useMemo(() => {
     if (messages.length === 0) return ''
@@ -461,7 +512,6 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
         <div>
           <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-30" />
           <p className="text-ui-sm">先选择一篇文献或一本书</p>
-          <p className="text-ui-xs mt-1">选中正文里的词句后，可以直接问 AI</p>
         </div>
       </div>
     )
@@ -486,7 +536,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
         >
           {trusted ? <ShieldCheck className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
           <span className="font-medium">可信检索</span>
-          <span className="ml-auto">{trusted ? '开 · 双引擎审阅' : '关 · 联网检索'}</span>
+          <span className="ml-auto">{trusted ? '开' : '关'}</span>
         </button>
         <div className="mt-1.5 flex items-center justify-between text-ui-2xs text-ink-400">
           <span className="truncate">{docTitle}</span>
@@ -512,15 +562,11 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
         ) : messages.length === 0 ? (
           <div className="text-center py-6 text-ink-400 text-ui-xs px-2">
             <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-30" />
-            <p className="text-ink-500 font-medium mb-1">问 AI</p>
-            <p className="leading-relaxed">
-              在正文里选中一个词或一段话，下面会出现两个快捷问法；也可以直接输入任意问题。
-            </p>
-            <p className="mt-2">对话会一直保留在这个{docRef.kind === 'book' ? '书' : '文献'}里。</p>
+            <p>选中正文里的词句，或直接提问</p>
           </div>
         ) : (
           messages.map((m) => (
-            <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : ''}>
+            <div key={m.id} id={`ask-msg-${m.id}`} className={m.role === 'user' ? 'flex justify-end' : ''}>
               <div
                 className={`rounded-control px-ui-gap py-2 text-ui-sm max-w-full ${
                   m.role === 'user'
@@ -542,9 +588,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
                       m.reviewStatus === 'pass' ? 'text-green-600' : 'text-amber-600'
                     }`}
                   >
-                    {m.reviewStatus === 'pass'
-                      ? '✓ 可信检索：AI-2 核查通过'
-                      : '⚠ 可信检索：AI-2 未通过核查（可能有原文不支持的说法）'}
+                    {m.reviewStatus === 'pass' ? '✓ 已核查' : '⚠ 未通过核查'}
                   </div>
                 )}
               </div>
@@ -609,7 +653,7 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
               }
             }}
             rows={2}
-            placeholder="输入问题，Enter 发送 / Shift+Enter 换行"
+            placeholder="输入问题…"
             className="flex-1 px-2 py-1.5 text-ui-xs border border-ink-200 rounded-control-sm resize-none focus:outline-none focus:border-seal-400"
           />
           <button
@@ -620,11 +664,6 @@ export default function ReadingAskPanel({ docRef, docTitle, docMarkdown, selecte
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
-        </div>
-        <div className="mt-1 text-ui-2xs text-ink-400">
-          {trusted
-            ? '可信检索开：先联网检索，回答受「正文 + 检索结果」约束，AI-2 会核查是否编造'
-            : '可信检索关：DeepSeek 联网检索后回答并附来源，不核查是否超出原文'}
         </div>
       </div>
     </div>
