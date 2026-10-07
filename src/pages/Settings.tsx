@@ -94,10 +94,17 @@ const THINKING_OPTIONS: { value: AIThinkingMode; label: string }[] = [
  * 会议转写三个模型下拉的「推荐」预置（官方免费 / 常用）。
  * 不是硬性清单 —— 旁边「拉取清单」会按用户 Key 列出真实可用模型，
  * 预置只是给「没拉取也能直接用」的默认选项，且把快慢差异标注出来。
+ *
+ * 下面这条排序来自实测（硅基流动，10s 中文片段×5 + 并发 6 路），不是拍脑袋：
+ *   - Qwen/Qwen3-ASR-1.7B     中位 0.58s、波动极小，并发 6 路仍 <0.65s（最快最稳）
+ *   - FunAudioLLM/SenseVoiceSmall 稳态 0.6s，但首调冷启动约 10s、10s 纯静音也约 10s
+ *   - XingChenAGI/XingChenASR-Diarize-V3.0 带说话人分离，但混合并发曾达 26s（逼近 25s 超时线）
+ * 官网定价页「语音模型」栏：以上均为「免费」。
  */
 const ASR_TRANSCRIBE_PRESETS: ModelPreset[] = [
-  { value: 'FunAudioLLM/SenseVoiceSmall', label: 'FunAudioLLM/SenseVoiceSmall · 出字快（推荐）' },
-  { value: 'TeleAI/TeleSpeechASR', label: 'TeleAI/TeleSpeechASR · 中文准但较慢' },
+  { value: 'Qwen/Qwen3-ASR-1.7B', label: 'Qwen/Qwen3-ASR-1.7B · 最快最稳（推荐）' },
+  { value: 'FunAudioLLM/SenseVoiceSmall', label: 'FunAudioLLM/SenseVoiceSmall · 免费，首调/静音偶慢' },
+  { value: 'XingChenAGI/XingChenASR-Diarize-V3.0', label: 'XingChenAGI/XingChenASR-Diarize-V3.0 · 带说话人分离（并发易超时）' },
 ]
 const ASR_TRANSLATE_PRESETS: ModelPreset[] = [
   { value: 'tencent/Hunyuan-MT-7B', label: 'tencent/Hunyuan-MT-7B · 专用翻译（免费）' },
@@ -673,7 +680,7 @@ function Settings() {
                 isFetching={asrListLoading}
                 fetchedLabel={asrFetchedLabel}
                 onFetch={() => void handleFetchAsrList()}
-                hint="SenseVoiceSmall 出字快、多语言；TeleSpeechASR 中文更准但明显更慢，易拖过超时线。"
+                hint="实测（硅基流动，10s 中文片段×5）：Qwen3-ASR-1.7B 中位 0.58s 且极稳（并发 6 路仍 <0.65s，推荐）；SenseVoiceSmall 稳态 0.6s，但首调冷启动约 10s、纯静音也约 10s；Diarize 带说话人分离，但混合并发下曾达 26s，逼近 25s 超时线。以上均免费。"
               />
               <label className="flex items-center gap-3 cursor-pointer">
                 <input

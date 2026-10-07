@@ -120,7 +120,7 @@ export default function AsrModelPicker({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={customPlaceholder ?? 'Model ID，如 TeleAI/TeleSpeechASR'}
+          placeholder={customPlaceholder ?? 'Model ID，如 Qwen/Qwen3-ASR-1.7B'}
           spellCheck={false}
           className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm
                      focus:outline-none focus:ring-2 focus:ring-seal-500"

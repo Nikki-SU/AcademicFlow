@@ -89,7 +89,8 @@ let initSegmentBytes: Uint8Array | null = null
 const SEGMENT_MS = 10000
 /** 单片转写的「正常」超时（ms）：一次尝试卡住就中止它，交给本地暂存 + 重试。
  *  25s 是用户定下的故意收紧的线：异常（如选到了慢模型）要在 25s 内让用户意识到，
- *  而不是靠放宽超时掩盖。快模型（SenseVoiceSmall / Qwen3-ASR）单片几秒内出字，不会触线。 */
+ *  而不是靠放宽超时掩盖。默认模型 Qwen3-ASR-1.7B 实测单片稳定 ~0.6s，远不到线；
+ *  反例：带说话人分离的 Diarize 在混合并发下曾实测 26.5s，正是这条线要拦下的慢模型。 */
 const CHUNK_TIMEOUT_MS = 25000
 /** 补转写（重试暂存片）的超时（ms）：宽裕些，宁可慢也要把它转出来 */
 const DRAIN_TIMEOUT_MS = 90000
@@ -233,7 +234,7 @@ function readAsrConfig(): AsrRuntimeConfig {
   return {
     baseUrl: (s.asrBaseUrl || '').trim() || 'https://api.siliconflow.cn/v1',
     apiKey: (s.asrApiKey || '').trim(),
-    model: (s.asrModel || '').trim() || 'TeleAI/TeleSpeechASR',
+    model: (s.asrModel || '').trim() || 'Qwen/Qwen3-ASR-1.7B',
     translateModel: (s.asrTranslateModel || '').trim(),
     translateToZh: !!s.asrTranslateToZh,
   }
