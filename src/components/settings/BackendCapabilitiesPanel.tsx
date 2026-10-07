@@ -23,7 +23,13 @@ export default function BackendCapabilitiesPanel() {
 
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
-  const [checkResult, setCheckResult] = useState<{ installed: boolean; missing: string[]; legacy: string[]; sizes: Record<string, number> } | null>(null)
+  const [checkResult, setCheckResult] = useState<{
+    installed: boolean
+    missing: string[]
+    legacy: string[]
+    outdated: string[]
+    sizes: Record<string, number>
+  } | null>(null)
   const [runStatus, setRunStatus] = useState<{ pipeline?: string; ai?: string }>({})
 
   const runCheck = useCallback(async () => {
@@ -35,6 +41,7 @@ export default function BackendCapabilitiesPanel() {
       if (!r.installed) {
         const parts: string[] = []
         if (r.missing.length > 0) parts.push(`缺 ${r.missing.length} 个新文件`)
+        if (r.outdated.length > 0) parts.push(`${r.outdated.length} 个文件版本落后`)
         if (r.legacy.length > 0) parts.push(`残留 ${r.legacy.length} 个旧版文件`)
         toast.warning(parts.join('；') + '，请点"重写后端"一键修复')
       }
@@ -93,7 +100,7 @@ export default function BackendCapabilitiesPanel() {
           <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已就绪（新版），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
         ) : installed === false ? (
           <><AlertTriangle className="w-4 h-4 text-amber-600" /> 后端未完全就绪（
-            缺 {checkResult?.missing?.length ?? '?'} 个新文件 · 残留 {checkResult?.legacy?.length ?? '?'} 个旧版文件）
+            缺 {checkResult?.missing?.length ?? '?'} 个新文件 · {checkResult?.outdated?.length ?? '?'} 个版本落后 · 残留 {checkResult?.legacy?.length ?? '?'} 个旧版文件）
           </>
         ) : (
           <><Server className="w-4 h-4 text-ink-400" /> 状态未知，点下方"检测"按钮</>
@@ -155,6 +162,19 @@ export default function BackendCapabilitiesPanel() {
           {checkResult.legacy.map(p => (
             <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-red-700">
               <XCircle className="w-3 h-3" /> {p}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {checkResult && checkResult.outdated.length > 0 && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-control-sm space-y-1">
+          <div className="text-ui-xs font-semibold text-blue-800">
+            以下文件版本落后于新版（私库还在跑旧行为，如旧版 session_images 不带课程材料转换），点"重写后端"升级：
+          </div>
+          {checkResult.outdated.map(p => (
+            <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-blue-700">
+              <AlertTriangle className="w-3 h-3" /> {p}
             </div>
           ))}
         </div>
