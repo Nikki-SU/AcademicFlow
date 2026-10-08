@@ -26,9 +26,33 @@ interface TaskState {
   reset: () => void
 }
 
-/** 读取失败后的自动重试：间隔 4s、最多 3 次；仍失败才退回「未选」，绝不无限「加载中」 */
+/**
+ * 读取失败后的自动重试：
+ * - 前 3 次：间隔 4s（快速重试，扛偶发抖动）
+ * - 之后：每分钟兜底重试（网络恢复后能自愈）
+ * 全程不把「读失败」谎报成「未选任务」——`isLoaded` 留 false，UI 如实显示「加载中」。
+ */
 const RETRY_MS = 4000
 const MAX_RETRY = 3
+const RELOAD_MS = 60000
+
+/** 单例重试定时器：避免多个调用方（App 启动 / 各页挂载）各排一个定时器、重复叠加 */
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleRetry(delay: number) {
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = setTimeout(() => {
+    retryTimer = null
+    void useTaskStore.getState().loadCurrent()
+  }, delay)
+}
+
+function clearRetry() {
+  if (retryTimer) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+}
 
 export const useTaskStore = create<TaskState>((set, get) => ({
   currentProjectId: null,
@@ -37,23 +61,23 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   retryCount: 0,
 
   loadCurrent: async () => {
-    if (get().isLoaded || get().isLoading) return
+    // 只挡并发重复请求；不再「一辈子只拉一次」——
+    // 每次打开网页 / 各页挂载都会重新拉取，保证跨设备改动即时可见。
+    if (get().isLoading) return
     set({ isLoading: true })
     try {
       const id = await loadCurrentTaskId()
+      clearRetry()
       set({ currentProjectId: id, isLoaded: true, isLoading: false, retryCount: 0 })
     } catch (e) {
       // 只有「真失败」（非 404）才走到这里（见 projectData.readProjectId）：
       // 断网 / 鉴权失败 → 自动重试，别把它当成「没选任务」永久吞掉。
       const tries = get().retryCount + 1
-      if (tries <= MAX_RETRY) {
-        console.warn(`[task] 读取当前任务失败（第 ${tries} 次），${RETRY_MS / 1000}s 后重试:`, e)
-        set({ isLoading: false, retryCount: tries })
-        setTimeout(() => void get().loadCurrent(), RETRY_MS)
-      } else {
-        console.warn('[task] 多次读取当前任务均失败，暂显「未选任务」:', e)
-        set({ isLoaded: true, isLoading: false })
-      }
+      const delay = tries <= MAX_RETRY ? RETRY_MS : RELOAD_MS
+      console.warn(`[task] 读取当前任务失败（第 ${tries} 次），${delay / 1000}s 后重试:`, e)
+      // 关键：不设 isLoaded=true —— UI 继续如实显示「加载中」，不谎报「未选任务」。
+      set({ isLoading: false, retryCount: tries })
+      scheduleRetry(delay)
     }
   },
 
@@ -63,5 +87,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     await saveCurrentTaskId(projectId)
   },
 
-  reset: () => set({ currentProjectId: null, isLoaded: false, isLoading: false, retryCount: 0 }),
+  reset: () => {
+    clearRetry()
+    set({ currentProjectId: null, isLoaded: false, isLoading: false, retryCount: 0 })
+  },
 }))

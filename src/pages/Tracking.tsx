@@ -1935,7 +1935,6 @@ export default function TrackingPage() {
                 </div>
               )}
             </div>
-            <p className="mt-1 text-ui-2xs text-ink-400">这里列出你标记为「决定要读」、还没补 PDF 的文献</p>
           </div>
           <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
             {libraryPendingPdf.length === 0 ? (

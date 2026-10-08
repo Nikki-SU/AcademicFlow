@@ -155,10 +155,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   useAutoTaskBySchedule()
   // 任务清单：既喂 AF 下拉切换，也决定页签「会议 / 课程」的命名（同一份数据，只拉一次）
   const [projects, setProjects] = useState<Project[]>([])
+  // 任务清单是否已从私库拉回：未回时 AF 切换器如实显示「加载中」，不谎报「未选任务」
+  const [projectsLoaded, setProjectsLoaded] = useState(false)
 
   const reloadProjects = useCallback(() => {
     void loadProjects()
-      .then(setProjects)
+      .then((list) => {
+        setProjects(list)
+        setProjectsLoaded(true)
+      })
       .catch((err) => console.warn('[Layout] 读取任务清单失败:', err))
   }, [])
 
@@ -234,7 +239,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="page-container">
           <div className="flex items-center justify-between h-12">
             {/* Logo（AF 图标）：兼作任务快速切换入口 */}
-            <TaskSwitcher projects={projects} onReload={reloadProjects} />
+            <TaskSwitcher projects={projects} projectsLoaded={projectsLoaded} onReload={reloadProjects} />
 
             {/* Tab 导航 */}
             <nav className="flex items-center gap-1 flex-1">

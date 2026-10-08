@@ -28,9 +28,11 @@ function byDueThenTitle(a: Project, b: Project): number {
 
 export default function TaskSwitcher({
   projects,
+  projectsLoaded,
   onReload,
 }: {
   projects: Project[]
+  projectsLoaded: boolean
   onReload: () => void
 }) {
   const currentId = useTaskStore((s) => s.currentProjectId)
@@ -79,8 +81,11 @@ export default function TaskSwitcher({
 
   const current = currentId ? byId.get(currentId) : undefined
   const currentColor = current ? colorForRoot(getRootId(current, byId)) : null
-  // 私库还没拉回来时如实说「加载中」，绝不谎报「未选任务」——否则刷新瞬间像任务丢了
-  const currentLabel = !isTaskLoaded
+  // 两个数据源都到位才算「已加载」：任务 id 在 task store（跨设备拉取），
+  // 任务清单在 projects（Layout 读取，比单个 id 文件大、往往后到）。任一未回，
+  // 都如实说「加载中」，绝不谎报「未选任务」——否则刷新瞬间像任务丢了（ADJ-118）。
+  const isLoadingLabel = !isTaskLoaded || !projectsLoaded
+  const currentLabel = isLoadingLabel
     ? '任务加载中…'
     : current
       ? current.title || '(未命名任务)'
@@ -126,7 +131,7 @@ export default function TaskSwitcher({
           <span className="text-ui-xs font-bold text-paper-50">AF</span>
         </div>
         <span className={`h-2 w-2 shrink-0 rounded-full ${currentColor?.bg ?? 'bg-ink-200'}`} />
-        <span className={`min-w-0 truncate text-ui-sm font-semibold ${isTaskLoaded ? 'text-ink-800' : 'text-ink-400'}`}>
+        <span className={`min-w-0 truncate text-ui-sm font-semibold ${isLoadingLabel ? 'text-ink-400' : 'text-ink-800'}`}>
           {currentLabel}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />

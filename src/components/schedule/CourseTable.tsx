@@ -463,7 +463,7 @@ export function CourseTable({
                   {/* 当前时刻指示（只在真正排课的今天画；假期 / 无课周末不画） */}
                   {isToday && classesOnToday && showNow && (
                     <span
-                      className="absolute inset-x-0 z-20 border-t-2 border-hl-red"
+                      className="absolute inset-x-0 z-20 border-t-2 border-hl-blue"
                       style={{ top: `${pct(nowMin, rangeStart, rangeEnd)}%` }}
                     />
                   )}
