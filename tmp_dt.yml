@@ -1,0 +1,55 @@
+# AcademicFlow daily tracking workflow
+name: Daily Tracking
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan_id:
+        description: '立即试跑的计划 id（留空 = 常规立即追踪）'
+        required: false
+        type: string
+  schedule:
+    # 当前没有启用的定时计划 —— 不排任何 cron，避免空跑
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    # 追踪结果要靠 git push 落回仓库，默认 GITHUB_TOKEN 只读会 403
+    # （remote: Write access to repository not granted），必须显式申请写权限
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run daily tracking
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 触发源：schedule → 走「定时计划」路径；workflow_dispatch → 走「立即追踪」路径
+          TRIGGER_EVENT: ${{ github.event_name }}
+          # workflow_dispatch 可带 plan_id：非空 → 立即试跑该计划（一次性，不写 last_run_date）
+          TRIGGER_PLAN_ID: ${{ github.event.inputs.plan_id }}
+        run: |
+          python .github/scripts/daily_tracking.py
+
+      - name: Commit and push if changes
+        run: |
+          git config user.name "academicflow-bot"
+          git config user.email "bot@academicflow.local"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "chore: daily tracking - $(date +%Y-%m-%d)"
+            git push
+            echo "Tracking results committed and pushed."
+          else
+            echo "No changes from daily tracking."
+          fi

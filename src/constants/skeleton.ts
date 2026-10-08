@@ -213,8 +213,7 @@ on:
         description: '立即试跑的计划 id（留空 = 常规立即追踪）'
         required: false
         type: string
-  schedule:
-__TRACKING_CRON_LINES__
+__TRACKING_SCHEDULE_BLOCK__
 
 jobs:
   track:
@@ -264,7 +263,14 @@ jobs:
  * 渲染 daily-tracking.yml 的 schedule（按启用计划实际用到的「日子 + 时刻」动态排 cron）。
  *
  * crons 为 UTC 的**完整 5 段 cron**（来自 planCronSpecs，已去重、已排序）；
- * 传空数组 = 没有任何启用的定时计划 → 不排任何 cron（零调度、零空跑）。
+ * 传空数组 = 没有任何启用的定时计划 → **整个 schedule 键都不写出**（零调度、零空跑）。
+ *
+ * 为什么空计划时连 schedule 键都要删掉：GitHub Actions 的 schedule 必须是**非空序列**。
+ * 之前这里空计划时写成 `schedule:` 只跟一行注释（求值为 null），被 GitHub 判为
+ * **非法 workflow**（`schedule section must be sequence node but got scalar node with "!!null" tag`）
+ * —— 该 workflow 会以「文件路径」为名注册，且**每次 push 都开一个 0 秒失败 run**，
+ * 于是每次同步（多次 push）都发一封 "workflow were not run" 邮件。所以无计划 = 不写 schedule 键。
+ * 注意 `schedule: []` 同样非法（空序列），只能整个省略。
  *
  * 为什么不写死固定 cron：固定每日拉起会让「今天没有任何计划到期」的日子也白跑一个 job，
  * 白烧 Actions 额度。动态 cron 把「日」（每周星期几 / 每月几号）也排进去，
@@ -272,10 +278,10 @@ jobs:
  * 到期探针（is_plan_due）二次判断——探针不通过就直接退出、不发任何网络请求。
  */
 export function buildDailyTrackingYml(crons: string[]): string {
-  const lines = crons.length
-    ? crons.map((c) => `    - cron: '${c}'`).join('\n')
-    : '    # 当前没有启用的定时计划 —— 不排任何 cron，避免空跑'
-  return DAILY_TRACKING_YML_TEMPLATE.replace('__TRACKING_CRON_LINES__', lines)
+  const block = crons.length
+    ? `  schedule:\n${crons.map((c) => `    - cron: '${c}'`).join('\n')}`
+    : ''
+  return DAILY_TRACKING_YML_TEMPLATE.replace('__TRACKING_SCHEDULE_BLOCK__', block)
 }
 
 /** 默认（无计划）版本：仓库初始化 / 重装后端时写入，随后由前端按计划重写 */
