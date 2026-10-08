@@ -157,19 +157,38 @@ async function selectChapterIndices(
 }
 
 /**
- * 严格解析选章结果。只容忍「代码块围栏」这一种等价形态；
- * 其余一律报可读错误（禁止猜别名键、禁止字符串数字、禁止缺字段静默降级）。
+ * 解析选章结果。解析层只兜**真正可能出现的等价形态** ——
+ * 「代码块围栏」与「前后夹带解释文字」（结果仍是那个 JSON 对象，只是位置变了，
+ * 不算违约）；口径与 task-requirement-extractor 的 parseTaskNotes 保持一致。
+ * 其余（连 JSON 本体都没有 / 缺字段 / 序号越界 / 非整数）一律报可读错误让用户重试，
+ * 不猜别名键、不静默降级成空。
  */
 function parseChapterSelection(raw: string, count: number): number[] {
   let text = raw.trim()
-  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)
+
+  // 去掉可能的代码块围栏（围栏可能在整段文字里的任意位置，不能锚定整串）
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (fence) text = fence[1].trim()
+
+  // 截取第一个 { 到最后一个 }（兜 AI 前后夹带的说明文字）
+  const firstBrace = text.indexOf('{')
+  const lastBrace = text.lastIndexOf('}')
+  if (firstBrace < 0 || lastBrace <= firstBrace) {
+    // 连 JSON 本体都没有：多为推理过长把输出 token 吃光（正文为空）或模型跑题
+    throw new Error(
+      text
+        ? `章节定位失败：AI 没有按约定返回 JSON（返回开头：${text.slice(0, 60)}…），请重试`
+        : '章节定位失败：AI 返回为空（可能是推理过长耗尽了输出预算），请重试',
+    )
+  }
+  text = text.slice(firstBrace, lastBrace + 1)
 
   let obj: any
   try {
     obj = JSON.parse(text)
   } catch {
-    throw new Error('章节定位失败：AI 未按 JSON 契约返回，请重试')
+    console.warn('[readingSource] 章节定位 JSON 解析失败，原文开头:', raw.slice(0, 300))
+    throw new Error('章节定位失败：AI 返回的 JSON 无法解析，请重试')
   }
   if (!obj || !Array.isArray(obj.chapters)) {
     throw new Error('章节定位失败：返回里缺少 chapters 数组，请重试')
