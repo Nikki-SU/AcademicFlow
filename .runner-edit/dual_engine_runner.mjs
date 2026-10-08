@@ -34,6 +34,14 @@ const FILE_END = '@@END_FILE@@'
 // glm-4.7-flash / spark-x2.5-4b 都支持 128K 输出，所以留到 64000。
 const MAX_TOKENS = 64000
 
+// 本次任务实际使用的输出预算。默认沿用 MAX_TOKENS，但**前端会按两个引擎里较小的
+// 上下文窗口算好后经 input.maxTokens 传入**（见 src/services/ai/modelWindow.ts 的
+// outputReserve）。为什么必须按窗口自适应：max_tokens 和输入是**共用**同一个上下文
+// 窗口的，给 32K 窗口的模型要 64000 输出，请求本身就会被上游直接拒掉。
+// MAX_TOKENS 正是 outputReserve 的上限值，所以前端不传时（例如 node 直接跑本文件调试）
+// 是**等值兜底、行为不变**，不是兼容旧版的分支。
+let outputMaxTokens = MAX_TOKENS
+
 /**
  * 把推理模式档位翻译成请求体参数。
  *   undefined / '' → 什么都不加（沿用模型默认 —— 用户没配过时行为必须和以前一致）
@@ -112,7 +120,7 @@ async function aiCall(engine, system, user, provider) {
       const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 0.1, max_tokens: MAX_TOKENS, ...think }),
+        body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 0.1, max_tokens: outputMaxTokens, ...think }),
         signal: ctrl.signal,
       })
       if (!resp.ok) {
@@ -613,9 +621,10 @@ async function runSingleAttempt(params, attemptIndex, maxAttempts, reason, previ
 
 /**
  * 后端 runner 的主函数 —— 被 ai-service.mjs 的 dual_engine handler 调用
- * @param {object} input - { taskType, sourceMaterial, ai1Instruction, ai1RolePrompt, maxAttempts, deliverFiles }
+ * @param {object} input - { taskType, sourceMaterial, ai1Instruction, ai1RolePrompt, maxAttempts, deliverFiles, maxTokens }
  *   deliverFiles=true 时 AI-1 会被要求把成篇成果用 @@FILE@@ 标记块交付，
  *   runner 把交付块从正文剥离后单独放在结果的 deliveredFiles 里（默认 false，其余调用方零影响）。
+ *   maxTokens=本次调用的输出预算（前端按两个模型较小的上下文窗口算出）；不传则用 MAX_TOKENS。
  * @returns {Promise<object>} DualEngineResult
  */
 export async function runDualEngine(input) {
@@ -631,6 +640,12 @@ export async function runDualEngine(input) {
     ai1_provider: input.ai1 && input.ai1.baseUrl ? input.ai1 : null,
     ai2_provider: input.ai2 && input.ai2.baseUrl ? input.ai2 : null,
   }
+
+  // 输出预算：前端按模型窗口算好传入；本地 node 调试不传时沿用 MAX_TOKENS
+  // （见 outputMaxTokens 定义 —— 值非法一律退回 MAX_TOKENS，绝不接受 0/负数/NaN）
+  outputMaxTokens = Number.isFinite(input.maxTokens) && input.maxTokens > 0
+    ? Math.floor(input.maxTokens)
+    : MAX_TOKENS
 
   const startedAt = Date.now()
   // 总预算 deadline：所有 aiCall 都看着它决定还能不能再发起调用（见 aiCall 顶部注释）

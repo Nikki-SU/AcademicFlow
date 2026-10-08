@@ -12,6 +12,14 @@
 
 **前端嵌入副本与私库 `main` 线上版本逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
 
+> ⚠️ **2026-10-08 待生效（backend 3→4，走 ADJ-126 自动同步）**：`dual_engine_runner.mjs`
+> 的输出预算 `max_tokens` **不再写死 64000**，改为由前端按「ai1/ai2 两个模型较小的上下文
+> 窗口」算好后经 `input.maxTokens` 传入（见 `src/services/ai/modelWindow.ts` 的 `outputReserve`）。
+> 本地 `.runner-edit/dual_engine_runner.mjs`（39333 B）已重新嵌进 `skeleton.ts` 且逐字节一致。
+> 私库尚未手动推 —— **无需手动推**：`APP_VERSION.backend` 已 +1（3→4），用户下次进入应用时
+> `pipelineAutoSync` 会比对本私库 `settings/backend-version.csv` 并自动重写（ADJ-126，零操作）。
+> 在自动同步发生前，私库线上仍是旧版（写死 64000），**行为等价**（64000 正是 outputReserve 的上限）。
+
 > ✅ **2026-09-28 本轮**（commit `8070754`，私库 `main`）：四条时间线整体上调 +
 > `MAX_TOKENS` 32000→64000，并把 `ai_call.yml` 补上 `SIMPLETEX_TOKEN`。
 > 改完重新逐字节核对：**10/10 全部一致**，现在点「重装后端」是安全的。
@@ -26,7 +34,7 @@
 | 文件 | 字节 | 本轮变化 |
 |------|------|---------|
 | `scripts/ai_call.mjs` | 60744 | 一致（上一轮加了 `input_path` 落盘读取，§8） |
-| `scripts/dual_engine_runner.mjs` | 30129 | ✅ 时间线整体上调 + `MAX_TOKENS` 64000（§2） |
+| `scripts/dual_engine_runner.mjs` | 39333 | ⏳ backend 4：输出预算改按模型窗口自适应（前端经 `input.maxTokens` 传入；不传等值兜底 64000）（§2） |
 | `scripts/paper_convert.mjs` | 106346 | 一致（上一轮的提词/词素/通讯作者） |
 | `scripts/blocks.mjs` | 14196 | 一致 |
 | `workflows/ai_call.yml` | 2992 | ✅ job timeout 25 → 50 分钟；补 `SIMPLETEX_TOKEN` |
@@ -88,6 +96,9 @@ handler 抛错也会写一份 `{ error: "..." }` 的结果文件，前端 `parse
 > （DeepSeek 那次到 48000），32000 会让整篇论文以 `finish_reason=length` 收尾。
 >
 > 注意 `MAX_TOKENS` 不在这四条时间线里，但它和总预算一起决定"一篇论文能不能一次跑完"。
+> **2026-10-08 起它不再是固定值**：runDualEngine 读 `input.maxTokens`（前端按
+> `outputReserve(较小窗口)` 算好），未传时用常量 `MAX_TOKENS = 64000` 兜底。
+> 常量仍是 `outputReserve` 的上限，因此前端不传时与旧行为完全等价。
 
 **为什么这么在意**：job 被 `timeout-minutes` 砍掉 = SIGKILL，runner 连结果文件都写不出来，
 前端只能干等到轮询超时 —— 用户看到的就是「非常慢、后台像静默失败了」。

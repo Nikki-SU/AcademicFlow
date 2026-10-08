@@ -521,6 +521,14 @@ export interface DualEngineRunParams {
   ai1?: AISlotConfig
   ai2?: AISlotConfig
   /**
+   * 本次双引擎调用的**输出预算**（token），由调用方按模型上下文窗口算好后交给后端。
+   *
+   * 一般不需要手动传：dual-engine.ts 会用 modelWindow.ts 的 outputReserve() 按
+   * 「ai1 / ai2 两个模型里较小的窗口」自动算。这里留成可选，只为本地调试 / 特殊场景覆盖；
+   * 不传或非法值 → 后端 runner 沿用默认 64000（= outputReserve 的上限）。
+   */
+  maxTokens?: number
+  /**
    * 开启「文件交付」：AI-1 被要求把成篇成果用 @@FILE@@ 标记块交付，
    * 后端会把这些块从 ai1Output 剥离并放进 deliveredFiles。
    *

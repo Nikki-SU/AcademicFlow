@@ -20,6 +20,7 @@ import type {
 import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
 import { abortError, cancelRemoteAiRun } from './abort'
+import { outputReserve, resolveContextWindow } from './modelWindow'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -102,6 +103,20 @@ export async function runDualEngine(
 
   // 构造给后端的 input_json
   // ai1/ai2 可选 — DualEngineTestPanel 会传（用户在 Settings 页改了 Key）；不传则 runner 用 GitHub Secrets
+
+  // 输出预算：AI-1 / AI-2 共用同一个 max_tokens，必须取**两者上下文窗口的较小值**，
+  // 否则给任一模型要了超出它窗口的输出，请求会被上游直接拒。
+  // 两个模型都已知（调用方都从 getDualEngineConfig 拿到 model）才计算；缺一不可 ——
+  // 宁可不传、由后端沿用默认值，也不拿已知的那一个去猜另一个（猜错反而是超限请求）。
+  // 语义见 modelWindow.ts 的 outputReserve()。
+  const maxTokens = params.maxTokens
+    ?? (params.ai1?.model && params.ai2?.model
+      ? outputReserve(Math.min(
+          resolveContextWindow(params.ai1.model),
+          resolveContextWindow(params.ai2.model),
+        ))
+      : undefined)
+
   const inputJson = {
     taskType: params.taskType,
     sourceMaterial: params.sourceMaterial,
@@ -112,6 +127,8 @@ export async function runDualEngine(
     ai2: params.ai2,
     // opt-in 文件交付：只有问答类入口会传 true，其余调用方为 undefined（prompt 逐字节不变）
     deliverFiles: params.deliverFiles,
+    // 输出预算（按模型窗口算出）；undefined 时 JSON.stringify 会省略该键，runner 用默认值
+    maxTokens,
   }
 
   // 通知 UI "后端任务已触发"
