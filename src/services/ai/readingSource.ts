@@ -8,9 +8,9 @@
  * 策略：
  *   1. 以 AI-1 / AI-2 里**较小**的窗口为准（同一份源材料要同时喂给两端）；
  *   2. 整份正文（+选中片段）估算 token ≤ 预算 → 全送，一字不截；
- *   3. 超预算 → 把正文按标题切成章节（切到哪一层按预算自适应，见 `splitIntoChapters`），
+ *   3. 超预算 → 把正文切章（**以书内印刷目录为准**，见 `splitIntoChapters`），
  *      先送「目录 + 问题」让 AI 挑相关章节，再本地切出这些章节的**完整正文**当源材料；
- *   4. 正文没有任何可用标题（切不出章节）→ 按预算给选中处上下文（无标题就只能这样，
+ *   4. 正文切不出章节 → 按预算给选中处上下文（无标题就只能这样，
  *      预算仍由模型窗口派生，不是写死的 4000 字）。
  *
  * 契约约束（先约束再容错）：选章那一步是**结构化返回**，prompt 里把 JSON schema
@@ -20,7 +20,6 @@
  */
 import { callAI } from './client'
 import { estimateTokens, outputReserve, resolveContextWindow } from './modelWindow'
-import { splitMarkdownIntoChapters } from '../chapterSplit'
 import type { AISlotConfig } from '../../types'
 
 /**
@@ -82,7 +81,7 @@ export async function buildReadingSourceMaterial(
 
   // ── 塞不下 → 两阶段选章 ──
   opts.onStage?.('材料较长，正在定位相关章节…')
-  const chapters = splitIntoChapters(doc, budget)
+  const chapters = splitIntoChapters(doc)
 
   if (chapters.length <= 1) {
     // 没有可用标题，切不出章节 → 按预算给选中处上下文
@@ -102,29 +101,144 @@ export async function buildReadingSourceMaterial(
   return { material: selBlock + material, mode: 'chapters', pickedTitles: titles }
 }
 
-/**
- * 按标题切章，并**按预算挑「切到哪一层」**（ADJ-132）。
- *
- * 旧口径「h1 能切出 >1 块就用 h1」在《注定一战》这类「`#` = 部/卷、`##` = 章/附录」的书上，
- * 会把附录（`## 附录1 …`）挡在目录之外：只切出 4 个「部/卷」级大块，目录里根本没有附录，
- * AI 永远选不到它 → 附录正文永不进模型 → AI 只能老实回 `[NOT_IN_SOURCE]`（书里其实有）。
- *
- * 新口径：h1 若**可作「章」级使用**才用 h1，否则退 h2 ——
- *   - h1 块数 ≥ 2，且
- *   - h1 中**最大块估算 token ≤ 预算的一半**（任一整章就吃掉一半以上预算 = 太粗，是「部/卷」级）。
- * 两条都满足 → h1；否则 h2 块数 ≥ 2 就用 h2；h2 也不成 → 回 h1（与旧行为一致）。
- */
-const COARSE_BLOCK_RATIO = 0.5
+/** 两阶段选章用的「章」：只需 index / title / wordCount / content（见 `selectChapterIndices`） */
+interface SourceChapter {
+  index: number
+  title: string
+  content: string
+  wordCount: number
+}
 
-function splitIntoChapters(doc: string, budget: number) {
-  const l1 = splitMarkdownIntoChapters(doc, 1).chapterContents
-  const l2 = splitMarkdownIntoChapters(doc, 2).chapterContents
-  const usable = (chs: typeof l1) =>
-    chs.length >= 2 &&
-    Math.max(...chs.map((c) => estimateTokens(c.content))) <= budget * COARSE_BLOCK_RATIO
-  if (usable(l1)) return l1
-  if (l2.length >= 2) return l2
-  return l1
+/** 印刷版目录的标题行：`## 目录` / `## 目 录` / `## Contents` / `## Table of Contents` */
+const TOC_HEADING_RE = /^#{1,6}\s*(目\s*录|目\s*錄|contents|table\s+of\s+contents)\s*[:：]?\s*$/i
+
+/** 任意级别（`#`~`######`）的 Markdown 标题行，捕获标题文字 */
+const ANY_HEADING_RE = /^#{1,6}\s+(.+?)\s*$/
+
+/**
+ * 标题归一：去掉脚注上标与所有非「中文 / 字母 / 数字」字符。
+ * 用于把目录条目与正文标题**跨级**比对同名 —— 目录条目与正文标题的标点 / 空格 / 引号
+ * 写法常不一致（如 `第一章“世界历史的最大参与者”` vs 目录 `第一章 “世界历史的最大参与者”`）。
+ */
+function normalizeTitle(s: string): string {
+  return s
+    .replace(/<sup>[\s\S]*?<\/sup>/g, '')
+    .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '')
+    .toLowerCase()
+}
+
+function countWords(text: string): number {
+  const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
+  const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length
+  return englishWords + chineseChars
+}
+
+function makeChapter(title: string, content: string, index: number): SourceChapter {
+  return { index, title, content, wordCount: countWords(content) }
+}
+
+/**
+ * 把正文切成「章」用于两阶段选章（ADJ-133）。
+ *
+ * 关键教训（《注定一战》附录1 明明有、AI 却回 `[NOT_IN_SOURCE]`）：
+ * MinerU 产出的正文里，**标题的级别完全不可信** —— 同一本书里「部/卷」是 `#`、
+ * 「章/附录」却是 `##`，广告行 / 脚注行也混在 `##` 里。唯一不会乱的是「这一行是不是标题」，
+ * 所以绝不再按 `#` 还是 `##` 去猜「切到哪一层」。
+ *
+ * 切法：
+ *   1. **首选书内印刷目录**：正文里有「目录」块时，以它列出的条目为准 —— 它才是这本书
+ *      真实且完整的章节清单（附录也在其中）。每条条目去正文里找**任意级别**的同名标题当
+ *      锚点，锚点之间切一段。
+ *   2. 没有目录块 / 匹配到的条目不足 2 条 → 退化为「把所有级别的标题都当章」，
+ *      宁可混进个别杂标题，也不漏掉该有的正文。
+ */
+function splitIntoChapters(doc: string): SourceChapter[] {
+  const lines = doc.split('\n')
+  const viaToc = splitByPrintedToc(lines)
+  if (viaToc.length >= 2) return viaToc
+  return splitByAllHeadings(lines)
+}
+
+/** 以正文里印刷版目录的条目为准切章；无目录或匹配太少返回空数组（交给上层退化） */
+function splitByPrintedToc(lines: string[]): SourceChapter[] {
+  const tocAt = lines.findIndex((l) => TOC_HEADING_RE.test(l))
+  if (tocAt < 0) return []
+
+  // 目录条目 = 目录标题之后、下一个标题之前的所有非空行
+  const entries: string[] = []
+  for (let i = tocAt + 1; i < lines.length; i++) {
+    if (ANY_HEADING_RE.test(lines[i])) break
+    const title = cleanTocEntry(lines[i])
+    if (title) entries.push(title)
+  }
+  if (entries.length < 2) return []
+
+  // 正文里所有级别的标题，作为锚点候选
+  const headings: Array<{ at: number; norm: string }> = []
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(ANY_HEADING_RE)
+    if (m) headings.push({ at: i, norm: normalizeTitle(m[1]) })
+  }
+
+  // 每条目录条目 → 正文里第一个同名标题（先完全同名，再退前缀包含），不重复占用锚点
+  const used = new Set<number>()
+  const matched: Array<{ at: number; title: string }> = []
+  for (const entry of entries) {
+    const norm = normalizeTitle(entry)
+    if (!norm) continue
+    const hit =
+      headings.find((h) => !used.has(h.at) && h.norm === norm) ||
+      headings.find((h) => !used.has(h.at) && (h.norm.startsWith(norm) || norm.startsWith(h.norm)))
+    if (!hit) continue
+    used.add(hit.at)
+    matched.push({ at: hit.at, title: entry })
+  }
+  if (matched.length < 2) return []
+
+  // 按正文出现顺序段切（目录顺序通常与正文一致，保险起见按行号排一次）
+  matched.sort((a, b) => a.at - b.at)
+  const out: SourceChapter[] = []
+  for (let k = 0; k < matched.length; k++) {
+    const start = matched[k].at
+    const end = k + 1 < matched.length ? matched[k + 1].at : lines.length
+    out.push(makeChapter(matched[k].title, lines.slice(start, end).join('\n').trim(), out.length))
+  }
+  return out
+}
+
+/** 退化切法：把**所有级别**的标题都当章边界（唯一信号 = 「是不是标题」） */
+function splitByAllHeadings(lines: string[]): SourceChapter[] {
+  const out: SourceChapter[] = []
+  let title = '前言'
+  let buf: string[] = []
+  const flush = () => {
+    const content = buf.join('\n').trim()
+    if (content || out.length === 0) out.push(makeChapter(title, content, out.length))
+  }
+  for (const line of lines) {
+    const m = line.match(ANY_HEADING_RE)
+    if (m) {
+      if (buf.length > 0) flush()
+      title = m[1].trim()
+      buf = [line]
+    } else {
+      buf.push(line)
+    }
+  }
+  if (buf.length > 0) flush()
+  return out
+}
+
+/** 清洗一条目录条目：去 Markdown 链接壳、行首列表符、行尾页码（点线 / 空白 + 数字） */
+function cleanTocEntry(raw: string): string {
+  let s = raw.trim()
+  if (!s) return ''
+  const link = s.match(/^\[([^\]]+)\]\([^)]*\)\s*$/)
+  if (link) s = link[1]
+  s = s.replace(/^[-*+•·]\s*/, '')
+  s = s.replace(/[.·…]{2,}\s*[\dIVXivx]+\s*$/, '')
+  s = s.replace(/\s+\d{1,4}\s*$/, '')
+  return s.trim()
 }
 
 const SELECT_SYSTEM = [
