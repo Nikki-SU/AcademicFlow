@@ -20,7 +20,7 @@
  * 字号 --ui-text-*），不再有任何写死的像素值。
  * 数据落库全交给页面（Schedule.tsx），本组件只呈现与收集输入。
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, CalendarPlus, Clock, X } from 'lucide-react'
 import type { Course, ExtraDay, SchoolCalendar, TodayPlan } from '../../services/scheduleData'
 import { timeToMinutes, weekdayOfDate, WEEKDAY_LABELS } from '../../services/scheduleData'
@@ -163,6 +163,19 @@ export function CourseTable({
     | null
   >(null)
   const [showExtra, setShowExtra] = useState(false)
+  // 校历浮层：点「调休」右边的「校历」按钮才展开，不在页面里常驻暴露
+  const [showCalendar, setShowCalendar] = useState(false)
+  const calendarRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setShowCalendar(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // ---------- 本周日期：表头「先日期、后星期」，死线也按本周这一天来画 ----------
   // 课表是一周视图（周一到周日），所以要先把本周每一天的**日期**算出来。
@@ -326,33 +339,40 @@ export function CourseTable({
           >
             调休
           </button>
+          {/* 校历：课程表的一部分 —— 不在页面里常驻暴露，点此按钮才展开浮层就地编辑 */}
+          <div className="relative" ref={calendarRef}>
+            <button
+              onClick={() => setShowCalendar((v) => !v)}
+              className="flex items-center gap-ui-gap-sm rounded-control-sm border border-ink-200 px-ui-gap-sm py-ui-gap-sm text-ui-xs text-ink-500 transition hover:border-seal-300 hover:text-seal-600"
+              title="校历：开学 / 期末周 / 放假"
+            >
+              <CalendarDays className="h-ui-icon-sm w-ui-icon-sm" />
+              校历
+            </button>
+            {showCalendar && (
+              <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-control border border-ink-200 bg-paper-50 p-ui-gap-sm shadow-lg">
+                {(
+                  [
+                    { key: 'semesterStart' as const, label: '开学' },
+                    { key: 'examWeekStart' as const, label: '期末周' },
+                    { key: 'semesterEnd' as const, label: '放假' },
+                  ]
+                ).map(({ key, label }) => (
+                  <label key={key} className="flex items-center justify-between gap-ui-gap-sm py-1 text-ui-xs text-ink-500">
+                    {label}
+                    <input
+                      type="date"
+                      value={calendar[key]}
+                      onChange={(e) => onChangeCalendar({ [key]: e.target.value })}
+                      className="rounded-control-sm border border-ink-200 bg-paper-50 px-ui-gap-sm py-0.5 font-mono text-ui-2xs text-ink-700 focus:outline-none focus:ring-2 focus:ring-seal-500"
+                    />
+                  </label>
+                ))}
+                {savingCalendar && <div className="pt-1 text-ui-2xs text-ink-400">保存中…</div>}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* 校历：课程表的一部分 —— 开学 / 期末周 / 放假，改一项即落库 */}
-      <div className="af-line-b flex flex-wrap items-center gap-ui-gap px-ui-gap py-ui-gap-sm">
-        <span className="flex items-center gap-ui-gap-sm text-ui-xs font-medium text-ink-600">
-          <CalendarDays className="h-ui-icon-sm w-ui-icon-sm text-seal-600" />
-          校历
-        </span>
-        {(
-          [
-            { key: 'semesterStart' as const, label: '开学' },
-            { key: 'examWeekStart' as const, label: '期末周' },
-            { key: 'semesterEnd' as const, label: '放假' },
-          ]
-        ).map(({ key, label }) => (
-          <label key={key} className="flex items-center gap-ui-gap-sm text-ui-xs text-ink-500">
-            {label}
-            <input
-              type="date"
-              value={calendar[key]}
-              onChange={(e) => onChangeCalendar({ [key]: e.target.value })}
-              className="rounded-control-sm border border-ink-200 bg-paper-50 px-ui-gap-sm py-0.5 font-mono text-ui-2xs text-ink-700 focus:outline-none focus:ring-2 focus:ring-seal-500"
-            />
-          </label>
-        ))}
-        {savingCalendar && <span className="text-ui-2xs text-ink-400">保存中…</span>}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-auto p-ui-gap">
