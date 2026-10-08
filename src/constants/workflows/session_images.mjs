@@ -78,7 +78,10 @@ async function ghApi(method, apiPath, body) {
     const txt = await resp.text().catch(() => '')
     const isRetryable = resp.status === 409 || resp.status === 403 || resp.status >= 500
     if (!isRetryable || attempt === MAX_RETRY) {
-      throw new Error(`GitHub ${method} ${apiPath}: ${resp.status} ${txt.slice(0, 300)}`)
+      const err = new Error(`GitHub ${method} ${apiPath}: ${resp.status} ${txt.slice(0, 300)}`)
+      // 附上 HTTP 状态码：调用方需要区分「目录不存在（404，正常）」和「真错误」
+      err.status = resp.status
+      throw err
     }
     const wait = 200 * Math.pow(2, attempt) + Math.floor(Math.random() * 500)
     console.log(`  [ghApi] ${resp.status} on ${method} ${apiPath}, retry ${attempt + 1}/${MAX_RETRY} in ${wait}ms`)
@@ -489,7 +492,14 @@ async function listSourceMaterials(materialsRel) {
     }
   }
   console.log(`  [materials] 本地未找到，尝试 API 列出 ${materialsRel}`)
-  const res = await ghApi('GET', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURI(materialsRel)}`)
+  let res
+  try {
+    res = await ghApi('GET', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURI(materialsRel)}`)
+  } catch (e) {
+    // 404 = 该课时从未上传过课程材料（git 不跟踪空目录，目录根本不存在）——这是正常状态，不是错误。
+    if (e?.status === 404) return []
+    throw e
+  }
   if (!Array.isArray(res)) return []
   const items = []
   for (const entry of res.filter((e) => e.type === 'file' && MATERIAL_EXT.test(e.name)).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -563,7 +573,14 @@ async function listSourceImages(imagesRel) {
     }
   }
   console.log(`  [images] 本地未找到，尝试 API 列出 ${imagesRel}`)
-  const res = await ghApi('GET', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURI(imagesRel)}`)
+  let res
+  try {
+    res = await ghApi('GET', `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURI(imagesRel)}`)
+  } catch (e) {
+    // 404 = 该课时没有 images/ 目录 —— 视为「没有照片」，交由主流程报可读错误，不在这里炸。
+    if (e?.status === 404) return []
+    throw e
+  }
   if (!Array.isArray(res)) return []
   const items = []
   for (const entry of res.filter((e) => e.type === 'file' && IMAGE_EXT.test(e.name)).sort((a, b) => a.name.localeCompare(b.name))) {
