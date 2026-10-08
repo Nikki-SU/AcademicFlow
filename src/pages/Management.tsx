@@ -105,6 +105,7 @@ import {
 } from '../services/librarySearch'
 import { listNotes, type DocRef } from '../services/readingDocData'
 import { loadAnnotations } from '../services/annotationData'
+import BookEditModal from '../components/BookEditModal'
 
 type SubTabId = 'library' | 'templates' | 'knowledge' | 'documents' | 'import-export'
 
@@ -805,6 +806,10 @@ export default function ManagementPage() {
   /** 图书详情弹窗里正在编辑的任务 / 标签（保存时才写回） */
   const [bookDetailTaskId, setBookDetailTaskId] = useState<string>('')
   const [bookDetailTags, setBookDetailTags] = useState<string[]>([])
+  /** 打开「编辑图书」弹窗的目标书名（null = 未打开；书名 = 目录名 = 主键） */
+  const [editingBookId, setEditingBookId] = useState<string | null>(null)
+  /** 图书列表强制刷新计数：改名 / 保存正文后自增触发重载 */
+  const [booksReloadKey, setBooksReloadKey] = useState(0)
 
   // 其他文档状态
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
@@ -866,7 +871,7 @@ export default function ManagementPage() {
       }
     }
     loadData()
-  }, [repo])
+  }, [repo, booksReloadKey])
 
   // 加载期刊模板（从 GitHub 私库 journal-templates.ts 后端）
   useEffect(() => {
@@ -4348,6 +4353,13 @@ export default function ManagementPage() {
               关闭
             </button>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setEditingBookId(showBookDetail.id)}
+                className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
+              >
+                <Edit3 className="w-4 h-4" />
+                编辑图书
+              </button>
               {showBookDetail.status === 'done' && (
                 <button className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition">
                   <Book className="w-4 h-4" />
@@ -4357,6 +4369,20 @@ export default function ManagementPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* 图书编辑弹窗（改书名 / 改大纲层级 / 改正文）—— 与阅读页共用同一组件 */}
+      {editingBookId && (
+        <BookEditModal
+          bookId={editingBookId}
+          onClose={() => setEditingBookId(null)}
+          onRenamed={() => {
+            setEditingBookId(null)
+            setShowBookDetail(null)
+            setBooksReloadKey((k) => k + 1)
+          }}
+          onSaved={() => setBooksReloadKey((k) => k + 1)}
+        />
       )}
 
       {/* 导入其他文档弹窗（三种方式：上传 .md / 粘贴 / zip） */}

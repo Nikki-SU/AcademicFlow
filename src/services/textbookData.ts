@@ -13,7 +13,7 @@
  * 阅读页按「目录」发现图书，因此不依赖 textbooks.csv 的字段顺序。
  */
 
-import { readCsvFile, writeCsvFile, readMdFile, getRepoContext } from './userData'
+import { readCsvFile, writeCsvFile, readMdFile, writeMdFile, getRepoContext } from './userData'
 import { githubFetch } from './github'
 
 export interface Textbook {
@@ -130,6 +130,18 @@ export async function listBooks(): Promise<BookSummary[]> {
 export async function loadBookContent(bookId: string, force = false): Promise<string> {
   const result = await readMdFile(`${TEXTBOOKS_DIR}/${bookId}/${BOOK_CONTENT_FILE}`, force)
   return result?.content?.trim() ? result.content : ''
+}
+
+/**
+ * 覆写一本书的整本正文（图书内容编辑 / 大纲层级改写共用这一条写路径）。
+ * 写的是同一份 `textbooks/{书名}/content.md`：MinerU 提取不准，用户要能手动修。
+ */
+export async function saveBookContent(bookId: string, content: string): Promise<void> {
+  await writeMdFile(
+    `${TEXTBOOKS_DIR}/${bookId}/${BOOK_CONTENT_FILE}`,
+    content,
+    `Update textbook content: ${bookId}`,
+  )
 }
 
 /**

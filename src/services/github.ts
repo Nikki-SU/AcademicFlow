@@ -1380,6 +1380,79 @@ export async function deleteRepoFiles(
   }, `delete ${paths.length} files`)
 }
 
+export interface RepoTreeEntry {
+  path: string
+  type: 'blob' | 'tree'
+  sha: string
+}
+
+/**
+ * 递归列出仓库树（**带 sha**），供「复用 blob sha 的原子目录搬迁」使用。
+ * 与 `listRepoPaths` 的区别：那条只取路径、失败返回空数组；这条要 sha，
+ * 拿不到树时直接抛错 —— 搬迁缺少 sha 会导致「搬了个空气」，必须让调用方感知。
+ */
+export async function listRepoTree(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<RepoTreeEntry[]> {
+  const res = await githubFetch(`/repos/${owner}/${repo}/git/trees/main?recursive=1`, token)
+  if (!res.ok) {
+    const err = await res.text().catch(() => '')
+    throw new GitHubAPIError(res.status, err, '获取仓库文件树失败')
+  }
+  const data = (await res.json()) as {
+    tree?: Array<{ path: string; type: string; sha: string }>
+  }
+  return (data.tree ?? []).map((e) => ({
+    path: e.path,
+    type: e.type as 'blob' | 'tree',
+    sha: e.sha,
+  }))
+}
+
+/**
+ * 原子搬迁一批文件（from → to）到**同一个 commit**：
+ * 复用源文件已有的 blob sha 指到新路径（不上传新 blob），同时把旧路径置 `sha:null` 删除。
+ * 目录整体改名靠它一次性完成，不会出现「一半新一半旧」的中间态；
+ * 任一源文件不存在则整体失败，绝不半途而废。
+ */
+export async function moveRepoFiles(
+  moves: Array<{ from: string; to: string }>,
+  message: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<BatchWriteResult> {
+  return enqueueWrite(async () => {
+    assertCanWrite()
+    if (moves.length === 0) throw new Error('搬迁失败：没有待搬迁的文件')
+
+    const tree = await listRepoTree(owner, repo, token)
+    const shaByPath = new Map<string, string>()
+    for (const e of tree) {
+      if (e.type === 'blob') shaByPath.set(e.path, e.sha)
+    }
+
+    const items: Array<{
+      path: string
+      mode: '100644'
+      type: 'blob'
+      sha: string | null
+    }> = []
+    for (const { from, to } of moves) {
+      const sha = shaByPath.get(from)
+      if (!sha) {
+        throw new GitHubAPIError(404, `源文件不存在: ${from}`, `搬迁失败：源文件不存在 ${from}`)
+      }
+      items.push({ path: to, mode: '100644', type: 'blob', sha })
+      items.push({ path: from, mode: '100644', type: 'blob', sha: null })
+    }
+
+    return runTreeTransaction(owner, repo, token, message, () => items, 'moveRepoFiles')
+  }, `move ${moves.length} files`)
+}
+
 export async function dispatchWorkflow(
   eventType: string,
   payload: Record<string, any>,

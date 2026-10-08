@@ -134,6 +134,7 @@ import { DeliveredFilesCard } from '../components/DeliveredFilesCard'
 import FormulaSidebar, { type FormulaEditTarget } from '../components/FormulaSidebar'
 import ProofreadPanel from '../components/ProofreadPanel'
 import CitationPanel from '../components/CitationPanel'
+import DocViewPanel from '../components/DocViewPanel'
 import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, deleteFormulas, setImageSize } from '../services/formula'
 import { usePanelStack, StackHandle, STACK_SNAP_RATIOS } from '../components/ui/StackedPanels'
 
@@ -147,6 +148,7 @@ const PANEL_MODES: {
   icon: typeof PenTool
 }[] = [
   { value: 'editor', label: '编辑区', icon: PenTool },
+  { value: 'docview', label: '查看文档', icon: BookOpen },
   { value: 'template', label: '期刊模板', icon: LayoutTemplate },
   { value: 'typesetting', label: 'LaTeX 工作区', icon: FileCode },
   { value: 'proofread', label: '文稿校对', icon: ScanEye },
@@ -570,6 +572,7 @@ const EXPORT_ICON =
 /** 面板可显示的功能（左右两侧通用）；大纲固定在左侧导航里，不在此列 */
 type PanelMode =
   | 'editor'
+  | 'docview'
   | 'template'
   | 'typesetting'
   | 'proofread'
@@ -4038,6 +4041,8 @@ export default function WritingPage() {
 
             </>
           )}
+
+          {p.mode === 'docview' && <DocViewPanel />}
 
           {p.mode === 'proofread' && (
             <ProofreadPanel

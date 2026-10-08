@@ -80,7 +80,9 @@ import { useTaskStore } from '../stores/task'
 import { getResolvedAuthMode } from '../services/github'
 import { DoiLink } from '../components/DoiLink'
 import { renderMarkdownToHtml, copySelectionForWord } from '../services/markdown-renderer'
+import { withBookBlockIds, buildOutlineAndAnchors, type OutlineItem } from '../services/outline'
 import { renderAlignedMdHtml, type TranslationMode } from '../services/translation'
+import { getImageBaseUrl, getPlainImageBaseUrl, getRepoImageBaseUrl, hydrateImages } from '../services/repoImages'
 import { readAnyDocument, parseBlocks, serializeBlocks, renumber, isTranslatable, labelOf, blockId, type ReadBlockItem, type BlockNode } from '../services/blocks.mjs'
 import { clearHighlights, highlightAnnotation, clearSearchHits, highlightSearchHits, collectTextSegments, findSpan } from '../services/text-highlight'
 import {
@@ -92,6 +94,7 @@ import {
 } from '../services/librarySearch'
 import ReadingAskPanel, { type AskAnchor } from '../components/ReadingAskPanel'
 import ReadingNotesPanel from '../components/ReadingNotesPanel'
+import BookEditModal from '../components/BookEditModal'
 import { usePanelStack, StackHandle, STACK_SNAP_RATIOS } from '../components/ui/StackedPanels'
 import { PillTabs } from '../components/ui/Tabs'
 import { toast } from 'sonner'
@@ -483,57 +486,6 @@ function literatureToPaper(lit: Literature): Paper {
   }
 }
 
-/**
- * 图书正文：给**顶层块**编号（b-1 / b-2 …），让批注能锚到具体段落。
- *
- * 图书是单一语言，不需要 en/cn 前缀，但同样要"一处一条、不跨书串"——
- * 只靠文本匹配的话，短句子在别的书里也会命中。
- * 只编顶层元素：那是 markdown 渲染出的段落 / 标题 / 图表，正好是阅读时的自然单位。
- */
-function withBookBlockIds(html: string): string {
-  // 用 DOMParser 而不是临时 div：DOMParser 不会顺手去加载里面的图片
-  const parsed = new DOMParser().parseFromString(html, 'text/html')
-  const box = parsed.body
-  let seq = 0
-  for (const el of Array.from(box.children)) {
-    if (el.tagName === 'HR') continue
-    el.setAttribute('data-block-id', `b-${++seq}`)
-  }
-  return box.innerHTML
-}
-
-/** 图书大纲项：level 决定缩进，anchor 指向正文里对应标题的 id */
-interface OutlineItem {
-  level: number
-  text: string
-  anchor: string
-}
-
-/**
- * 给渲染后的 HTML 里的 h1~h6 注入 id，并顺带抽出一份大纲。
- * 用递增序号做 id（book-h-N）—— 标题文本可能重复或含特殊字符，用文本当锚点会撞。
- */
-function buildOutlineAndAnchors(html: string): { html: string; outline: OutlineItem[] } {
-  const outline: OutlineItem[] = []
-  let seq = 0
-  const withIds = html.replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/gi, (_m, lv: string, attrs: string, inner: string) => {
-    const level = parseInt(lv, 10)
-    const anchor = `book-h-${seq++}`
-    const text = inner
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .trim()
-    if (text) outline.push({ level, text, anchor })
-    const cleanAttrs = attrs.replace(/\sid="[^"]*"/i, '')
-    return `<h${lv}${cleanAttrs} id="${anchor}">${inner}</h${lv}>`
-  })
-  return { html: withIds, outline }
-}
-
 const HIGHLIGHT_COLORS = HIGHLIGHTERS
 
 
@@ -558,101 +510,6 @@ function exportMarkdown(content: string, filename: string) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-}
-
-function getImageBaseUrl(doi: string): string {
-  const auth = useAuthStore.getState()
-  const ws = useWorkspaceStore.getState()
-  if (!auth.user || !ws.repo) return ''
-  const slug = doiToSlug(doi)
-  // 纯目录路径，不带 query —— query 参数由 preloadImage 在 fetch 时附加
-  // 这样 markdown-renderer.ts 的 resolveImageUrl 拼接不会出错
-  const owner = encodeURIComponent(auth.user.login)
-  const repo = encodeURIComponent(ws.repo.name)
-  const slugEnc = encodeURIComponent(slug)
-  return `https://api.github.com/repos/${owner}/${repo}/contents/literatures/${slugEnc}/`
-}
-
-/** 单语言正文的图片基准 URL：图书在 textbooks/{书名}/，其他文档在 documents/{目录名}/ */
-function getPlainImageBaseUrl(ownerDir: string, root: 'textbooks' | 'documents'): string {
-  const auth = useAuthStore.getState()
-  const ws = useWorkspaceStore.getState()
-  if (!auth.user || !ws.repo) return ''
-  const owner = encodeURIComponent(auth.user.login)
-  const repo = encodeURIComponent(ws.repo.name)
-  const dir = ownerDir.split('/').map(encodeURIComponent).join('/')
-  return `https://api.github.com/repos/${owner}/${repo}/contents/${root}/${dir}/`
-}
-
-/**
- * 笔记的图片基准 URL：直接指到**仓库根**。
- * 笔记里的图片引用是仓库绝对路径（编辑器与导入都写 `literatures/{slug}/notes/images/x.png`），
- * 拼在仓库根之后正好是完整路径；也让它落进 hydrateImages 的 `api.github.com/repos` 匹配。
- */
-function getRepoImageBaseUrl(): string {
-  const auth = useAuthStore.getState()
-  const ws = useWorkspaceStore.getState()
-  if (!auth.user || !ws.repo) return ''
-  const owner = encodeURIComponent(auth.user.login)
-  const repo = encodeURIComponent(ws.repo.name)
-  return `https://api.github.com/repos/${owner}/${repo}/contents/`
-}
-
-/**
- * 预加载图片：把 GitHub Contents API 的图片 URL fetch 成 Blob，再转成 blob: URL
- * 这样可以带 Accept: application/vnd.github.v3.raw + token header
- * 不走 raw.githubusercontent.com（GFW 会挡）
- */
-async function preloadImage(
-  url: string,
-  token: string,
-  authMode: 'header' | 'query',
-): Promise<string> {
-  try {
-    const headers: Record<string, string> = {
-      Accept: 'application/vnd.github.v3.raw',
-      'X-GitHub-Api-Version': '2022-11-28',
-    }
-    // Contents API 必须指定 ref，否则默认 HEAD（如果分支名改过就拿不到）
-    let fetchUrl = url.includes('?') ? `${url}&ref=main` : `${url}?ref=main`
-    if (authMode === 'header') {
-      headers['Authorization'] = `Bearer ${token}`
-    } else {
-      // query 参数模式（零 CORS 预检，但 token 暴露在 URL 里——对公开 repo 可以）
-      fetchUrl = fetchUrl.includes('?') ? `${fetchUrl}&access_token=${encodeURIComponent(token)}` : `${fetchUrl}?access_token=${encodeURIComponent(token)}`
-    }
-    const res = await fetch(fetchUrl, { headers })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const blob = await res.blob()
-    return URL.createObjectURL(blob)
-  } catch (err) {
-    console.warn('[preloadImage] 加载失败:', url, err)
-    return url // 失败就返回原 URL，让浏览器自己处理（大概率也拿不到，但至少不崩）
-  }
-}
-
-/**
- * 扫描容器内所有 <img>，把 api.github.com/contents 开头的 src 预加载成 blob URL
- */
-async function hydrateImages(container: HTMLElement, token: string, authMode: 'header' | 'query') {
-  const imgs = container.querySelectorAll<HTMLImageElement>('img[src*="api.github.com/repos"]')
-  const tasks: Promise<void>[] = []
-  imgs.forEach((img) => {
-    const original = img.src
-    // 跳过已经是 blob: 或 data: 的
-    if (original.startsWith('blob:') || original.startsWith('data:')) return
-    tasks.push(
-      preloadImage(original, token, authMode).then((blobUrl) => {
-        if (blobUrl !== original) {
-          img.src = blobUrl
-        }
-      }),
-    )
-  })
-  if (tasks.length > 0) {
-    console.log(`[hydrateImages] 预加载 ${tasks.length} 张图片`)
-    await Promise.all(tasks)
-  }
 }
 
 function getColorInfo(color: HighlighterColor) {
@@ -771,6 +628,10 @@ export default function ReadingPage() {
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
   const [bookMarkdown, setBookMarkdown] = useState('')
   const [bookLoading, setBookLoading] = useState(false)
+  /** 打开「编辑图书」弹窗的目标书名（null = 未打开）；同名 = 目录名 = 主键 */
+  const [editingBookId, setEditingBookId] = useState<string | null>(null)
+  /** 图书列表 + 正文的强制刷新计数：改名 / 保存正文后自增触发重载 */
+  const [booksReloadKey, setBooksReloadKey] = useState(0)
 
   // 其他文档阅读（用户自己导入的 markdown，正文取自 documents/{目录名}/content.md）
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
@@ -983,7 +844,7 @@ export default function ReadingPage() {
       .catch((err) => console.error('[Reading] 加载图书列表失败:', err))
       .finally(() => { if (!cancelled) setBooksLoading(false) })
     return () => { cancelled = true }
-  }, [repo])
+  }, [repo, booksReloadKey])
 
   // 其他文档列表：documents/documents.csv 索引 + documents/ 下的目录（两边取并集）
   useEffect(() => {
@@ -1326,7 +1187,7 @@ export default function ReadingPage() {
       })
       .finally(() => { if (!cancelled) setBookLoading(false) })
     return () => { cancelled = true }
-  }, [selectedBookId])
+  }, [selectedBookId, booksReloadKey])
 
   // 选中其他文档后加载正文
   useEffect(() => {
@@ -3839,6 +3700,11 @@ export default function ReadingPage() {
                       </div>
                     </div>
                   )}
+                  {isBook && plainId && (
+                    <div className="text-ui-sm font-medium text-ink-700 truncate">
+                      {selectedBook?.title ?? plainId}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
@@ -3867,6 +3733,18 @@ export default function ReadingPage() {
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
+                  {isBook && plainId && (
+                    <>
+                      <div className="w-px h-5 bg-ink-200 mx-1" />
+                      <button
+                        onClick={() => setEditingBookId(plainId)}
+                        className="px-2.5 py-1.5 text-ui-xs text-ink-600 hover:bg-ink-100 rounded-control-sm transition flex items-center gap-1"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        编辑图书
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -3938,6 +3816,18 @@ export default function ReadingPage() {
                   </div>
                 )}
               </div>
+
+              {isBook && editingBookId && (
+                <BookEditModal
+                  bookId={editingBookId}
+                  onClose={() => setEditingBookId(null)}
+                  onRenamed={(newId) => {
+                    setSelectedBookId(newId)
+                    setBooksReloadKey((k) => k + 1)
+                  }}
+                  onSaved={() => setBooksReloadKey((k) => k + 1)}
+                />
+              )}
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-ink-400">
@@ -4480,56 +4370,7 @@ export default function ReadingPage() {
         </div>
       </aside>
 
-      <style>{`
-        .prose-reader h1 {
-          font-size: 1.875rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin-top: 0.5rem;
-          margin-bottom: 1rem;
-          padding-bottom: 0.75rem;
-          border-bottom: 0.125rem solid #c7d2fe;
-        }
-        .prose-reader h2 {
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: #1e293b;
-          margin-top: 1.5rem;
-          margin-bottom: 0.75rem;
-          padding-bottom: 0.5rem;
-          border-bottom: 1px solid #e2e8f0;
-        }
-        .prose-reader h3 {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: #1e293b;
-          margin-top: 1.25rem;
-          margin-bottom: 0.5rem;
-        }
-        .prose-reader p {
-          margin: 0.75rem 0;
-          color: #334155;
-          line-height: 1.75;
-        }
-        .prose-reader ul, .prose-reader ol {
-          margin: 0.75rem 0;
-          padding-left: 1.5rem;
-          color: #334155;
-        }
-        .prose-reader li {
-          margin: 0.375rem 0;
-          line-height: 1.625;
-        }
-        .prose-reader blockquote {
-          margin: 1rem 0;
-        }
-        .prose-reader code {
-          font-size: 0.875em;
-        }
-        .prose-reader pre {
-          margin: 1rem 0;
-        }
-      `}</style>
+      {/* 正文排版（.prose-reader 的标题 / 段落 / 列表）已上移到 src/index.css，全站一份 */}
 
       {/* 从全局添加材料：把全局已有材料归入当前任务 */}
       {showAddMaterialModal && (

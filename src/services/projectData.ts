@@ -12,6 +12,8 @@ import { readCsvFile, writeCsvFile, readMdFile, writeMdFile, getRepoContext } fr
 import {
   deleteRepoFiles,
   listRepoPaths,
+  listRepoTree,
+  moveRepoFiles,
   listRepoFilesInDir,
   uploadRepoBinaryFile,
   downloadRepoBinaryFile,
@@ -19,7 +21,8 @@ import {
 } from './github'
 import { loadLiteratures, saveLiteratures, doiToSlug } from './literatureData'
 import { loadMaterialMeta, saveMaterialMeta, dropMeta } from './materialMeta'
-import { loadTextbooks, saveTextbooks } from './textbookData'
+import { loadTextbooks, saveTextbooks, listBooks } from './textbookData'
+import { loadBookCategories, saveBookCategories } from './categoryData'
 
 /** 任务大类：研究 / 课程（节点属性，不是独立层级） */
 export type ProjectType = 'research' | 'course'
@@ -855,4 +858,99 @@ export async function collectTaskMaterial(projectId: string, briefOverride?: str
     if (text) chunks.push(`【附件：${a.name}】\n${text}`)
   }
   return chunks.join('\n\n')
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// 图书改名：物理重命名 textbooks/{旧名}/ + 同步全链路引用（ADJ-134）
+// -------------------------------------------------
+// 图书模型的硬约定：textbook_id == title == 目录名（目录名即书名）。
+// 但 MinerU / 上传来源的文件名不保证等于真正的书名，所以要允许改。
+//
+// 为什么必须"物理重命名目录"而不是只改一个显示字段：
+//   正文、章节、批注、图片都以目录名（textbook_id）寻址，只改显示名会让
+//   「显示的书名」和「实际数据位置」两个真源打架。改名 = 换主键，目录必须跟着走。
+//
+// 一次改名要同步 5 处，缺一处就会指向不存在的旧 id：
+//   1) textbooks/{旧名}/**            —— 目录本身（一个 commit 原子搬迁，复用 blob sha）
+//   2) textbooks/textbooks.csv        —— 索引表的 textbook_id / title
+//   3) materials/meta.csv             —— 归属任务 / 标签（book 的 material_id）
+//   4) textbooks/categories.csv       —— 分类成员（textbook_ids）
+//   5) projects/*/references/books.csv —— 各任务对这本书的引用
+//
+// 为什么放在 projectData 而不是 textbookData：这里要同时用到 textbookData /
+// categoryData / materialMeta / 各任务的 references 与 github 的树事务；若放进
+// textbookData，会与 projectData 形成循环 import（projectData 已依赖 textbookData）。
+// 与 deleteProject 放同一处，两者正好是「材料联动」的一对。
+// ═════════════════════════════════════════════════════════════════════════
+
+export interface RenameBookResult {
+  /** 新书名（= 新目录名 = 新 textbook_id） */
+  id: string
+  /** 随目录一起搬迁的文件数 */
+  movedFiles: number
+}
+
+/**
+ * 把一本书的目录名 / 主键从 oldId 改为 newId，并同步所有引用该 id 的地方。
+ * 目标名已被占用 / 源不存在 / 名字非法时抛可读错误，不做静默降级。
+ */
+export async function renameBook(oldId: string, newId: string): Promise<RenameBookResult> {
+  const from = oldId.trim()
+  const to = newId.trim()
+  if (!from || !to) throw new Error('改名失败：书名不能为空')
+  if (from === to) return { id: to, movedFiles: 0 }
+  if (/[\\/]/.test(to)) throw new Error('改名失败：书名不能包含斜杠')
+  if (to.startsWith('.')) throw new Error('改名失败：书名不能以点开头')
+
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区尚未就绪，无法改名')
+
+  // 前置约束：目标名不能撞车，源书必须存在（都按目录名判定，不依赖 CSV）
+  const books = await listBooks()
+  if (books.some((b) => b.id === to)) throw new Error(`改名失败：已存在名为「${to}」的图书`)
+  if (!books.some((b) => b.id === from)) throw new Error(`改名失败：找不到名为「${from}」的图书`)
+
+  // 1) 物理搬迁：一次性列出旧目录下所有文件 → 一个 commit 内 from→to
+  const tree = await listRepoTree(ctx.owner, ctx.repo, ctx.token)
+  const prefix = `textbooks/${from}/`
+  const moves = tree
+    .filter((e) => e.type === 'blob' && e.path.startsWith(prefix))
+    .map((e) => ({ from: e.path, to: `textbooks/${to}/${e.path.slice(prefix.length)}` }))
+  if (moves.length === 0) throw new Error(`改名失败：图书目录「${from}」下没有文件`)
+  await moveRepoFiles(moves, `chore: rename textbook ${from} → ${to}`, ctx.owner, ctx.repo, ctx.token)
+
+  // 2) 索引表：textbook_id 与 title 同步为新名（模型里二者相等）
+  const textbooks = await loadTextbooks(true)
+  const nextTextbooks = textbooks.map((t) =>
+    t.textbookId === from ? { ...t, textbookId: to, title: to } : t,
+  )
+  if (textbooks.some((t) => t.textbookId === from)) await saveTextbooks(nextTextbooks)
+
+  // 3) 材料元数据：book 的 material_id 换名（任务归属 / 标签跟着走）
+  const meta = await loadMaterialMeta(true)
+  if (meta.some((m) => m.type === 'book' && m.id === from)) {
+    await saveMaterialMeta(meta.map((m) => (m.type === 'book' && m.id === from ? { ...m, id: to } : m)))
+  }
+
+  // 4) 图书分类：把成员里的旧名替换为新名
+  const cats = await loadBookCategories(true)
+  if (cats.some((c) => c.members.includes(from))) {
+    await saveBookCategories(cats.map((c) => ({ ...c, members: c.members.map((m) => (m === from ? to : m)) })))
+  }
+
+  // 5) 各任务引用：books.csv 的 id 换名（title 若原本就等于旧 id 也一并改，保留自定义书名）
+  const projects = await loadProjects(true)
+  await Promise.all(
+    projects.map(async (p) => {
+      const refs = await loadReferences(p.projectId)
+      if (!refs.some((r) => r.type === 'book' && (r.id || r.title).trim() === from)) return
+      const next = refs.map((r) => {
+        if (r.type !== 'book' || (r.id || r.title).trim() !== from) return r
+        return { ...r, id: to, title: !r.title || r.title.trim() === from ? to : r.title }
+      })
+      await saveBookReferences(p.projectId, next)
+    }),
+  )
+
+  return { id: to, movedFiles: moves.length }
 }
