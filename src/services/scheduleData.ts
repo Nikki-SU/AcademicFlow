@@ -288,7 +288,7 @@ export function msOfDate(dateStr: string, endOfDay = false): number {
 }
 
 /**
- * 全部任务的「有效结束时间」—— 判断它是不是 DDL 的唯一标准（自底向上汇总）。
+ * 全部任务的「有效结束时间」—— 用于**任务栏的过期判定**（自底向上汇总）。
  * - 叶子任务：显式设了 `dueAt` → 用它；课程没显式设 → 取校历**学期结束（放假）**；其余 → 0。
  * - 父任务：取**子树里最晚的子 DDL** 与自身结束时间的**较晚者**；课程还要与校历
  *   「学期结束（放假）」取较晚。
@@ -296,6 +296,10 @@ export function msOfDate(dateStr: string, endOfDay = false): number {
  * 「课程父任务已过期、而考试子任务还没过期」的荒谬状态。期末周只是**课表上不再展示这门课**，
  * 任务本身要到**放假**才过期；若子树里有更晚的子任务（如「下学期之前交论文」），则随它。
  * 不落库、只用于展示与筛选，故改校历能立刻反映到所有课程。
+ *
+ * **注意：它不再是「判断是不是 DDL」的判据。** DDL 栏只看任务自己的 `dueAt`（用户 2026-10-08
+ * 明确要求）：父子各有各的交付节点是正常的分阶段交付，父 / 子何时到期都不该顶掉「这条任务自己的
+ * DDL」。这个汇总值只喂给任务栏做过期灰度，不再用于筛选 DDL 清单。
  */
 export function effectiveDueAtAll(projects: Project[], cal: SchoolCalendar): Map<string, number> {
   const semesterEndMs = msOfDate(cal.semesterEnd, true)

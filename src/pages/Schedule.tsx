@@ -146,11 +146,10 @@ export default function SchedulePage() {
 
   /**
    * 展示用的任务表：把「有效结束时间」写进 dueAt 的**副本**（不改库里的 projects）。
-   * 判定「有没有结束时间」只有一条标准 —— effectiveDueAtAll（自底向上汇总）：
-   * - 叶子任务：显式设了截止时间 → 用它；课程没设 → 取校历「学期结束（放假）」。
-   * - 父任务：取**子树里最晚的子 DDL** 与自身结束时间的较晚者；课程再与校历放假取较晚。
-   * 这样「课程在期末周到期、而考试子任务还没到期」的矛盾不再出现。
-   * 注意：有结束时间 ≠ 进右栏 DDL —— 课程 / 每周定时这类周期任务会被 ddlItems 再滤掉。
+   * 口径（自底向上汇总，见 effectiveDueAtAll）：叶子任务显式设了截止时间 → 用它；
+   * 课程没设 → 取校历「学期结束（放假）」；父任务取「子树里最晚的子 DDL」与自身结束时间的较晚者。
+   * 这份副本**只用于任务栏的过期判定**（course 类任务不到学期末不算过期，避免「课程父任务已过期、
+   * 而考试子任务还没到期」的荒谬状态）；**不再作为 DDL 清单的判据** —— DDL 栏只看任务自己的 dueAt（见 ddlItems）。
    */
   const displayProjects = useMemo(() => {
     const effMap = effectiveDueAtAll(projects, calendar)
@@ -173,17 +172,21 @@ export default function SchedulePage() {
   )
 
   /**
-   * DDL 清单：有结束时间、且不是周期任务。
-   * 未完成的只保留「未来一个月内」（已过期 / 一个月以外都不展示 —— 用户要求）；
-   * 已完成的仍交给页头「显示已完成」开关处理。按 dueAt 升序。
+   * DDL 清单：**只看任务自己的截止时间**（用户 2026-10-08 明确要求）。
+   * 判据：任务自己填了 `dueAt`、且不是周期任务；未完成的只保留「未来一个月内」
+   * （已过期 / 一个月以外都不展示）；已完成的仍交给页头「显示已完成」开关处理。
+   * 刻意**不用** `displayProjects`（那份会把课程默认抬到学期末、父任务又继承子树最晚的子 DDL）——
+   * 父子各有各的交付节点是正常的分阶段交付，父 / 子何时到期都不该顶掉「这条任务自己的 DDL」。
+   * 课程 / 每周定时这类周期任务仍按「是否挂了每周重复时段」排除（它们本就没填 dueAt）。
+   * 按 dueAt 升序。
    */
   const ddlItems = useMemo(() => {
     const now = Date.now()
-    return displayProjects
+    return projects
       .filter((p) => p.dueAt > 0 && !periodicTaskIds.has(p.projectId))
       .filter((p) => p.done || (p.dueAt > now && p.dueAt <= now + MONTH_MS))
       .sort((a, b) => a.dueAt - b.dueAt)
-  }, [displayProjects, periodicTaskIds])
+  }, [projects, periodicTaskIds])
 
   // 页面里是否存在过期任务（未完成且已过点）—— 决定页头「显示过期」开关要不要出现
   const hasExpired = useMemo(() => displayProjects.some((p) => !p.done && isOverdue(p)), [displayProjects])
