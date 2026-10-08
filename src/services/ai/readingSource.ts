@@ -8,8 +8,8 @@
  * 策略：
  *   1. 以 AI-1 / AI-2 里**较小**的窗口为准（同一份源材料要同时喂给两端）；
  *   2. 整份正文（+选中片段）估算 token ≤ 预算 → 全送，一字不截；
- *   3. 超预算 → 把正文按标题切成章节，先送「目录 + 问题」让 AI 挑相关章节，
- *      再本地切出这些章节的**完整正文**当源材料；
+ *   3. 超预算 → 把正文按标题切成章节（切到哪一层按预算自适应，见 `splitIntoChapters`），
+ *      先送「目录 + 问题」让 AI 挑相关章节，再本地切出这些章节的**完整正文**当源材料；
  *   4. 正文没有任何可用标题（切不出章节）→ 按预算给选中处上下文（无标题就只能这样，
  *      预算仍由模型窗口派生，不是写死的 4000 字）。
  *
@@ -82,7 +82,7 @@ export async function buildReadingSourceMaterial(
 
   // ── 塞不下 → 两阶段选章 ──
   opts.onStage?.('材料较长，正在定位相关章节…')
-  const chapters = splitIntoChapters(doc)
+  const chapters = splitIntoChapters(doc, budget)
 
   if (chapters.length <= 1) {
     // 没有可用标题，切不出章节 → 按预算给选中处上下文
@@ -102,12 +102,28 @@ export async function buildReadingSourceMaterial(
   return { material: selBlock + material, mode: 'chapters', pickedTitles: titles }
 }
 
-/** 按标题切章节：优先一级标题，切不出再试二级标题；都切不出则返回单块 */
-function splitIntoChapters(doc: string) {
+/**
+ * 按标题切章，并**按预算挑「切到哪一层」**（ADJ-132）。
+ *
+ * 旧口径「h1 能切出 >1 块就用 h1」在《注定一战》这类「`#` = 部/卷、`##` = 章/附录」的书上，
+ * 会把附录（`## 附录1 …`）挡在目录之外：只切出 4 个「部/卷」级大块，目录里根本没有附录，
+ * AI 永远选不到它 → 附录正文永不进模型 → AI 只能老实回 `[NOT_IN_SOURCE]`（书里其实有）。
+ *
+ * 新口径：h1 若**可作「章」级使用**才用 h1，否则退 h2 ——
+ *   - h1 块数 ≥ 2，且
+ *   - h1 中**最大块估算 token ≤ 预算的一半**（任一整章就吃掉一半以上预算 = 太粗，是「部/卷」级）。
+ * 两条都满足 → h1；否则 h2 块数 ≥ 2 就用 h2；h2 也不成 → 回 h1（与旧行为一致）。
+ */
+const COARSE_BLOCK_RATIO = 0.5
+
+function splitIntoChapters(doc: string, budget: number) {
   const l1 = splitMarkdownIntoChapters(doc, 1).chapterContents
-  if (l1.length > 1) return l1
   const l2 = splitMarkdownIntoChapters(doc, 2).chapterContents
-  if (l2.length > 1) return l2
+  const usable = (chs: typeof l1) =>
+    chs.length >= 2 &&
+    Math.max(...chs.map((c) => estimateTokens(c.content))) <= budget * COARSE_BLOCK_RATIO
+  if (usable(l1)) return l1
+  if (l2.length >= 2) return l2
   return l1
 }
 
