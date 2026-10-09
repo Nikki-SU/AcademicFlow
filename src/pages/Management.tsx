@@ -824,6 +824,9 @@ export default function ManagementPage() {
   const [editingDocument, setEditingDocument] = useState<DocumentSummary | null>(null)
   const [editDocForm, setEditDocForm] = useState({ title: '', author: '', taskId: '', tags: [] as string[] })
   const [savingDocument, setSavingDocument] = useState(false)
+  // 文献 / 模板保存中：禁用对应按钮并显示「保存中…」
+  const [savingPaper, setSavingPaper] = useState(false)
+  const [savingTemplate, setSavingTemplate] = useState(false)
 
   // 后台任务状态
   const taskQueue = useTaskQueueStore()
@@ -1452,6 +1455,7 @@ export default function ManagementPage() {
   }, [doiQuickInput, papers, activeTaskId, materialMeta])
 
   const handleAddPaper = async () => {
+    if (savingPaper) return
     if (!newPaper.title.trim()) {
       toast.warning('请先填写文献标题')
       return
@@ -1498,6 +1502,7 @@ export default function ManagementPage() {
     }
     const updated = [paper, ...papers]
     setPapers(updated)
+    setSavingPaper(true)
     try {
       await savePapers(updated)
       await persistMeta(setMeta(materialMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
@@ -1506,6 +1511,8 @@ export default function ManagementPage() {
     } catch (err) {
       setPapers(prevPapers)
       toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+    } finally {
+      setSavingPaper(false)
     }
   }
 
@@ -1924,31 +1931,36 @@ export default function ManagementPage() {
   }, [showEditPaperModal, editingPaper?.doi])
 
   const handleSavePaper = async () => {
-    if (!editingPaper) return
-    // 词根词缀先写：整表重写，失败就别把弹窗关掉（用户还能重试）
-    if (paperWords && paperWordsDirty) {
-      try {
-        await saveWords(paperWords)
-      } catch (err) {
-        toast.error(`词根词缀保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
-        return
-      }
-    }
-    const prevPapers = papers
-    const updated = papers.map((p) => (p.id === editingPaper.id ? editingPaper : p))
-    setPapers(updated)
+    if (!editingPaper || savingPaper) return
+    setSavingPaper(true)
     try {
-      await savePapers(updated)
-      if (editingPaper.doi) {
-        await persistMeta(setMeta(materialMeta, 'paper', editingPaper.doi, { taskId: editingPaper.taskId, tags: editingPaper.tags }))
+      // 词根词缀先写：整表重写，失败就别把弹窗关掉（用户还能重试）
+      if (paperWords && paperWordsDirty) {
+        try {
+          await saveWords(paperWords)
+        } catch (err) {
+          toast.error(`词根词缀保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+          return
+        }
       }
-      setShowEditPaperModal(false)
-      setEditingPaper(null)
-      setPaperWords(null)
-      setPaperWordsDirty(false)
-    } catch (err) {
-      setPapers(prevPapers)
-      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+      const prevPapers = papers
+      const updated = papers.map((p) => (p.id === editingPaper.id ? editingPaper : p))
+      setPapers(updated)
+      try {
+        await savePapers(updated)
+        if (editingPaper.doi) {
+          await persistMeta(setMeta(materialMeta, 'paper', editingPaper.doi, { taskId: editingPaper.taskId, tags: editingPaper.tags }))
+        }
+        setShowEditPaperModal(false)
+        setEditingPaper(null)
+        setPaperWords(null)
+        setPaperWordsDirty(false)
+      } catch (err) {
+        setPapers(prevPapers)
+        toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+      }
+    } finally {
+      setSavingPaper(false)
     }
   }
 
@@ -2073,7 +2085,8 @@ export default function ManagementPage() {
 
   // 期刊模板操作 —— 全部通过 journal-templates.ts 持久化到 GitHub 私库
   const handleAddTemplate = async () => {
-    if (!newTemplate.name.trim()) return
+    if (!newTemplate.name.trim() || savingTemplate) return
+    setSavingTemplate(true)
     try {
       const backend = await createTemplate({
         name: newTemplate.name.trim(),
@@ -2088,6 +2101,8 @@ export default function ManagementPage() {
     } catch (err) {
       toast.error(`创建模板失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleAddTemplate]', err)
+    } finally {
+      setSavingTemplate(false)
     }
   }
 
@@ -2151,11 +2166,12 @@ export default function ManagementPage() {
   }
 
   const handleSaveTemplate = async () => {
-    if (!editingTemplate) return
+    if (!editingTemplate || savingTemplate) return
     if (!newTemplate.name.trim()) {
       toast.error('请填写期刊名')
       return
     }
+    setSavingTemplate(true)
     try {
       // 存的是表单里的值（newTemplate），不是打开时的旧值 —— 否则用户在弹窗里改的全丢了
       await updateTemplate(editingTemplate.id, {
@@ -2172,6 +2188,8 @@ export default function ManagementPage() {
     } catch (err) {
       toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
       console.error('[handleSaveTemplate]', err)
+    } finally {
+      setSavingTemplate(false)
     }
   }
 
@@ -3771,10 +3789,11 @@ export default function ManagementPage() {
             </button>
             <button
               onClick={handleAddPaper}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
+              disabled={savingPaper}
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-60"
             >
-              <Plus className="w-4 h-4" />
-              添加
+              {savingPaper ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {savingPaper ? '添加中…' : '添加'}
             </button>
           </div>
         </Modal>
@@ -4097,10 +4116,11 @@ export default function ManagementPage() {
             </button>
             <button
               onClick={handleSavePaper}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
+              disabled={savingPaper}
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-60"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              保存
+              {savingPaper ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {savingPaper ? '保存中…' : '保存'}
             </button>
           </div>
         </Modal>
@@ -4235,10 +4255,11 @@ export default function ManagementPage() {
             </button>
             <button
               onClick={editingTemplate ? handleSaveTemplate : handleAddTemplate}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
+              disabled={savingTemplate}
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-60"
             >
-              <Plus className="w-4 h-4" />
-              {editingTemplate ? '保存修改' : '创建模板'}
+              {savingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {savingTemplate ? (editingTemplate ? '保存中…' : '创建中…') : (editingTemplate ? '保存修改' : '创建模板')}
             </button>
           </div>
         </Modal>
@@ -4550,7 +4571,7 @@ export default function ManagementPage() {
               className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {savingDocument ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              保存
+              {savingDocument ? '保存中…' : '保存'}
             </button>
           </div>
         </Modal>

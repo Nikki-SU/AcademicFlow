@@ -102,11 +102,14 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const [cameraOpen, setCameraOpen] = useState(false)
   const [editingBoard, setEditingBoard] = useState(false)
   const [boardDraft, setBoardDraft] = useState('')
+  // 保存 board / 材料 md 期间禁用「保存」并显示「保存中…」
+  const [savingBoard, setSavingBoard] = useState(false)
   // 材料转换结果查看：viewingMaterial 非空时主区切到该材料的 md 视图
   const [viewingMaterial, setViewingMaterial] = useState<SessionMaterialMd | null>(null)
   const [materialMd, setMaterialMd] = useState<string | null>(null)
   const [materialDraft, setMaterialDraft] = useState('')
   const [editingMaterial, setEditingMaterial] = useState(false)
+  const [savingMaterial, setSavingMaterial] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   // reload 里要刷新「正在查看的材料」，但 reload 本身不该随 viewingMaterial 重建，用 ref 镜像
   const viewingRef = useRef<SessionMaterialMd | null>(null)
@@ -254,7 +257,8 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
 
   /** 保存编辑后的 board.md；成功即退出编辑态并刷新 */
   const saveBoardEdit = async () => {
-    if (!taskId || !sessionId) return
+    if (!taskId || !sessionId || savingBoard) return
+    setSavingBoard(true)
     try {
       await saveSessionBoard(taskId, sessionId, boardDraft)
       setEditingBoard(false)
@@ -262,6 +266,8 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`保存识别结果失败：${msg}`, { duration: 8000 })
+    } finally {
+      setSavingBoard(false)
     }
   }
 
@@ -300,7 +306,8 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
 
   /** 保存材料 md 编辑；写失败 toast，不静默 */
   const saveMaterialEdit = async () => {
-    if (!taskId || !sessionId || !viewingMaterial) return
+    if (!taskId || !sessionId || !viewingMaterial || savingMaterial) return
+    setSavingMaterial(true)
     try {
       await saveSessionMaterialMd(taskId, sessionId, viewingMaterial.name, materialDraft)
       setEditingMaterial(false)
@@ -308,6 +315,8 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`保存材料转换结果失败：${msg}`, { duration: 8000 })
+    } finally {
+      setSavingMaterial(false)
     }
   }
 
@@ -401,8 +410,14 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
                   <Button variant="ghost" size="sm" onClick={() => setEditingMaterial(false)}>
                     取消
                   </Button>
-                  <Button variant="primary" size="sm" onClick={() => void saveMaterialEdit()}>
-                    保存
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => void saveMaterialEdit()}
+                    disabled={savingMaterial}
+                    icon={savingMaterial ? <Loader2 className="animate-spin" /> : undefined}
+                  >
+                    {savingMaterial ? '保存中…' : '保存'}
                   </Button>
                 </div>
               </div>
@@ -525,8 +540,14 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
                 <Button variant="ghost" size="sm" onClick={cancelBoardEdit}>
                   取消
                 </Button>
-                <Button variant="primary" size="sm" onClick={() => void saveBoardEdit()}>
-                  保存
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void saveBoardEdit()}
+                  disabled={savingBoard}
+                  icon={savingBoard ? <Loader2 className="animate-spin" /> : undefined}
+                >
+                  {savingBoard ? '保存中…' : '保存'}
                 </Button>
               </div>
             </div>

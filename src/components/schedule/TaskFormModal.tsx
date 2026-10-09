@@ -174,7 +174,8 @@ export function TaskFormModal({
   initialParentId: string | null
   parentOptions: ParentOption[]
   onClose: () => void
-  onSubmit: (value: TaskFormValue) => void
+  /** 提交回调：返回 Promise，前端据此在保存期间禁用按钮并显示「保存中…」 */
+  onSubmit: (value: TaskFormValue) => Promise<void>
 }) {
   const [name, setName] = useState(project?.title ?? '')
   const [type, setType] = useState<ProjectType | ''>(project ? project.type : initialType ?? '')
@@ -187,6 +188,8 @@ export function TaskFormModal({
   const [dueOpen, setDueOpen] = useState(true)
   const [brief, setBrief] = useState('')
   const [loadingBrief, setLoadingBrief] = useState(!!project)
+  // 保存中：禁用「创建 / 保存」按钮并显示「保存中…」，避免点了没反应像卡死
+  const [submitting, setSubmitting] = useState(false)
   const [aiRunning, setAiRunning] = useState(false)
   const [aiStage, setAiStage] = useState('')
   const [aiResult, setAiResult] = useState<DualEngineResult | null>(null)
@@ -277,7 +280,8 @@ export function TaskFormModal({
   // 子任务入口继承父节点大类，不显示选择条；编辑与顶级新建都显示
   const showType = mode === 'edit' ? true : !initialParentId
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (submitting) return
     const trimmed = name.trim()
     if (!trimmed) {
       toast.warning('请填写任务名称')
@@ -291,15 +295,22 @@ export function TaskFormModal({
     const cleanNotes = notes
       .map((n) => ({ ...n, text: n.text.trim() }))
       .filter((n) => n.text.length > 0)
-    onSubmit({
-      title: trimmed,
-      type: effectiveType,
-      parentId: parentId || null,
-      startAt: toMs(start),
-      dueAt: toMs(due),
-      brief,
-      notes: notesTouchedRef.current ? cleanNotes : null,
-    })
+    setSubmitting(true)
+    try {
+      await onSubmit({
+        title: trimmed,
+        type: effectiveType,
+        parentId: parentId || null,
+        startAt: toMs(start),
+        dueAt: toMs(due),
+        brief,
+        notes: notesTouchedRef.current ? cleanNotes : null,
+      })
+      // 成功：由父级关闭弹窗（关闭本身就是成功反馈，不再弹 toast）
+    } catch {
+      // 失败：错误提示已由上层处理，这里保持输入、恢复按钮可点，让用户能重试
+      setSubmitting(false)
+    }
   }
 
   const handleSummarize = async () => {
@@ -484,9 +495,11 @@ export function TaskFormModal({
           </button>
           <button
             onClick={handleSubmit}
-            className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
+            disabled={submitting}
+            className="flex items-center gap-1.5 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-60"
           >
-            {mode === 'create' ? '创建' : '保存'}
+            {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {submitting ? '保存中…' : mode === 'create' ? '创建' : '保存'}
           </button>
         </>
       }

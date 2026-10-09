@@ -61,6 +61,8 @@ function JournalTemplatesPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<JournalTemplate | null>(null)
   const [loading, setLoading] = useState(true)
   const [isExtracting, setIsExtracting] = useState(false)
+  // 保存模板中：禁用「保存」按钮并显示「保存中…」
+  const [saving, setSaving] = useState(false)
   const [extracted, setExtracted] = useState<ExtractedGuidelines | null>(null)
 
   // 表单状态
@@ -207,11 +209,13 @@ function JournalTemplatesPage() {
 
   // 保存（新建）
   const handleCreate = async () => {
+    if (saving) return
     if (!formName.trim()) {
       toast.error('请填写期刊名称')
       return
     }
 
+    setSaving(true)
     try {
       const packages = formPackages
         .split('\n')
@@ -248,17 +252,21 @@ function JournalTemplatesPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`创建失败：${msg}`)
+    } finally {
+      setSaving(false)
     }
   }
 
   // 保存（编辑）
   const handleUpdate = async () => {
     if (!selectedTemplate) return
+    if (saving) return
     if (!formName.trim()) {
       toast.error('请填写期刊名称')
       return
     }
 
+    setSaving(true)
     try {
       const packages = formPackages
         .split('\n')
@@ -295,6 +303,8 @@ function JournalTemplatesPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`更新失败：${msg}`)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -484,10 +494,11 @@ function JournalTemplatesPage() {
           </div>
           <button
             onClick={view === 'create' ? handleCreate : handleUpdate}
-            className="flex items-center gap-1.5 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-md shadow-seal-200"
+            disabled={saving}
+            className="flex items-center gap-1.5 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-md shadow-seal-200 disabled:opacity-60"
           >
-            <Save className="w-4 h-4" />
-            保存
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? '保存中…' : '保存'}
           </button>
         </div>
       </header>
@@ -809,10 +820,11 @@ function JournalTemplatesPage() {
           </button>
           <button
             onClick={view === 'create' ? handleCreate : handleUpdate}
-            className="flex items-center gap-1.5 px-6 py-2.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-lg shadow-seal-200"
+            disabled={saving}
+            className="flex items-center gap-1.5 px-6 py-2.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-lg shadow-seal-200 disabled:opacity-60"
           >
-            <Save className="w-4 h-4" />
-            保存模板
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? '保存中…' : '保存模板'}
           </button>
         </div>
       </main>

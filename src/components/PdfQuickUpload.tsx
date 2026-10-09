@@ -7,7 +7,7 @@
  *   B) <PdfQuickUploadModal open onClose> — 被外部控制 open/close
  */
 import { useState, useRef } from 'react'
-import { Upload, X, CheckCircle2, Plus } from 'lucide-react'
+import { Upload, X, CheckCircle2, Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { normalizeDoi, getCitationEntries } from '../services/citation'
 import { loadLiteratures, saveLiteratures, inferPaperTier, type Literature } from '../services/literatureData'
@@ -90,6 +90,8 @@ export function PdfQuickUploadModal(props: {
   const [doi, setDoi] = useState('')
   const [title, setTitle] = useState('')
   const [autoResolving, setAutoResolving] = useState(false)
+  // 入库并上传中：禁用按钮并显示「上传中…」
+  const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Modal 关闭时清空
@@ -119,13 +121,18 @@ export function PdfQuickUploadModal(props: {
     finally { setAutoResolving(false) }
   }
 
-  const handleConfirm = () => {
-    if (!pendingPdf) return
-    void doUpload({
-      pdf: pendingPdf, doi, title,
-      setDoi, setTitle, setPdf: setPendingPdf,
-      onSuccess, onCancel: onClose,
-    })
+  const handleConfirm = async () => {
+    if (!pendingPdf || uploading) return
+    setUploading(true)
+    try {
+      await doUpload({
+        pdf: pendingPdf, doi, title,
+        setDoi, setTitle, setPdf: setPendingPdf,
+        onSuccess, onCancel: onClose,
+      })
+    } finally {
+      setUploading(false)
+    }
   }
 
   const handleClose = () => {
@@ -229,11 +236,11 @@ export function PdfQuickUploadModal(props: {
                 </button>
                 <button
                   onClick={handleConfirm}
-                  disabled={!doi.trim()}
+                  disabled={!doi.trim() || uploading}
                   className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 disabled:opacity-50 rounded-control transition"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  入库并上传
+                  {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  {uploading ? '上传中…' : '入库并上传'}
                 </button>
               </div>
             </div>

@@ -718,14 +718,10 @@ export default function SchedulePage() {
             initialParentId={editor.mode === 'create' ? editor.parentId : null}
             parentOptions={editorParentOptions}
             onClose={() => setEditor(null)}
-            onSubmit={(value) => {
-              const done =
-                editor.mode === 'edit'
-                  ? handleUpdateTask(editor.projectId, value)
-                  : handleCreateTask(value)
-              void done
-                .then(() => setEditor(null))
-                .catch((err) => console.error('[Schedule] 保存任务失败:', err))
+            onSubmit={async (value) => {
+              if (editor.mode === 'edit') await handleUpdateTask(editor.projectId, value)
+              else await handleCreateTask(value)
+              setEditor(null)
             }}
           />
         </ErrorBoundary>
