@@ -37,6 +37,21 @@ export type JournalTemplateRow = JournalTemplate
 /** citation_cache 表行结构 = CitationEntry */
 export type CitationCacheRow = CitationEntry
 
+/**
+ * fs_handles 表行结构（本地工作区用）
+ * ---------------------------------------------------
+ * 存 File System Access API 的目录句柄（FileSystemDirectoryHandle）。
+ * 句柄本身可被 IndexedDB 结构化克隆持久化，刷新后据此「记住」上次授权的
+ * 本地文件夹，避免每次打开都重新弹 showDirectoryPicker；权限是否仍有效
+ * 由 queryPermission / requestPermission 运行时判定（句柄按 id 单槽存放）。
+ */
+export interface FsHandleRow {
+  id: string
+  handle: FileSystemDirectoryHandle
+  name: string
+  savedAt: number
+}
+
 /** IndexedDB 已知 key 白名单（避免拼写错误） */
 export const SETTING_KEYS = {
   // 设置（M3，SPEC v0.3 §7.3）
@@ -108,6 +123,7 @@ class AcademicFlowDB extends Dexie {
   settings!: Table<SettingRow, string>
   journal_templates!: Table<JournalTemplateRow, string>
   citation_cache!: Table<CitationCacheRow, string>
+  fs_handles!: Table<FsHandleRow, string>
 
   constructor() {
     super('academicflow')
@@ -124,6 +140,14 @@ class AcademicFlowDB extends Dexie {
       settings: 'key',
       journal_templates: 'id, name, publisher, created_at, updated_at',
       citation_cache: 'doi, title, year, journal, fetched_at',
+    })
+    this.version(4).stores({
+      auth: 'id, method, github_username, login_at, expires_at',
+      settings: 'key',
+      journal_templates: 'id, name, publisher, created_at, updated_at',
+      citation_cache: 'doi, title, year, journal, fetched_at',
+      // 本地工作区目录句柄（File System Access API），按 id 单槽存
+      fs_handles: 'id, savedAt',
     })
   }
 }
@@ -168,4 +192,31 @@ export async function putAuth(row: Omit<AuthRow, 'id'>): Promise<void> {
 
 export async function deleteAuth(): Promise<void> {
   await db.auth.delete(AUTH_RECORD_ID)
+}
+
+// ============================================================
+// fs_handles 表操作（本地工作区目录句柄）
+// ============================================================
+
+const FS_HANDLE_RECORD_ID = 'local_workspace'
+
+/** 读本地工作区目录句柄（未授权过返回 null） */
+export async function getFsHandle(): Promise<FsHandleRow | null> {
+  const row = await db.fs_handles.get(FS_HANDLE_RECORD_ID)
+  return row ?? null
+}
+
+/** 存本地工作区目录句柄 */
+export async function putFsHandle(handle: FileSystemDirectoryHandle): Promise<void> {
+  await db.fs_handles.put({
+    id: FS_HANDLE_RECORD_ID,
+    handle,
+    name: handle.name,
+    savedAt: Date.now(),
+  })
+}
+
+/** 删本地工作区目录句柄（解除记忆） */
+export async function deleteFsHandle(): Promise<void> {
+  await db.fs_handles.delete(FS_HANDLE_RECORD_ID)
 }
