@@ -15,6 +15,7 @@ import {
   loadProjects,
   buildTaskFilterOptions,
   taskFilterMatches,
+  removeLibraryReferences,
   type Project,
   type TaskFilterOption,
 } from '../services/projectData'
@@ -1779,6 +1780,20 @@ export default function ManagementPage() {
           )
         }
       }
+
+      // ═══ 4. 摘掉各项目引用里的这篇文献（悬空引用清理）═══
+      // 删了库里的文献，各任务 references/papers.csv 就不该再列着它；故障只告警、不回滚。
+      if (paperDoi) {
+        try {
+          await removeLibraryReferences('paper', [paperDoi])
+        } catch (refErr) {
+          console.warn('[handleDeletePaper] 项目引用清理失败:', refErr)
+          toast.warning(
+            `文献已删除，但项目引用清理失败：${refErr instanceof Error ? refErr.message : String(refErr)}`,
+            { duration: 8000 },
+          )
+        }
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error('[handleDeletePaper] 主流程异常:', e)
@@ -2074,6 +2089,19 @@ export default function ManagementPage() {
         if (csvErrors.length > 0) {
           toast.warning(
             `文献已删除，但以下学习数据清理失败：${csvErrors.join('、')}。请稍后在对应本里手动删除。`,
+            { duration: 8000 },
+          )
+        }
+      }
+
+      // ═══ 4. 摘掉各项目引用里的这些文献（悬空引用清理）═══
+      if (dois.length > 0) {
+        try {
+          await removeLibraryReferences('paper', dois)
+        } catch (refErr) {
+          console.warn('[handleBatchDelete] 项目引用清理失败:', refErr)
+          toast.warning(
+            `文献已删除，但项目引用清理失败：${refErr instanceof Error ? refErr.message : String(refErr)}`,
             { duration: 8000 },
           )
         }
@@ -2392,6 +2420,16 @@ export default function ManagementPage() {
     } catch (err) {
       toast.warning(
         `图书已删除，但其正文/笔记等文件清理失败：${err instanceof Error ? err.message : String(err)}`,
+        { duration: 8000 },
+      )
+    }
+    // 摘掉各项目引用里的这本书（悬空引用清理）；故障只告警、不回滚。
+    try {
+      await removeLibraryReferences('book', [book.id])
+    } catch (refErr) {
+      console.warn('[handleDeleteBook] 项目引用清理失败:', refErr)
+      toast.warning(
+        `图书已删除，但项目引用清理失败：${refErr instanceof Error ? refErr.message : String(refErr)}`,
         { duration: 8000 },
       )
     }

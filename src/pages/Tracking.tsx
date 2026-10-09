@@ -891,6 +891,19 @@ export default function TrackingPage() {
   const handleDeleteJournal = (id: string) => {
     setJournals((prev) => prev.filter((j) => j.id !== id))
     setSelectedJournalIds((prev) => prev.filter((x) => x !== id))
+    // 级联清理悬空引用：期刊删了，各追踪计划的 journalIds 就不该再列着它。
+    // 只对「确实还引用它」的计划写入（无变化则不动，避免无谓的防抖保存）。
+    const affected = plans.filter((p) => p.journalIds.includes(id))
+    if (affected.length > 0) {
+      setPlans((prev) =>
+        prev.map((p) =>
+          p.journalIds.includes(id)
+            ? { ...p, journalIds: p.journalIds.filter((x) => x !== id) }
+            : p,
+        ),
+      )
+      toast.message(`已从 ${affected.length} 个追踪计划中移除此期刊`)
+    }
   }
 
   /** 期刊「全选」：语义是全选当前列表里的全部（无筛选） */
@@ -907,6 +920,18 @@ export default function TrackingPage() {
     const selected = new Set(selectedJournalIds)
     setJournals((prev) => prev.filter((j) => !selected.has(j.id)))
     setSelectedJournalIds([])
+    // 级联清理悬空引用：把这批期刊从各追踪计划的 journalIds 里摘掉。
+    const affected = plans.filter((p) => p.journalIds.some((x) => selected.has(x)))
+    if (affected.length > 0) {
+      setPlans((prev) =>
+        prev.map((p) =>
+          p.journalIds.some((x) => selected.has(x))
+            ? { ...p, journalIds: p.journalIds.filter((x) => !selected.has(x)) }
+            : p,
+        ),
+      )
+      toast.message(`已从 ${affected.length} 个追踪计划中移除所选期刊`)
+    }
   }
 
   const toggleJournalSelect = (id: string) => {

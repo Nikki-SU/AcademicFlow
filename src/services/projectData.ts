@@ -20,7 +20,8 @@ import {
   readRepoTextFile,
 } from './github'
 import { loadLiteratures, saveLiteratures, doiToSlug } from './literatureData'
-import { loadMaterialMeta, saveMaterialMeta, dropMeta } from './materialMeta'
+import { isSameDoi } from './citation'
+import { loadMaterialMeta, saveMaterialMeta } from './materialMeta'
 import { loadTextbooks, saveTextbooks, listBooks } from './textbookData'
 import { loadBookCategories, saveBookCategories } from './categoryData'
 
@@ -402,6 +403,50 @@ export async function saveBookReferences(projectId: string, refs: CitationRef[])
   )
 }
 
+/**
+ * 从所有项目的引用里摘掉已删除的库材料（悬空引用清理）。
+ * -------------------------------------------------
+ * 与 renameBook 的「改名同步引用」正好成对：改名时把引用从旧名迁到新名，
+ * 删除时就必须把引用彻底摘掉，否则各任务的 references/papers.csv / books.csv
+ * 会一直指向一篇已不存在的文献 / 图书（悬空引用）。
+ *
+ * 匹配口径与 renameBook / planDeleteProject 保持一致：
+ *   - 文献：按 DOI 比对（isSameDoi，去前缀 / 逗号大小写归一）
+ *   - 图书：按 (id || title) 精确比对（图书主键即书名）
+ *
+ * 只负责摘引用，不负责删材料本身（那由调用方按各自乐观 UI 口径处理）。
+ * 返回被摘掉引用的项目数；任一项目写失败即抛出，由调用方如实上报，不静默吞。
+ */
+export async function removeLibraryReferences(
+  kind: 'paper' | 'book',
+  keys: string[],
+): Promise<number> {
+  const wanted = keys.map((k) => k.trim()).filter(Boolean)
+  if (wanted.length === 0) return 0
+
+  const projects = await loadProjects(true)
+  let touched = 0
+  await Promise.all(
+    projects.map(async (p) => {
+      const refs = await loadReferences(p.projectId)
+      const next = refs.filter((r) => {
+        if (kind === 'book') {
+          if (r.type !== 'book') return true
+          const key = (r.id || r.title).trim()
+          return !wanted.includes(key)
+        }
+        if (r.type !== 'paper') return true
+        return !wanted.some((k) => isSameDoi(r.doi, k))
+      })
+      if (next.length === refs.length) return
+      if (kind === 'book') await saveBookReferences(p.projectId, next)
+      else await savePaperReferences(p.projectId, next)
+      touched++
+    }),
+  )
+  return touched
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // 任务 CRUD：改名 / 删除（ADJ-64）
 // 「材料」= 任务引用的库文献 / 图书（可被多个任务共享）。删除任务时：
@@ -535,12 +580,14 @@ export async function deleteProject(
     )
   }
 
-  // purge：清理独占材料的库索引与元数据（任务归属 / 标签）
+  // purge：清理独占材料的库索引（文献 / 图书）
+  let litDrop = new Set<string>()
+  let bookDrop = new Set<string>()
   if (exclusive.length > 0) {
-    const litDrop = new Set(
+    litDrop = new Set(
       exclusive.filter((m) => m.kind === 'literature').map((m) => m.key.toLowerCase()),
     )
-    const bookDrop = new Set(exclusive.filter((m) => m.kind === 'textbook').map((m) => m.key))
+    bookDrop = new Set(exclusive.filter((m) => m.kind === 'textbook').map((m) => m.key))
     if (litDrop.size > 0) {
       const lits = await loadLiteratures(true)
       await saveLiteratures(lits.filter((l) => !litDrop.has((l.doi || '').toLowerCase())))
@@ -549,11 +596,25 @@ export async function deleteProject(
       const books = await loadTextbooks(true)
       await saveTextbooks(books.filter((t) => !bookDrop.has(t.textbookId)))
     }
-    let meta = await loadMaterialMeta(true)
-    for (const doi of litDrop) meta = dropMeta(meta, 'paper', doi)
-    for (const id of bookDrop) meta = dropMeta(meta, 'book', id)
-    await saveMaterialMeta(meta)
   }
+
+  // 材料元数据：
+  //   1) purge 掉的独占材料 → 整条移除；
+  //   2) 其余仍挂在被删任务下（task_id === projectId）的材料 → 归属清空（悬空归属）。
+  //      detach 模式虽然保留材料，但它的 task_id 同样指向已删任务，必须一并清掉，
+  //      否则材料会显示成归属于一个不存在的任务。只留标签的条目保留，两者皆无则整条移除。
+  const meta = await loadMaterialMeta(true)
+  const nextMeta = meta
+    .filter((m) => !(m.type === 'paper' && litDrop.has(m.id.toLowerCase())))
+    .filter((m) => !(m.type === 'book' && bookDrop.has(m.id)))
+    .map((m) => (m.taskId === projectId ? { ...m, taskId: '' } : m))
+    .filter((m) => m.taskId || m.tags.length > 0)
+  const metaSig = (l: typeof meta) =>
+    l
+      .map((m) => `${m.type}\u0001${m.id}\u0001${m.taskId}\u0001${m.tags.join(',')}`)
+      .sort()
+      .join('\u0002')
+  if (metaSig(nextMeta) !== metaSig(meta)) await saveMaterialMeta(nextMeta)
 
   // 更新项目表：删该任务；直接子任务提升为顶级
   const next = projects
