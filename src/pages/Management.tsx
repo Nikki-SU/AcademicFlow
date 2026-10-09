@@ -56,7 +56,7 @@ import {
   isValidMorphemeSplit, MORPHEME_TYPE_LABELS,
 } from '../services/learningData'
 import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
-import { normalizeDoi, getCitationEntries, cleanAbstract } from '../services/citation'
+import { normalizeDoi, isSameDoi, getCitationEntries, cleanAbstract } from '../services/citation'
 import { loadJournalAbbrevMap, saveJournalAbbrev, mergeJournalAbbrevs, lookupJournalAbbrevsWithAI } from '../services/journalAbbrev'
 import {
   BookMarked,
@@ -474,7 +474,7 @@ function PaperMorphemeSection({
   onChange: (next: WordData[]) => void
 }) {
   const mine = useMemo(
-    () => (words || []).filter((w) => w.sourceDoi && w.sourceDoi === doi),
+    () => (words || []).filter((w) => w.sourceDoi && isSameDoi(w.sourceDoi, doi)),
     [words, doi],
   )
   const [open, setOpen] = useState(false)
@@ -1583,32 +1583,50 @@ export default function ManagementPage() {
     return { owner: auth.user.login, repo: ws.repo.name, token: auth.token }
   }
 
-  /** 从 CSV 删除所有 source_doi === paperDoi 的行（load → filter → save） */
-  const cleanUpCsvByDoi = async (paperDoi: string) => {
+  /**
+   * 级联清理：删除给定 DOI（可一次传多个）在全部学习数据 CSV 中的关联行。
+   *
+   * 原则（用户 2026-10-08 定调，属泛指）：**删一篇文献，它的对应物件也要一起删**。
+   * 单词本 / 长难句本 / 翻译练习本都以 source_doi 关联文献，文献删了它们没删，
+   * 就等于留着"已经不想读的文献"提炼出来的单词/例句——必须一并清除。
+   *
+   * 两个关键设计（都是修 bug 的根因，不是随手加的）：
+   *  1. **一次传一批 DOI、每张表只读写一遍**：旧的逐篇 fire-and-forget 会对同一张表
+   *     并发「读-改-写」，后写覆盖先写 / sha 冲突 → 部分行没删掉（=用户看到的"删了文献单词还在"）。
+   *  2. **用 isSameDoi 匹配**：DOI 大小写不敏感，且展示侧（词根词缀核对区）也用同一口径判定，
+   *     避免"界面显示有、删除说没有"。
+   *
+   * 返回失败的文件名列表；空数组 = 全部成功（调用方据此如实上报，不再把失败咽进 console）。
+   */
+  const purgeLiteratureObjects = async (dois: string[]): Promise<string[]> => {
+    const targets = dois.filter((d) => (d || '').trim())
+    if (targets.length === 0) return []
+    const hit = (sourceDoi: string) => targets.some((d) => isSameDoi(sourceDoi, d))
     const errors: string[] = []
+
     try {
       const words = await loadWords(true)
-      const remaining = words.filter((w) => w.sourceDoi !== paperDoi)
+      const remaining = words.filter((w) => !hit(w.sourceDoi))
       if (remaining.length !== words.length) await saveWords(remaining)
     } catch (e) {
-      errors.push(`vocabulary.csv 删除失败`)
-      console.warn('[cleanUpCsv] vocabulary:', e)
+      errors.push('词汇本')
+      console.warn('[purgeLiteratureObjects] vocabulary:', e)
     }
     try {
       const sentences = await loadSentences(true)
-      const remaining = sentences.filter((s) => s.sourceDoi !== paperDoi)
+      const remaining = sentences.filter((s) => !hit(s.sourceDoi))
       if (remaining.length !== sentences.length) await saveSentences(remaining)
     } catch (e) {
-      errors.push(`sentences.csv 删除失败`)
-      console.warn('[cleanUpCsv] sentences:', e)
+      errors.push('长难句本')
+      console.warn('[purgeLiteratureObjects] sentences:', e)
     }
     try {
       const translations = await loadTranslations(true)
-      const remaining = translations.filter((t) => t.sourceDoi !== paperDoi)
+      const remaining = translations.filter((t) => !hit(t.sourceDoi))
       if (remaining.length !== translations.length) await saveTranslations(remaining)
     } catch (e) {
-      errors.push(`translation_practice.csv 删除失败`)
-      console.warn('[cleanUpCsv] translations:', e)
+      errors.push('翻译练习本')
+      console.warn('[purgeLiteratureObjects] translations:', e)
     }
     return errors
   }
@@ -1750,13 +1768,16 @@ export default function ManagementPage() {
         }
       }
 
-      // ═══ 3. CSV 关联清理（放后台 fire-and-forget，失败不阻塞） ═══
+      // ═══ 3. 级联清理关联学习数据（单词/例句/翻译练习）═══
+      // 必须 await 且如实上报：文献行虽已删，但它的单词/例句没清掉就是没删干净。
       if (paperDoi) {
-        cleanUpCsvByDoi(paperDoi).then((csvErrors) => {
-          if (csvErrors.length > 0) {
-            console.warn('[handleDeletePaper] CSV 后台清理有警告:', csvErrors)
-          }
-        }).catch((e) => console.warn('[handleDeletePaper] CSV 后台清理异常:', e))
+        const csvErrors = await purgeLiteratureObjects([paperDoi])
+        if (csvErrors.length > 0) {
+          toast.warning(
+            `文献已删除，但以下学习数据清理失败：${csvErrors.join('、')}。请稍后在对应本里手动删除。`,
+            { duration: 8000 },
+          )
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -2045,10 +2066,16 @@ export default function ManagementPage() {
         }, 5000)
       }
 
-      // ═══ 3. CSV 关联清理（fire-and-forget） ═══
-      for (const paper of papersToDelete) {
-        if (paper.doi) {
-          cleanUpCsvByDoi(paper.doi).catch((e) => console.warn('[handleBatchDelete] CSV 清理失败:', paper.doi, e))
+      // ═══ 3. 级联清理关联学习数据（一次批量清，await 且如实上报）═══
+      // 为什么批量：旧的逐篇并发清理会对同一张表反复「读-改-写」，互相覆盖导致漏删。
+      const dois = papersToDelete.map((p) => p.doi).filter((d): d is string => !!d)
+      if (dois.length > 0) {
+        const csvErrors = await purgeLiteratureObjects(dois)
+        if (csvErrors.length > 0) {
+          toast.warning(
+            `文献已删除，但以下学习数据清理失败：${csvErrors.join('、')}。请稍后在对应本里手动删除。`,
+            { duration: 8000 },
+          )
         }
       }
     } catch (e) {

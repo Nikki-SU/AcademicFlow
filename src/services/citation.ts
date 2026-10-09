@@ -75,6 +75,29 @@ export function normalizeDoi(input: string): DoiNormalizeResult {
 }
 
 /**
+ * 判断两个 DOI 是否指向同一篇文献。
+ * -------------------------------------------------
+ * DOI 规范本身大小写不敏感，用户也可能录入带 URL / `doi:` 前缀的形式；
+ * 因此比较前统一去前缀、去尾斜杠、小写、去首尾空白。
+ * 两边都非空且相等才判真 —— 空串不参与匹配，避免误删「没有来源」的行。
+ *
+ * 用途：级联清理（删文献时按 source_doi 删其单词/例句）与词根词缀核对区的
+ * 展示过滤必须用**同一个**判定口径，否则会出现「界面显示有这几个词、删除却说没有」。
+ */
+export function isSameDoi(a: string, b: string): boolean {
+  const clean = (s: string) =>
+    (s || '')
+      .trim()
+      .replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')
+      .replace(/^doi:\s*/i, '')
+      .replace(/\/+$/, '')
+      .toLowerCase()
+  const ca = clean(a)
+  const cb = clean(b)
+  return ca !== '' && ca === cb
+}
+
+/**
  * 批量归一化 DOI，返回有效 DOI 列表（去重）
  */
 export function normalizeDois(inputs: string[]): {
