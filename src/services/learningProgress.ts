@@ -7,6 +7,7 @@
  * 不经过 localStorage / IndexedDB，直接读写 GitHub 私库。
  * 内存缓存 + 防抖写入，避免频繁 API 调用。
  */
+import { toast } from 'sonner'
 import { readMdFile, writeMdFile } from './userData'
 
 const PROGRESS_PATH = 'settings/learning_progress.md'
@@ -81,6 +82,7 @@ export function updateProgress(patch: Partial<LearningProgress>): void {
       await writeMdFile(PROGRESS_PATH, md, 'Update learning progress')
     } catch (err) {
       console.error('[learningProgress] 保存失败:', err)
+      toast.error('学习进度保存失败，请检查仓库权限')
     }
   }, SAVE_DEBOUNCE_MS)
 }

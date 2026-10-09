@@ -969,6 +969,7 @@ export default function LearnPage() {
         ])
       } catch (err) {
         console.error('[Learn] 保存学习数据到 GitHub 失败:', err)
+        toast.error('学习数据保存失败，请检查仓库权限')
       }
     }, 2000)
     return () => {

@@ -14,6 +14,7 @@
  * - refreshModels() 拉 /v1/models + 缓存（TTL 24h，与 SPEC §9.3 对齐）
  */
 import { create } from 'zustand'
+import { toast } from 'sonner'
 import type { AIProviderMode, AIThinkingMode, AISlotThinking } from "../types"
 import { AI_THINKING_MODES, AI_SLOT_THINKING_MODES } from '../types'
 import { runDualEngine } from '../services/ai/dual-engine'
@@ -399,6 +400,7 @@ function scheduleGlobalSettingsSync(getState: () => SettingsState & SettingsActi
       })
     } catch (err) {
       console.error('[settings] 保存非敏感设置到 GitHub 失败:', err)
+      toast.error('设置保存失败，请检查仓库权限')
     }
   }, GLOBAL_SETTINGS_SYNC_DEBOUNCE_MS)
 }
@@ -898,6 +900,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>(
         })
       } catch (err) {
         console.error('[settings] 重置后保存到 GitHub 失败:', err)
+        toast.error('设置保存失败，请检查仓库权限')
       }
     },
   }),

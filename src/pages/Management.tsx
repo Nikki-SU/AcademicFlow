@@ -1167,35 +1167,25 @@ export default function ManagementPage() {
     return () => { cancelled = true; clearInterval(pollInterval) }
   }, [repo])
 
-  // 保存文献：元数据写 literatures.csv
+  // 保存文献：元数据写 literatures.csv。
+  // 失败必须「抛出」——调用方靠它回滚乐观 UI 并报可读错误；吞掉错误会让界面假装保存 / 删除成功。
   const savePapers = async (updatedPapers: Paper[]) => {
-    try {
-      const lits = updatedPapers.map(paperToLiterature)
-      await saveLiteratures(lits)
-    } catch (err) {
-      console.error('保存文献失败:', err)
-    }
+    const lits = updatedPapers.map(paperToLiterature)
+    await saveLiteratures(lits)
   }
 
-  // 保存教材（图书）
+  // 保存教材（图书）。失败同样必须抛出，理由同 savePapers。
   const saveBooks = async (updatedBooks: BookItem[]) => {
-    try {
-      const tbs = updatedBooks.map(bookItemToTextbook)
-      await saveTextbooks(tbs)
-    } catch (err) {
-      console.error('保存教材失败:', err)
-    }
+    const tbs = updatedBooks.map(bookItemToTextbook)
+    await saveTextbooks(tbs)
   }
 
-  /** 材料元数据落盘（任务归属 + 标签） */
+  // 材料元数据落盘（任务归属 + 标签）。
+  // 失败必须「抛出」——调用方据其回滚乐观 UI 并报可读错误；本函数不再自行吞错，
+  // 避免「容错掩盖失败」让界面显示一个其实没落库的结果。
   const persistMeta = async (next: MaterialMeta[]) => {
     setMaterialMeta(next)
-    try {
-      await saveMaterialMeta(next)
-    } catch (err) {
-      console.error('保存材料元数据失败:', err)
-      toast.error('保存失败，请检查仓库权限')
-    }
+    await saveMaterialMeta(next)
   }
 
   /** 任务过滤（统一三类口径：全部 / 研究·课程大类 / 当前任务及其全部子任务） */
@@ -1407,6 +1397,8 @@ export default function ManagementPage() {
     }
 
     setIsAddingByDoi(true)
+    const prevPapers = papers
+    const prevMeta = materialMeta
     try {
       const { entries, failed } = await getCitationEntries([doi])
       if (failed.includes(doi) || entries.length === 0) {
@@ -1444,9 +1436,12 @@ export default function ManagementPage() {
       const updated = [paper, ...papers]
       setPapers(updated)
       await savePapers(updated)
-      await persistMeta(setMeta(materialMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
+      await persistMeta(setMeta(prevMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
       setDoiQuickInput('')
     } catch (err) {
+      // 入库失败：回滚乐观 UI（文献列表 + 元数据），并报可读错误
+      setPapers(prevPapers)
+      setMaterialMeta(prevMeta)
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`DOI 入库失败：${msg}`)
     } finally {
@@ -1477,6 +1472,7 @@ export default function ManagementPage() {
     }
 
     const prevPapers = papers
+    const prevMeta = materialMeta
     const paper: Paper = {
       id: doi,
       title: newPaper.title.trim(),
@@ -1505,11 +1501,12 @@ export default function ManagementPage() {
     setSavingPaper(true)
     try {
       await savePapers(updated)
-      await persistMeta(setMeta(materialMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
+      await persistMeta(setMeta(prevMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
       setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: '', tags: [] })
       setShowAddPaperModal(false)
     } catch (err) {
       setPapers(prevPapers)
+      setMaterialMeta(prevMeta)
       toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
     } finally {
       setSavingPaper(false)
@@ -1724,13 +1721,21 @@ export default function ManagementPage() {
         await savePapers(updated)
         invalidateCache('literatures/literatures.csv')
         setPapers(updated)
-        if (paperDoi) await persistMeta(dropMeta(materialMeta, 'paper', paperDoi))
       } catch (saveErr) {
         // savePapers 失败：不乐观更新，回滚 deletingIds，让用户看到失败
         console.warn('[handleDeletePaper] savePapers 失败:', saveErr)
         toast.error(`删除失败：无法保存 CSV — ${saveErr instanceof Error ? saveErr.message : String(saveErr)}`, { duration: 5000 })
         setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
         return  // 提前退出，不继续删 GitHub 文件（CSV 都没更新）
+      }
+      // 元数据清理失败不阻断后续文件删除（文献行已在 CSV 删除，元数据只是残留）：仅告警
+      if (paperDoi) {
+        try {
+          await persistMeta(dropMeta(materialMeta, 'paper', paperDoi))
+        } catch (metaErr) {
+          console.warn('[handleDeletePaper] 元数据清理失败:', metaErr)
+          toast.warning(`文献已删除，但任务/标签清理失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+        }
       }
 
       // ═══ 2. GitHub 文件删除（Phase 1 同步等完，Phase 2 后台跑） ═══
@@ -1944,12 +1949,13 @@ export default function ManagementPage() {
         }
       }
       const prevPapers = papers
+      const prevMeta = materialMeta
       const updated = papers.map((p) => (p.id === editingPaper.id ? editingPaper : p))
       setPapers(updated)
       try {
         await savePapers(updated)
         if (editingPaper.doi) {
-          await persistMeta(setMeta(materialMeta, 'paper', editingPaper.doi, { taskId: editingPaper.taskId, tags: editingPaper.tags }))
+          await persistMeta(setMeta(prevMeta, 'paper', editingPaper.doi, { taskId: editingPaper.taskId, tags: editingPaper.tags }))
         }
         setShowEditPaperModal(false)
         setEditingPaper(null)
@@ -1957,6 +1963,7 @@ export default function ManagementPage() {
         setPaperWordsDirty(false)
       } catch (err) {
         setPapers(prevPapers)
+        setMaterialMeta(prevMeta)
         toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
       }
     } finally {
@@ -1987,19 +1994,25 @@ export default function ManagementPage() {
         await savePapers(updated)
         invalidateCache('literatures/literatures.csv')
         setPapers(updated)
-        let nextMeta = materialMeta
-        for (const p of papersToDelete) {
-          if (p.doi) nextMeta = dropMeta(nextMeta, 'paper', p.doi)
-        }
-        await persistMeta(nextMeta)
-        setSelectedPapers(new Set())
-        setBatchMode(false)
       } catch (e) {
         // savePapers 失败：不乐观更新
         toast.error(`批量删除失败：无法保存 CSV — ${e instanceof Error ? e.message : String(e)}`, { duration: 5000 })
         setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.delete(id)); return s })
         return
       }
+      // 元数据清理失败不阻断后续文件删除（文献行已在 CSV 删除，元数据只是残留）：仅告警
+      try {
+        let nextMeta = materialMeta
+        for (const p of papersToDelete) {
+          if (p.doi) nextMeta = dropMeta(nextMeta, 'paper', p.doi)
+        }
+        await persistMeta(nextMeta)
+      } catch (metaErr) {
+        console.warn('[handleBatchDelete] 元数据清理失败:', metaErr)
+        toast.warning(`文献已删除，但任务/标签清理失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+      }
+      setSelectedPapers(new Set())
+      setBatchMode(false)
 
       // ═══ 2. GitHub 文件删除（Phase 1 同步 + Phase 2 后台 race cleanup） ═══
       if (ctx) {
@@ -2065,22 +2078,32 @@ export default function ManagementPage() {
     }
   }
 
-  const handleBatchMove = () => {
+  const handleBatchMove = async () => {
     const target = batchMoveTaskId
+    const prevPapers = papers
+    const prevMeta = materialMeta
     const updated = papers.map((p) => (selectedPapers.has(p.id) ? { ...p, taskId: target } : p))
-    setPapers(updated)
-    savePapers(updated)
     let nextMeta = materialMeta
     for (const p of updated) {
       if (selectedPapers.has(p.id)) {
         nextMeta = setMeta(nextMeta, 'paper', p.doi, { taskId: target, tags: p.tags })
       }
     }
-    persistMeta(nextMeta)
+    // 乐观：先落 UI + 关弹窗（即时反馈），写入失败再回滚 + 报可读错误
+    setPapers(updated)
+    setMaterialMeta(nextMeta)
     setSelectedPapers(new Set())
     setBatchMode(false)
     setShowBatchMoveModal(false)
     setBatchMoveTaskId('')
+    try {
+      await savePapers(updated)
+      await persistMeta(nextMeta)
+    } catch (err) {
+      setPapers(prevPapers)
+      setMaterialMeta(prevMeta)
+      toast.error(`移动失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+    }
   }
 
   // 期刊模板操作 —— 全部通过 journal-templates.ts 持久化到 GitHub 私库
@@ -2288,15 +2311,24 @@ export default function ManagementPage() {
       }
     })
     const updated = [...newBooks, ...books]
+    const prevMeta = materialMeta
     setBooks(updated)
-    await saveBooks(updated)
 
     // 任务归属 + 标签写入 materials/meta.csv
     let nextMeta = materialMeta
     for (const b of newBooks) {
       nextMeta = setMeta(nextMeta, 'book', b.id, { taskId: uploadBookTaskId, tags: uploadBookTags })
     }
-    await persistMeta(nextMeta)
+    try {
+      await saveBooks(updated)
+      await persistMeta(nextMeta)
+    } catch (err) {
+      // 落盘失败：回滚图书列表 + 元数据，保留弹窗让用户重试
+      setBooks(books)
+      setMaterialMeta(prevMeta)
+      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+      return
+    }
     setShowUploadBookModal(false)
     setUploadBookTaskId('')
     setUploadBookTags([])
@@ -2308,10 +2340,18 @@ export default function ManagementPage() {
   }
 
   const handleDeleteBook = async (id: string) => {
+    const prevBooks = books
+    const prevMeta = materialMeta
     const updated = books.filter((b) => b.id !== id)
     setBooks(updated)
-    await saveBooks(updated)
-    await persistMeta(dropMeta(materialMeta, 'book', id))
+    try {
+      await saveBooks(updated)
+      await persistMeta(dropMeta(prevMeta, 'book', id))
+    } catch (err) {
+      setBooks(prevBooks)
+      setMaterialMeta(prevMeta)
+      toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+    }
   }
 
   /** 打开图书详情：顺带把已落盘的任务 / 标签填进编辑态 */
@@ -2324,10 +2364,21 @@ export default function ManagementPage() {
   /** 图书详情弹窗里保存任务归属 + 标签 */
   const handleSaveBookDetail = async () => {
     if (!showBookDetail) return
-    const nextMeta = setMeta(materialMeta, 'book', showBookDetail.id, { taskId: bookDetailTaskId, tags: bookDetailTags })
+    const prevBook = showBookDetail
+    const prevBooks = books
+    const prevMeta = materialMeta
+    const nextMeta = setMeta(prevMeta, 'book', showBookDetail.id, { taskId: bookDetailTaskId, tags: bookDetailTags })
     setBooks((prev) => prev.map((b) => (b.id === showBookDetail.id ? { ...b, taskId: bookDetailTaskId, tags: bookDetailTags } : b)))
     setShowBookDetail({ ...showBookDetail, taskId: bookDetailTaskId, tags: bookDetailTags })
-    await persistMeta(nextMeta)
+    try {
+      await persistMeta(nextMeta)
+    } catch (err) {
+      // 落盘失败：回滚列表 / 详情 / 元数据，报可读错误
+      setBooks(prevBooks)
+      setShowBookDetail(prevBook)
+      setMaterialMeta(prevMeta)
+      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+    }
   }
 
   // ── 其他文档 ──
@@ -2411,18 +2462,28 @@ export default function ManagementPage() {
       return
     }
     setSavingDocument(true)
+    const prevMeta = materialMeta
     try {
-      await updateDocumentEntry(editingDocument.id, {
-        title: editDocForm.title.trim(),
-        author: editDocForm.author.trim(),
-      })
-      await persistMeta(
-        setMeta(materialMeta, 'document', editingDocument.id, { taskId: editDocForm.taskId, tags: editDocForm.tags }),
-      )
+      try {
+        await updateDocumentEntry(editingDocument.id, {
+          title: editDocForm.title.trim(),
+          author: editDocForm.author.trim(),
+        })
+      } catch (err) {
+        toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+        return
+      }
+      // 标题/作者是主数据，元数据（任务/标签）落盘失败不回滚主数据：仅告警
+      try {
+        await persistMeta(
+          setMeta(prevMeta, 'document', editingDocument.id, { taskId: editDocForm.taskId, tags: editDocForm.tags }),
+        )
+      } catch (metaErr) {
+        setMaterialMeta(prevMeta)
+        toast.warning(`标题已保存，但任务/标签保存失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+      }
       setEditingDocument(null)
       await refreshDocuments()
-    } catch (err) {
-      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setSavingDocument(false)
     }
@@ -2432,11 +2493,17 @@ export default function ManagementPage() {
     if (!confirm(`确定删除「${doc.title}」吗？会连同正文、笔记、批注一起删除，且不可恢复。`)) return
     try {
       await deleteDocuments([doc.id])
-      await persistMeta(dropMeta(materialMeta, 'document', doc.id))
-      await refreshDocuments()
     } catch (err) {
       toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+      return
     }
+    // 文档已删除，元数据只是残留清理：失败仅告警，不改「删除成功」的事实
+    try {
+      await persistMeta(dropMeta(materialMeta, 'document', doc.id))
+    } catch (metaErr) {
+      toast.warning(`文档已删除，但任务/标签清理失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+    }
+    await refreshDocuments()
   }
 
   /** 跳转到阅读页并直接打开这份文档 */

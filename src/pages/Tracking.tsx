@@ -420,6 +420,7 @@ export default function TrackingPage() {
         )
       } catch (err) {
         console.error('[Tracking] 保存关键词组到 GitHub 失败:', err)
+        toast.error('关键词组保存失败，请检查仓库权限')
       }
     }, 2000)
     return () => {
@@ -444,6 +445,7 @@ export default function TrackingPage() {
         )
       } catch (err) {
         console.error('[Tracking] 保存期刊到 GitHub 失败:', err)
+        toast.error('期刊追踪保存失败，请检查仓库权限')
       }
     }, 2000)
     return () => {
@@ -466,6 +468,7 @@ export default function TrackingPage() {
         }
       } catch (err) {
         console.error('[Tracking] 保存定时计划 / 同步 cron 失败:', err)
+        toast.error('定时计划保存失败，请检查仓库权限')
       }
     }, 2000)
     return () => {
@@ -488,6 +491,7 @@ export default function TrackingPage() {
         )
       } catch (err) {
         console.error('[Tracking] 保存搜索源到 GitHub 失败:', err)
+        toast.error('搜索源保存失败，请检查仓库权限')
       }
     }, 2000)
     return () => {
