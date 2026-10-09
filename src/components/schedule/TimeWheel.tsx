@@ -196,6 +196,11 @@ function Wheel({
  * 与「时段」共用同一个 TimeWheel —— 凡是「要选到具体几点」的地方都用这一套，
  * 不允许再出现原生 time / datetime-local 的第二种时间控件（否则又是各写一份）。
  * 日期用原生 date 选择器（只选到天，没有原生时间 spinner），时间交给滚轮。
+ *
+ * 日期与时分**各自独立**：拨时分不会回头改写日期，改日期也不会重置时分。
+ * 过去这里用 `datePart || 今天` 兜底，导致「一拨时分、日期就被顶成今天」，
+ * 用户抱怨误操作代价太大（见任务表单）。现在时分单独本地保存，未选日期时
+ * 值仍为「未设」，日期只在用户亲手在日期框里选择时才落定。
  */
 export function DateTimeField({
   value,
@@ -205,41 +210,37 @@ export function DateTimeField({
   onChange: (v: string) => void
 }) {
   const datePart = value ? value.slice(0, 10) : ''
-  const timePart = value.length >= 16 ? value.slice(11, 16) : '08:00'
+  // 时分单独保存：即便还没选日期，用户拨好的时分也先记住，选日期时直接用；
+  // 且拨时分只更新时分，绝不触碰日期。
+  const [timePart, setTimePart] = useState(value.length >= 16 ? value.slice(11, 16) : '08:00')
+
+  // 外部值确实带日期时，同步一次时分（如编辑已有任务载入）；空值/仅未设时不覆盖手拨的时分
+  useEffect(() => {
+    if (value.length >= 16) setTimePart(value.slice(11, 16))
+  }, [value])
 
   // 没选日期就是「未设」；选了日期才拼出完整值
-  const emit = (date: string, time: string) => onChange(date ? `${date}T${time}` : '')
+  const handleDate = (date: string) => onChange(date ? `${date}T${timePart}` : '')
+  const handleTime = (t: string) => {
+    setTimePart(t)
+    onChange(datePart ? `${datePart}T${t}` : '')
+  }
 
   return (
     <div className="grid grid-cols-3 items-center gap-ui-gap-sm">
       <input
         type="date"
         value={datePart}
-        onChange={(e) => emit(e.target.value, timePart)}
+        onChange={(e) => handleDate(e.target.value)}
         className="col-span-2 min-w-0 rounded-control border border-ink-300 px-ui-gap py-ui-gap-sm text-ui-sm focus:border-seal-400 focus:outline-none focus:ring-2 focus:ring-seal-100"
       />
       {/* 宽度按 2:1 分配：日期占 2/3、时间占 1/3（不让日期独吞整行、时间被挤窄）。
           滚轮是 flex 子项、内部格子又绝对定位（无固有宽度），必须由外层给定宽度。 */}
       <div className="col-span-1 min-w-0">
-        {/*
-          只转时分滚轮、还没选日期时：默认落到「今天」，别把用户刚拨的时分丢掉。
-          （原先这里 emit('', t) 会把整个值变成 ''，于是「我只给了个时间」提交时是空的 —— 用户踩过。）
-          只有日期框被清空时才允许回到「未设」。
-        */}
-        <TimeWheel
-          value={timePart}
-          onChange={(t) => onChange(`${datePart || todayStr()}T${t}`)}
-        />
+        <TimeWheel value={timePart} onChange={handleTime} />
       </div>
     </div>
   )
-}
-
-/** 本地时区的今天，YYYY-MM-DD */
-function todayStr(): string {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 /** 时分滚轮组合：值以 `HH:MM` 进出 */
