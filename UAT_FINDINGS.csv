@@ -1,0 +1,7 @@
+页面,简述,问题描述
+设置页(/settings),硬刷新白屏,直接硬加载或刷新 /settings 时整页白屏；控制台报 Minified React error #310（Rendered more hooks than during the previous render）。根因：Settings.tsx 约第 412 行 if (!isInitialized) return 提前返回之后，约第 448-450 行仍有 useState；首次渲染 store 未初始化走提前返回，初始化完成后重渲染时 hook 数量增加，触发 #310。应用内正常导航进入不受影响。
+学习页(/learn),硬刷新白屏,直接硬加载或刷新 /learn 时整页白屏；控制台抛「请先填写 AI-1 位的 DeepSeek API Key」。根因：Learn.tsx:1496-1499 在 zustand selector 内调用 getDualEngineConfig()，未配置 AI-1 API Key 时该函数 throw；渲染期未捕获且无 error boundary，导致整页崩溃白屏。
+写作页(/writing),硬刷新偶发白屏,首轮硬加载巡检时 /writing 白屏（#root 子节点数 0），随后多次复现均正常（子节点数 2），未能稳定复现；疑偶发，可能与同类「渲染期异常 + 无 error boundary」有关。
+设置页(/settings),注释与实现不一致,Settings.tsx 注释写「syncAllSecrets 把 8 个都 PUT」，实际 AI_SECRET_NAMES 为 9 个（多一个 SILICONFLOW_API_KEY）。仅注释误导，不影响功能。
+全局,首屏无加载占位,首次加载或硬刷新期间没有任何加载占位骨架，页面直接空白，用户无法区分「加载中」与「已崩溃」。对应 App.tsx 中 ProtectedMainRoute 在 store 未初始化时 return null。
+引导页,文案与实际不符,Onboarding 初始化流程文案称「一次 commit」，与实际提交行为不一致。
