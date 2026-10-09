@@ -5,3 +5,9 @@
 设置页(/settings),注释与实现不一致,Settings.tsx 注释写「syncAllSecrets 把 8 个都 PUT」，实际 AI_SECRET_NAMES 为 9 个（多一个 SILICONFLOW_API_KEY）。仅注释误导，不影响功能。
 全局,首屏无加载占位,首次加载或硬刷新期间没有任何加载占位骨架，页面直接空白，用户无法区分「加载中」与「已崩溃」。对应 App.tsx 中 ProtectedMainRoute 在 store 未初始化时 return null。
 引导页,文案与实际不符,Onboarding 初始化流程文案称「一次 commit」，与实际提交行为不一致。
+全局,右上角「PAT」菜单点击外部不关闭,点击右上角 PAT 按钮展开菜单（查看·管理 GitHub 授权 / 重新登录 / 登出）后，点击页面其它任意位置菜单不会收起，必须再点一次 PAT 或按 Esc。实测在阅读页点击主内容区后「重新登录」「登出」仍在。傻瓜用户直觉：点别处应自动收起。
+管理页(/management),「导入导出」Tab 所有按钮点了没反应,切到「导入导出」后：导入区的 CSV/JSON/EndNote/Zotero 四个文件选择项在选择文件后无任何反应；导出区的 CSV/Markdown/BibTeX 三个按钮与「GitHub 同步」按钮点击后也无任何反应。代码层面这些控件都没有绑定任何事件处理（无 onChange/onClick），是纯摆设。傻瓜用户会反复点、以为页面坏了。
+设置页(/settings),左栏大纲条目与实际分区标题不一致,左栏「数据」组里有「重写后端」，点进去右栏大标题却是「后端工作流」；且代码注释（BackendCapabilitiesPanel / pipelineAutoSync / workspace 等）明确「重写后端」功能已移除、改由自动同步承担。用户按「重写后端」进来找不到对应按钮，名字也对不上。
+设置页(/settings),开发者术语与原始数据直接暴露给用户,页面把大量开发者术语摊给普通用户：双引擎试运行、Secrets 同步、Pipeline 看板、dispatch 目标、Header 模式 (Authorization: token xxx) 与 Query 模式 (?access_token=xxx)、HTTP 200 · 855ms 等。傻瓜用户看不懂这些是什么、该不该点。
+设置页(/settings),AI-1 与 AI-2 两大块高度重复且文字冗余,AI-1 与 AI-2 各自把同一组 8 个服务商按钮、同一张「官方价目」表、同一组推理模式选项各重复展示一遍；服务商里还有两个名字相近的「火山方舟 Coding Plan」与「火山方舟 Agent Plan」。再往下「思考模式」又对 清理正文 / 打标 / 翻译 / 提词核验 四个功能各重复一遍相同四个选项。与「讨厌看文字」直接冲突。
+日程页(/schedule),加课弹窗用滚轮选时间不符合直觉,加课与定时任务里开始/结束时间用「时」「分」两列闭环滚轮选择，且分钟只能是 5 的倍数（如 08:07 无法直接选）；需要鼠标滚动拨动而非直接输入或下拉点选。对傻瓜用户不直观。
