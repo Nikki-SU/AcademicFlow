@@ -14,7 +14,7 @@
  */
 
 import { readCsvFile, writeCsvFile, readMdFile, writeMdFile, getRepoContext } from './userData'
-import { githubFetch } from './github'
+import { githubFetch, deleteRepoFiles } from './github'
 
 export interface Textbook {
   textbookId: string
@@ -158,4 +158,44 @@ export async function bookHasContent(bookId: string): Promise<boolean | null> {
   const paths = await fetchTextbookPaths()
   if (!paths) return null
   return paths.has(`${TEXTBOOKS_DIR}/${bookId}/${BOOK_CONTENT_FILE}`)
+}
+
+/**
+ * 列出某本书目录下**真实存在**的文件（删除必须用真实路径）。
+ *
+ * 与 documentData.listDocumentFiles 同款理由：Tree API 删除用 `sha: null`，
+ * 路径不在 base tree 里 GitHub 会直接回 422，整个删除都失败。所以先列真实存在的。
+ */
+async function listBookFiles(bookId: string): Promise<string[]> {
+  const ctx = getRepoContext()
+  if (!ctx) return []
+  const dirPath = `${TEXTBOOKS_DIR}/${bookId}`
+  const res = await githubFetch(
+    `/repos/${ctx.owner}/${ctx.repo}/git/trees/main?recursive=1`,
+    ctx.token,
+  )
+  if (!res.ok) return []
+  try {
+    const data = (await res.json()) as { tree?: Array<{ path: string; type: string }> }
+    return (data.tree ?? [])
+      .filter((e) => e.type === 'blob' && e.path.startsWith(`${dirPath}/`))
+      .map((e) => e.path)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 删除图书目录：连同 `textbooks/{id}/` 一起删（正文 + 笔记 + 批注 + 对话 + 进度）。
+ *
+ * 只负责仓库文件，索引行（textbooks.csv）与材料元数据由调用方按各自的乐观 UI 口径处理。
+ * 与 deleteDocuments 同口径：拿不到仓库上下文即抛错，不静默当成功。
+ */
+export async function deleteBookFiles(bookIds: string[]): Promise<void> {
+  const ctx = getRepoContext()
+  if (!ctx) throw new Error('工作区未就绪，无法写入仓库')
+  const paths: string[] = []
+  for (const id of bookIds) paths.push(...(await listBookFiles(id)))
+  if (paths.length === 0) return
+  await deleteRepoFiles(paths, `Delete books (${bookIds.length})`, ctx.owner, ctx.repo, ctx.token)
 }

@@ -1726,3 +1726,6 @@ onCopy = (e) => {
 - **await + 如实上报，不许 fire-and-forget 吞错**：级联清理不是「删完主体后的可选项」，它是删除的一部分。必须 `await`，失败**不能**只 `console.warn`。（承接上条「落库失败必须如实上报」：主体已删不可回滚时，用 `toast.warning("XX 已删除，但…清理失败：…")` 让用户知道还要手动收尾。）
 - **自查推广**：任何带从属数据的「删除」入口（图书 / 文档 / 任务 / 分组…）都要按本条自查一遍：**它的从属找全了吗？删了吗？删失败用户知道吗？**
 
+**自查落地：图书（frontend 19→20，紧接本次）**：按上面「自查推广」把图书入口查了一遍 —— 删图书**只删了索引行 + 元数据，`textbooks/{书名}/` 整个目录（正文 content.md / 笔记 / 批注 / 对话 / 阅读进度）原封不动留在仓库里**，与文献是同一类「孤儿」。对照兄弟入口 [handleDeleteDocument](file:///workspace/src/pages/Management.tsx)（其 `deleteDocuments` 会先列真实文件再整目录删），给图书补了同款 [deleteBookFiles](file:///workspace/src/services/textbookData.ts)：先 `git/trees` 列 `textbooks/{id}/` 下**真实存在**的文件（Tree API 删除用 `sha:null`，列了不存在的路径会 422 导致整个删除失败），再 `deleteRepoFiles` 整目录删；并补上删除前二次确认（「会连同正文、笔记、批注一起删除，且不可恢复」）。落库口径与上条「落库失败必须如实上报」一致：索引 / 元数据失败 → 回滚乐观 UI + `toast.error`；索引已成、仅文件清理失败 → `toast.warning` 如实告警、不回滚。
+- **另案（悬空引用类，待与用户确认口径）**：还有一类从属不是「该被删掉的物件」，而是「别处仍指向已删主体的**悬空引用**」——①项目引用库 `projects/*/references/papers.csv` / `books.csv` 仍指向已删 DOI / 书名；②任务 detach 模式删除后，材料 `materialMeta.task_id` 仍指向已删 `project_id`；③追踪计划 `journalIds` 仍指向已删期刊 id。这三处删主体时都未清理，属「删除语义未闭合」的同类问题，但与「删从属物件」取舍不同（可能是「应当保留、只清引用」或「本就该删」），故不擅自决定、带方案问用户后再落地。
+

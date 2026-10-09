@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, inferMdStatusByDoi, type Literature } from '../services/literatureData'
-import { loadTextbooks, saveTextbooks, bookHasContent, type Textbook } from '../services/textbookData'
+import { loadTextbooks, saveTextbooks, bookHasContent, deleteBookFiles, type Textbook } from '../services/textbookData'
 import {
   loadMaterialMeta,
   saveMaterialMeta,
@@ -2366,18 +2366,34 @@ export default function ManagementPage() {
     })
   }
 
-  const handleDeleteBook = async (id: string) => {
+  /**
+   * 删除图书：连同 `textbooks/{id}/` 目录一起删（正文 + 笔记 + 批注 + 对话 + 进度）。
+   * 这是「删一个主体，它的全部从属物件都要一起删」的落地——此前只删了索引行，
+   * 整本书的目录原封不动遗留在仓库里（对照兄弟口径 handleDeleteDocument）。
+   */
+  const handleDeleteBook = async (book: BookItem) => {
+    if (!confirm(`确定删除「${book.title}」吗？会连同正文、笔记、批注一起删除，且不可恢复。`)) return
     const prevBooks = books
     const prevMeta = materialMeta
-    const updated = books.filter((b) => b.id !== id)
+    const updated = books.filter((b) => b.id !== book.id)
     setBooks(updated)
     try {
       await saveBooks(updated)
-      await persistMeta(dropMeta(prevMeta, 'book', id))
+      await persistMeta(dropMeta(prevMeta, 'book', book.id))
     } catch (err) {
       setBooks(prevBooks)
       setMaterialMeta(prevMeta)
       toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
+      return
+    }
+    // 索引与元数据已落库，再删目录文件。文件清理失败时索引已删，如实告警、不回滚（避免"假成功"掩盖失败）。
+    try {
+      await deleteBookFiles([book.id])
+    } catch (err) {
+      toast.warning(
+        `图书已删除，但其正文/笔记等文件清理失败：${err instanceof Error ? err.message : String(err)}`,
+        { duration: 8000 },
+      )
     }
   }
 
@@ -3540,7 +3556,7 @@ export default function ManagementPage() {
                         </button>
                       )}
                       <button
-                        onClick={() => handleDeleteBook(book.id)}
+                        onClick={() => handleDeleteBook(book)}
                         className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
                       >
                         <Trash2 className="w-4 h-4" />
