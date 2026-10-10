@@ -24,6 +24,7 @@ import {
   importMarkdownDocs,
   updateDocumentEntry,
   deleteDocuments,
+  docHasContent,
   readMarkdownZip,
   titleFromFileName,
   type DocumentSummary,
@@ -34,7 +35,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { useTaskStore } from '../stores/task'
 import { githubFetch, deleteRepoFiles } from '../services/github'
-import { pollProgressJson, pollBookProgressJson, pollNoteConvertProgress, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
+import { pollProgressJson, pollBookProgressJson, pollDocConvertProgress, pollNoteConvertProgress, getRun, getLatestRun, dispatchPaperConvert } from '../services/workflowClient'
 import { invalidateCache } from '../services/userData'
 import { noteHasContent } from '../services/readingDocData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
@@ -1000,7 +1001,7 @@ export default function ManagementPage() {
       const activeTasks = tq.tasks.filter(
         (t: BackgroundTask) =>
           (t.status === 'pending' || t.status === 'running') &&
-          (t.type === 'paper_convert' || t.type === 'book_convert' || t.type === 'note_convert'),
+          (t.type === 'paper_convert' || t.type === 'book_convert' || t.type === 'doc_convert' || t.type === 'note_convert'),
       )
       if (activeTasks.length === 0) return
 
@@ -1012,16 +1013,19 @@ export default function ManagementPage() {
         const metaSlug = typeof meta?.slug === 'string' ? meta.slug : undefined
         const doiSlug = task.doi ? doiToSlug(task.doi) : undefined
         const isBook = task.type === 'book_convert'
+        const isDoc = task.type === 'doc_convert'
         const isNote = task.type === 'note_convert'
         const slug = metaSlug || doiSlug || task.book_id
         if (!slug) continue
         try {
-          // 文献进度在 literatures/{slug}/，图书在 textbooks/{书名}/，笔记在其所属文档目录下
+          // 文献进度在 literatures/{slug}/，图书在 textbooks/{书名}/，其他文档在 documents/{docId}/，笔记在其所属文档目录下
           const prog = isBook
             ? await pollBookProgressJson(slug, owner, repo.name, token)
-            : isNote
-              ? await pollNoteConvertProgress(slug, owner, repo.name, token)
-              : await pollProgressJson(slug, owner, repo.name, token)
+            : isDoc
+              ? await pollDocConvertProgress(slug, owner, repo.name, token)
+              : isNote
+                ? await pollNoteConvertProgress(slug, owner, repo.name, token)
+                : await pollProgressJson(slug, owner, repo.name, token)
 
           if (prog) {
             // 有 progress.json → 正常走后端 stage 驱动的进度更新
@@ -1071,6 +1075,21 @@ export default function ManagementPage() {
               // 最后一帧 mineru_download —— 就是这个 bug。
               if (isBook) {
                 const hasContent = await bookHasContent(slug)
+                if (hasContent === true) {
+                  await tq.update_task(task.id, {
+                    status: 'done',
+                    stage: 'done',
+                    node_index: STAGE_META.done.node,
+                    progress: 100,
+                    message: '转换完成（根据产物文件推断）',
+                    updated_at: Date.now(),
+                  })
+                }
+                continue
+              }
+              // 其他文档：产物是 documents/{docId}/content.md，出现即完成
+              if (isDoc) {
+                const hasContent = await docHasContent(slug)
                 if (hasContent === true) {
                   await tq.update_task(task.id, {
                     status: 'done',

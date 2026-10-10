@@ -13,6 +13,7 @@ import {
   GraduationCap,
   PenTool,
   FolderCog,
+  FolderOpen,
   Settings,
   LogOut,
   User,
@@ -30,6 +31,8 @@ import { useTaskStore } from '../stores/task'
 import { loadProjects, type Project } from '../services/projectData'
 import RecorderBall from './RecorderBall'
 import TaskSwitcher from './TaskSwitcher'
+import WorkspacePanel from './WorkspacePanel'
+import { getWorkspaceInfo, scanWorkspace } from '../services/localWorkspace'
 
 const tabs = [
   // 日程是跨项目的「总页面」，排在所有页面最前面（见 架构.md §2）
@@ -150,6 +153,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const orientation = useOrientation()
   const { user, method, expiresAt, logout, token } = useAuthStore()
   const [authError, setAuthError] = useState<string | null>(null)
+  // 本地工作区面板开关（顶栏「工作区」按钮）
+  const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const currentProjectId = useTaskStore((s) => s.currentProjectId)
   // 到点自动进课程 / 定时任务，时段结束回上一次的任务（见 hooks/useAutoTaskBySchedule）
   useAutoTaskBySchedule()
@@ -182,6 +187,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       clearGlobalAuthError()
     }
   }, [token, authError])
+
+  // 打开应用时自动扫描本地工作区（自动扫描口径之一；不做定时任务）。
+  // 仅在「已选文件夹且权限已是 granted」时静默执行——权限为 prompt 时需要用户手势，
+  // 页面加载时无法申请，强行调用只会误报「授权失效」，所以这里不触发。
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const info = await getWorkspaceInfo()
+        if (cancelled) return
+        if (info.supported && info.name && info.permission === 'granted') {
+          await scanWorkspace()
+        }
+      } catch (err) {
+        console.warn('[Layout] 本地工作区自动扫描失败:', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const currentPath = location.pathname
 
@@ -264,8 +290,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               })}
             </nav>
 
-            {/* 右侧：设置 + 用户 */}
+            {/* 右侧：工作区 + 设置 + 用户 */}
             <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+              <button
+                onClick={() => setWorkspaceOpen(true)}
+                className={`flex items-center gap-1.5 px-ui-gap py-2 rounded-control-sm text-ui-sm font-medium transition ${
+                  workspaceOpen
+                    ? 'bg-seal-50 text-seal-700'
+                    : 'text-ink-500 hover:text-ink-700 hover:bg-paper-100'
+                }`}
+                title="本地工作区"
+              >
+                <FolderOpen className="w-4 h-4" />
+                {orientation === 'landscape' && <span>工作区</span>}
+              </button>
+
               <Link
                 to="/settings"
                 className={`flex items-center gap-1.5 px-ui-gap py-2 rounded-control-sm text-ui-sm font-medium transition ${
@@ -309,6 +348,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* 全局悬浮录音球：跨页面持续录音，不随路由卸载 */}
       <RecorderBall />
+
+      {/* 本地工作区面板 */}
+      {workspaceOpen && <WorkspacePanel onClose={() => setWorkspaceOpen(false)} />}
 
       {/* 全局 Token 失效 modal */}
       {authError && (
