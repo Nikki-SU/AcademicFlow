@@ -17,6 +17,9 @@ import SESSION_IMAGES_MJS from './workflows/session_images.mjs?raw'
 // 笔记附件转换：Word(.doc/.docx) → PDF（LibreOffice）→ MinerU → 命名笔记；PDF 直通。
 import NOTE_CONVERT_YML from './workflows/note_convert.yml?raw'
 import NOTE_CONVERT_MJS from './workflows/note_convert.mjs?raw'
+// 其他文档转换：Word(.doc/.docx) → PDF（LibreOffice）→ MinerU → documents/{id}/content.md；PDF 直通。
+import DOC_CONVERT_YML from './workflows/doc_convert.yml?raw'
+import DOC_CONVERT_MJS from './workflows/doc_convert.mjs?raw'
 
 export interface SkeletonFile {
   path: string
@@ -1555,6 +1558,9 @@ export const PIPELINE_FILES = [
   // 笔记附件 → 命名笔记：Word 先转 PDF 再进 MinerU，PDF 直通
   { path: '.github/workflows/note_convert.yml', raw: NOTE_CONVERT_YML },
   { path: '.github/scripts/note_convert.mjs', raw: NOTE_CONVERT_MJS },
+  // 其他文档 → documents/{id}/content.md：Word 先转 PDF 再进 MinerU，PDF 直通
+  { path: '.github/workflows/doc_convert.yml', raw: DOC_CONVERT_YML },
+  { path: '.github/scripts/doc_convert.mjs', raw: DOC_CONVERT_MJS },
   // 每日追踪（筛选制）：放进 PIPELINE_FILES 才能被「重装后端」更新到老私库
   { path: '.github/workflows/daily-tracking.yml', raw: DAILY_TRACKING_YML },
   { path: '.github/scripts/daily_tracking.py', raw: DAILY_TRACKING_SCRIPT },

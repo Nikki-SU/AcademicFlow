@@ -133,6 +133,16 @@ export async function loadDocumentContent(documentId: string, force = false): Pr
   return result?.content?.trim() ? result.content : ''
 }
 
+/**
+ * 某文档是否已有正文（doc_convert 转换完成的标志）：
+ * documents/{id}/content.md 是否存在于仓库。返回 null = 查询失败（网络），由调用方决定是否放过。
+ */
+export async function docHasContent(documentId: string): Promise<boolean | null> {
+  const paths = await fetchDocumentPaths()
+  if (!paths) return null
+  return paths.has(`${DOCS_DIR}/${documentId}/${DOC_CONTENT_FILE}`)
+}
+
 /** 标题 → 目录名。保留中文，只清掉路径非法字符 */
 export function documentSlug(title: string): string {
   const s = title

@@ -38,6 +38,7 @@ export interface RunStatus {
 export type WorkflowEvent =
   | 'paper_convert'
   | 'book_convert'
+  | 'doc_convert'
   | 'session_images'
   | 'note_convert'
   | 'ai_call'
@@ -49,6 +50,7 @@ export type WorkflowEvent =
 export const WORKFLOW_FILE_BY_EVENT: Record<WorkflowEvent, string> = {
   paper_convert: 'paper_convert.yml',
   book_convert: 'book_convert.yml',
+  doc_convert: 'doc_convert.yml',
   session_images: 'session_images.yml',
   note_convert: 'note_convert.yml',
   ai_call: 'ai_call.yml',
@@ -120,6 +122,21 @@ export async function dispatchBookConvert(
   token: string,
 ): Promise<void> {
   await dispatchWorkflow('book_convert', { book_id: bookId, title, pdf_path }, owner, repo, token)
+}
+
+/**
+ * 触发 doc_convert：把「其他文档」转成 documents/{doc_id}/content.md。
+ * 源文件已由前端上传到私库 documents/{doc_id}/source/，无需随 payload 传内容。
+ */
+export async function dispatchDocConvert(
+  docId: string,
+  title: string,
+  source_path: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<void> {
+  await dispatchWorkflow('doc_convert', { doc_id: docId, title, source_path }, owner, repo, token)
 }
 
 /**
@@ -503,6 +520,16 @@ export async function pollBookProgressJson(
   token: string,
 ): Promise<PipelineProgress | null> {
   return readProgressAt(`textbooks/${bookId}/.progress.json`, owner, repo, token)
+}
+
+/** 其他文档转换进度：documents/{docId}/.progress.json（stage 名与前几套 pipeline 一致） */
+export async function pollDocConvertProgress(
+  docId: string,
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<PipelineProgress | null> {
+  return readProgressAt(`documents/${docId}/.progress.json`, owner, repo, token)
 }
 
 /** 课程照片识别进度：projects/{taskId}/sessions/{sessionId}/.progress.json */

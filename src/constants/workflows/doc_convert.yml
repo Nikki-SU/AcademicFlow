@@ -1,0 +1,91 @@
+name: doc_convert
+
+# 「其他文档」转换：
+#   Word(.doc / .docx)  → PDF（LibreOffice headless）→ Markdown（MinerU）
+#   PDF                 → 直接走 MinerU
+# 触发：repository_dispatch event_type=doc_convert
+#   payload: { doc_id, title, source_path }
+#     doc_id      = documents/ 下的目录名（前端生成、去重）
+#     title       = 文档标题（日志 / commit message 用）
+#     source_path = 前端上传到私库的源文件（documents/{doc_id}/source/{ts}_{文件名}）
+on:
+  repository_dispatch:
+    types: [doc_convert]
+  workflow_dispatch:
+    inputs:
+      doc_id:
+        description: 'documents 下的目录名（手动调试用）'
+        required: false
+        default: ''
+      source_path:
+        description: '源文件路径（手动调试用，通常由 repository_dispatch 携带）'
+        required: false
+        default: ''
+
+# 与其他转换 pipeline 共用同一个写 main 的并发组，避免同时 push 打架
+concurrency:
+  group: "pipeline-write-main"
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo (full history for git push)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Word → PDF 靠 LibreOffice；超长 PDF 切段靠 qpdf。
+      # runner 每次都是全新 VM，apt 现装要联网下载；这里把 .deb 缓存进 Actions 缓存，
+      # 命中时 apt 直接读本地 .deb 安装（秒级）。key 带本 workflow 文件哈希——改了安装列表就自动换 key。
+      - name: Restore apt package cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.apt-cache/archives
+          key: apt-doc-lo-cjk-${{ runner.os }}-${{ hashFiles('.github/workflows/doc_convert.yml') }}
+          restore-keys: |
+            apt-doc-lo-cjk-${{ runner.os }}-
+
+      - name: Install LibreOffice + CJK fonts + qpdf
+        run: |
+          ARCHIVE_DIR="$HOME/.apt-cache/archives"
+          sudo mkdir -p "$ARCHIVE_DIR/partial"
+          sudo chown -R "$USER" "$HOME/.apt-cache"
+          sudo apt-get update -qq
+          sudo apt-get \
+            -o Dir::Cache::archives="$ARCHIVE_DIR" \
+            -o APT::Keep-Downloaded-Packages="true" \
+            install -y -qq --no-install-recommends \
+            libreoffice-writer-nogui libreoffice-core-nogui fonts-noto-cjk qpdf
+          sudo chown -R "$USER" "$HOME/.apt-cache"
+          soffice --version
+          qpdf --version
+
+      - name: Configure git
+        run: |
+          git config user.name "AcademicFlow Bot"
+          git config user.email "academicflow@users.noreply.github.com"
+
+      - name: Run doc convert pipeline
+        env:
+          MINERU_API_TOKEN: ${{ secrets.MINERU_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO:  ${{ github.event.repository.name }}
+          # payload 经环境变量传入，避免文件名含单引号时破坏 shell 引号结构
+          PIPELINE_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          echo "doc_id:      ${{ github.event.client_payload.doc_id }}"
+          echo "title:       ${{ github.event.client_payload.title }}"
+          echo "source_path: ${{ github.event.client_payload.source_path }}"
+          node .github/scripts/doc_convert.mjs "$PIPELINE_PAYLOAD"

@@ -542,7 +542,7 @@ export interface DualEngineRunParams {
 }
 
 /** 后台任务类型（taskQueue.ts 使用） */
-export type TaskType = 'paper_convert' | 'mineru_pdf' | 'ai_batch' | 'book_convert' | 'note_convert'
+export type TaskType = 'paper_convert' | 'mineru_pdf' | 'ai_batch' | 'book_convert' | 'note_convert' | 'doc_convert'
 
 /** SPEC §9.2 (M3.5 · M3.6.3 回到三分类 + 固定 tag 硬编码): 单条 claim 的核查结论
  *  - supported: 源材料明确支撑该 claim
