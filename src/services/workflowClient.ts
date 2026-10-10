@@ -113,6 +113,38 @@ export async function dispatchPaperConvert(
   await dispatchWorkflow('paper_convert', { doi, title, pdf_path }, owner, repo, token)
 }
 
+/**
+ * 触发 paper_convert：一次 dispatch 携带多篇文献。
+ * PDF 已由前端上传到私库 literatures/{slug}/source/，无需随 payload 传内容。
+ *   items = 一批 { doi, title, pdfPath }
+ *
+ * 为什么批量：GitHub concurrency group「pipeline-write-main」同一时刻只保留
+ * 1 running + 1 pending，逐篇 dispatch 会在几秒内连发 N 个 run，后到的会顶掉
+ * 前一个 pending 的（cancelled，0s，根本没起 job）。合并成一次 = 一个 run，
+ * 由 runner 内的 PAPER_CONCURRENCY 并发跑。
+ */
+export interface PaperConvertItem {
+  doi: string
+  title: string
+  pdfPath: string
+}
+
+export async function dispatchPaperConvertBatch(
+  items: PaperConvertItem[],
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<void> {
+  const payload = {
+    items: items.map((it) => ({ doi: it.doi, title: it.title, pdf_path: it.pdfPath })),
+  }
+  // client_payload 硬上限 64KB，超了 GitHub 直接 422、任务根本不会起。宁可前端报错让用户分批。
+  if (JSON.stringify(payload).length > DISPATCH_PAYLOAD_LIMIT) {
+    throw new Error(`本次 ${items.length} 篇文献的 payload 过大，请减少一次上传的数量后重试`)
+  }
+  await dispatchWorkflow('paper_convert', payload, owner, repo, token)
+}
+
 export async function dispatchBookConvert(
   bookId: string,
   title: string,

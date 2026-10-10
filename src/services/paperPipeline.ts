@@ -17,7 +17,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
 import { doiToSlug } from './literatureData'
 import { writeFileBatch, type BatchFileOp } from './github'
-import { dispatchPaperConvert, getLatestRun } from './workflowClient'
+import { dispatchPaperConvert, dispatchPaperConvertBatch, getLatestRun } from './workflowClient'
 
 const MAX_PDF_SIZE = 100 * 1024 * 1024
 
@@ -166,5 +166,193 @@ export async function enqueuePaperMineruConvert(
       })
     } catch {}
     return { ok: false, error: msg, task_id: taskId }
+  }
+}
+
+export interface EnqueuePaperItem {
+  doi: string
+  title: string
+  file: File
+}
+
+/** 单篇的入队结果；results 与传入 items 顺序一一对应 */
+export interface EnqueuePaperItemResult {
+  ok: boolean
+  doi: string
+  pdf_path?: string
+  task_id?: string
+  error?: string
+}
+
+export interface EnqueuePaperBatchResult {
+  ok: boolean
+  results: EnqueuePaperItemResult[]
+  error?: string
+}
+
+/**
+ * 把一批文献 PDF 加入后端 paper_convert 转换队列。
+ * 所有 PDF 一次上传、一次 dispatch（runner 内按 PAPER_CONCURRENCY 并发跑）。
+ *
+ * 为什么批量：GitHub concurrency group「pipeline-write-main」只保留 1 running + 1 pending，
+ * 逐篇 dispatch 会在几秒内连发 N 个 run，后到的顶掉前一个 pending 的（cancelled）。
+ * 合并成一次 = 一个 run。
+ */
+export async function enqueuePaperMineruConvertBatch(
+  items: EnqueuePaperItem[],
+): Promise<EnqueuePaperBatchResult> {
+  const results: EnqueuePaperItemResult[] = items.map((it) => ({ ok: false, doi: it.doi }))
+  if (items.length === 0) return { ok: true, results }
+
+  const auth = useAuthStore.getState()
+  const ws = useWorkspaceStore.getState()
+  const owner = auth.user?.login
+  const repo = ws.repo?.name
+  const token = auth.token
+  if (!owner || !repo || !token) {
+    const msg = '未登录或私库未配置，请先完成设置'
+    toast.error(msg)
+    results.forEach((r) => { r.error = msg })
+    return { ok: false, results, error: msg }
+  }
+
+  const stamp = Date.now()
+
+  // 先逐篇过一遍约束：超大 PDF 直接判失败，不拖累其余篇
+  const valid: { idx: number; doi: string; title: string; file: File; slug: string; pdfPath: string; taskId: string }[] = []
+  items.forEach((it, idx) => {
+    if (it.file.size > MAX_PDF_SIZE) {
+      const msg = `PDF 过大：${(it.file.size / 1024 / 1024).toFixed(1)} MB > 100 MB GitHub 硬限。请裁剪后重试。`
+      toast.error(`${it.file.name}：${msg}`)
+      results[idx].error = msg
+      return
+    }
+    const slug = doiToSlug(it.doi)
+    const safeName = it.file.name.replace(/[^\w.\-]+/g, '_')
+    valid.push({
+      idx,
+      doi: it.doi,
+      title: it.title,
+      file: it.file,
+      slug,
+      pdfPath: `literatures/${slug}/source/${stamp}_${idx}_${safeName}`,
+      taskId: `paper_${slug}_${stamp}_${idx}`,
+    })
+  })
+  if (valid.length === 0) return { ok: false, results }
+
+  // ──── 1. 所有 PDF 一次上传（一次 commit） ────
+  try {
+    const ops: BatchFileOp[] = []
+    for (const v of valid) {
+      const b64 = await fileToBase64(v.file)
+      ops.push({ path: v.pdfPath, content: b64, encoding: 'base64' })
+    }
+    const msg = valid.length === 1
+      ? `upload ${valid[0].file.name} for ${valid[0].slug}`
+      : `upload ${valid.length} PDFs for papers`
+    await writeFileBatch(ops, msg, owner, repo, token)
+  } catch (err: any) {
+    const msg = `PDF 上传失败：${err?.message || String(err)}`
+    toast.error(msg)
+    valid.forEach((v) => {
+      results[v.idx].error = msg
+      results[v.idx].task_id = v.taskId
+    })
+    return { ok: false, results, error: msg }
+  }
+
+  // ──── 2. 逐篇注册一个 taskQueue 任务（右侧面板逐篇可见） ────
+  for (const v of valid) {
+    try {
+      const tq = useTaskQueueStore.getState()
+      const now = Date.now()
+      await tq.add_task({
+        id: v.taskId,
+        type: 'paper_convert',
+        doi: v.doi,
+        book_id: undefined,
+        title: v.title || v.slug,
+        stage: 'queued',
+        node_index: STAGE_META.queued.node,
+        progress: 0,
+        status: 'pending',
+        message: 'PDF 已上传，等待后端处理...',
+        created_at: now,
+        updated_at: now,
+        error: undefined,
+        metadata: {
+          pdf_github_path: v.pdfPath,
+          file_name: v.file.name,
+          file_size: v.file.size,
+          slug: v.slug,
+          source: 'paperPipeline',
+        },
+      })
+    } catch (err: any) {
+      console.warn('[paperPipeline] taskQueue.add_task 失败（不阻塞 pipeline）:', err?.message)
+    }
+  }
+
+  // ──── 3. 一次 dispatch 触发后端（所有篇同一个 run） ────
+  try {
+    const beforeRun = await getLatestRun('paper_convert', owner, repo, token)
+    const beforeCreatedAt = beforeRun?.created_at ?? new Date(Date.now() - 60_000).toISOString()
+
+    await dispatchPaperConvertBatch(
+      valid.map((v) => ({ doi: v.doi, title: v.title || v.slug, pdfPath: v.pdfPath })),
+      owner, repo, token,
+    )
+
+    // 轮询新 run 的 id（GitHub 索引有 1-2s 延迟），存进每篇 metadata 供状态兜底
+    let newRunId: number | null = null
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 1000))
+      const rs = await getLatestRun('paper_convert', owner, repo, token, beforeCreatedAt)
+      if (rs) { newRunId = rs.id; break }
+    }
+    if (newRunId) {
+      console.log('[paperPipeline] 批量新 id: ', newRunId)
+      for (const v of valid) {
+        try {
+          await useTaskQueueStore.getState().update_task(v.taskId, {
+            metadata: {
+              pdf_github_path: v.pdfPath,
+              file_name: v.file.name,
+              file_size: v.file.size,
+              slug: v.slug,
+              source: 'paperPipeline',
+              id: newRunId,
+            },
+          })
+        } catch { /* 不阻塞 */ }
+      }
+    } else {
+      console.warn('[paperPipeline] 没找到新 id，后续只能靠 progress.json')
+    }
+
+    valid.forEach((v) => {
+      results[v.idx].ok = true
+      results[v.idx].pdf_path = v.pdfPath
+      results[v.idx].task_id = v.taskId
+    })
+    return { ok: true, results }
+  } catch (err: any) {
+    const msg = `触发后端 pipeline 失败：${err?.message || String(err)}。请检查 GitHub Actions 是否启用。`
+    toast.error(msg)
+    for (const v of valid) {
+      results[v.idx].error = msg
+      results[v.idx].task_id = v.taskId
+      try {
+        await useTaskQueueStore.getState().update_task(v.taskId, {
+          status: 'failed',
+          stage: 'failed',
+          node_index: STAGE_META.failed.node,
+          message: `触发后端失败：${msg}`,
+          error: msg,
+        })
+      } catch {}
+    }
+    return { ok: false, results, error: msg }
   }
 }

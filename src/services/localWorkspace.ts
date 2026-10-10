@@ -33,7 +33,7 @@ import {
   deleteFsHandle,
 } from './db'
 import { getRepoContext } from './userData'
-import { enqueuePaperMineruConvert } from './paperPipeline'
+import { enqueuePaperMineruConvertBatch } from './paperPipeline'
 import { enqueueBookMineruConvert } from './bookPipeline'
 import { enqueueDocConvert } from './docPipeline'
 import {
@@ -697,23 +697,30 @@ async function attachTask(
   await saveMaterialMeta(setMeta(meta, type, id, { taskId }))
 }
 
-/** 文献 PDF：解析 DOI → 入库 → 走 MinerU 管线 */
-async function ingestPaper(
-  file: File,
+/**
+ * 文献 PDF 的「解析 + 去重 + 落库」阶段（不含派发）。
+ * - 解析出 DOI 且需要转换：返回待派发信息 { doi, title, method }
+ * - 解析失败 / 重复：直接返回终态 outcome（不进入批次）
+ *
+ * 派发统一由 scanWorkspace 收集成批次后一次性 dispatch（避免逐篇触发被
+ * GitHub concurrency group 顶掉）。
+ */
+async function preparePaperForQueue(
   fileName: string,
-  taskId: string,
-): Promise<IngestOutcome> {
+): Promise<{ queue: { doi: string; title: string; method: string } } | { outcome: IngestOutcome }> {
   const titleGuess = stripExt(fileName)
   let resolved: ResolvedDoi | null
   try {
     resolved = await resolvePaperDoi(fileName, titleGuess)
   } catch (err) {
-    return { status: '失败', note: `DOI 解析失败：${(err as Error)?.message || String(err)}` }
+    return { outcome: { status: '失败', note: `DOI 解析失败：${(err as Error)?.message || String(err)}` } }
   }
   if (!resolved) {
     return {
-      status: '失败',
-      note: '无法确定 DOI（文件名无 DOI、库内无匹配、联网检索失败），请手动补 DOI 后重试',
+      outcome: {
+        status: '失败',
+        note: '无法确定 DOI（文件名无 DOI、库内无匹配、联网检索失败），请手动补 DOI 后重试',
+      },
     }
   }
 
@@ -721,7 +728,7 @@ async function ingestPaper(
   const doi = resolved.doi
   const existing = lits.find((l) => isSameDoi(l.doi, doi))
   if (existing && existing.pdfAddedAt) {
-    return { status: '重复跳过', note: `库中已有 DOI ${doi} 且已导入 PDF` }
+    return { outcome: { status: '重复跳过', note: `库中已有 DOI ${doi} 且已导入 PDF` } }
   }
 
   const title = resolved.title || titleGuess
@@ -748,11 +755,7 @@ async function ingestPaper(
     await saveLiteratures([...lits, newLit])
   }
 
-  const r = await enqueuePaperMineruConvert(doi, file, title)
-  if (!r.ok) return { status: '失败', note: r.error || 'MinerU 入队失败' }
-
-  await attachTask('paper', doi, taskId)
-  return { status: '已入库', note: `DOI ${doi}（${resolved.method}）` }
+  return { queue: { doi, title, method: resolved.method } }
 }
 
 /** 图书 PDF：书名入库 → 走 MinerU 管线 */
@@ -865,6 +868,20 @@ export async function scanWorkspace(): Promise<ScanResult> {
     let failed = 0
     let skipped = 0
 
+    // 文献 PDF 先解析 / 去重 / 落库，收集成批次，扫完后一次性派发（避免逐篇触发
+    // 在 GitHub concurrency group 里互相顶掉）。其余类型边扫边处理。
+    interface PaperSlot {
+      slot: number
+      taskId: string
+      file: File
+      doi: string
+      title: string
+      method: string
+    }
+    const paperSlots: PaperSlot[] = []
+    const slotInfo: { relPath: string; category: string; taskLabel: string; name: string }[] = []
+    const slotOutcome: (IngestOutcome | null)[] = []
+
     for (const found of files) {
       const cls = classify(found.relSegs)
       if (!cls) continue
@@ -890,11 +907,19 @@ export async function scanWorkspace(): Promise<ScanResult> {
       const taskLabel = task?.title ?? ''
       const name = found.relSegs[found.relSegs.length - 1]
 
-      let outcome: IngestOutcome
+      let outcome: IngestOutcome | null = null
       try {
         const file = await found.handle.getFile()
         if (cls.category === PAPER_DIR) {
-          outcome = await ingestPaper(file, name, taskId)
+          const pre = await preparePaperForQueue(name)
+          if ('queue' in pre) {
+            const slot = slotInfo.length
+            slotInfo.push({ relPath, category: cls.category, taskLabel, name })
+            slotOutcome.push(null)
+            paperSlots.push({ slot, taskId, file, doi: pre.queue.doi, title: pre.queue.title, method: pre.queue.method })
+            continue
+          }
+          outcome = pre.outcome
         } else if (cls.category === BOOK_DIR) {
           outcome = await ingestBook(file, name, taskId)
         } else if (MARKDOWN_EXT.has(ext)) {
@@ -906,25 +931,57 @@ export async function scanWorkspace(): Promise<ScanResult> {
         outcome = { status: '失败', note: (err as Error)?.message || String(err) }
       }
 
+      slotInfo.push({ relPath, category: cls.category, taskLabel, name })
+      slotOutcome.push(outcome)
+    }
+    // ── 批次派发：所有文献 PDF 一次 dispatch ──
+    if (paperSlots.length > 0) {
+      let batch: Awaited<ReturnType<typeof enqueuePaperMineruConvertBatch>>
+      try {
+        batch = await enqueuePaperMineruConvertBatch(
+          paperSlots.map((p) => ({ doi: p.doi, title: p.title, file: p.file })),
+        )
+      } catch (err) {
+        batch = { ok: false, results: [], error: (err as Error)?.message || String(err) }
+      }
+      for (let i = 0; i < paperSlots.length; i++) {
+        const p = paperSlots[i]
+        const r = batch.results[i]
+        if (r && r.ok) {
+          try {
+            await attachTask('paper', p.doi, p.taskId)
+          } catch { /* 不阻塞 */ }
+          slotOutcome[p.slot] = { status: '已入库', note: `DOI ${p.doi}（${p.method}）` }
+        } else {
+          slotOutcome[p.slot] = { status: '失败', note: r?.error || batch.error || 'MinerU 入队失败' }
+        }
+      }
+    }
+
+    // ── 汇总：按扫描顺序回写台账 + 结果 ──
+    for (let i = 0; i < slotInfo.length; i++) {
+      const info = slotInfo[i]
+      const outcome: IngestOutcome = slotOutcome[i] || { status: '失败', note: '未处理' }
+
       if (outcome.status === '已入库' || outcome.status === '处理中') ingested++
       else if (outcome.status === '失败') failed++
       else skipped++
 
       const row: WorkspaceIndexRow = {
-        path: relPath,
-        category: cls.category,
-        task: taskLabel,
-        originalName: name,
+        path: info.relPath,
+        category: info.category,
+        task: info.taskLabel,
+        originalName: info.name,
         status: outcome.status,
         processedAt: nowStamp(),
         note: outcome.note,
       }
-      ledgerMap.set(relPath, row)
+      ledgerMap.set(info.relPath, row)
       items.push({
-        path: relPath,
-        category: cls.category,
-        task: taskLabel,
-        name,
+        path: info.relPath,
+        category: info.category,
+        task: info.taskLabel,
+        name: info.name,
         status: outcome.status,
         note: outcome.note,
       })
