@@ -59,6 +59,7 @@ import { TaskDeleteModal } from '../components/schedule/TaskDeleteModal'
 import { TaskRequirementsModal } from '../components/schedule/TaskRequirementsModal'
 import { useTaskStore } from '../stores/task'
 import { useWorkspaceStore } from '../stores/workspace'
+import { runOptimistic, errText } from '../services/optimistic'
 
 /**
  * 统一任务编辑器的上下文：新建（指定大类 / 归属）或编辑已有任务。
@@ -226,27 +227,28 @@ export default function SchedulePage() {
 
   // 校历改一项即落库（课程表顶栏就地编辑，不另设保存按钮）
   const updateCalendar = async (patch: Partial<SchoolCalendar>) => {
+    const prev = calendar
     const next = { ...calendar, ...patch }
-    setCalendar(next)
     setSavingCalendar(true)
     try {
-      await saveCalendar(next)
-    } catch (err) {
-      console.error('[Schedule] 保存校历失败:', err)
-      toast.error('保存校历失败，请重试')
+      await runOptimistic({
+        apply: () => setCalendar(next),
+        commit: () => saveCalendar(next),
+        rollback: () => setCalendar(prev),
+        errorMessage: (err) => `保存校历失败：${errText(err)}`,
+      })
     } finally {
       setSavingCalendar(false)
     }
   }
 
   // ---------- 课程 / 定时任务：时段 ----------
-  /** 加课时：同名课程复用同一个课程任务（高数周二 / 周四共享），否则新建 */
-  const resolveCourseTask = async (name: string): Promise<Project> => {
+  /** 加课时：同名课程复用同一个课程任务（高数周二 / 周四共享），否则「计划」新建一个（不落库，由调用方乐观提交） */
+  const planCourseTask = (name: string, now: number): { task: Project; isNew: boolean } => {
     const existing = projects.find(
       (p) => p.type === 'course' && !p.parentId && (p.title || '') === name,
     )
-    if (existing) return existing
-    const now = Date.now()
+    if (existing) return { task: existing, isNew: false }
     const task: Project = {
       projectId: genId('course'),
       title: name,
@@ -261,10 +263,7 @@ export default function SchedulePage() {
       dueAt: 0,
       done: false,
     }
-    const next = [...projects, task]
-    await saveProjects(next)
-    setProjects(next)
-    return task
+    return { task, isNew: true }
   }
 
   /** 单次时段的结束时刻 = 该任务的截止时间（DDL）；非单次 → null（保持 dueAt 不变） */
@@ -279,163 +278,179 @@ export default function SchedulePage() {
     variant: 'course' | 'timed',
     value: SlotFormValue,
   ) => {
-    try {
-      let taskId = value.taskId
-      let title = value.title
+    const now = Date.now()
+    const due = onceDueAt(value)
+    let nextProjects = projects
+    let projectsChanged = false
+    let taskId = value.taskId
+    let title = value.title
+    if (variant === 'course') {
       // 单次（如考试）自带结束时间 → 同步为该任务的截止时间，于是也进 DDL 清单
-      const due = onceDueAt(value)
-      if (variant === 'course') {
-        const task = await resolveCourseTask(value.title.trim())
-        taskId = task.projectId
-        title = task.title
-      } else {
-        if (value.taskId) {
-          const task = byId.get(value.taskId)
-          if (!task) {
-            toast.error('请选择要加入课表的任务')
-            return
-          }
-          title = task.title || value.title
-          // 归属已有任务：单次日期同样要落盘，否则刷新后该任务的 DDL 会「变回去」
-          if (due !== null && due !== task.dueAt) {
-            const next = projects.map((p) =>
-              p.projectId === task.projectId ? { ...p, dueAt: due, updatedAt: Date.now() } : p,
-            )
-            await saveProjects(next)
-            setProjects(next)
-          }
-        } else {
-          // 归属留空 → 用「任务名称」在所选大类下新建一个顶级任务，时段挂在它下面
-          const now = Date.now()
-          const task: Project = {
-            projectId: genId('task'),
-            title: value.title.trim(),
-            targetJournal: '',
-            textbookRefs: '',
-            status: 'draft',
-            createdAt: now,
-            updatedAt: now,
-            type: value.type,
-            parentId: null,
-            startAt: 0,
-            dueAt: due ?? 0,
-            done: false,
-          }
-          const next = [...projects, task]
-          await saveProjects(next)
-          setProjects(next)
-          taskId = task.projectId
-          title = task.title
-        }
+      const { task, isNew } = planCourseTask(value.title.trim(), now)
+      if (isNew) {
+        nextProjects = [...nextProjects, task]
+        projectsChanged = true
       }
-      // 一次可加多个时段，共用一个任务（同名课程共享同一个课程任务）
-      const now = Date.now()
-      const newCourses: Course[] = value.slots.map((s) => ({
-        courseId: genId('slot'),
-        title,
-        weekday: s.weekday,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        location: s.location,
+      taskId = task.projectId
+      title = task.title
+    } else if (value.taskId) {
+      const task = byId.get(value.taskId)
+      if (!task) {
+        toast.error('请选择要加入课表的任务')
+        return
+      }
+      title = task.title || value.title
+      // 归属已有任务：单次日期同样要落盘，否则刷新后该任务的 DDL 会「变回去」
+      if (due !== null && due !== task.dueAt) {
+        nextProjects = nextProjects.map((p) =>
+          p.projectId === task.projectId ? { ...p, dueAt: due, updatedAt: now } : p,
+        )
+        projectsChanged = true
+      }
+    } else {
+      // 归属留空 → 用「任务名称」在所选大类下新建一个顶级任务，时段挂在它下面
+      const task: Project = {
+        projectId: genId('task'),
+        title: value.title.trim(),
+        targetJournal: '',
+        textbookRefs: '',
+        status: 'draft',
         createdAt: now,
-        taskId,
-        repeat: value.repeat,
-        date: value.repeat === 'once' ? s.date : '',
-      }))
-      const next = [...courses, ...newCourses]
-      await saveCourses(next)
-      setCourses(next)
-    } catch (err) {
-      console.error('[Schedule] 添加时段失败:', err)
-      toast.error('添加失败，请重试')
+        updatedAt: now,
+        type: value.type,
+        parentId: null,
+        startAt: 0,
+        dueAt: due ?? 0,
+        done: false,
+      }
+      nextProjects = [...nextProjects, task]
+      projectsChanged = true
+      taskId = task.projectId
+      title = task.title
     }
+    // 一次可加多个时段，共用一个任务（同名课程共享同一个课程任务）
+    const newCourses: Course[] = value.slots.map((s) => ({
+      courseId: genId('slot'),
+      title,
+      weekday: s.weekday,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      location: s.location,
+      createdAt: now,
+      taskId,
+      repeat: value.repeat,
+      date: value.repeat === 'once' ? s.date : '',
+    }))
+    const nextCourses = [...courses, ...newCourses]
+    const prevProjects = projects
+    const prevCourses = courses
+    await runOptimistic({
+      apply: () => {
+        if (projectsChanged) setProjects(nextProjects)
+        setCourses(nextCourses)
+      },
+      commit: async () => {
+        if (projectsChanged) await saveProjects(nextProjects)
+        await saveCourses(nextCourses)
+      },
+      rollback: () => {
+        if (projectsChanged) setProjects(prevProjects)
+        setCourses(prevCourses)
+      },
+      errorMessage: (err) => `添加失败：${errText(err)}`,
+    })
   }
 
   const handleUpdateSlot = async (courseId: string, value: SlotFormValue, all: boolean) => {
     const slot = courses.find((c) => c.courseId === courseId)
     if (!slot) return
-    try {
-      const now = Date.now()
-      // 本次编辑后时段归属的任务：整门课 = slot.taskId；单时段可改归属为 value.taskId
-      const targetTaskId = all ? slot.taskId : value.taskId || slot.taskId
-      // 把「重命名课程任务」「单次日期 → DDL」合并进同一次 saveProjects，
-      // 否则两次串行 setProjects 会各自基于旧 projects 互相覆盖
-      let nextProjects = projects
-      let projectsChanged = false
-      const patchTask = (taskId: string, patch: Partial<Project>) => {
-        nextProjects = nextProjects.map((p) =>
-          p.projectId === taskId ? { ...p, ...patch, updatedAt: now } : p,
-        )
-        projectsChanged = true
-      }
-      // 课程时段：允许改课程名 —— 同步重命名所属课程任务（所有时段跟着变）
-      const slotTask = slot.taskId ? byId.get(slot.taskId) : undefined
-      const isCourseSlot = !!slotTask && slotTask.type === 'course' && !slotTask.parentId
-      if (isCourseSlot && slotTask && value.title.trim() && value.title.trim() !== slotTask.title) {
-        patchTask(slotTask.projectId, { title: value.title.trim() })
-      }
-      // 单次时段的日期 → 该任务的截止时间；不落盘的话刷新后 DDL 会「变回去」
-      const due = onceDueAt(value)
-      if (due !== null && targetTaskId && byId.get(targetTaskId)?.dueAt !== due) {
-        patchTask(targetTaskId, { dueAt: due })
-      }
-      if (projectsChanged) {
-        await saveProjects(nextProjects)
-        setProjects(nextProjects)
-      }
-      if (all) {
-        // 编辑整门课全部时段：用新列表替换该任务名下的所有时段
-        const rest = courses.filter((c) => c.taskId !== slot.taskId)
-        const rebuilt: Course[] = value.slots.map((s) => ({
-          courseId: genId('slot'),
-          title: value.title,
-          weekday: s.weekday,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          location: s.location,
-          createdAt: now,
-          taskId: slot.taskId,
-          repeat: value.repeat,
-          date: value.repeat === 'once' ? s.date : '',
-        }))
-        const next = [...rest, ...rebuilt]
-        await saveCourses(next)
-        setCourses(next)
-      } else {
-        const s0 = value.slots[0]
-        const next = courses.map((c) =>
-          c.courseId === courseId
-            ? {
-                ...c,
-                title: value.title,
-                weekday: s0.weekday,
-                startTime: s0.startTime,
-                endTime: s0.endTime,
-                location: s0.location,
-                taskId: value.taskId || c.taskId,
-                repeat: value.repeat,
-                date: value.repeat === 'once' ? s0.date : '',
-              }
-            : c,
-        )
-        await saveCourses(next)
-        setCourses(next)
-      }
-    } catch (err) {
-      console.error('[Schedule] 保存时段失败:', err)
-      toast.error('保存失败，请重试')
+    const now = Date.now()
+    // 本次编辑后时段归属的任务：整门课 = slot.taskId；单时段可改归属为 value.taskId
+    const targetTaskId = all ? slot.taskId : value.taskId || slot.taskId
+    // 把「重命名课程任务」「单次日期 → DDL」合并进同一次 saveProjects，
+    // 否则两次串行 setProjects 会各自基于旧 projects 互相覆盖
+    let nextProjects = projects
+    let projectsChanged = false
+    const patchTask = (taskId: string, patch: Partial<Project>) => {
+      nextProjects = nextProjects.map((p) =>
+        p.projectId === taskId ? { ...p, ...patch, updatedAt: now } : p,
+      )
+      projectsChanged = true
     }
+    // 课程时段：允许改课程名 —— 同步重命名所属课程任务（所有时段跟着变）
+    const slotTask = slot.taskId ? byId.get(slot.taskId) : undefined
+    const isCourseSlot = !!slotTask && slotTask.type === 'course' && !slotTask.parentId
+    if (isCourseSlot && slotTask && value.title.trim() && value.title.trim() !== slotTask.title) {
+      patchTask(slotTask.projectId, { title: value.title.trim() })
+    }
+    // 单次时段的日期 → 该任务的截止时间；不落盘的话刷新后 DDL 会「变回去」
+    const due = onceDueAt(value)
+    if (due !== null && targetTaskId && byId.get(targetTaskId)?.dueAt !== due) {
+      patchTask(targetTaskId, { dueAt: due })
+    }
+    let nextCourses: Course[]
+    if (all) {
+      // 编辑整门课全部时段：用新列表替换该任务名下的所有时段
+      const rest = courses.filter((c) => c.taskId !== slot.taskId)
+      const rebuilt: Course[] = value.slots.map((s) => ({
+        courseId: genId('slot'),
+        title: value.title,
+        weekday: s.weekday,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        location: s.location,
+        createdAt: now,
+        taskId: slot.taskId,
+        repeat: value.repeat,
+        date: value.repeat === 'once' ? s.date : '',
+      }))
+      nextCourses = [...rest, ...rebuilt]
+    } else {
+      const s0 = value.slots[0]
+      nextCourses = courses.map((c) =>
+        c.courseId === courseId
+          ? {
+              ...c,
+              title: value.title,
+              weekday: s0.weekday,
+              startTime: s0.startTime,
+              endTime: s0.endTime,
+              location: s0.location,
+              taskId: value.taskId || c.taskId,
+              repeat: value.repeat,
+              date: value.repeat === 'once' ? s0.date : '',
+            }
+          : c,
+      )
+    }
+    const prevProjects = projects
+    const prevCourses = courses
+    await runOptimistic({
+      apply: () => {
+        if (projectsChanged) setProjects(nextProjects)
+        setCourses(nextCourses)
+      },
+      commit: async () => {
+        if (projectsChanged) await saveProjects(nextProjects)
+        await saveCourses(nextCourses)
+      },
+      rollback: () => {
+        if (projectsChanged) setProjects(prevProjects)
+        setCourses(prevCourses)
+      },
+      errorMessage: (err) => `保存失败：${errText(err)}`,
+    })
   }
 
   const handleDeleteCourse = async (courseId: string) => {
+    const prev = courses
     const next = courses.filter((c) => c.courseId !== courseId)
-    try {
-      await saveCourses(next)
-      setCourses(next)
-    } catch (err) {
-      console.error('[Schedule] 删除时段失败:', err)
-      toast.error('删除失败，请重试')
-    }
+    await runOptimistic({
+      apply: () => setCourses(next),
+      commit: () => saveCourses(next),
+      rollback: () => setCourses(prev),
+      errorMessage: (err) => `删除失败：${errText(err)}`,
+    })
   }
 
   const handleAddExtraDay = async (date: string, note: string, followWeekday: number) => {
@@ -449,32 +464,32 @@ export default function SchedulePage() {
       toast.warning('该调休日已存在')
       return
     }
+    const prev = extraDays
     const next = [...extraDays, { date, note, followWeekday }].sort((a, b) =>
       a.date.localeCompare(b.date),
     )
-    try {
-      await saveExtraDays(next)
-      setExtraDays(next)
-    } catch (err) {
-      console.error('[Schedule] 添加调休日失败:', err)
-      toast.error('添加调休日失败，请重试')
-    }
+    await runOptimistic({
+      apply: () => setExtraDays(next),
+      commit: () => saveExtraDays(next),
+      rollback: () => setExtraDays(prev),
+      errorMessage: (err) => `添加调休日失败：${errText(err)}`,
+    })
   }
 
   const handleDeleteExtraDay = async (date: string) => {
+    const prev = extraDays
     const next = extraDays.filter((d) => d.date !== date)
-    try {
-      await saveExtraDays(next)
-      setExtraDays(next)
-    } catch (err) {
-      console.error('[Schedule] 删除调休日失败:', err)
-      toast.error('删除调休日失败，请重试')
-    }
+    await runOptimistic({
+      apply: () => setExtraDays(next),
+      commit: () => saveExtraDays(next),
+      rollback: () => setExtraDays(prev),
+      errorMessage: (err) => `删除调休日失败：${errText(err)}`,
+    })
   }
 
   // ---------- 任务 / DDL ----------
   /** 新建任务 / 子任务：字段全走统一编辑器，创建与编辑同一套字段 */
-  const handleCreateTask = async (value: TaskFormValue) => {
+  const handleCreateTask = async (value: TaskFormValue): Promise<boolean> => {
     const now = Date.now()
     const project: Project = {
       projectId: genId('task'),
@@ -490,23 +505,25 @@ export default function SchedulePage() {
       dueAt: value.dueAt,
       done: false,
     }
+    const prev = projects
     const next = [...projects, project]
-    try {
-      await saveProjects(next)
-      if (value.brief.trim()) await saveBrief(project.projectId, value.brief)
-      if (value.notes !== null) await saveTaskRequirements(project.projectId, value.notes)
-      setProjects(next)
-      // 成功不弹提示：弹窗关闭本身就是成功的信号（用户嫌「成功弹窗」冗余）
-    } catch (err) {
-      console.error('[Schedule] 创建任务失败:', err)
-      toast.error('创建任务失败，请重试')
-      throw err
-    }
+    // 成功不弹提示：弹窗关闭本身就是成功的信号（用户嫌「成功弹窗」冗余）
+    return runOptimistic({
+      apply: () => setProjects(next),
+      commit: async () => {
+        await saveProjects(next)
+        if (value.brief.trim()) await saveBrief(project.projectId, value.brief)
+        if (value.notes !== null) await saveTaskRequirements(project.projectId, value.notes)
+      },
+      rollback: () => setProjects(prev),
+      errorMessage: (err) => `创建任务失败：${errText(err)}`,
+    })
   }
 
   /** 编辑任务：名称 / 大类 / 归属 / 开始 / 截止 / 详细描述 一次性落库 */
-  const handleUpdateTask = async (projectId: string, value: TaskFormValue) => {
+  const handleUpdateTask = async (projectId: string, value: TaskFormValue): Promise<boolean> => {
     const now = Date.now()
+    const prev = projects
     const next = projects.map((p) =>
       p.projectId === projectId
         ? {
@@ -520,17 +537,17 @@ export default function SchedulePage() {
           }
         : p,
     )
-    try {
-      await saveProjects(next)
-      await saveBrief(projectId, value.brief)
-      if (value.notes !== null) await saveTaskRequirements(projectId, value.notes)
-      setProjects(next)
-      // 成功不弹提示：弹窗关闭本身就是成功的信号
-    } catch (err) {
-      console.error('[Schedule] 保存任务失败:', err)
-      toast.error('保存失败，请重试')
-      throw err
-    }
+    // 成功不弹提示：弹窗关闭本身就是成功的信号
+    return runOptimistic({
+      apply: () => setProjects(next),
+      commit: async () => {
+        await saveProjects(next)
+        await saveBrief(projectId, value.brief)
+        if (value.notes !== null) await saveTaskRequirements(projectId, value.notes)
+      },
+      rollback: () => setProjects(prev),
+      errorMessage: (err) => `保存失败：${errText(err)}`,
+    })
   }
 
   const openCreateRoot = (type: ProjectType) =>
@@ -551,44 +568,67 @@ export default function SchedulePage() {
    * 不动 `updatedAt` —— 打勾不该让任务在「按修改顺序」里跳位。
    */
   const handleToggleDone = async (project: Project) => {
+    const prev = projects
     const next = projects.map((p) =>
       p.projectId === project.projectId ? { ...p, done: !p.done } : p,
     )
-    try {
-      await saveProjects(next)
-      setProjects(next)
-    } catch (err) {
-      console.error('[Schedule] 切换任务完成状态失败:', err)
-      toast.error('操作失败，请重试')
-    }
+    await runOptimistic({
+      apply: () => setProjects(next),
+      commit: () => saveProjects(next),
+      rollback: () => setProjects(prev),
+      errorMessage: (err) => `操作失败：${errText(err)}`,
+    })
   }
 
   // ---------- 任务改名 / 删除（ADJ-64）----------
   const handleRenameTask = async (project: Project, title: string) => {
-    try {
-      const next = await renameProject(project.projectId, title)
-      setProjects(next)
-    } catch (err) {
-      console.error('[Schedule] 任务改名失败:', err)
-      toast.error('改名失败，请重试')
-    }
+    const prev = projects
+    const next = projects.map((p) =>
+      p.projectId === project.projectId ? { ...p, title, updatedAt: Date.now() } : p,
+    )
+    await runOptimistic({
+      apply: () => setProjects(next),
+      commit: () => renameProject(project.projectId, title),
+      rollback: () => setProjects(prev),
+      errorMessage: (err) => `改名失败：${errText(err)}`,
+    })
   }
 
   const handleDeleteTask = async (mode: ProjectDeleteMode) => {
     const target = deleteTarget
     if (!target) return
-    try {
-      const next = await deleteProject(target.projectId, mode)
-      setProjects(next)
-      if (currentId === target.projectId) await setCurrentProject(null)
-      setDeleteTarget(null)
-      setEditor((prev) =>
-        prev?.mode === 'edit' && prev.projectId === target.projectId ? null : prev,
-      )
-    } catch (err) {
-      console.error('[Schedule] 删除任务失败:', err)
-      toast.error('删除失败，请重试')
-      throw err
+    const prev = projects
+    const prevCurrentId = currentId
+    const now = Date.now()
+    // 与 deleteProject 的本地口径保持一致：删该任务 + 直接子任务提升为顶级
+    const next = projects
+      .filter((p) => p.projectId !== target.projectId)
+      .map((p) => (p.parentId === target.projectId ? { ...p, parentId: null, updatedAt: now } : p))
+    const ok = await runOptimistic({
+      apply: () => {
+        setProjects(next)
+        setDeleteTarget(null)
+        setEditor((prevEditor) =>
+          prevEditor?.mode === 'edit' && prevEditor.projectId === target.projectId
+            ? null
+            : prevEditor,
+        )
+      },
+      commit: () => deleteProject(target.projectId, mode),
+      // 失败：恢复列表并重开删除弹窗（apply 已关掉它）
+      rollback: () => {
+        setProjects(prev)
+        setDeleteTarget(target)
+      },
+      errorMessage: (err) => `删除失败：${errText(err)}`,
+    })
+    // 被删任务恰是「当前任务」→ 删除成功后清空指向（非关键记账，失败仅告警不连累删除结果）
+    if (ok && prevCurrentId === target.projectId) {
+      try {
+        await setCurrentProject(null)
+      } catch (err) {
+        console.warn('[Schedule] 清理当前任务失败:', err)
+      }
     }
   }
 
@@ -726,9 +766,12 @@ export default function SchedulePage() {
             parentOptions={editorParentOptions}
             onClose={() => setEditor(null)}
             onSubmit={async (value) => {
-              if (editor.mode === 'edit') await handleUpdateTask(editor.projectId, value)
-              else await handleCreateTask(value)
-              setEditor(null)
+              const ok =
+                editor.mode === 'edit'
+                  ? await handleUpdateTask(editor.projectId, value)
+                  : await handleCreateTask(value)
+              // 乐观更新已即时反馈；仅成功才关弹窗，失败保留输入让用户重试
+              if (ok) setEditor(null)
             }}
           />
         </ErrorBoundary>

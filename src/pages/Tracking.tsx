@@ -8,7 +8,14 @@
  * - 快速入库（DOI / arXiv ID）
  * - 追踪结果展示
  */
-import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react'
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type ChangeEvent,
+  type MutableRefObject,
+} from 'react'
 import {
   Globe,
   Search,
@@ -47,6 +54,7 @@ import {
 } from '../services/literatureData'
 import { cascadeCleanupLiterature } from '../services/literatureCleanup'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
+import { runOptimistic, errText } from '../services/optimistic'
 import { translateText } from '../services/asr'
 import { isAbortError } from '../services/ai/abort'
 import { useSettingsStore } from '../stores/settings'
@@ -79,6 +87,45 @@ import {
 } from '../services/trackingPlanData'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
+
+/**
+ * 防抖落库 + 乐观回滚（ADJ-142）
+ * -------------------------------------------------
+ * 状态由调用方先行乐观改好（界面即时反馈），这里只负责延后把最新值写库。
+ * 写失败时：若期间没有更新的编辑（计时器未被新一轮 effect 重置），
+ * 就把状态回滚到「上一次保存成功」的快照，并弹一条可读错误。
+ * 返回清理函数，供 useEffect 直接返回。
+ */
+function scheduleDebouncedSave<T>(opts: {
+  timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>
+  revisionRef: MutableRefObject<number>
+  savedRef: MutableRefObject<T>
+  value: T
+  delayMs: number
+  save: (value: T) => Promise<void>
+  restore: (value: T) => void
+  logPrefix: string
+  errorMessage: string
+}): () => void {
+  if (opts.timerRef.current) clearTimeout(opts.timerRef.current)
+  opts.revisionRef.current += 1
+  const rev = opts.revisionRef.current
+  opts.timerRef.current = setTimeout(async () => {
+    try {
+      await opts.save(opts.value)
+      opts.savedRef.current = opts.value
+    } catch (err) {
+      console.error(opts.logPrefix, err)
+      // 期间已有更新的编辑（新一轮 effect 已重置计时器）→ 别用旧快照盖掉用户的新意图
+      if (opts.revisionRef.current !== rev) return
+      opts.restore(opts.savedRef.current)
+      toast.error(opts.errorMessage)
+    }
+  }, opts.delayMs)
+  return () => {
+    if (opts.timerRef.current) clearTimeout(opts.timerRef.current)
+  }
+}
 
 // ============================================================
 // 类型定义
@@ -292,6 +339,7 @@ export default function TrackingPage() {
         )
         if (!cancelled && groups.length > 0) {
           setKeywordGroups(groups)
+          keywordGroupsSavedRef.current = groups
         }
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载关键词组失败:', err)
@@ -315,6 +363,7 @@ export default function TrackingPage() {
         )
         if (!cancelled && loadedJournals.length > 0) {
           setJournals(loadedJournals)
+          journalsSavedRef.current = loadedJournals
         }
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载期刊失败:', err)
@@ -332,7 +381,10 @@ export default function TrackingPage() {
       let loadedPlans: TrackingPlan[] = []
       try {
         loadedPlans = await loadTrackingPlans()
-        if (!cancelled && loadedPlans.length > 0) setPlans(loadedPlans)
+        if (!cancelled && loadedPlans.length > 0) {
+          setPlans(loadedPlans)
+          plansSavedRef.current = loadedPlans
+        }
       } catch (err) {
         console.warn('[Tracking] 从 GitHub 加载定时计划失败:', err)
       }
@@ -370,6 +422,7 @@ export default function TrackingPage() {
             return s
           })
           setSearchSites(migratedSites)
+          searchSitesSavedRef.current = migratedSites
           setSelectedSearchSiteId(migratedSites[0].id)
           // 发生迁移时，标记 dataLoaded 让防抖 effect 把新模板写回 CSV
           if (migrated) dataLoadedRef.current = true
@@ -396,16 +449,24 @@ export default function TrackingPage() {
     }
   }, [repo])
 
-  // 关键词组变化时防抖保存到 GitHub
+  // 关键词组变化时防抖保存到 GitHub（乐观：本地先改，失败回滚到上次保存成功的快照）
   const keywordGroupsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const keywordGroupsSaveRevRef = useRef(0)
+  const keywordGroupsSavedRef = useRef<KeywordGroup[]>([])
   useEffect(() => {
     if (!dataLoadedRef.current) return
-    if (keywordGroupsSaveTimerRef.current) clearTimeout(keywordGroupsSaveTimerRef.current)
-    keywordGroupsSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await writeCsvFile(
+    return scheduleDebouncedSave({
+      timerRef: keywordGroupsSaveTimerRef,
+      revisionRef: keywordGroupsSaveRevRef,
+      savedRef: keywordGroupsSavedRef,
+      value: keywordGroups,
+      delayMs: 2000,
+      logPrefix: '[Tracking] 保存关键词组到 GitHub 失败:',
+      errorMessage: '关键词组保存失败，请检查仓库权限',
+      save: (groups) =>
+        writeCsvFile(
           'keyword_groups/keyword_groups.csv',
-          keywordGroups,
+          groups,
           // ⚠️ 表头必须与骨架 CSV_HEADERS.keyword_groups 逐字一致：
           //   后端 daily_tracking.py 按 group_id / group_name / expression 读取，
           //   字段名对不上（例如写成 keywords）后端就取不到关键词。
@@ -418,86 +479,87 @@ export default function TrackingPage() {
             g.translateAbstract ? 'true' : 'false',
             String(g.createdAt || Date.now()),
           ],
-        )
-      } catch (err) {
-        console.error('[Tracking] 保存关键词组到 GitHub 失败:', err)
-        toast.error('关键词组保存失败，请检查仓库权限')
-      }
-    }, 2000)
-    return () => {
-      if (keywordGroupsSaveTimerRef.current) clearTimeout(keywordGroupsSaveTimerRef.current)
-    }
+        ),
+      restore: (groups) => setKeywordGroups(groups),
+    })
   }, [keywordGroups])
 
-  // 期刊变化时防抖保存到 GitHub
+  // 期刊变化时防抖保存到 GitHub（乐观 + 回滚）
   const journalsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const journalsSaveRevRef = useRef(0)
+  const journalsSavedRef = useRef<JournalItem[]>([])
   useEffect(() => {
     if (!dataLoadedRef.current) return
-    if (journalsSaveTimerRef.current) clearTimeout(journalsSaveTimerRef.current)
-    journalsSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await writeCsvFile(
+    return scheduleDebouncedSave({
+      timerRef: journalsSaveTimerRef,
+      revisionRef: journalsSaveRevRef,
+      savedRef: journalsSavedRef,
+      value: journals,
+      delayMs: 2000,
+      logPrefix: '[Tracking] 保存期刊到 GitHub 失败:',
+      errorMessage: '期刊追踪保存失败，请检查仓库权限',
+      save: (items) =>
+        writeCsvFile(
           'journals/journal_tracking.csv',
-          journals,
+          items,
           // ⚠️ 表头必须与 v8 迁移后的表头逐字一致：
           //   后端 daily_tracking.py 按 issn 精确检索 OpenAlex，issn 列丢了期刊就只能靠反查。
           ['id', 'name', 'rss_url', 'enabled', 'issn', 'publisher'],
           (j) => [j.id, j.name, j.rssUrl || '', j.enabled ? '1' : '0', j.issn || '', j.publisher || ''],
-        )
-      } catch (err) {
-        console.error('[Tracking] 保存期刊到 GitHub 失败:', err)
-        toast.error('期刊追踪保存失败，请检查仓库权限')
-      }
-    }, 2000)
-    return () => {
-      if (journalsSaveTimerRef.current) clearTimeout(journalsSaveTimerRef.current)
-    }
+        ),
+      restore: (items) => setJournals(items),
+    })
   }, [journals])
 
   // 定时计划变化时防抖保存到 GitHub，并按需重写 workflow 的 schedule（动态 cron）
   const plansSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const plansSaveRevRef = useRef(0)
+  const plansSavedRef = useRef<TrackingPlan[]>([])
   useEffect(() => {
     if (!dataLoadedRef.current) return
-    if (plansSaveTimerRef.current) clearTimeout(plansSaveTimerRef.current)
-    plansSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await saveTrackingPlans(plans)
+    return scheduleDebouncedSave({
+      timerRef: plansSaveTimerRef,
+      revisionRef: plansSaveRevRef,
+      savedRef: plansSavedRef,
+      value: plans,
+      delayMs: 2000,
+      logPrefix: '[Tracking] 保存定时计划 / 同步 cron 失败:',
+      errorMessage: '定时计划保存失败，请检查仓库权限',
+      save: async (next) => {
+        await saveTrackingPlans(next)
         // 计划变了 → 只为「启用计划实际用到的 时:分」排 cron；没有计划就不排，避免空跑
         const { token, user } = useAuthStore.getState()
         if (token && user && repo) {
-          await syncTrackingCron(user.login, repo.name, token, plans)
+          await syncTrackingCron(user.login, repo.name, token, next)
         }
-      } catch (err) {
-        console.error('[Tracking] 保存定时计划 / 同步 cron 失败:', err)
-        toast.error('定时计划保存失败，请检查仓库权限')
-      }
-    }, 2000)
-    return () => {
-      if (plansSaveTimerRef.current) clearTimeout(plansSaveTimerRef.current)
-    }
+      },
+      restore: (next) => setPlans(next),
+    })
   }, [plans, repo])
 
-  // 搜索源变化时防抖保存到 GitHub
+  // 搜索源变化时防抖保存到 GitHub（乐观 + 回滚）
   const searchSitesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchSitesSaveRevRef = useRef(0)
+  const searchSitesSavedRef = useRef<SearchSite[]>([])
   useEffect(() => {
     if (!dataLoadedRef.current) return
-    if (searchSitesSaveTimerRef.current) clearTimeout(searchSitesSaveTimerRef.current)
-    searchSitesSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await writeCsvFile(
+    return scheduleDebouncedSave({
+      timerRef: searchSitesSaveTimerRef,
+      revisionRef: searchSitesSaveRevRef,
+      savedRef: searchSitesSavedRef,
+      value: searchSites,
+      delayMs: 2000,
+      logPrefix: '[Tracking] 保存搜索源到 GitHub 失败:',
+      errorMessage: '搜索源保存失败，请检查仓库权限',
+      save: (sites) =>
+        writeCsvFile(
           SEARCH_SITES_PATH,
-          searchSites,
+          sites,
           ['id', 'name', 'url_template', 'color'],
           (s) => [s.id, s.name, s.urlTemplate, s.color],
-        )
-      } catch (err) {
-        console.error('[Tracking] 保存搜索源到 GitHub 失败:', err)
-        toast.error('搜索源保存失败，请检查仓库权限')
-      }
-    }, 2000)
-    return () => {
-      if (searchSitesSaveTimerRef.current) clearTimeout(searchSitesSaveTimerRef.current)
-    }
+        ),
+      restore: (sites) => setSearchSites(sites),
+    })
   }, [searchSites])
 
   // 点击外部关闭搜索下拉
@@ -1219,35 +1281,55 @@ export default function TrackingPage() {
       toast.error('该候选缺少 DOI，无法入库')
       return
     }
-    try {
-      const newLit = candidateToLiterature(c)
-      const status = await addLiteratureToLibrary(newLit)
-      if (status === 'added') setLiteratures((prev) => [...prev, newLit])
-      // 入库后从候选里移除：它已经在 literatures.csv，后续靠 DOI 去重
-      const next = inbox.filter((r) => r.doi !== c.doi)
-      await saveTrackingInbox(next)
-      setInbox(next)
-      setSelectedCandidateDois((prev) => prev.filter((d) => d !== c.doi))
-      toastAdded(c.title, status)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`入库失败：${msg}`)
-    }
+    const newLit = candidateToLiterature(c)
+    const prevLiteratures = literatures
+    const prevInbox = inbox
+    const prevSelected = selectedCandidateDois
+    const existsLocally = literatures.some((l) => l.doi === c.doi)
+    // 入库后从候选里移除：它已经在 literatures.csv，后续靠 DOI 去重
+    const nextInbox = inbox.filter((r) => r.doi !== c.doi)
+    const nextSelected = selectedCandidateDois.filter((d) => d !== c.doi)
+    let status: 'added' | 'exists' = existsLocally ? 'exists' : 'added'
+    const ok = await runOptimistic({
+      apply: () => {
+        if (!existsLocally) setLiteratures((prev) => [...prev, newLit])
+        setInbox(nextInbox)
+        setSelectedCandidateDois(nextSelected)
+      },
+      commit: async () => {
+        status = await addLiteratureToLibrary(newLit)
+        await saveTrackingInbox(nextInbox)
+      },
+      rollback: () => {
+        setLiteratures(prevLiteratures)
+        setInbox(prevInbox)
+        setSelectedCandidateDois(prevSelected)
+      },
+      errorMessage: (err) => `入库失败：${errText(err)}`,
+    })
+    if (ok) toastAdded(c.title, status)
   }
 
   const handleDismissCandidate = async (c: TrackingCandidate) => {
-    try {
-      // 保留这一行、标 dismissed：否则明天追踪会把同一篇又命中一遍、重新冒出来
-      const next = inbox.map((r) =>
-        r.doi === c.doi ? { ...r, status: 'dismissed' as const } : r,
-      )
-      await saveTrackingInbox(next)
-      setInbox(next)
-      setSelectedCandidateDois((prev) => prev.filter((d) => d !== c.doi))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`忽略失败：${msg}`)
-    }
+    const prevInbox = inbox
+    const prevSelected = selectedCandidateDois
+    // 保留这一行、标 dismissed：否则明天追踪会把同一篇又命中一遍、重新冒出来
+    const nextInbox = inbox.map((r) =>
+      r.doi === c.doi ? { ...r, status: 'dismissed' as const } : r,
+    )
+    const nextSelected = selectedCandidateDois.filter((d) => d !== c.doi)
+    await runOptimistic({
+      apply: () => {
+        setInbox(nextInbox)
+        setSelectedCandidateDois(nextSelected)
+      },
+      commit: () => saveTrackingInbox(nextInbox),
+      rollback: () => {
+        setInbox(prevInbox)
+        setSelectedCandidateDois(prevSelected)
+      },
+      errorMessage: (err) => `忽略失败：${errText(err)}`,
+    })
   }
 
   const toggleCandidateSelect = (doi: string) => {
@@ -1260,23 +1342,30 @@ export default function TrackingPage() {
   const handleBatchIngestCandidates = async () => {
     const targets = pendingList.filter((c) => c.doi && selectedCandidateDois.includes(c.doi))
     if (targets.length === 0) return
-    try {
-      for (const c of targets) {
-        const newLit = candidateToLiterature(c)
-        const status = await addLiteratureToLibrary(newLit)
-        if (status === 'added') {
-          setLiteratures((prev) => [...prev, newLit])
-        }
-      }
-      const selected = new Set(targets.map((c) => c.doi))
-      const next = inbox.filter((r) => !selected.has(r.doi))
-      await saveTrackingInbox(next)
-      setInbox(next)
-      setSelectedCandidateDois([])
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`批量入库失败：${msg}`)
-    }
+    const prevLiteratures = literatures
+    const prevInbox = inbox
+    const prevSelected = selectedCandidateDois
+    const selected = new Set(targets.map((c) => c.doi))
+    const nextInbox = inbox.filter((r) => !selected.has(r.doi))
+    const existing = new Set(literatures.map((l) => l.doi))
+    const newLits = targets.filter((c) => !existing.has(c.doi)).map(candidateToLiterature)
+    await runOptimistic({
+      apply: () => {
+        if (newLits.length > 0) setLiteratures((prev) => [...prev, ...newLits])
+        setInbox(nextInbox)
+        setSelectedCandidateDois([])
+      },
+      commit: async () => {
+        for (const c of targets) await addLiteratureToLibrary(candidateToLiterature(c))
+        await saveTrackingInbox(nextInbox)
+      },
+      rollback: () => {
+        setLiteratures(prevLiteratures)
+        setInbox(prevInbox)
+        setSelectedCandidateDois(prevSelected)
+      },
+      errorMessage: (err) => `批量入库失败：${errText(err)}`,
+    })
   }
 
   /** 中栏批量删除：选中的候选统一标 dismissed（保留行做去重，不再出现） */
@@ -1285,19 +1374,25 @@ export default function TrackingPage() {
     const count = pendingList.filter((c) => selected.has(c.doi)).length
     if (count === 0) return
     if (count >= 5 && !window.confirm(`确定删除选中的 ${count} 篇候选？它们将不再出现在待入库里。`)) return
-    try {
-      const next = inbox.map((r) =>
-        selected.has(r.doi) && r.status === 'pending'
-          ? { ...r, status: 'dismissed' as const }
-          : r,
-      )
-      await saveTrackingInbox(next)
-      setInbox(next)
-      setSelectedCandidateDois([])
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`批量忽略失败：${msg}`)
-    }
+    const prevInbox = inbox
+    const prevSelected = selectedCandidateDois
+    const nextInbox = inbox.map((r) =>
+      selected.has(r.doi) && r.status === 'pending'
+        ? { ...r, status: 'dismissed' as const }
+        : r,
+    )
+    await runOptimistic({
+      apply: () => {
+        setInbox(nextInbox)
+        setSelectedCandidateDois([])
+      },
+      commit: () => saveTrackingInbox(nextInbox),
+      rollback: () => {
+        setInbox(prevInbox)
+        setSelectedCandidateDois(prevSelected)
+      },
+      errorMessage: (err) => `批量忽略失败：${errText(err)}`,
+    })
   }
 
   // ============================================================
@@ -1425,31 +1520,50 @@ export default function TrackingPage() {
     setPdfUploadingDoi(doi)
     try {
       const res = await enqueuePaperMineruConvert(doi, file, lit.title)
-      // enqueuePaperMineruConvert 内部已 toast 成功/失败，这里只负责成功后落 pdf_added_at
+      // enqueuePaperMineruConvert 内部已 toast 失败；这里只负责成功后落 pdf_added_at
       if (!res.ok) return
-      await markPaperPdfAdded(doi)
-      setLiteratures((prev) =>
-        prev.map((l) => (l.doi === doi ? { ...l, pdfAddedAt: Date.now() } : l)),
-      )
-      setSelectedLibraryDois((prev) => prev.filter((d) => d !== doi))
+      const prevLiteratures = literatures
+      const prevSelected = selectedLibraryDois
+      const nextSelected = selectedLibraryDois.filter((d) => d !== doi)
+      await runOptimistic({
+        apply: () => {
+          setLiteratures((prev) =>
+            prev.map((l) => (l.doi === doi ? { ...l, pdfAddedAt: Date.now() } : l)),
+          )
+          setSelectedLibraryDois(nextSelected)
+        },
+        commit: () => markPaperPdfAdded(doi),
+        rollback: () => {
+          setLiteratures(prevLiteratures)
+          setSelectedLibraryDois(prevSelected)
+        },
+        errorMessage: (err) => `标记 PDF 已添加失败：${errText(err)}`,
+      })
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`上传失败：${msg}`)
+      toast.error(`上传失败：${errText(err)}`)
     } finally {
       setPdfUploadingDoi(null)
     }
   }
 
   const handleUndoIngest = async (lit: Literature) => {
-    try {
-      await removeLiterature(lit.doi)
-      setLiteratures((prev) => prev.filter((l) => l.doi !== lit.doi))
-      setSelectedLibraryDois((prev) => prev.filter((d) => d !== lit.doi))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`撤销入库失败：${msg}`)
-      return
-    }
+    const prevLiteratures = literatures
+    const prevSelected = selectedLibraryDois
+    const nextLiteratures = literatures.filter((l) => l.doi !== lit.doi)
+    const nextSelected = selectedLibraryDois.filter((d) => d !== lit.doi)
+    const ok = await runOptimistic({
+      apply: () => {
+        setLiteratures(nextLiteratures)
+        setSelectedLibraryDois(nextSelected)
+      },
+      commit: () => removeLiterature(lit.doi),
+      rollback: () => {
+        setLiteratures(prevLiteratures)
+        setSelectedLibraryDois(prevSelected)
+      },
+      errorMessage: (err) => `撤销入库失败：${errText(err)}`,
+    })
+    if (!ok) return
     // 撤出文献库 = 删除这篇文献，关联的单词 / 长难句 / 翻译 / 笔记 / 批注 / 任务 / 项目引用一并清理
     const { csvErrors, fileErrors, refError } = await cascadeCleanupLiterature([lit.doi])
     const problems = [
@@ -1482,16 +1596,25 @@ export default function TrackingPage() {
     const count = targets.length
     if (count === 0) return
     if (count >= 5 && !window.confirm(`确定将选中的 ${count} 篇移出文献库？此操作不可撤销。`)) return
-    try {
-      for (const l of targets) await removeLiterature(l.doi)
-      const selected = new Set(targets.map((l) => l.doi))
-      setLiteratures((prev) => prev.filter((l) => !selected.has(l.doi)))
-      setSelectedLibraryDois([])
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`批量撤销入库失败：${msg}`)
-      return
-    }
+    const prevLiteratures = literatures
+    const prevSelected = selectedLibraryDois
+    const selected = new Set(targets.map((l) => l.doi))
+    const nextLiteratures = literatures.filter((l) => !selected.has(l.doi))
+    const ok = await runOptimistic({
+      apply: () => {
+        setLiteratures(nextLiteratures)
+        setSelectedLibraryDois([])
+      },
+      commit: async () => {
+        for (const l of targets) await removeLiterature(l.doi)
+      },
+      rollback: () => {
+        setLiteratures(prevLiteratures)
+        setSelectedLibraryDois(prevSelected)
+      },
+      errorMessage: (err) => `批量撤销入库失败：${errText(err)}`,
+    })
+    if (!ok) return
     // 批量撤出 = 批量删除，关联物件一并清理（一次传一批 DOI，每张表只读写一遍）
     const dois = targets.map((l) => l.doi)
     const { csvErrors, fileErrors, refError } = await cascadeCleanupLiterature(dois)

@@ -50,6 +50,7 @@ import { historyTokenBudget, resolveContextWindow } from '../services/ai/modelWi
 import { isAbortError } from '../services/ai/abort'
 import { useSettingsStore } from '../stores/settings'
 import { loadReadingChat, saveReadingChat, type DocRef } from '../services/readingDocData'
+import { runOptimistic, errText } from '../services/optimistic'
 import { renderMarkdownToHtml } from '../services/markdown-renderer'
 import {
   DELIVER_FILES_PROMPT,
@@ -611,12 +612,13 @@ export default function ReadingAskPanel({
 
   const clearChat = () => {
     if (!confirm('确定清空这篇的 AI 对话记录吗？')) return
-    setMessages([])
-    if (docRef) {
-      saveReadingChat(docRef, messagesToMd(docTitle, [])).catch((err) =>
-        console.error('[ReadingAsk] 清空对话失败:', err),
-      )
-    }
+    const prevMessages = messages
+    void runOptimistic({
+      apply: () => setMessages([]),
+      commit: () => (docRef ? saveReadingChat(docRef, messagesToMd(docTitle, [])) : Promise.resolve()),
+      rollback: () => setMessages(prevMessages),
+      errorMessage: (err) => `清空对话失败：${errText(err)}`,
+    })
   }
 
   if (!docRef) {

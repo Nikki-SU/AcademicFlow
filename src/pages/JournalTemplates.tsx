@@ -36,6 +36,7 @@ import {
   deleteTemplate,
   updateGuidelines,
 } from '../services/journal-templates'
+import { runOptimistic, errText } from '../services/optimistic'
 import {
   extractGuidelinesWithAI,
   type ExtractedGuidelines,
@@ -61,8 +62,6 @@ function JournalTemplatesPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<JournalTemplate | null>(null)
   const [loading, setLoading] = useState(true)
   const [isExtracting, setIsExtracting] = useState(false)
-  // 保存模板中：禁用「保存」按钮并显示「保存中…」
-  const [saving, setSaving] = useState(false)
   const [extracted, setExtracted] = useState<ExtractedGuidelines | null>(null)
 
   // 表单状态
@@ -207,115 +206,160 @@ function JournalTemplatesPage() {
     }
   }
 
-  // 保存（新建）
+  // 保存（新建）—— 乐观：立即回列表（表单即时消失），后台落库，失败回滚到表单
   const handleCreate = async () => {
-    if (saving) return
     if (!formName.trim()) {
       toast.error('请填写期刊名称')
       return
     }
 
-    setSaving(true)
-    try {
-      const packages = formPackages
-        .split('\n')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
+    const packages = formPackages
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
 
-      const newTpl = await createTemplate({
-        name: formName.trim(),
-        short_name: formShortName.trim() || undefined,
-        publisher: formPublisher.trim() || undefined,
-        journal_url: formJournalUrl.trim() || undefined,
-        guidelines_url: formGuidelinesUrl.trim() || undefined,
-        guidelines_content: formGuidelinesContent || undefined,
-      })
+    const ok = await runOptimistic({
+      apply: () => setView('list'),
+      commit: async () => {
+        const newTpl = await createTemplate({
+          name: formName.trim(),
+          short_name: formShortName.trim() || undefined,
+          publisher: formPublisher.trim() || undefined,
+          journal_url: formJournalUrl.trim() || undefined,
+          guidelines_url: formGuidelinesUrl.trim() || undefined,
+          guidelines_content: formGuidelinesContent || undefined,
+        })
 
-      // 再更新其他字段
-      await updateTemplate(newTpl.id, {
-        document_class: formDocumentClass,
-        document_options: formDocumentOptions || undefined,
-        packages,
-        bibtex_style: formBibtexStyle,
-        citation_command: formCitationCommand || undefined,
-        two_column: formTwoColumn,
-        font_size: formFontSize,
-        title_format_note: formTitleNote || undefined,
-        abstract_format_note: formAbstractNote || undefined,
-        reference_format_note: formRefNote || undefined,
-        custom_preamble: formCustomPreamble || undefined,
-        notes: formNotes || undefined,
-      })
+        // 再更新其他字段
+        await updateTemplate(newTpl.id, {
+          document_class: formDocumentClass,
+          document_options: formDocumentOptions || undefined,
+          packages,
+          bibtex_style: formBibtexStyle,
+          citation_command: formCitationCommand || undefined,
+          two_column: formTwoColumn,
+          font_size: formFontSize,
+          title_format_note: formTitleNote || undefined,
+          abstract_format_note: formAbstractNote || undefined,
+          reference_format_note: formRefNote || undefined,
+          custom_preamble: formCustomPreamble || undefined,
+          notes: formNotes || undefined,
+        })
+      },
+      rollback: () => setView('create'),
+      errorMessage: (err) => `创建失败：${errText(err)}`,
+    })
 
-      await loadTemplates()
-      setView('list')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`创建失败：${msg}`)
-    } finally {
-      setSaving(false)
+    // 成功后再从私库拉权威列表刷新（静默替换，不闪 loading）
+    if (ok) {
+      try {
+        setTemplates(await getAllTemplates())
+      } catch (err) {
+        console.warn('[JournalTemplates] 刷新列表失败:', err)
+      }
     }
   }
 
-  // 保存（编辑）
+  // 保存（编辑）—— 乐观：立即就地更新 + 回列表，失败回滚列表与编辑视图
   const handleUpdate = async () => {
     if (!selectedTemplate) return
-    if (saving) return
     if (!formName.trim()) {
       toast.error('请填写期刊名称')
       return
     }
 
-    setSaving(true)
-    try {
-      const packages = formPackages
-        .split('\n')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
+    const editing = selectedTemplate
+    const packages = formPackages
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
 
-      // 更新投稿须知（如果有变化）
-      if (formGuidelinesContent !== (selectedTemplate.guidelines_content || '')) {
-        await updateGuidelines(selectedTemplate.id, formGuidelinesContent)
+    const prevTemplates = templates
+    const optimistic: JournalTemplate = {
+      ...editing,
+      name: formName.trim(),
+      short_name: formShortName.trim() || undefined,
+      publisher: formPublisher.trim() || undefined,
+      journal_url: formJournalUrl.trim() || undefined,
+      guidelines_url: formGuidelinesUrl.trim() || undefined,
+      guidelines_content: formGuidelinesContent || undefined,
+      document_class: formDocumentClass,
+      document_options: formDocumentOptions || undefined,
+      packages,
+      bibtex_style: formBibtexStyle,
+      citation_command: formCitationCommand || undefined,
+      two_column: formTwoColumn,
+      font_size: formFontSize,
+      title_format_note: formTitleNote || undefined,
+      abstract_format_note: formAbstractNote || undefined,
+      reference_format_note: formRefNote || undefined,
+      custom_preamble: formCustomPreamble || undefined,
+      notes: formNotes || undefined,
+      updated_at: Date.now(),
+    }
+
+    const ok = await runOptimistic({
+      apply: () => {
+        setTemplates((prev) => prev.map((t) => (t.id === editing.id ? optimistic : t)))
+        setView('list')
+      },
+      commit: async () => {
+        // 投稿须知有变化才单独更新（生成版本历史）
+        if (formGuidelinesContent !== (editing.guidelines_content || '')) {
+          await updateGuidelines(editing.id, formGuidelinesContent)
+        }
+        await updateTemplate(editing.id, {
+          name: formName.trim(),
+          short_name: formShortName.trim() || undefined,
+          publisher: formPublisher.trim() || undefined,
+          journal_url: formJournalUrl.trim() || undefined,
+          guidelines_url: formGuidelinesUrl.trim() || undefined,
+          document_class: formDocumentClass,
+          document_options: formDocumentOptions || undefined,
+          packages,
+          bibtex_style: formBibtexStyle,
+          citation_command: formCitationCommand || undefined,
+          two_column: formTwoColumn,
+          font_size: formFontSize,
+          title_format_note: formTitleNote || undefined,
+          abstract_format_note: formAbstractNote || undefined,
+          reference_format_note: formRefNote || undefined,
+          custom_preamble: formCustomPreamble || undefined,
+          notes: formNotes || undefined,
+        })
+      },
+      rollback: () => {
+        setTemplates(prevTemplates)
+        setView('edit')
+      },
+      errorMessage: (err) => `更新失败：${errText(err)}`,
+    })
+
+    if (ok) {
+      try {
+        setTemplates(await getAllTemplates())
+      } catch (err) {
+        console.warn('[JournalTemplates] 刷新列表失败:', err)
       }
-
-      await updateTemplate(selectedTemplate.id, {
-        name: formName.trim(),
-        short_name: formShortName.trim() || undefined,
-        publisher: formPublisher.trim() || undefined,
-        journal_url: formJournalUrl.trim() || undefined,
-        guidelines_url: formGuidelinesUrl.trim() || undefined,
-        document_class: formDocumentClass,
-        document_options: formDocumentOptions || undefined,
-        packages,
-        bibtex_style: formBibtexStyle,
-        citation_command: formCitationCommand || undefined,
-        two_column: formTwoColumn,
-        font_size: formFontSize,
-        title_format_note: formTitleNote || undefined,
-        abstract_format_note: formAbstractNote || undefined,
-        reference_format_note: formRefNote || undefined,
-        custom_preamble: formCustomPreamble || undefined,
-        notes: formNotes || undefined,
-      })
-
-      await loadTemplates()
-      setView('list')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`更新失败：${msg}`)
-    } finally {
-      setSaving(false)
     }
   }
 
-  // 删除
+  // 删除 —— 乐观：立即从列表移除，失败回滚
   const handleDelete = async (t: JournalTemplate) => {
     if (!confirm(`确定要删除模板「${t.name}」吗？`)) return
-    try {
-      await deleteTemplate(t.id)
-      await loadTemplates()
-    } catch {
-      toast.error('删除失败')
+    const prevTemplates = templates
+    const ok = await runOptimistic({
+      apply: () => setTemplates((prev) => prev.filter((x) => x.id !== t.id)),
+      commit: () => deleteTemplate(t.id),
+      rollback: () => setTemplates(prevTemplates),
+      errorMessage: (err) => `删除失败：${errText(err)}`,
+    })
+    if (ok) {
+      try {
+        setTemplates(await getAllTemplates())
+      } catch (err) {
+        console.warn('[JournalTemplates] 刷新列表失败:', err)
+      }
     }
   }
 
@@ -494,11 +538,10 @@ function JournalTemplatesPage() {
           </div>
           <button
             onClick={view === 'create' ? handleCreate : handleUpdate}
-            disabled={saving}
             className="flex items-center gap-1.5 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-md shadow-seal-200 disabled:opacity-60"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saving ? '保存中…' : '保存'}
+            <Save className="w-4 h-4" />
+            保存
           </button>
         </div>
       </header>
@@ -820,11 +863,10 @@ function JournalTemplatesPage() {
           </button>
           <button
             onClick={view === 'create' ? handleCreate : handleUpdate}
-            disabled={saving}
             className="flex items-center gap-1.5 px-6 py-2.5 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-lg shadow-seal-200 disabled:opacity-60"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saving ? '保存中…' : '保存模板'}
+            <Save className="w-4 h-4" />
+            保存模板
           </button>
         </div>
       </main>

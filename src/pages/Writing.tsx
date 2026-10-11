@@ -136,6 +136,7 @@ import ProofreadPanel from '../components/ProofreadPanel'
 import CitationPanel from '../components/CitationPanel'
 import DocViewPanel from '../components/DocViewPanel'
 import { parseFormulas, replaceNthFormula, replaceFormulaOccurrences, deleteFormulas, setImageSize } from '../services/formula'
+import { runOptimistic, errText } from '../services/optimistic'
 import { usePanelStack, StackHandle, STACK_SNAP_RATIOS } from '../components/ui/StackedPanels'
 
 /**
@@ -4036,8 +4037,20 @@ export default function WritingPage() {
                     }}
                     onJump={(index, tex) => jumpToBlock('formula', index, tex, p.side)}
                     onDelete={(indexes) => {
-                      handleEditorChange(deleteFormulas(mdContent, indexes))
-                      setSaveStatus('unsaved')
+                      if (!activeProjectId) return
+                      const prev = mdContent
+                      const next = deleteFormulas(mdContent, indexes)
+                      void runOptimistic({
+                        apply: () => handleEditorChange(next),
+                        commit: () => saveManuscript(activeProjectId, next),
+                        rollback: () => handleEditorChange(prev),
+                        errorMessage: (err) => `删除公式失败：${errText(err)}`,
+                      }).then((ok) => {
+                        if (ok) {
+                          setSaveStatus('saved')
+                          setLastSaved(Date.now())
+                        }
+                      })
                     }}
                     editTarget={formulaEditTarget}
                     onConsumeEditTarget={() => setFormulaEditTarget(null)}

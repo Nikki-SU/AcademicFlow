@@ -103,6 +103,7 @@ import {
 } from 'lucide-react'
 import { DoiLink } from '../components/DoiLink'
 import { toast } from 'sonner'
+import { runOptimistic, errText } from '../services/optimistic'
 import {
   searchLibrary,
   getSearchIndex,
@@ -1589,38 +1590,41 @@ export default function ManagementPage() {
 
     const paperDoi = paper.doi ?? ''
     const ctx = getRepoContextForDelete()
-    const prevPapers = papers  // 备份，savePapers 失败要回滚
+    const prevPapers = papers
+    const updated = prevPapers.filter((p) => p.id !== id)
 
-    // ═══ 立即标记为删除中（按钮显示点点动画）═══
-    setDeletingIds((prev) => new Set(prev).add(id))
+    // ═══ 乐观：立即从 UI 移除 + 打删除标记（即时反馈），CSV 落库失败再回滚 ═══
+    const ok = await runOptimistic({
+      apply: () => {
+        setDeletingIds((prev) => new Set(prev).add(id))
+        setPapers(updated)
+        invalidateCache('literatures/literatures.csv')
+      },
+      commit: () => savePapers(updated),
+      rollback: () => setPapers(prevPapers),
+      errorMessage: (err) => `删除失败：无法保存 CSV — ${errText(err)}`,
+    })
 
+    if (!ok) {
+      // CSV 未更新：撤销删除标记，让用户看到失败
+      setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+      return
+    }
+
+    // 文献行已从 CSV 与 UI 删除；其后是附件/台账/级联清理，失败只告警、不回滚主数据
     try {
-      // ═══ 0. 立即清理 taskQueue（同步、很快） ═══
+      // ═══ 0. 清理 taskQueue（同步、很快） ═══
       if (paperDoi) {
         await cleanupTasksForDoi(paperDoi)
       }
 
-      // ═══ 1. 【乐观更新 + 持久化】必须 savePapers 成功才从 UI 移除 ═══
-      // 先算好 updated，保存成功再 setPapers —— 防止 save 失败导致"删了又回来"
-      const updated = prevPapers.filter((p) => p.id !== id)
-      try {
-        await savePapers(updated)
-        invalidateCache('literatures/literatures.csv')
-        setPapers(updated)
-      } catch (saveErr) {
-        // savePapers 失败：不乐观更新，回滚 deletingIds，让用户看到失败
-        console.warn('[handleDeletePaper] savePapers 失败:', saveErr)
-        toast.error(`删除失败：无法保存 CSV — ${saveErr instanceof Error ? saveErr.message : String(saveErr)}`, { duration: 5000 })
-        setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
-        return  // 提前退出，不继续删 GitHub 文件（CSV 都没更新）
-      }
       // 元数据清理失败不阻断后续文件删除（文献行已在 CSV 删除，元数据只是残留）：仅告警
       if (paperDoi) {
         try {
           await persistMeta(dropMeta(materialMeta, 'paper', paperDoi))
         } catch (metaErr) {
           console.warn('[handleDeletePaper] 元数据清理失败:', metaErr)
-          toast.warning(`文献已删除，但任务/标签清理失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+          toast.warning(`文献已删除，但任务/标签清理失败：${errText(metaErr)}`, { duration: 6000 })
         }
       }
 
@@ -1656,31 +1660,33 @@ export default function ManagementPage() {
         } catch (refErr) {
           console.warn('[handleDeletePaper] 项目引用清理失败:', refErr)
           toast.warning(
-            `文献已删除，但项目引用清理失败：${refErr instanceof Error ? refErr.message : String(refErr)}`,
+            `文献已删除，但项目引用清理失败：${errText(refErr)}`,
             { duration: 8000 },
           )
         }
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      console.error('[handleDeletePaper] 主流程异常:', e)
-      toast.error(`删除失败: ${msg}`, { duration: 5000 })
-      // 主流程异常：恢复 papers（乐观更新已做的话）
-      setPapers(prevPapers)
+      console.error('[handleDeletePaper] 收尾清理异常:', e)
+      toast.warning(`文献已删除，但收尾清理出现异常：${errText(e)}`, { duration: 6000 })
     } finally {
       // ═══ 无论成功失败，清除 deletingIds 标记 ═══
       setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
     }
   }
 
-  /** 编辑某期刊的显示缩写：prompt 取值 → 落盘 → 刷新覆盖表 */
+  /** 编辑某期刊的显示缩写：prompt 取值 → 先落 UI → 后台落盘 → 失败回滚 */
   const handleEditJournalAbbrev = async (journal: string) => {
     // 默认值同样是「没查过就填原名」，不拿启发式结果当底 —— 用户看到错的默认值会直接回车接受
     const current = journalAbbrevMap[journal] || journal
     const input = prompt('期刊缩写', current)
     if (input === null) return
-    await saveJournalAbbrev(journal, input.trim())
-    setJournalAbbrevMap(await loadJournalAbbrevMap())
+    const prevMap = journalAbbrevMap
+    await runOptimistic({
+      apply: () => setJournalAbbrevMap({ ...prevMap, [journal]: input.trim() }),
+      commit: () => saveJournalAbbrev(journal, input.trim()),
+      rollback: () => setJournalAbbrevMap(prevMap),
+      errorMessage: (err) => `保存期刊缩写失败：${errText(err)}`,
+    })
   }
 
   /** 跳转到阅读页并直接打开这篇文献 */
@@ -1879,30 +1885,44 @@ export default function ManagementPage() {
     if (papersToDelete.length === 0) return
     const ctx = getRepoContextForDelete()
     const prevPapers = papers
+    const prevSelected = selectedPapers
+    const prevBatchMode = batchMode
 
     // ═══ 防重复点击 + 标记所有要删的 ═══
     const idsToDelete = papersToDelete.map((p) => p.id).filter((id) => !deletingIds.has(id))
     if (idsToDelete.length === 0) return
-    setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.add(id)); return s })
 
-    try {
-      // ═══ 0. 先清 taskQueue（同步） ═══
-      for (const paper of papersToDelete) {
-        if (paper.doi) await cleanupTasksForDoi(paper.doi)
-      }
-
-      // ═══ 1. 【乐观更新 + 持久化】必须 savePapers 成功才从 UI 移除 ═══
-      const updated = prevPapers.filter((p) => !selectedPapers.has(p.id))
-      try {
-        await savePapers(updated)
-        invalidateCache('literatures/literatures.csv')
+    // ═══ 乐观：立即从 UI 移除 + 打删除标记 + 清选择（即时反馈），CSV 落库失败再回滚 ═══
+    const updated = prevPapers.filter((p) => !selectedPapers.has(p.id))
+    const ok = await runOptimistic({
+      apply: () => {
+        setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.add(id)); return s })
         setPapers(updated)
-      } catch (e) {
-        // savePapers 失败：不乐观更新
-        toast.error(`批量删除失败：无法保存 CSV — ${e instanceof Error ? e.message : String(e)}`, { duration: 5000 })
+        invalidateCache('literatures/literatures.csv')
+        setSelectedPapers(new Set())
+        setBatchMode(false)
+      },
+      commit: () => savePapers(updated),
+      rollback: () => {
+        setPapers(prevPapers)
+        setSelectedPapers(prevSelected)
+        setBatchMode(prevBatchMode)
         setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.delete(id)); return s })
-        return
+      },
+      errorMessage: (err) => `批量删除失败：无法保存 CSV — ${errText(err)}`,
+    })
+    if (!ok) return
+
+    // 文献行已从 CSV 与 UI 删除；其后为附件/台账/级联清理，失败只告警、不回滚主数据
+    try {
+      // ═══ 0. 清 taskQueue ═══
+      for (const paper of papersToDelete) {
+        if (paper.doi) {
+          try { await cleanupTasksForDoi(paper.doi) }
+          catch (taskErr) { console.warn('[handleBatchDelete] 任务台账清理失败:', taskErr) }
+        }
       }
+
       // 元数据清理失败不阻断后续文件删除（文献行已在 CSV 删除，元数据只是残留）：仅告警
       try {
         let nextMeta = materialMeta
@@ -1912,10 +1932,8 @@ export default function ManagementPage() {
         await persistMeta(nextMeta)
       } catch (metaErr) {
         console.warn('[handleBatchDelete] 元数据清理失败:', metaErr)
-        toast.warning(`文献已删除，但任务/标签清理失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+        toast.warning(`文献已删除，但任务/标签清理失败：${errText(metaErr)}`, { duration: 6000 })
       }
-      setSelectedPapers(new Set())
-      setBatchMode(false)
 
       // ═══ 2. GitHub 文件删除（Phase 1 同步 + Phase 2 后台 race cleanup） ═══
       if (ctx) {
@@ -1930,7 +1948,7 @@ export default function ManagementPage() {
           }
         } catch (e) {
           console.warn('[handleBatchDelete] phase1 失败:', e)
-          toast.warning(`GitHub 文件清理失败: ${e instanceof Error ? e.message : String(e)}`)
+          toast.warning(`GitHub 文件清理失败: ${errText(e)}`)
         }
 
         // Phase 2: 5s 后批量检查残留 + retry（fire-and-forget）
@@ -1968,15 +1986,14 @@ export default function ManagementPage() {
         } catch (refErr) {
           console.warn('[handleBatchDelete] 项目引用清理失败:', refErr)
           toast.warning(
-            `文献已删除，但项目引用清理失败：${refErr instanceof Error ? refErr.message : String(refErr)}`,
+            `文献已删除，但项目引用清理失败：${errText(refErr)}`,
             { duration: 8000 },
           )
         }
       }
     } catch (e) {
-      console.error('[handleBatchDelete] 主流程异常:', e)
-      toast.error(`批量删除失败: ${e instanceof Error ? e.message : String(e)}`, { duration: 5000 })
-      setPapers(prevPapers)
+      console.error('[handleBatchDelete] 收尾清理异常:', e)
+      toast.warning(`文献已删除，但收尾清理出现异常：${errText(e)}`, { duration: 6000 })
     } finally {
       setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.delete(id)); return s })
     }
@@ -2030,24 +2047,43 @@ export default function ManagementPage() {
 
   // 期刊模板操作 —— 全部通过 journal-templates.ts 持久化到 GitHub 私库
   const handleAddTemplate = async () => {
-    if (!newTemplate.name.trim() || savingTemplate) return
-    setSavingTemplate(true)
-    try {
-      const backend = await createTemplate({
+    if (!newTemplate.name.trim()) return
+    const prevTemplates = templates
+    const prevNew = newTemplate
+    // 乐观：先插一条临时项（后端 id 落地后由 getAllTemplates 补齐）
+    const tempItem: JournalTemplateItem = {
+      id: `tmp-${Date.now()}`,
+      name: newTemplate.name.trim(),
+      publisher: newTemplate.publisher.trim(),
+      issn: newTemplate.issn.trim(),
+      lastUpdated: new Date().toISOString().split('T')[0],
+      isDefault: false,
+      guidelinesContent: newTemplate.guidelines.trim(),
+      formatSummary: newTemplate.formatSummary.trim(),
+    }
+    const ok = await runOptimistic({
+      apply: () => {
+        setTemplates((prev) => [...prev, tempItem])
+        setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
+        setShowTemplateModal(false)
+      },
+      commit: () => createTemplate({
         name: newTemplate.name.trim(),
         issn: newTemplate.issn.trim() || undefined,
         publisher: newTemplate.publisher.trim() || undefined,
         guidelines_content: newTemplate.guidelines.trim() || undefined,
         notes: newTemplate.formatSummary.trim() || undefined,
-      })
-      setTemplates((prev) => [...prev, toTemplateItem(backend)])
-      setNewTemplate({ name: '', issn: '', publisher: '', guidelines: '', formatSummary: '' })
-      setShowTemplateModal(false)
-    } catch (err) {
-      toast.error(`创建模板失败: ${err instanceof Error ? err.message : String(err)}`)
-      console.error('[handleAddTemplate]', err)
-    } finally {
-      setSavingTemplate(false)
+      }),
+      rollback: () => {
+        setTemplates(prevTemplates)
+        setNewTemplate(prevNew)
+        setShowTemplateModal(true)
+      },
+      errorMessage: (err) => `创建模板失败: ${errText(err)}`,
+    })
+    if (ok) {
+      // 用后端权威列表替换临时项（补齐真实 id / 排序）
+      try { setTemplates((await getAllTemplates()).map(toTemplateItem)) } catch (err) { console.warn('[handleAddTemplate] 刷新列表失败:', err) }
     }
   }
 
@@ -2117,35 +2153,60 @@ export default function ManagementPage() {
       return
     }
     setSavingTemplate(true)
+    const editing = editingTemplate
+    const prevTemplates = templates
+    // 存的是表单里的值（newTemplate），不是打开时的旧值 —— 否则用户在弹窗里改的全丢了
+    const updatedItem: JournalTemplateItem = {
+      ...editing,
+      name: newTemplate.name.trim(),
+      issn: newTemplate.issn.trim(),
+      publisher: newTemplate.publisher.trim(),
+      lastUpdated: new Date().toISOString().split('T')[0],
+      guidelinesContent: newTemplate.guidelines.trim(),
+      formatSummary: newTemplate.formatSummary.trim(),
+    }
     try {
-      // 存的是表单里的值（newTemplate），不是打开时的旧值 —— 否则用户在弹窗里改的全丢了
-      await updateTemplate(editingTemplate.id, {
-        name: newTemplate.name.trim(),
-        issn: newTemplate.issn.trim() || undefined,
-        publisher: newTemplate.publisher.trim() || undefined,
-        guidelines_content: newTemplate.guidelines.trim() || undefined,
-        notes: newTemplate.formatSummary.trim() || undefined,
+      // 乐观：先改本地列表 + 关弹窗，落库失败再回滚并重新打开弹窗
+      const ok = await runOptimistic({
+        apply: () => {
+          setTemplates((prev) => prev.map((t) => (t.id === editing.id ? updatedItem : t)))
+          setShowTemplateModal(false)
+          setEditingTemplate(null)
+        },
+        commit: () => updateTemplate(editing.id, {
+          name: newTemplate.name.trim(),
+          issn: newTemplate.issn.trim() || undefined,
+          publisher: newTemplate.publisher.trim() || undefined,
+          guidelines_content: newTemplate.guidelines.trim() || undefined,
+          notes: newTemplate.formatSummary.trim() || undefined,
+        }),
+        rollback: () => {
+          setTemplates(prevTemplates)
+          setEditingTemplate(editing)
+          setShowTemplateModal(true)
+        },
+        errorMessage: (err) => `保存模板失败: ${errText(err)}`,
       })
-      const backend = await getAllTemplates()
-      setTemplates(backend.map(toTemplateItem))
-      setShowTemplateModal(false)
-      setEditingTemplate(null)
-    } catch (err) {
-      toast.error(`保存模板失败: ${err instanceof Error ? err.message : String(err)}`)
-      console.error('[handleSaveTemplate]', err)
+      if (ok) {
+        try { setTemplates((await getAllTemplates()).map(toTemplateItem)) }
+        catch (err) { console.warn('[handleSaveTemplate] 刷新列表失败:', err) }
+      }
     } finally {
       setSavingTemplate(false)
     }
   }
 
   const handleSetDefaultTemplate = async (id: string) => {
-    try {
-      await setDefaultTemplate(id)
-      const backend = await getAllTemplates()
-      setTemplates(backend.map(toTemplateItem))
-    } catch (err) {
-      toast.error(`设置失败: ${err instanceof Error ? err.message : String(err)}`)
-      console.error('[handleSetDefaultTemplate]', err)
+    const prevTemplates = templates
+    const ok = await runOptimistic({
+      apply: () => setTemplates((prev) => prev.map((t) => ({ ...t, isDefault: t.id === id }))),
+      commit: () => setDefaultTemplate(id),
+      rollback: () => setTemplates(prevTemplates),
+      errorMessage: (err) => `设置失败: ${errText(err)}`,
+    })
+    if (ok) {
+      try { setTemplates((await getAllTemplates()).map(toTemplateItem)) }
+      catch (err) { console.warn('[handleSetDefaultTemplate] 刷新列表失败:', err) }
     }
   }
 
@@ -2153,13 +2214,16 @@ export default function ManagementPage() {
     const tpl = templates.find((t) => t.id === id)
     const confirmed = window.confirm(`确定删除期刊模板「${tpl?.name ?? id}」吗？`)
     if (!confirmed) return
-    try {
-      await deleteJournalTemplate(id)
-      const backend = await getAllTemplates()
-      setTemplates(backend.map(toTemplateItem))
-    } catch (err) {
-      toast.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`)
-      console.error('[handleDeleteTemplate]', err)
+    const prevTemplates = templates
+    const ok = await runOptimistic({
+      apply: () => setTemplates((prev) => prev.filter((t) => t.id !== id)),
+      commit: () => deleteJournalTemplate(id),
+      rollback: () => setTemplates(prevTemplates),
+      errorMessage: (err) => `删除失败: ${errText(err)}`,
+    })
+    if (ok) {
+      try { setTemplates((await getAllTemplates()).map(toTemplateItem)) }
+      catch (err) { console.warn('[handleDeleteTemplate] 刷新列表失败:', err) }
     }
   }
 
@@ -2348,14 +2412,24 @@ export default function ManagementPage() {
       return
     }
     setImporting(true)
+    const wasModalOpen = showImportDocModal
+    const prevPaste = pasteDoc
     try {
-      await importMarkdownDocs(usable)
-      await refreshDocuments()
-      setShowImportDocModal(false)
-      setPasteDoc({ title: '', content: '' })
-    } catch (err) {
-      // zip 里可能几十个文件，失败原因（仓库未就绪 / 写冲突）要原样带出来
-      toast.error(`导入失败：${err instanceof Error ? err.message : String(err)}`)
+      // 乐观：立即关弹窗 + 清空表单（即时反馈），写仓库失败再回滚
+      const ok = await runOptimistic({
+        apply: () => {
+          setShowImportDocModal(false)
+          setPasteDoc({ title: '', content: '' })
+        },
+        commit: () => importMarkdownDocs(usable),
+        rollback: () => {
+          setPasteDoc(prevPaste)
+          if (wasModalOpen) setShowImportDocModal(true)
+        },
+        // zip 里可能几十个文件，失败原因（仓库未就绪 / 写冲突）要原样带出来
+        errorMessage: (err) => `导入失败：${errText(err)}`,
+      })
+      if (ok) await refreshDocuments()
     } finally {
       setImporting(false)
     }
@@ -2410,27 +2484,36 @@ export default function ManagementPage() {
       return
     }
     setSavingDocument(true)
+    const editing = editingDocument
+    const prevDocs = documents
     const prevMeta = materialMeta
+    const nextTitle = editDocForm.title.trim()
+    const nextAuthor = editDocForm.author.trim()
+    const nextMeta = setMeta(prevMeta, 'document', editing.id, { taskId: editDocForm.taskId, tags: editDocForm.tags })
     try {
+      // 乐观：先改列表标题/作者 + 关弹窗 + 落元数据到本地，主数据落库失败再整体回滚
+      const ok = await runOptimistic({
+        apply: () => {
+          setDocuments((prev) => prev.map((d) => (d.id === editing.id ? { ...d, title: nextTitle, author: nextAuthor } : d)))
+          setMaterialMeta(nextMeta)
+          setEditingDocument(null)
+        },
+        commit: () => updateDocumentEntry(editing.id, { title: nextTitle, author: nextAuthor }),
+        rollback: () => {
+          setDocuments(prevDocs)
+          setMaterialMeta(prevMeta)
+          setEditingDocument(editing)
+        },
+        errorMessage: (err) => `保存失败：${errText(err)}`,
+      })
+      if (!ok) return
+      // 标题/作者是主数据，元数据（任务/标签）落盘失败不回滚主数据：仅告警 + 回滚元数据
       try {
-        await updateDocumentEntry(editingDocument.id, {
-          title: editDocForm.title.trim(),
-          author: editDocForm.author.trim(),
-        })
-      } catch (err) {
-        toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
-        return
-      }
-      // 标题/作者是主数据，元数据（任务/标签）落盘失败不回滚主数据：仅告警
-      try {
-        await persistMeta(
-          setMeta(prevMeta, 'document', editingDocument.id, { taskId: editDocForm.taskId, tags: editDocForm.tags }),
-        )
+        await persistMeta(nextMeta)
       } catch (metaErr) {
         setMaterialMeta(prevMeta)
-        toast.warning(`标题已保存，但任务/标签保存失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+        toast.warning(`标题已保存，但任务/标签保存失败：${errText(metaErr)}`, { duration: 6000 })
       }
-      setEditingDocument(null)
       await refreshDocuments()
     } finally {
       setSavingDocument(false)
@@ -2439,17 +2522,27 @@ export default function ManagementPage() {
 
   const handleDeleteDocument = async (doc: DocumentSummary) => {
     if (!confirm(`确定删除「${doc.title}」吗？会连同正文、笔记、批注一起删除，且不可恢复。`)) return
-    try {
-      await deleteDocuments([doc.id])
-    } catch (err) {
-      toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`)
-      return
-    }
+    const prevDocs = documents
+    const prevMeta = materialMeta
+    // 乐观：立即从列表移除 + 摘掉元数据，落库失败再回滚
+    const ok = await runOptimistic({
+      apply: () => {
+        setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
+        setMaterialMeta(dropMeta(prevMeta, 'document', doc.id))
+      },
+      commit: () => deleteDocuments([doc.id]),
+      rollback: () => {
+        setDocuments(prevDocs)
+        setMaterialMeta(prevMeta)
+      },
+      errorMessage: (err) => `删除失败：${errText(err)}`,
+    })
+    if (!ok) return
     // 文档已删除，元数据只是残留清理：失败仅告警，不改「删除成功」的事实
     try {
-      await persistMeta(dropMeta(materialMeta, 'document', doc.id))
+      await persistMeta(dropMeta(prevMeta, 'document', doc.id))
     } catch (metaErr) {
-      toast.warning(`文档已删除，但任务/标签清理失败：${metaErr instanceof Error ? metaErr.message : String(metaErr)}`, { duration: 6000 })
+      toast.warning(`文档已删除，但任务/标签清理失败：${errText(metaErr)}`, { duration: 6000 })
     }
     await refreshDocuments()
   }

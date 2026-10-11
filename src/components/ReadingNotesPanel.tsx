@@ -46,6 +46,7 @@ import {
   type DocRef,
 } from '../services/readingDocData'
 import { enqueueNoteConvertBatch } from '../services/notePipeline'
+import { runOptimistic, errText } from '../services/optimistic'
 import { pollNoteConvertProgress, type PipelineProgress } from '../services/workflowClient'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -359,20 +360,33 @@ export default function ReadingNotesPanel({
     }
   }
 
-  const removeActive = async () => {
+  const removeActive = () => {
     if (!active) return
     if (!confirm(`确定删除笔记「${active}」吗？此操作不可撤销。`)) return
-    try {
-      // 这篇马上就要删了，待保存的内容别再写回去
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
-      pendingRef.current = null
-      await deleteNote(docRefRef.current, active)
-      await reload(null)
-    } catch (err) {
-      console.error('[笔记] 删除失败:', err)
-      toast.error(`删除失败：${err instanceof Error ? err.message : String(err)}`)
-    }
+    const prevNames = names
+    const prevActive = active
+    const rest = names.filter((n) => n !== active)
+    const nextActive = rest[0] ?? null
+    void runOptimistic({
+      apply: () => {
+        // 这篇马上就要删了，待保存的内容别再写回去
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+        pendingRef.current = null
+        setNames(rest)
+        setActive(nextActive)
+        void loadInto(nextActive)
+      },
+      commit: () => deleteNote(docRefRef.current, prevActive),
+      rollback: () => {
+        setNames(prevNames)
+        setActive(prevActive)
+        void loadInto(prevActive)
+      },
+      errorMessage: (err) => `删除失败：${errText(err)}`,
+    }).then((ok) => {
+      if (ok) void reload(nextActive)
+    })
   }
 
   /**

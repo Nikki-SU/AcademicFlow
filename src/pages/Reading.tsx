@@ -54,6 +54,7 @@ import {
   type TaskFilterOption,
 } from '../services/projectData'
 import { loadAnnotations, saveAnnotations, type Annotation as AnnotationData } from '../services/annotationData'
+import { runOptimistic, errText } from '../services/optimistic'
 import { HIGHLIGHTERS, highlighterOf, type HighlighterColor } from '../services/highlightColors'
 import {
   decodeNoteFileRef,
@@ -721,6 +722,8 @@ export default function ReadingPage() {
 
   const readerRef = useRef<HTMLDivElement>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 批注整表覆写的串行队列：并发 PUT 同一文件会互相覆盖，必须排队（后一次带最新全量） */
+  const annotationSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const annotationEditRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({})
   /** 当前选区落在哪个块上（en-12 / cn-12）—— 划词时记下，加批注时用 */
   const pendingAnchorRef = useRef('')
@@ -1320,6 +1323,30 @@ export default function ReadingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docKey])
 
+  /**
+   * 批注落库（整表覆写，串行化）。
+   * 同一文档的整表 PUT 必须排队：并发写会因「后到者覆盖」丢批注。
+   * 返回本次写入的 Promise，供乐观更新的 commit await（失败会 throw → 触发回滚）。
+   */
+  const persistAnnotations = useCallback((list: Annotation[]) => {
+    if (!docRef) return Promise.resolve()
+    const data: AnnotationData[] = list.map((a) => ({
+      id: a.id,
+      type: 'highlight',
+      color: a.color as AnnotationData['color'],
+      text: a.text,
+      note: a.note,
+      createdAt: a.createdAt,
+      updatedAt: Date.now(),
+      anchor: a.anchor,
+    }))
+    const run = annotationSaveQueueRef.current
+      .catch(() => {})
+      .then(() => saveAnnotations(docRef, data))
+    annotationSaveQueueRef.current = run
+    return run
+  }, [docRef])
+
   const saveAnnotationsToStorage = useCallback((newAnnotations: Annotation[]) => {
     if (!docRef) return
     if (annotationSaveTimerRef.current) {
@@ -1327,20 +1354,10 @@ export default function ReadingPage() {
     }
     setAnnotationSaveState({ status: 'saving', lastSaved: null })
     annotationSaveTimerRef.current = setTimeout(() => {
-      const data: AnnotationData[] = newAnnotations.map(a => ({
-        id: a.id,
-        type: 'highlight',
-        color: a.color as AnnotationData['color'],
-        text: a.text,
-        note: a.note,
-        createdAt: a.createdAt,
-        updatedAt: Date.now(),
-        anchor: a.anchor,
-      }))
       // 必须等写入真的成功了才显示"已自动保存"。
       // 以前是先写状态、再发请求，失败只 console.error —— 界面说存好了，
       // 远端其实一个字没动，切走再回来批注就"冒出来"了。
-      saveAnnotations(docRef, data)
+      persistAnnotations(newAnnotations)
         .then(() => {
           setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
           setTimeout(() => {
@@ -1353,7 +1370,7 @@ export default function ReadingPage() {
           toast.error(`批注保存失败：${err?.message || err}`)
         })
     }, 500)
-  }, [docRef])
+  }, [docRef, persistAnnotations])
 
   const handleTextSelection = useCallback(() => {
     const selection = window.getSelection()
@@ -1440,30 +1457,51 @@ export default function ReadingPage() {
     setEditingAnnotationId(newAnnotation.id)
   }
 
-  const deleteAnnotation = (id: string) => {
-    const newAnnotations = annotations.filter((a) => a.id !== id)
-    setAnnotations(newAnnotations)
-    saveAnnotationsToStorage(newAnnotations)
-    setCheckedAnnotationIds((prev) => prev.filter((x) => x !== id))
-    if (selectedAnnotationId === id) {
-      setSelectedAnnotationId(null)
-    }
-    if (editingAnnotationId === id) {
-      setEditingAnnotationId(null)
-    }
-  }
-
-  /** 批量删除（含"清空"）：一次写盘，避免逐条写互相覆盖 */
+  /** 批量删除（含"清空"）：整表一次写盘 + 串行落库，失败回滚；冲突的选中 / 编辑态一并清掉 */
   const deleteAnnotations = (ids: string[]) => {
     if (ids.length === 0) return
+    if (!docRef) return
     const idSet = new Set(ids)
-    const newAnnotations = annotations.filter((a) => !idSet.has(a.id))
-    setAnnotations(newAnnotations)
-    saveAnnotationsToStorage(newAnnotations)
-    setCheckedAnnotationIds((prev) => prev.filter((x) => !idSet.has(x)))
-    if (selectedAnnotationId && idSet.has(selectedAnnotationId)) setSelectedAnnotationId(null)
-    if (editingAnnotationId && idSet.has(editingAnnotationId)) setEditingAnnotationId(null)
+    const prevAnnotations = annotations
+    const prevChecked = checkedAnnotationIds
+    const prevSelected = selectedAnnotationId
+    const prevEditing = editingAnnotationId
+    const nextAnnotations = annotations.filter((a) => !idSet.has(a.id))
+    const nextChecked = checkedAnnotationIds.filter((x) => !idSet.has(x))
+    const clearSelected = selectedAnnotationId !== null && idSet.has(selectedAnnotationId)
+    const clearEditing = editingAnnotationId !== null && idSet.has(editingAnnotationId)
+    void runOptimistic({
+      apply: () => {
+        // 待保存的旧整表别再写回去了 —— 本次删除会写一份更新的全量
+        if (annotationSaveTimerRef.current) {
+          clearTimeout(annotationSaveTimerRef.current)
+          annotationSaveTimerRef.current = null
+        }
+        setAnnotations(nextAnnotations)
+        setCheckedAnnotationIds(nextChecked)
+        if (clearSelected) setSelectedAnnotationId(null)
+        if (clearEditing) setEditingAnnotationId(null)
+        setAnnotationSaveState({ status: 'saving', lastSaved: null })
+      },
+      commit: () => persistAnnotations(nextAnnotations),
+      rollback: () => {
+        setAnnotations(prevAnnotations)
+        setCheckedAnnotationIds(prevChecked)
+        setSelectedAnnotationId(prevSelected)
+        setEditingAnnotationId(prevEditing)
+        setAnnotationSaveState({ status: 'error', lastSaved: null })
+      },
+      errorMessage: (err) => `删除批注失败：${errText(err)}`,
+    }).then((ok) => {
+      if (!ok) return
+      setAnnotationSaveState({ status: 'saved', lastSaved: Date.now() })
+      setTimeout(() => {
+        setAnnotationSaveState((prev) => (prev.status === 'saved' ? { ...prev, status: 'idle' } : prev))
+      }, 2000)
+    })
   }
+
+  const deleteAnnotation = (id: string) => deleteAnnotations([id])
 
   const updateAnnotationNote = (id: string, note: string) => {
     const newAnnotations = annotations.map((a) =>

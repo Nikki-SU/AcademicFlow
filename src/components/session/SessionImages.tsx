@@ -27,6 +27,7 @@ import {
   type SessionImageFile,
   type SessionMaterialMd,
 } from '../../services/sessionData'
+import { runOptimistic, errText } from '../../services/optimistic'
 import { forgetRepoImage, repoImageBlobUrl } from '../../services/editorImages'
 import { useSessionStore } from '../../stores/session'
 import { useSessionImagesStore } from '../../stores/sessionImages'
@@ -225,13 +226,17 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const handleDelete = async (file: SessionImageFile) => {
     const label = window.confirm(`删除照片「${file.name}」？此操作会提交到私库。`)
     if (!label) return
-    try {
-      await deleteTaskImages([file.path])
+    const prevImages = images
+    const nextImages = images.filter((x) => x.path !== file.path)
+    const ok = await runOptimistic({
+      apply: () => setImages(nextImages),
+      commit: () => deleteTaskImages([file.path]),
+      rollback: () => setImages(prevImages),
+      errorMessage: (err) => `删除失败：${errText(err)}`,
+    })
+    if (ok) {
       forgetRepoImage(file.path)
       await reload()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`删除失败：${msg}`, { duration: 8000 })
     }
   }
 
@@ -239,13 +244,15 @@ export default function SessionImages({ taskId }: { taskId: string | null }) {
   const handleDeleteMaterial = async (m: SessionImageFile) => {
     const label = window.confirm(`删除课程材料「${m.name.replace(/^\d+_/, '')}」？此操作会提交到私库。`)
     if (!label) return
-    try {
-      await deleteTaskImages([m.path])
-      await reload()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`删除失败：${msg}`, { duration: 8000 })
-    }
+    const prevMaterials = materials
+    const nextMaterials = materials.filter((x) => x.path !== m.path)
+    const ok = await runOptimistic({
+      apply: () => setMaterials(nextMaterials),
+      commit: () => deleteTaskImages([m.path]),
+      rollback: () => setMaterials(prevMaterials),
+      errorMessage: (err) => `删除失败：${errText(err)}`,
+    })
+    if (ok) await reload()
   }
 
   /** 进入编辑态：把当前 board 内容装进草稿 */

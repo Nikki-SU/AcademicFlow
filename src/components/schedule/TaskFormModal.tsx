@@ -51,6 +51,7 @@ import {
   type TaskNote,
   type TaskAttachment,
 } from '../../services/projectData'
+import { runOptimistic, errText } from '../../services/optimistic'
 import { runDualEngine } from '../../services/ai/dual-engine'
 import { extractTaskRequirementsWithAI } from '../../services/task-requirement-extractor'
 import { isAbortError } from '../../services/ai/abort'
@@ -459,16 +460,18 @@ export function TaskFormModal({
   const handleRemoveAttachment = async (a: TaskAttachment) => {
     if (!project) return
     if (!confirm(`确定删除附件「${a.name}」吗？`)) return
-    setAttBusy(`删除 ${a.name}…`)
-    try {
-      await deleteTaskAttachment(a.path, a.name)
-      setAttachments(await loadTaskAttachments(project.projectId))
-    } catch (err) {
-      console.error('[Schedule] 删除附件失败:', err)
-      toast.error('删除附件失败，请重试')
-    } finally {
-      setAttBusy(null)
-    }
+    const prevAttachments = attachments
+    const nextAttachments = attachments.filter((x) => x.path !== a.path)
+    await runOptimistic({
+      apply: () => {
+        setAttachments(nextAttachments)
+        setAttBusy(`删除 ${a.name}…`)
+      },
+      commit: () => deleteTaskAttachment(a.path, a.name),
+      rollback: () => setAttachments(prevAttachments),
+      errorMessage: (err) => `删除附件失败：${errText(err)}`,
+    })
+    setAttBusy(null)
   }
 
   const handleDownloadAttachment = async (a: TaskAttachment) => {
