@@ -1600,7 +1600,7 @@ export default function TrackingPage() {
 
   return (
     <div className="page-container flex h-full flex-col py-ui-page">
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] gap-ui-gap-lg lg:grid-cols-ratio-122 lg:grid-rows-[minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] gap-ui-gap-lg lg:grid-cols-ratio-122 lg:grid-rows-[minmax(0,1fr)] lg:gap-ui-gap">
         {/* ============================================================ */}
         {/* 左①（1）：工具入口列 —— 三张互相独立的卡片：
             ① 文献追踪（关键词组 / 期刊追踪 + 立即追踪 + 结果摘要）

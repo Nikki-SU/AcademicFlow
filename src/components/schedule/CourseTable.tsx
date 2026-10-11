@@ -16,7 +16,7 @@
  *   **红色粗线**（不再按「周几」每周重画）；默认不写任何文字（不挡课）；悬停或点击才
  *   浮出任务名 + 时间，并让 DDL 清单 / 任务栏里对应条目**亮起**（联动由 Schedule.tsx 的 highlightId 统一驱动）。
  * - 点块 = 编辑（改时间 / 地点 /（定时任务）归属任务，或删除）。
- * 尺寸全部走 index.css 的 --ui-* 流体口径（时间轴列宽 --ui-axis、列高 --ui-lane、
+ * 尺寸全部走 index.css 的 --ui-* 流体口径（时间轴列宽 --ui-axis、
  * 字号 --ui-text-*），不再有任何写死的像素值。
  * 数据落库全交给页面（Schedule.tsx），本组件只呈现与收集输入。
  */
@@ -217,27 +217,13 @@ export function CourseTable({
     return ddls.filter((p) => p.dueAt >= start && p.dueAt <= end)
   }, [ddls, weekDates])
 
-  // ---------- 时间轴范围：按数据算出，向整点取整，至少 5 小时 ----------
-  // DDL 的时刻也计入范围，否则落在课表时间窗外的死线红线看不到。
-  const { rangeStart, rangeEnd } = useMemo(() => {
-    const mins: number[] = []
-    for (const c of courses) {
-      // 期末周起已隐藏的每周课块不参与时间轴范围，避免为「看不见的课」留出空白
-      if (c.repeat !== 'once' && hiddenByExamWeek(weekDates.get(c.weekday))) continue
-      const s = timeToMinutes(c.startTime)
-      const e = timeToMinutes(c.endTime)
-      if (e > 0) mins.push(s, e)
-    }
-    for (const p of weekDdls) {
-      const m = minutesOfDay(p.dueAt)
-      if (m >= 0) mins.push(m)
-    }
-    if (mins.length === 0) return { rangeStart: 8 * 60, rangeEnd: 18 * 60 }
-    const start = Math.floor(Math.min(...mins) / 60) * 60
-    let end = Math.ceil(Math.max(...mins) / 60) * 60
-    if (end - start < 300) end = start + 300
-    return { rangeStart: start, rangeEnd: end }
-  }, [courses, weekDdls, weekDates, examWeekStartMs])
+  // ---------- 时间轴范围：固定 07:00–23:00 ----------
+  // 不再按当天数据收缩：作息区间是**全天候可编排窗口**，固定后每天 / 每周的课表纵轴一致，
+  // 早课（7 点）与晚课（22 点）都排得进，横向比对也稳定（用户 2026-10-11 定「7-23」）。
+  // 取舍：不在 07:00–23:00 内的 DDL 红线不画（见 ddlsOf 的范围过滤），仍可在右侧 DDL 清单看到；
+  // 同理，这个区间外的课块不会显示——课表只呈现作息区间内的安排。
+  const rangeStart = 7 * 60
+  const rangeEnd = 23 * 60
 
   const hourTicks = useMemo(() => {
     const ticks: number[] = []
@@ -356,7 +342,7 @@ export function CourseTable({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-ui-gap">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-ui-gap">
         {/* 表头：日期 + 星期（与下方时间轴网格严格对齐） */}
         <div className="flex gap-ui-gap-sm">
           <div className="w-ui-axis shrink-0" />

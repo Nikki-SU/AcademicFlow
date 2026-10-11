@@ -656,7 +656,7 @@ export default function SchedulePage() {
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-ink-200 border-t-seal-500" />
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] gap-ui-gap-lg lg:grid-cols-ratio-111 lg:grid-rows-[minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] gap-ui-gap-lg lg:grid-cols-ratio-322 lg:grid-rows-[minmax(0,1fr)] lg:gap-ui-gap">
           <div className={columnBox}>
             <CourseTable
               courses={courses}

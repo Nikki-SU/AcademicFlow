@@ -44,7 +44,6 @@ export default {
         'ui-icon': 'var(--ui-icon)',
         'ui-icon-sm': 'var(--ui-icon-sm)',
         'ui-dot': 'var(--ui-dot)',
-        'ui-lane': 'var(--ui-lane)',
         /* 面板页头固定高度：三栏面板的横线靠它对齐（唯一来源） */
         'ui-header': 'var(--ui-header)',
         /* 页面内容统一纵向页边距（唯一来源） */
@@ -73,6 +72,8 @@ export default {
       gridTemplateColumns: {
         'ratio-14': 'minmax(0, calc((100vw - 5vw - var(--ui-gap)) * 1 / 5)) minmax(0, calc((100vw - 5vw - var(--ui-gap)) * 4 / 5))',
         'ratio-111': 'repeat(3, minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 3)))',
+        /* 3:2:2 —— 日程页三栏：课表占宽（课块每行排得下三个字），任务栏 / DDL 栏各让一档 */
+        'ratio-322': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 3 / 7)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 7)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 7))',
         'ratio-121': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4))',
         'ratio-115-115': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 1.5 / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 1.5 / 4))',
         'ratio-112': 'minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) / 4)) minmax(0, calc((100vw - 5vw - 2 * var(--ui-gap)) * 2 / 4))',

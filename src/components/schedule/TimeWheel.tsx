@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-/** 可见格数（中间那格为选中）。一格高度 = 容器最高 / 此值（容器高走流体变量 --ui-axis，
+/** 可见格数（中间那格为选中）。一格高度 = 容器最高 / 此值（容器高走流体变量 --ui-wheel-h，
  *  随视口等比伸缩，代码里不写死 px；几何计算只用测出来的实际像素）。 */
 const VISIBLE = 5
 
@@ -146,7 +146,7 @@ function Wheel({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      className="relative min-w-ui-axis flex-1 cursor-grab touch-none select-none overflow-hidden active:cursor-grabbing h-[calc(var(--ui-axis)*5)]"
+      className="relative min-w-ui-axis flex-1 cursor-grab touch-none select-none overflow-hidden active:cursor-grabbing h-[var(--ui-wheel-h)]"
     >
       {/* 选中高亮带 */}
       <div
