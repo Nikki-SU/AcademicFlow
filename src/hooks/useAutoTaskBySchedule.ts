@@ -113,8 +113,8 @@ export function useAutoTaskBySchedule(): void {
 
       const now = new Date()
       const today = todayDateStr()
-      // 假期 → 不上课；调休 → 按指定周几；周末 → 无课（见 resolveToday）
-      const plan = resolveToday(today, extraDaysRef.current, holidaysRef.current)
+      // 假期 → 不上课；调休 → 按指定周几；周末 → 无课（除非那天实际排了课，见 resolveToday）
+      const plan = resolveToday(today, extraDaysRef.current, holidaysRef.current, coursesRef.current)
       // 每周时段只在「今天确实要上课」时命中；单次时段按自己的日期命中（考试可能就在周末）
       const slotTask = activeSlotTask(
         coursesRef.current,

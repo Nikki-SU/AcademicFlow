@@ -1,13 +1,13 @@
 /**
  * 课程表（左栏 · 竖排时间轴）
  * -------------------------------------------------
- * 布局：**一天一列**（周一…周五，周末有课时才出现），纵向是时间轴。
+ * 布局：**一天一列**（周一到周日恒显），纵向是时间轴。
  * - 时间按 5 分钟刻度对齐：同一时刻在不同列里落在同一 y 位置，一眼对上。
  * - 课块文案**完整显示**：列宽就是课块可用的横向空间（不再按课程时长把方块压窄），
  *   长名字直接折行，不需要点开才看得到。
  * - 同一时段重叠的课块自动**并排分列**，不会互相盖住。
  * - 每块按时段所属任务的**根色**着色（课程表 / 任务列表 / DDL 全局同色）。
- * - **一周视图**：表头每天**先日期、后星期**（周一到周日，周末有课 / 调休才出现）。
+ * - **一周视图**：表头每天**先日期、后星期**（周一到周日恒显）。
  * - **调休日**：那一天对应的列**直接上「被跟随周几」的课表**（如 10 号补上周三的课），
  *   表头只点一句「按周三」并可在此移除 —— 不用另贴一条文字条目让人自己脑补。
  * - **期末周起**：不再展示这门课的「每周课块」（课已上完），但考试等**单次**事项照常显示
@@ -23,7 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, CalendarPlus, Clock, X } from 'lucide-react'
 import type { Course, ExtraDay, SchoolCalendar, TodayPlan } from '../../services/scheduleData'
-import { timeToMinutes, weekdayOfDate, WEEKDAY_LABELS } from '../../services/scheduleData'
+import { timeToMinutes, WEEKDAY_LABELS } from '../../services/scheduleData'
 import type { Project } from '../../services/projectData'
 import { colorForRoot, getRootId } from '../../services/taskColors'
 import { CourseFormModal, snapTime, type SlotFormValue } from './CourseFormModal'
@@ -179,10 +179,16 @@ export function CourseTable({
 
   // ---------- 本周日期：表头「先日期、后星期」，死线也按本周这一天来画 ----------
   // 课表是一周视图（周一到周日），所以要先把本周每一天的**日期**算出来。
-  const todayDate = useMemo(() => {
-    const n = new Date()
-    return new Date(n.getFullYear(), n.getMonth(), n.getDate())
+  // 「今天」每分钟对齐刷新一次：跨天时整张周视图与当前时刻线都跟着走（不再只在挂载时算一次）。
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60_000)
+    return () => clearInterval(id)
   }, [])
+  const todayDate = useMemo(() => {
+    const n = new Date(nowTick)
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate())
+  }, [nowTick])
   const weekDates = useMemo(() => {
     const wd = todayDate.getDay() === 0 ? 7 : todayDate.getDay()
     const monday = new Date(todayDate)
@@ -239,33 +245,8 @@ export function CourseTable({
     return ticks
   }, [rangeStart, rangeEnd])
 
-  // ---------- 要显示的天：周一~周五恒显；周末有课 / 有调休才出现 ----------
-  const days = useMemo(() => {
-    const active = new Set<number>()
-    for (const c of courses) {
-      if (c.repeat === 'once') {
-        // 单次只落在它那一天：只有正好在本周才占一列
-        if (!c.date) continue
-        const wd = weekdayOfDate(c.date)
-        const col = weekDates.get(wd)
-        if (col && isSameDay(new Date(`${c.date}T00:00:00`), col)) active.add(wd)
-      } else if (c.weekday >= 1 && c.weekday <= 7) {
-        // 期末周起该列不再排每周课，也就不必为一个「空列」把周末撑出来
-        if (hiddenByExamWeek(weekDates.get(c.weekday))) continue
-        active.add(c.weekday)
-      }
-    }
-    // 调休日：按它**自己日期所在的那一列**占位（补班的往往是某个周六/周日，
-    // 那一列要出现并改上「被跟随周几」的课），而不是加一列「被跟随的周几」
-    for (const d of extraDays) {
-      const wd = weekdayOfDate(d.date)
-      const col = weekDates.get(wd)
-      if (col && isSameDay(new Date(`${d.date}T00:00:00`), col)) active.add(wd)
-    }
-    const list = [1, 2, 3, 4, 5]
-    for (const w of [6, 7]) if (active.has(w)) list.push(w)
-    return list
-  }, [courses, extraDays, weekDates, examWeekStartMs])
+  // ---------- 要显示的天：周一到周日恒显（用户要求周末列永远在，不再「有课 / 有调休才出现」）----------
+  const days = useMemo(() => [1, 2, 3, 4, 5, 6, 7], [])
 
   // 调休日：日期 → 记录。某一列若是调休日，就改上「被跟随周几」的课表
   const extraByDate = useMemo(() => new Map(extraDays.map((d) => [d.date, d])), [extraDays])

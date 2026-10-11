@@ -211,10 +211,17 @@ export default function SchedulePage() {
     return parentOptions.filter((o) => !blocked.has(o.id))
   }, [parentOptions, projects, editorProject])
 
-  // 今天该怎么排课：假期不上课 / 调休按指定周几 / 周末无课（见 services/scheduleData.resolveToday）
+  // 页面级「当前时刻」节拍：每分钟对齐一次，跨天时 todayPlan（今天排不排课）跟着更新
+  const [clockTick, setClockTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setClockTick((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // 今天该怎么排课：假期不上课 / 调休按指定周几 / 周末无课（除非那天实际排了课）
   const todayPlan = useMemo(
-    () => resolveToday(todayDateStr(), extraDays, holidays),
-    [extraDays, holidays],
+    () => resolveToday(todayDateStr(), extraDays, holidays, courses),
+    [extraDays, holidays, courses, clockTick],
   )
 
   // 校历改一项即落库（课程表顶栏就地编辑，不另设保存按钮）

@@ -195,13 +195,16 @@ export interface TodayPlan {
 }
 
 /**
- * 解析某一天的排课：**假期 → 不上课**；**调休补班 → 按用户指定的周几**；周末默认无课。
+ * 解析某一天的排课：**假期 → 不上课**；**调休补班 → 按用户指定的周几**；
+ * 周末默认无课 —— **但用户实际在周六 / 周日排了课**（每周时段落在该周几，或单次时段正好是这天）
+ * 时，周末就是上课日：这样周末的定时任务才会自动切换、当天才会画当前时刻线。
  * holidays 传空表即等价于「没有节假日数据」，退化为旧的「纯周几」行为。
  */
 export function resolveToday(
   dateStr: string,
   extraDays: ExtraDay[],
   holidays: Map<string, { name: string; date: string; isOffDay: boolean }>,
+  courses: Course[] = [],
 ): TodayPlan {
   const h = holidays.get(dateStr)
   // 法定放假：当天一律不上课（自动切课、今天高亮都要跳过）
@@ -219,7 +222,12 @@ export function resolveToday(
   const wd = weekdayOfDate(dateStr)
   if (wd === 0) return { weekday: null, holiday: null, makeup: false, unsetMakeup: false }
   if (wd >= 6) {
-    // 周末：官方若标为补班日 → 提示用户去「调休」指定按周几；否则默认无课
+    // 用户在周末实际排了课（每周时段按周几命中 / 单次时段按日期命中）→ 周末即上课日
+    const hasCourse = courses.some((c) =>
+      c.repeat === 'once' ? c.date === dateStr : c.weekday === wd,
+    )
+    if (hasCourse) return { weekday: wd, holiday: null, makeup: false, unsetMakeup: false }
+    // 周末没排课：官方若标为补班日 → 提示用户去「调休」指定按周几；否则默认无课
     const officialMakeup = !!h && !h.isOffDay
     return { weekday: null, holiday: null, makeup: officialMakeup, unsetMakeup: officialMakeup }
   }
