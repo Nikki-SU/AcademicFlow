@@ -1666,6 +1666,318 @@ function WordListView({ words, setWords }: {
   )
 }
 
+/**
+ * 长难句列表 —— 浏览全库长难句并删除。
+ *
+ * 与 WordListView 同口径：搜索（英文原句 / 中文译文）、分页、全选本页、
+ * 单删与批量删。过去长难句只能在「上一张 / 下一张」里翻，没有任何入口能删掉，
+ * 用户想清理掉 AI 提取得不好的句子时无从下手。
+ */
+function SentenceListView({ sentences, setSentences }: {
+  sentences: SentenceData[]
+  setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>>
+}) {
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return sentences
+    return sentences.filter(
+      (s) =>
+        s.sentenceEn.toLowerCase().includes(q) ||
+        s.sentenceCn.toLowerCase().includes(q) ||
+        s.aiReferenceCn.toLowerCase().includes(q),
+    )
+  }, [sentences, query])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const pageItems = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  )
+
+  useEffect(() => { setPage(1) }, [query])
+  useEffect(() => {
+    const max = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+    if (page > max) setPage(max)
+  }, [filtered.length, page])
+
+  const pageAllSelected = pageItems.length > 0 && pageItems.every((s) => selected.has(s.id))
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const togglePageAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (pageAllSelected) pageItems.forEach((s) => next.delete(s.id))
+      else pageItems.forEach((s) => next.add(s.id))
+      return next
+    })
+  }
+
+  const handleDeleteOne = (s: SentenceData) => {
+    const preview = s.sentenceEn.slice(0, 30) || s.id
+    if (!window.confirm(`确定删除这条长难句「${preview}${s.sentenceEn.length > 30 ? '…' : ''}」？其译文、踩分点与练习记录会一并移除，无法恢复。`)) return
+    setSentences((prev) => prev.filter((x) => x.id !== s.id))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.delete(s.id)
+      return next
+    })
+    toast.success('已删除 1 条长难句')
+  }
+
+  const handleDeleteSelected = () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`确定删除选中的 ${selected.size} 条长难句？其译文、踩分点与练习记录会一并移除，无法恢复。`)) return
+    const ids = selected
+    setSentences((prev) => prev.filter((x) => !ids.has(x.id)))
+    setSelected(new Set())
+    toast.success(`已删除 ${ids.size} 条长难句`)
+  }
+
+  return (
+    <div className="bg-paper-50 rounded-card border border-ink-200">
+      <div className="flex items-center gap-3 p-4 border-b border-ink-200">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="w-4 h-4 text-ink-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索英文原句 / 中文译文"
+            className="w-full pl-9 pr-3 py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+          />
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          {selected.size > 0 && (
+            <span className="text-ui-sm text-ink-500">已选 {selected.size} 条</span>
+          )}
+          <button
+            onClick={handleDeleteSelected}
+            disabled={selected.size === 0}
+            className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 bg-red-500 rounded-control hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            <Trash2 className="w-4 h-4" /> 删除选中
+          </button>
+        </div>
+      </div>
+
+      {sentences.length === 0 ? (
+        <div className="py-16 text-center text-ui-sm text-ink-400">暂无长难句，可在「练习」视图里添加</div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center text-ui-sm text-ink-400">没有找到匹配的长难句</div>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 px-4 py-2 bg-paper-100/50 text-ui-xs text-ink-400 border-b border-ink-200">
+            <input
+              type="checkbox"
+              className="accent-seal-600"
+              checked={pageAllSelected}
+              onChange={togglePageAll}
+            />
+            <span>全选本页</span>
+          </div>
+          <div className="divide-y divide-ink-100">
+            {pageItems.map((s) => (
+              <div key={s.id} className="flex items-start gap-3 px-4 py-2.5 hover:bg-paper-100/60 transition">
+                <input
+                  type="checkbox"
+                  className="accent-seal-600 shrink-0 mt-1"
+                  checked={selected.has(s.id)}
+                  onChange={() => toggleOne(s.id)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-ui-sm text-ink-800 line-clamp-2">{s.sentenceEn || '（空）'}</div>
+                  {(s.sentenceCn || s.aiReferenceCn) && (
+                    <div className="text-ui-xs text-ink-500 line-clamp-2 mt-0.5">
+                      {s.sentenceCn || s.aiReferenceCn}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDeleteOne(s)}
+                  title="删除长难句"
+                  className="shrink-0 p-1.5 text-ink-400 hover:text-red-500 hover:bg-red-50 rounded-control-sm transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <PaginationBar total={filtered.length} page={page} totalPages={totalPages} onPage={setPage} />
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 翻译练习列表 —— 浏览全库摘要翻译题并删除。
+ *
+ * 与 WordListView / SentenceListView 同口径：搜索（题面 / 参考答案）、分页、
+ * 全选本页、单删与批量删。过去翻译题只能在「上一张 / 下一张」里翻，
+ * 没有任何入口能删掉，用户想清理掉不要的题时无从下手。
+ */
+function TranslationListView({ translations, setTranslations }: {
+  translations: TranslationData[]
+  setTranslations: React.Dispatch<React.SetStateAction<TranslationData[]>>
+}) {
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return translations
+    return translations.filter(
+      (t) =>
+        t.originalText.toLowerCase().includes(q) ||
+        t.referenceTranslation.toLowerCase().includes(q),
+    )
+  }, [translations, query])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const pageItems = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  )
+
+  useEffect(() => { setPage(1) }, [query])
+  useEffect(() => {
+    const max = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+    if (page > max) setPage(max)
+  }, [filtered.length, page])
+
+  const pageAllSelected = pageItems.length > 0 && pageItems.every((t) => selected.has(t.id))
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const togglePageAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (pageAllSelected) pageItems.forEach((t) => next.delete(t.id))
+      else pageItems.forEach((t) => next.add(t.id))
+      return next
+    })
+  }
+
+  const handleDeleteOne = (t: TranslationData) => {
+    const preview = t.originalText.slice(0, 30) || t.id
+    if (!window.confirm(`确定删除这条${directionLabelOf(t.direction)}题「${preview}${t.originalText.length > 30 ? '…' : ''}」？其参考答案、踩分点与练习记录会一并移除，无法恢复。`)) return
+    setTranslations((prev) => prev.filter((x) => x.id !== t.id))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.delete(t.id)
+      return next
+    })
+    toast.success('已删除 1 条翻译练习')
+  }
+
+  const handleDeleteSelected = () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`确定删除选中的 ${selected.size} 条翻译练习？其参考答案、踩分点与练习记录会一并移除，无法恢复。`)) return
+    const ids = selected
+    setTranslations((prev) => prev.filter((x) => !ids.has(x.id)))
+    setSelected(new Set())
+    toast.success(`已删除 ${ids.size} 条翻译练习`)
+  }
+
+  return (
+    <div className="bg-paper-50 rounded-card border border-ink-200">
+      <div className="flex items-center gap-3 p-4 border-b border-ink-200">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="w-4 h-4 text-ink-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索题面 / 参考答案"
+            className="w-full pl-9 pr-3 py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+          />
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          {selected.size > 0 && (
+            <span className="text-ui-sm text-ink-500">已选 {selected.size} 条</span>
+          )}
+          <button
+            onClick={handleDeleteSelected}
+            disabled={selected.size === 0}
+            className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 bg-red-500 rounded-control hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            <Trash2 className="w-4 h-4" /> 删除选中
+          </button>
+        </div>
+      </div>
+
+      {translations.length === 0 ? (
+        <div className="py-16 text-center text-ui-sm text-ink-400">暂无翻译练习，可在「练习」视图里添加</div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center text-ui-sm text-ink-400">没有找到匹配的翻译练习</div>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 px-4 py-2 bg-paper-100/50 text-ui-xs text-ink-400 border-b border-ink-200">
+            <input
+              type="checkbox"
+              className="accent-seal-600"
+              checked={pageAllSelected}
+              onChange={togglePageAll}
+            />
+            <span>全选本页</span>
+          </div>
+          <div className="divide-y divide-ink-100">
+            {pageItems.map((t) => (
+              <div key={t.id} className="flex items-start gap-3 px-4 py-2.5 hover:bg-paper-100/60 transition">
+                <input
+                  type="checkbox"
+                  className="accent-seal-600 shrink-0 mt-1"
+                  checked={selected.has(t.id)}
+                  onChange={() => toggleOne(t.id)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="shrink-0 px-1.5 py-0.5 rounded text-ui-2xs font-medium bg-seal-50 text-seal-600">
+                      {directionLabelOf(t.direction)}
+                    </span>
+                  </div>
+                  <div className="text-ui-sm text-ink-800 line-clamp-2">{t.originalText || '（空）'}</div>
+                  {t.referenceTranslation && (
+                    <div className="text-ui-xs text-ink-500 line-clamp-2 mt-0.5">
+                      {t.referenceTranslation}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDeleteOne(t)}
+                  title="删除翻译练习"
+                  className="shrink-0 p-1.5 text-ink-400 hover:text-red-500 hover:bg-red-50 rounded-control-sm transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <PaginationBar total={filtered.length} page={page} totalPages={totalPages} onPage={setPage} />
+        </>
+      )}
+    </div>
+  )
+}
+
 function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProps) {
   const [settings, setSettings] = useState<WordStudySettings>(DEFAULT_WORD_SETTINGS)
   /** 设置是否已从私库读回来 —— 读完之前不许回写，免得用默认值盖掉用户的偏好 */
@@ -3390,6 +3702,8 @@ function SentenceSection({
 }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
+  /** 长难句 tab 的视图：练习卡片 / 长难句列表（列表里可浏览、可删句） */
+  const [view, setView] = useState<'study' | 'list'>('study')
   /**
    * 长难句也有"语音 / 静音"两个模式，跟单词页共用同一个偏好
    * （settings/learning_progress.md 的 word_voice_enabled）。
@@ -3567,6 +3881,30 @@ function SentenceSection({
 
   return (
     <div className="space-y-4">
+      {/* 视图切换：练习卡片 / 长难句列表（列表里能浏览并删掉不要的句子） */}
+      <div className="flex items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
+        <button
+          onClick={() => setView('study')}
+          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
+            view === 'study' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4" /> 练习
+        </button>
+        <button
+          onClick={() => setView('list')}
+          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
+            view === 'list' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
+          }`}
+        >
+          <List className="w-4 h-4" /> 长难句列表
+        </button>
+      </div>
+
+      {view === 'list' ? (
+        <SentenceListView sentences={sentences} setSentences={setSentences} />
+      ) : (
+      <>
       <div className="flex flex-wrap justify-between items-center gap-3">
         <div className="flex items-center gap-3">
           <div className="text-ui-sm text-ink-500">
@@ -3667,6 +4005,8 @@ function SentenceSection({
       )}
 
       {showAddModal && <AddSentenceModal onClose={() => setShowAddModal(false)} onAdd={handleAddSentence} />}
+      </>
+      )}
     </div>
   )
 }
@@ -3682,6 +4022,8 @@ function TranslationSection({
 }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
+  /** 翻译 tab 的视图：练习卡片 / 翻译练习列表（列表里可浏览、可删题） */
+  const [view, setView] = useState<'study' | 'list'>('study')
   /** 低分线（设置里的「翻译判分标准」）：低于它才弹学习卡片 */
   const lowScore = useSettingsStore((s) => s.translationLowScore ?? 70)
 
@@ -3830,6 +4172,30 @@ function TranslationSection({
 
   return (
     <div className="space-y-4">
+      {/* 视图切换：练习卡片 / 翻译练习列表（列表里能浏览并删掉不要的题） */}
+      <div className="flex items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
+        <button
+          onClick={() => setView('study')}
+          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
+            view === 'study' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4" /> 练习
+        </button>
+        <button
+          onClick={() => setView('list')}
+          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
+            view === 'list' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
+          }`}
+        >
+          <List className="w-4 h-4" /> 翻译练习列表
+        </button>
+      </div>
+
+      {view === 'list' ? (
+        <TranslationListView translations={translations} setTranslations={setTranslations} />
+      ) : (
+      <>
       <div className="flex flex-wrap justify-between items-center gap-3">
         <div className="text-ui-sm text-ink-500">
           进度：{translations.length > 0 ? `${safeIndex + 1} / ${translations.length}` : '0 / 0'}
@@ -3913,6 +4279,8 @@ function TranslationSection({
       )}
 
       {showAddModal && <AddTranslationModal onClose={() => setShowAddModal(false)} onAdd={handleAddTranslation} />}
+      </>
+      )}
     </div>
   )
 }
