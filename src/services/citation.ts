@@ -278,6 +278,7 @@ async function fetchFromCrossref(doi: string): Promise<CitationEntry | null> {
 export interface OnlineSearchResult {
   doi: string
   title: string
+  /** 作者串：**「名 姓」**（如 Huijun Qian），多作者以 `; ` 分隔（与文献库 authors 口径一致） */
   authors: string
   year: number
   journal: string
@@ -289,6 +290,25 @@ export interface OnlineSearchResult {
 const OPENALEX_API_BASE = 'https://api.openalex.org'
 
 /**
+ * 还原常见 HTML 实体（含十进制 / 十六进制数字实体）。
+ * &amp; 放最后解，否则 &amp;lt; 会被先解成 <。
+ * 非法码点原样保留，避免 String.fromCodePoint 抛错打断整段解析。
+ */
+function decodeEntities(raw: string): string {
+  const safeCodePoint = (code: number, fallback: string): string =>
+    Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : fallback
+  return raw
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (whole, n: string) => safeCodePoint(Number(n), whole))
+    .replace(/&#x([0-9a-fA-F]+);/g, (whole, n: string) => safeCodePoint(parseInt(n, 16), whole))
+    .replace(/&amp;/g, '&')
+}
+
+/**
  * 清洗摘要文本。
  *
  * Crossref 的 abstract 是 JATS 片段，长这样：
@@ -297,17 +317,82 @@ const OPENALEX_API_BASE = 'https://api.openalex.org'
  */
 export function cleanAbstract(raw: string | undefined): string {
   if (!raw) return ''
-  return raw
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    // &amp; 放最后解，否则 &amp;lt; 会被先解成 <
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return decodeEntities(raw.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim()
+}
+
+/** 允许在标题里兑现的受限内联标记 → 渲染语义（其余标记一律剥掉） */
+const INLINE_TAG_STYLE: Record<string, 'sup' | 'sub' | 'italic' | 'bold'> = {
+  sup: 'sup',
+  sub: 'sub',
+  i: 'italic',
+  em: 'italic',
+  b: 'bold',
+  strong: 'bold',
+}
+
+export interface InlineToken {
+  text: string
+  sup?: boolean
+  sub?: boolean
+  italic?: boolean
+  bold?: boolean
+}
+
+/**
+ * 把带受限标记的文本解析成可安全渲染的片段。
+ *
+ * Crossref / JATS 的标题里常带 <sup>/<sub>（化学式上下标）、<i>/<b>（斜体 / 粗体）
+ * 以及 HTML 实体。当纯文本渲染会把这些标记原样吐出来 —— 化学式（如 <sup>13</sup>C）
+ * 就「渲染不出来」。这里只认这一小组安全内联标记，其余标记一律剥掉、实体还原成字符，
+ * 交由渲染层用 <sup>/<sub>/<i>/<b> 兑现；全程不碰 dangerouslySetInnerHTML。
+ */
+export function parseInlineMarkup(raw: string | undefined): InlineToken[] {
+  if (!raw) return []
+  const tokens: InlineToken[] = []
+  const stack: Array<Pick<InlineToken, 'sup' | 'sub' | 'italic' | 'bold'>> = [{}]
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)[^>]*?(\/?)>/g
+  let last = 0
+  let m: RegExpExecArray | null
+  const pushText = (text: string) => {
+    if (!text) return
+    tokens.push({ text: decodeEntities(text), ...stack[stack.length - 1] })
+  }
+  while ((m = tagRe.exec(raw))) {
+    pushText(raw.slice(last, m.index))
+    last = tagRe.lastIndex
+    const style = INLINE_TAG_STYLE[m[2].toLowerCase()]
+    if (!style) continue
+    if (m[1] === '/') {
+      if (stack.length > 1) stack.pop()
+    } else if (m[3] !== '/') {
+      stack.push({ ...stack[stack.length - 1], [style]: true })
+    }
+  }
+  pushText(raw.slice(last))
+  return tokens.filter((t) => t.text.length > 0)
+}
+
+/**
+ * 把引用元数据的作者数组转成文献库统一的作者串。
+ *
+ * 元数据（Crossref）里作者是「Family, Given」（family-first，BibTeX / citekey 依赖它，
+ * 这里不动）；文献库（literatures.csv 的 authors）统一成「Given Family」并按 `; ` 连接 ——
+ * 否则排版时 `,` 会被当成作者分隔符，把一个人的名和姓拆成两条。
+ * 拿不到 given 时退回 family。
+ */
+export function formatAuthorsForLibrary(authors: string[] | undefined): string {
+  return (authors || [])
+    .map((raw) => {
+      const s = (raw || '').trim()
+      if (!s) return ''
+      const idx = s.indexOf(',')
+      if (idx < 0) return s
+      const family = s.slice(0, idx).trim()
+      const given = s.slice(idx + 1).trim()
+      return given ? `${given} ${family}` : family
+    })
+    .filter(Boolean)
+    .join('; ')
 }
 
 /** OpenAlex 存的是「词 → 出现位置」的倒排索引，按位置还原成句子 */
@@ -416,8 +501,10 @@ export async function searchCrossref(query: string, rows = 10): Promise<OnlineSe
 
   return (data.message?.items || [])
     .map((item) => {
+      // Crossref 给的是「姓 名」（family, given），文献库统一用「名 姓」展示，
+      // 这里就地转成「名 姓」再 `; ` 连接，避免下游各自再转一遍。
       const authors = (item.author || [])
-        .map((a) => (a.family ? (a.given ? `${a.family}, ${a.given}` : a.family) : a.name || ''))
+        .map((a) => (a.family ? (a.given ? `${a.given} ${a.family}` : a.family) : a.name || ''))
         .filter(Boolean)
         .join('; ')
       return {

@@ -194,6 +194,8 @@ interface TaskQueueActions {
   get_file: (id: string) => File | undefined
   update_task: (id: string, patch: Partial<BackgroundTask>) => Promise<void>
   remove_task: (id: string) => Promise<void>
+  /** 清除所有已进入终态（done/failed/aborted）的记录；运行中 / 排队中的一律保留 */
+  clear_finished_tasks: () => Promise<void>
   abort_task: (id: string) => Promise<void>
   load_tasks: () => Promise<void>
   set_executor: (fn: TaskExecutor) => void
@@ -433,6 +435,18 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
       get()._abort_controllers.delete(id)
     }
     const tasks = get().tasks.filter((t) => t.id !== id)
+    set({ tasks })
+    await get()._persist()
+  },
+
+  clear_finished_tasks: async () => {
+    // 只清终态：done / failed / aborted。运行中 / 排队中的必须保留，
+    // 避免把正在跑的 AbortController 与未执行的任务一起抹掉。
+    // 终态任务不会再有 _abort_controllers 条目，直接按 status 过滤即可。
+    const tasks = get().tasks.filter(
+      (t) => t.status !== 'done' && t.status !== 'failed' && t.status !== 'aborted',
+    )
+    if (tasks.length === get().tasks.length) return
     set({ tasks })
     await get()._persist()
   },

@@ -4,13 +4,23 @@
 > 前端通过 Contents API 把 base64 嵌在 `src/constants/skeleton.ts` 里的副本「安装」进去。
 > 本文档记三件事：**现在两边是否一致**、**改后端必须遵守什么**、**还剩什么没做**。
 >
-> 最后更新：2026-09-28
+> 最后更新：2026-10-11
 
 ---
 
 ## 0. 当前状态（2026-09-28 已推私库，10/10 逐字节一致）
 
 **前端嵌入副本与私库 `main` 线上版本逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
+
+> ⚠️ **2026-10-11 待生效（backend 12→13，走 ADJ-126 自动同步）**：`paper_convert.mjs` 新增
+> **共一作者抽取** —— 与通讯作者同一趟 post-MinerU，从 md 首页作者块认 `†`/`‡`/`#` 记号与
+> "These authors contributed equally" 说明，认定「共同第一作者」写入 `literatures.csv` **新增列
+> `co_first_author`**（`; ` 连接、统一「名 姓」；**明确排除只带 `*` 的通讯作者**；认不出保持空串、
+> 绝不猜）。新列沿用「**一律追加末尾**」契约，旧库由 `ensureLocalCsvColumn` 自动补列。
+> 本地已重新嵌进 `skeleton.ts`、逐字节一致；私库尚未手动推 —— **无需手动推**：
+> `APP_VERSION.backend` 已 +1（12→13），用户下次进入应用时 `pipelineAutoSync` 会比对私库
+> `settings/backend-version.csv` 并自动重写（ADJ-126，零操作）。在自动同步发生前，私库线上仍是
+> 旧版（不抽共一），行为等价（`co_first_author` 列留空，前端按「无共一」展示）。
 
 > ⚠️ **2026-10-08 待生效（backend 3→4，走 ADJ-126 自动同步）**：`dual_engine_runner.mjs`
 > 的输出预算 `max_tokens` **不再写死 64000**，改为由前端按「ai1/ai2 两个模型较小的上下文

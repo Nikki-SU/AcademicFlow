@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadLiteratures, saveLiteratures, doiToSlug, inferPaperTier, inferMdStatusByDoi, type Literature } from '../services/literatureData'
 import { loadTextbooks, saveTextbooks, bookHasContent, deleteBookFiles, type Textbook } from '../services/textbookData'
@@ -58,7 +58,7 @@ import {
   isValidMorphemeSplit, MORPHEME_TYPE_LABELS,
 } from '../services/learningData'
 import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
-import { normalizeDoi, isSameDoi, getCitationEntries, cleanAbstract } from '../services/citation'
+import { normalizeDoi, isSameDoi, getCitationEntries, cleanAbstract, formatAuthorsForLibrary, parseInlineMarkup } from '../services/citation'
 import { loadJournalAbbrevMap, saveJournalAbbrev, mergeJournalAbbrevs, lookupJournalAbbrevsWithAI } from '../services/journalAbbrev'
 import {
   BookMarked,
@@ -145,6 +145,11 @@ interface Paper {
    * 转换流程跑完由后端写进 CSV。为空时界面就不显示通讯那一行。
    */
   correspondingAuthor: string
+  /**
+   * 共同第一作者（`; ` 连接）。同样由后端从 PDF/md 首页作者块抽取（`†`/`‡` 标记），
+   * 展示时与一作一并加粗。为空表示没有共一。
+   */
+  coFirstAuthor: string
 }
 
 /** UI 层期刊模板项 —— 包装后端 JournalTemplate，加派生字段方便显示 */
@@ -285,6 +290,7 @@ function literatureToPaper(lit: Literature): Paper {
     abstractEn: lit.abstractEn || '',
     abstractCn: lit.abstractCn || '',
     correspondingAuthor: lit.correspondingAuthor || '',
+    coFirstAuthor: lit.coFirstAuthor || '',
   }
 }
 
@@ -309,6 +315,7 @@ function paperToLiterature(paper: Paper): Literature {
     trackingGroup: paper.trackingGroup || '',
     mdStatus: paper.mdStatus || 'none',
     correspondingAuthor: paper.correspondingAuthor || '',
+    coFirstAuthor: paper.coFirstAuthor || '',
   }
 }
 
@@ -331,7 +338,7 @@ function cleanAuthorName(raw: string): string {
  * markdown 粗体星号、末尾英文 `and`，这里一并清掉。
  * 返回的 starred 表示该名字自带 `*`（后端从 PDF 抽出的通讯标记）。
  */
-function splitAuthors(authors: string): { name: string; starred: boolean }[] {
+function splitAuthors(authors: string): { name: string; starred: boolean; coFirst: boolean }[] {
   // CSV 里含逗号的字段会被整体加引号，二次转义后会残留成 `"""name, name"""`，
   // 先归一化各种引号、再去掉整串外层多余的引号（成对或成串都吃掉）。
   const unquoted = (authors || '')
@@ -341,8 +348,33 @@ function splitAuthors(authors: string): { name: string; starred: boolean }[] {
     .replace(/["']+$/, '')
   return unquoted
     .split(/[,，;；]/)
-    .map((raw) => ({ name: cleanAuthorName(raw), starred: /[*†‡]/.test(raw) }))
+    // 老数据（PDF 直接抽的 authors）会自带标记：`*`=通讯、`†`/`‡`=共一。
+    // 分开识别，别把共一误当通讯（`*` 与 `†` 不是一回事）。
+    .map((raw) => ({
+      name: cleanAuthorName(raw),
+      starred: /\*/.test(raw),
+      coFirst: /[†‡]/.test(raw),
+    }))
     .filter((a) => a.name)
+}
+
+/**
+ * 判定两个作者名是否指同一个人（顺序 / 标点不敏感）。
+ * 后端从 PDF 抽的通讯 / 共一可能是「姓 名」（Qian, Huijun），而文献库 authors 统一是
+ * 「名 姓」（Huijun Qian）——这是**同一个人名的两种等价写法**（非别名），必须能对上，
+ * 否则通讯斜体、共一加粗就显示不出来。做法：小写、去标点、拆词后排序再比。
+ */
+function sameAuthorName(a: string, b: string): boolean {
+  const key = (raw: string) =>
+    cleanAuthorName(raw)
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .sort()
+      .join(' ')
+  return key(a) !== '' && key(a) === key(b)
 }
 
 /** 通讯作者名字集合（后端用 `; ` 连接多个，这里逗号/分号都兼容） */
@@ -353,6 +385,34 @@ function correspondingNames(correspondingAuthor: string): Set<string> {
       .split(/[,，;；]/)
       .map((s) => cleanAuthorName(s))
       .filter(Boolean),
+  )
+}
+
+/** 共一作者名列表（后端用 `; ` 连接多个，逗号/分号都兼容）；展示时与一作一并加粗 */
+function coFirstNames(coFirstAuthor: string): string[] {
+  return (coFirstAuthor || '')
+    .replace(/[“”‘’]/g, '"')
+    .split(/[,，;；]/)
+    .map((s) => cleanAuthorName(s))
+    .filter(Boolean)
+}
+
+/**
+ * 渲染标题里的受限内联标记（`<sub>`/`<sup>` 化学式、`<i>`/`<b>`、HTML 实体）。
+ * 用真实节点兑现，全程不碰 dangerouslySetInnerHTML —— 化学式的上下标就靠这里显示出来。
+ */
+function InlineMarkup({ raw }: { raw: string }) {
+  return (
+    <>
+      {parseInlineMarkup(raw).map((t, i) => {
+        let node: ReactNode = t.text
+        if (t.bold) node = <b>{node}</b>
+        if (t.italic) node = <i>{node}</i>
+        if (t.sub) node = <sub>{node}</sub>
+        else if (t.sup) node = <sup>{node}</sup>
+        return <span key={i}>{node}</span>
+      })}
+    </>
   )
 }
 
@@ -1366,7 +1426,7 @@ export default function ManagementPage() {
         ? (m.author as Array<{ given?: string; family?: string; name?: string }>)
             .map((a) => (a.name || `${a.given || ''} ${a.family || ''}`).trim())
             .filter(Boolean)
-            .join(', ')
+            .join('; ')
         : ''
       const year = (() => {
         const pd = (m['published-print'] || m['published-online'] || m.created || m.issued) as Record<string, unknown> | undefined
@@ -1431,7 +1491,7 @@ export default function ManagementPage() {
       const paper: Paper = {
         id: doi,
         title: meta.title,
-        authors: (meta.authors || []).join(', '),
+        authors: formatAuthorsForLibrary(meta.authors),
         year: String(meta.year || ''),
         journal: meta.journal || '',
         doi,
@@ -1452,6 +1512,7 @@ export default function ManagementPage() {
         abstractCn: '',
         // 通讯作者不在元数据里，得等这篇转过 PDF 后由后端从 md 抽出
         correspondingAuthor: '',
+        coFirstAuthor: '',
       }
       const updated = [paper, ...papers]
       setPapers(updated)
@@ -1515,6 +1576,7 @@ export default function ManagementPage() {
       abstractEn: newPaper.abstractEn.trim(),
       abstractCn: newPaper.abstractCn.trim(),
       correspondingAuthor: '',
+      coFirstAuthor: '',
     }
     const updated = [paper, ...papers]
     setPapers(updated)
@@ -3195,7 +3257,7 @@ export default function ManagementPage() {
                           换行行数随标题长度自适应 → 条目高度可以比其他条更高 */}
                       <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
                         <h3 className="text-ui-sm font-medium text-ink-800 break-words">
-                          {paper.title}
+                          <InlineMarkup raw={paper.title} />
                         </h3>
 
                         {paper.keywords.length > 0 && (
@@ -3209,44 +3271,60 @@ export default function ManagementPage() {
                         )}
                       </td>
 
-                      {/* 作者：**一个作者一行**（纵向堆叠，不在横向摊开、不左右滚）；
-                          一作标「一作」、通讯标「通讯」 */}
+                      {/* 作者：**只展示一作（含共一）与通讯**，一个作者一行；
+                          一作加粗、通讯斜体（同一人既一作又通讯 = 又粗又斜），不用文字 badge 占空间 */}
                       <td className="border border-ink-200 px-ui-gap py-2.5 align-top">
-                        {authorList.length === 0 ? (
-                          <div className="text-ui-xs text-ink-500">—</div>
-                        ) : (
-                          <div className="flex flex-col gap-0.5 text-ui-xs">
-                            {authorList.map((a, i) => {
-                              const isFirst = i === 0
-                              const isCorresponding = a.starred || corresponding.has(a.name)
-                              return (
-                                <div key={i} className="flex items-center gap-1 min-w-0">
-                                  <span
-                                    className={`min-w-0 break-words ${
-                                      isCorresponding
-                                        ? 'text-seal-600 font-medium'
-                                        : isFirst
-                                          ? 'text-ink-700'
-                                          : 'text-ink-500'
-                                    }`}
-                                  >
-                                    {a.name}
-                                  </span>
-                                  {isFirst && (
-                                    <span className="px-0.5 py-px rounded-control-sm bg-ink-100 text-ink-500 text-ui-2xs leading-none shrink-0">
-                                      一作
-                                    </span>
-                                  )}
-                                  {isCorresponding && (
-                                    <span className="px-0.5 py-px rounded-control-sm bg-seal-50 text-seal-600 text-ui-2xs leading-none shrink-0">
-                                      通讯
-                                    </span>
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
+                        {(() => {
+                          // 展示集合：一作（含共一）+ 通讯，同一人只占一行。
+                          // 名字匹配一律走 sameAuthorName（顺序 / 标点不敏感）——后端从 PDF 抽的
+                          // 通讯 / 共一可能是「姓 名」，而 authors 是「名 姓」，两者必须能对上；
+                          // 展示名以 authors 的规范「名 姓」为准，后端名只在 authors 里查不到时兜底。
+                          const coFirstList = coFirstNames(paper.coFirstAuthor)
+                          const corrList = [...corresponding]
+                          const shown: { name: string; first: boolean; corr: boolean }[] = []
+                          const addEntry = (name: string, first: boolean, corr: boolean) => {
+                            if (!name) return
+                            const hit = shown.find((e) => sameAuthorName(e.name, name))
+                            if (hit) {
+                              hit.first = hit.first || first
+                              hit.corr = hit.corr || corr
+                            } else {
+                              shown.push({ name, first, corr })
+                            }
+                          }
+                          authorList.forEach((a, idx) => {
+                            const isFirst =
+                              idx === 0 || a.coFirst || coFirstList.some((c) => sameAuthorName(c, a.name))
+                            // 老数据 authors 串里可能自带 `*` 通讯标记（starred）；
+                            // 后端抽出 corresponding_author 后以该列为准，两者取或。
+                            const isCorr = a.starred || corrList.some((c) => sameAuthorName(c, a.name))
+                            if (isFirst || isCorr) addEntry(a.name, isFirst, isCorr)
+                          })
+                          // authors 里没有、但后端抽到的通讯 / 共一（数据不一致时兜底展示后端名）
+                          for (const c of corrList) {
+                            if (!authorList.some((a) => sameAuthorName(a.name, c))) addEntry(c, false, true)
+                          }
+                          for (const c of coFirstList) {
+                            if (!authorList.some((a) => sameAuthorName(a.name, c))) addEntry(c, true, false)
+                          }
+                          if (shown.length === 0) {
+                            return <div className="text-ui-xs text-ink-500">—</div>
+                          }
+                          return (
+                            <div className="flex flex-col gap-0.5 text-ui-xs">
+                              {shown.map((a) => (
+                                <span
+                                  key={a.name}
+                                  className={`min-w-0 break-words text-ink-700 ${
+                                    a.first ? 'font-semibold' : ''
+                                  } ${a.corr ? 'italic' : ''}`}
+                                >
+                                  {a.name}
+                                </span>
+                              ))}
+                            </div>
+                          )
+                        })()}
                       </td>
 
                       {/* 期刊（上）· 年份（下）：同一格内**纵向堆叠**，不横着摊开（横着摊 = 逼出左右滚动） */}

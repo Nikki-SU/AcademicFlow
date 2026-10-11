@@ -43,6 +43,7 @@ import { readAnyDocument } from './blocks.mjs'
 import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockDoc } from './translation'
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
 import { TRACKING_PLANS_PATH } from './trackingPlanData'
+import { loadLiteratures, saveLiteratures } from './literatureData'
 import { APP_VERSION } from '../constants/version'
 
 /**
@@ -371,6 +372,81 @@ const trackingPlanSemimonthly: Migration = {
       return row
     })
     await writeCsvFile(TRACKING_PLANS_PATH, out, headers, (r) => r)
+  },
+}
+
+/**
+ * v9 → v10：重建存量文献作者串为「名 姓」
+ * 旧库 authors 是 Crossref 口径的「姓, 名」（如 `Qian, Huijun; Li, Lei`），全站展示要「名 姓」
+ * （如 `Huijun Qian; Lei Li`）。写入端已统一（新入库即「名 姓」），存量按 DOI 走 OpenAlex
+ * 批量重拉**权威显示名**重建：OpenAlex 的 `author.display_name` 本身就是「名 姓」，
+ * 而 Crossref 每个作者是分开的 family / given 两段、各出版社写法不一，故以 OpenAlex 为准。
+ * OpenAlex 里查不到的条目**保留原作者串**，绝不猜、不置空。
+ */
+const OPENALEX_API_BASE = 'https://api.openalex.org'
+
+/** 取裸 DOI（去 https://doi.org/ 前缀并小写），用于 OpenAlex 结果与本地记录对齐 */
+function bareDoi(s: string): string {
+  return (s || '').trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').toLowerCase()
+}
+
+/**
+ * 按 DOI 批量取 OpenAlex 作者显示名（「名 姓」，`; ` 连接），返回 map 的 key 是裸 DOI。
+ * 依据 OpenAlex 官方约束：OR 过滤最多 100 个值且需 `per-page=100`，故按 100 分片请求；
+ * 单片失败（网络 / 解析）不中断整批 —— 该片覆盖的文献保留原作者名。
+ */
+async function fetchOpenAlexAuthors(dois: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const CHUNK = 100
+  for (let i = 0; i < dois.length; i += CHUNK) {
+    const slice = dois.slice(i, i + CHUNK)
+    const filter = 'doi:' + slice.map((d) => encodeURIComponent(bareDoi(d))).join('|')
+    const url = `${OPENALEX_API_BASE}/works?filter=${filter}&per-page=100&select=doi,authorships`
+    try {
+      const resp = await fetch(url, { headers: { Accept: 'application/json' } })
+      if (!resp.ok) continue
+      const data = (await resp.json()) as {
+        results?: Array<{
+          doi?: string
+          authorships?: Array<{ author?: { display_name?: string } }>
+        }>
+      }
+      for (const r of data.results || []) {
+        const doi = bareDoi(r.doi || '')
+        const names = (r.authorships || [])
+          .map((a) => (a.author?.display_name || '').trim())
+          .filter(Boolean)
+        if (doi && names.length > 0) out.set(doi, names.join('; '))
+      }
+    } catch {
+      // 跳过该片，其余照常
+    }
+  }
+  return out
+}
+
+const literatureAuthorsNormalize: Migration = {
+  id: 'literature-authors-normalize-v1',
+  affects: ['management', 'reading', 'writing', 'tracking'],
+  since: 10,
+  label: '重建文献作者名（统一为「名 姓」）',
+  detect: async () => {
+    // 兜底探测（仅版本号未知时用）：旧串是「姓, 名」，含逗号；新串「名 姓」不含
+    const lits = await loadLiteratures(true)
+    return lits.some((l) => l.authors.includes(','))
+  },
+  run: async () => {
+    const lits = await loadLiteratures(true)
+    if (lits.length === 0) return
+    const authorsByDoi = await fetchOpenAlexAuthors(lits.map((l) => l.doi))
+    // 一条都查不到 → 说明网络不通或全是 OpenAlex 未收录，保持原样不写（避免无意义的整表重写）
+    if (authorsByDoi.size === 0) return
+    const updated = lits.map((l) => {
+      const authors = authorsByDoi.get(bareDoi(l.doi))
+      return authors ? { ...l, authors } : l
+    })
+    // 复用 saveLiteratures 写入漏斗：保留 Bot 写的状态字段 / 通讯 / 共一，并按 isSameDoi 去重
+    await saveLiteratures(updated)
   },
 }
 
@@ -956,6 +1032,7 @@ export const MIGRATIONS: Migration[] = [
   materialsTaskTags,
   journalsIssnField,
   trackingPlanSemimonthly,
+  literatureAuthorsNormalize,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'

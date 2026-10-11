@@ -15,6 +15,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useAuthStore } from '../stores/auth'
 import { githubFetch } from './github'
 import { readDocument } from './blocks.mjs'
+import { isSameDoi } from './citation'
 
 export type MdStatus = 'none' | 'converting' | 'done' | 'failed'
 
@@ -40,6 +41,12 @@ export interface Literature {
    * 写进 CSV。没转过 PDF 的文献这里就是空串，界面上就不显示通讯那一行。
    */
   correspondingAuthor: string
+  /**
+   * 共同第一作者（这些作者贡献等同，名字用 `; ` 连接）。
+   * 同样只能从 PDF/md 首页作者块抽（`†` / `‡` / "These authors contributed equally" 等标记），
+   * 由后端与通讯作者同一趟 AI 抽取写入。没有共一标记就是空串。
+   */
+  coFirstAuthor: string
 }
 
 const LITERATURES_PATH = 'literatures/literatures.csv'
@@ -47,7 +54,7 @@ const LITERATURE_HEADERS = [
   'doi', 'title', 'journal', 'year', 'authors', 'keywords',
   'abstract_en', 'abstract_cn', 'tier', 'has_graphical_abstract',
   'added_at', 'pdf_added_at', 'source', 'tracking_group',
-  'md_status', 'corresponding_author',
+  'md_status', 'corresponding_author', 'co_first_author',
 ]
 
 /** Literature → CSV 行（列序与 LITERATURE_HEADERS 逐字一致，全模块唯一来源） */
@@ -69,7 +76,55 @@ function literatureToRow(lit: Literature): string[] {
     lit.trackingGroup,
     lit.mdStatus || 'none',
     lit.correspondingAuthor || '',
+    lit.coFirstAuthor || '',
   ]
+}
+
+/**
+ * 合并两条 DOI 相同的文献记录（去重时使用：先到者为准 + 空值回填）。
+ * -------------------------------------------------
+ * 一个 DOI 在库里只能有**一个**条目 —— 文献的任务归属是 materials/meta.csv 里的一个字段，
+ * 绝不靠多行表达。历史上多个写入端的存在性判断口径不一致（有的用 isSameDoi、有的用字符串 ===），
+ * 会漏判而追加出重复行；写漏斗与读入口统一用 isSameDoi 归并。
+ * 归并规则：保留先出现的条目（位置固定），后出现且先到为空的字段才回填 ——
+ * 只填空、不覆盖，避免把先到者已有的元数据（如 Crossref 标题 / 作者）被后到的空值抹掉。
+ * 状态字段（added_at / pdf_added_at / source / tracking_group / md_status / corresponding_author）
+ * 另有 GitHub 权威来源（见 saveLiteratures），这里只是最后一道保险。
+ */
+function mergeSameDoi(a: Literature, b: Literature): Literature {
+  return {
+    ...a,
+    title: a.title || b.title,
+    journal: a.journal || b.journal,
+    year: a.year || b.year,
+    authors: a.authors || b.authors,
+    keywords: a.keywords || b.keywords,
+    abstractEn: a.abstractEn || b.abstractEn,
+    abstractCn: a.abstractCn || b.abstractCn,
+    tier: a.tier || b.tier,
+    hasGraphicalAbstract: a.hasGraphicalAbstract || b.hasGraphicalAbstract,
+    addedAt: a.addedAt || b.addedAt,
+    pdfAddedAt: a.pdfAddedAt || b.pdfAddedAt,
+    source: a.source || b.source,
+    trackingGroup: a.trackingGroup || b.trackingGroup,
+    mdStatus: a.mdStatus || b.mdStatus,
+    correspondingAuthor: a.correspondingAuthor || b.correspondingAuthor,
+    coFirstAuthor: a.coFirstAuthor || b.coFirstAuthor,
+  }
+}
+
+/**
+ * 按 DOI（isSameDoi 口径，全站唯一判定）归并重复条目：同一 DOI 只保留一条。
+ * 空 DOI 的记录不参与归并（无法判定是否同一篇），原样保留。
+ */
+function dedupeByDoi(list: Literature[]): Literature[] {
+  const out: Literature[] = []
+  for (const lit of list) {
+    const idx = out.findIndex((x) => isSameDoi(x.doi, lit.doi))
+    if (idx === -1) out.push(lit)
+    else out[idx] = mergeSameDoi(out[idx], lit)
+  }
+  return out
 }
 
 export function doiToSlug(doi: string): string {
@@ -188,7 +243,7 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
 
   if (!rows || rows.length <= 1) return []
 
-  const EXPECTED_COLS = LITERATURE_HEADERS.length // 16
+  const EXPECTED_COLS = LITERATURE_HEADERS.length // 17
   const results: Literature[] = []
   const dirtyRows: number[] = []
 
@@ -212,15 +267,15 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
         fixedRow = [...r, ...Array(EXPECTED_COLS - r.length).fill('')]
       } else {
         // 列数过多 → 中间字段被逗号拆散
-        // 策略：从后往前保留最后 8 列是可靠的
-        // （tier, has_graphical_abstract, added_at, pdf_added_at, source, tracking_group, md_status, corresponding_author）
+        // 策略：从后往前保留最后 9 列是可靠的
+        // （tier, has_graphical_abstract, added_at, pdf_added_at, source, tracking_group, md_status, corresponding_author, co_first_author）
         // 合并中间被拆散的字段（authors, keywords, abstract_en, abstract_cn）
-        const tail8 = r.slice(-8)
+        const tail9 = r.slice(-9)
         const head3 = r.slice(0, 3) // doi, title, journal — 通常不会被拆散
         const year = r[3] || ''
-        // positions 4 to r.length-8 全部合并成 authors
-        const mergedMiddle = r.slice(4, r.length - 8).join(', ')
-        fixedRow = [...head3, year, mergedMiddle, '', '', '', ...tail8]
+        // positions 4 to r.length-9 全部合并成 authors
+        const mergedMiddle = r.slice(4, r.length - 9).join(', ')
+        fixedRow = [...head3, year, mergedMiddle, '', '', '', ...tail9]
         if (fixedRow.length !== EXPECTED_COLS) {
           dirtyRows.push(rowNum)
           console.warn(`[loadLiteratures] row ${rowNum}: 列数不匹配 (${r.length} vs ${EXPECTED_COLS})，修复后 ${fixedRow.length} 列，跳过`)
@@ -257,6 +312,7 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
       trackingGroup: fixedRow[13] || '',
       mdStatus: finalStatus,
       correspondingAuthor: fixedRow[15] || '',
+      coFirstAuthor: fixedRow[16] || '',
     })
   })
 
@@ -264,7 +320,12 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
     console.warn(`[loadLiteratures] 共 ${dirtyRows.length} 行脏数据（rows ${dirtyRows.join(', ')}），已修复 ${dirtyRows.length - (rows.length - 1 - results.length)} 行`)
   }
 
-  return results
+  // 一个 DOI 只能有一个条目：读入口也归并一次，保证界面立刻只显示一条
+  const deduped = dedupeByDoi(results)
+  if (deduped.length !== results.length) {
+    console.warn(`[loadLiteratures] 发现 ${results.length - deduped.length} 条重复 DOI 记录，已按 isSameDoi 归并（一个文献只保留一个条目）`)
+  }
+  return deduped
 }
 
 /**
@@ -290,7 +351,7 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
   }
 
   // 2. merge：元数据用前端的，状态字段用 GitHub 的
-  const toWrite = literatures.map((lit) => {
+  const toWrite = dedupeByDoi(literatures.map((lit) => {
     const gh = githubMap?.get(lit.doi)
     if (!gh) {
       // 新文献（GitHub 上还没有）→ added_at 用前端值，md_status 默认 none
@@ -306,8 +367,10 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
       // 通讯作者同样是 Bot 从 md 里抽的：前端这一侧为空（例如页面加载后 Bot 才写完）时
       // 保留 GitHub 上的值，别把它抹掉；前端填了值（用户手改）才以后者为准。
       correspondingAuthor: lit.correspondingAuthor || gh.correspondingAuthor,
+      // 共一作者同样由 Bot 从 md 里抽，规则同 correspondingAuthor。
+      coFirstAuthor: lit.coFirstAuthor || gh.coFirstAuthor,
     }
-  })
+  }))
 
   try {
     await writeCsvFile(

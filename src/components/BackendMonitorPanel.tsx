@@ -16,6 +16,7 @@ import {
   XCircle,
   ListTodo,
   Loader2,
+  Trash2,
 } from 'lucide-react'
 import { NODE_LABELS, STAGE_META } from '../stores/taskQueue'
 
@@ -116,22 +117,39 @@ function LiveTaskList({ taskQueue }: { taskQueue: TaskQueue }) {
 export default function BackendMonitorPanel({ taskQueue }: { taskQueue: TaskQueue }) {
   const runningCount = taskQueue.tasks.filter((t: any) => t.status === 'running').length
   const pendingCount = taskQueue.tasks.filter((t: any) => t.status === 'pending').length
+  // 只清终态（已完成 / 失败 / 已取消）；运行中与排队中的记录不计入可清数
+  const finishedCount = taskQueue.tasks.filter(
+    (t: any) => t.status === 'done' || t.status === 'failed' || t.status === 'aborted',
+  ).length
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper-50 border border-ink-200 rounded-card shadow-sm overflow-hidden">
       {/* 面板标题 */}
       <div className="af-line-b px-2.5 py-2 bg-paper-100 shrink-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <Activity className="w-4 h-4 text-seal-600 shrink-0" />
-          <span className="font-medium text-ui-sm text-ink-800">后台监控</span>
-          {runningCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-ui-2xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full">
-              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
-              {runningCount} 运行中
-            </span>
-          )}
-          {pendingCount > 0 && (
-            <span className="text-ui-2xs text-ink-500">· {pendingCount} 排队</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <Activity className="w-4 h-4 text-seal-600 shrink-0" />
+            <span className="font-medium text-ui-sm text-ink-800">后台监控</span>
+            {runningCount > 0 && (
+              <span className="inline-flex items-center gap-1 text-ui-2xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                {runningCount} 运行中
+              </span>
+            )}
+            {pendingCount > 0 && (
+              <span className="text-ui-2xs text-ink-500">· {pendingCount} 排队</span>
+            )}
+          </div>
+          {finishedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => taskQueue.clear_finished_tasks()}
+              title="只清除已完成 / 失败 / 已取消的记录，运行中与排队中的保留"
+              className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-ui-2xs text-ink-500 rounded-control-sm transition-colors hover:text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="w-3 h-3" />
+              清除 {finishedCount}
+            </button>
           )}
         </div>
       </div>

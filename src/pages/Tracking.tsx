@@ -35,7 +35,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { normalizeDoi, getCitationEntries } from '../services/citation'
+import { normalizeDoi, getCitationEntries, formatAuthorsForLibrary } from '../services/citation'
 import { DoiLink } from '../components/DoiLink'
 import { readCsvFile, writeCsvFile } from '../services/userData'
 import {
@@ -550,7 +550,7 @@ export default function TrackingPage() {
         title: meta.title,
         journal: meta.journal || '',
         year: meta.year || 0,
-        authors: meta.authors.join(', '),
+        authors: formatAuthorsForLibrary(meta.authors),
         keywords: '',
         // 元数据里的摘要要收下 —— 它是摘要翻译练习的题面/参考答案来源
         abstractEn: (meta.abstract || '').trim(),
@@ -563,6 +563,7 @@ export default function TrackingPage() {
         trackingGroup: '',
         mdStatus: 'none',
         correspondingAuthor: '',
+        coFirstAuthor: '',
       }
       const status = await addLiteratureToLibrary(newLit)
       if (status === 'added') setLiteratures((prev) => [...prev, newLit])
@@ -1209,6 +1210,7 @@ export default function TrackingPage() {
     trackingGroup: c.trackingGroup,
     mdStatus: 'none',
     correspondingAuthor: '',
+    coFirstAuthor: '',
   })
 
   const handleIngestCandidate = async (c: TrackingCandidate) => {

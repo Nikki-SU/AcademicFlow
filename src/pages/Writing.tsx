@@ -2303,6 +2303,7 @@ export default function WritingPage() {
           trackingGroup: '',
           mdStatus: 'none',
           correspondingAuthor: '',
+          coFirstAuthor: '',
         }
         await saveLiteratures([...existing, newLit])
         setAvailablePapers((prev) => [...prev, newLit])

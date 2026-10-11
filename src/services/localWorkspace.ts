@@ -751,6 +751,7 @@ async function preparePaperForQueue(
       trackingGroup: '',
       mdStatus: 'none',
       correspondingAuthor: '',
+      coFirstAuthor: '',
     }
     await saveLiteratures([...lits, newLit])
   }
