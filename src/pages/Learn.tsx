@@ -22,12 +22,16 @@ import {
   Pencil,
   History,
   AlertCircle,
+  Search,
+  List,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS, missingWordFields, repairWordByRules, hasDuplicatedMeaningDef, WORD_CORE_FIELD_LABELS } from '../services/learningData'
+import { PAGE_SIZE, PaginationBar } from '../components/PaginationBar'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
-import type { WordData, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
+import type { WordData, WordStatus, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
 import { playCorrectSfx, playWrongSfx } from '../services/sfx'
 import { runDualEngine } from '../services/ai/dual-engine'
@@ -1485,12 +1489,191 @@ interface StudySession {
 
 const DAY_MS = 86_400_000
 
+/** 单词状态的中文标签（列表徽章用；与统计条口径一致） */
+const WORD_STATUS_LABELS: Record<WordStatus, string> = {
+  new: '未学',
+  learning: '学习中',
+  learned: '已学',
+  mastered: '已掌握',
+  error_book: '错词本',
+}
+
+/** 状态徽章配色，与统计条的颜色呼应 */
+const WORD_STATUS_CLS: Record<WordStatus, string> = {
+  new: 'bg-red-50 text-red-500',
+  learning: 'bg-amber-50 text-amber-600',
+  learned: 'bg-blue-50 text-blue-600',
+  mastered: 'bg-emerald-50 text-emerald-600',
+  error_book: 'bg-red-50 text-red-500',
+}
+
+/**
+ * 单词列表 —— 浏览全库单词并删除。
+ *
+ * 为什么要有它：过去单词只能在「学习 / 复习」里被抽到，没有任何入口能删掉，
+ * 用户想清理错词、重复词或不要的词时无从下手。这里给全库一个可翻页的清单，
+ * 支持搜索（英文词 / 中文释义）、单删与批量删。
+ *
+ * 列表体量随词库增长，按 UX_DETAILS「翻页优先于滚动」用共享的 PAGE_SIZE + PaginationBar，
+ * 与文献 / 图书等其它列表保持同一浏览口径。
+ */
+function WordListView({ words, setWords }: {
+  words: WordData[]
+  setWords: React.Dispatch<React.SetStateAction<WordData[]>>
+}) {
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return words
+    return words.filter(
+      (w) => w.word.toLowerCase().includes(q) || w.meaning.toLowerCase().includes(q),
+    )
+  }, [words, query])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const pageItems = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  )
+
+  // 搜索条件变了就回第 1 页
+  useEffect(() => { setPage(1) }, [query])
+  // 删词后条目变少，页码可能越界 —— 夹回最后一页
+  useEffect(() => {
+    const max = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+    if (page > max) setPage(max)
+  }, [filtered.length, page])
+
+  const pageAllSelected = pageItems.length > 0 && pageItems.every((w) => selected.has(w.id))
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const togglePageAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (pageAllSelected) pageItems.forEach((w) => next.delete(w.id))
+      else pageItems.forEach((w) => next.add(w.id))
+      return next
+    })
+  }
+
+  const handleDeleteOne = (w: WordData) => {
+    if (!window.confirm(`确定删除单词「${w.word || w.id}」？其释义、例句与学习记录会一并移除，无法恢复。`)) return
+    setWords((prev) => prev.filter((x) => x.id !== w.id))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.delete(w.id)
+      return next
+    })
+    toast.success(`已删除「${w.word || w.id}」`)
+  }
+
+  const handleDeleteSelected = () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`确定删除选中的 ${selected.size} 个单词？其释义、例句与学习记录会一并移除，无法恢复。`)) return
+    const ids = selected
+    setWords((prev) => prev.filter((x) => !ids.has(x.id)))
+    setSelected(new Set())
+    toast.success(`已删除 ${ids.size} 个单词`)
+  }
+
+  return (
+    <div className="bg-paper-50 rounded-card border border-ink-200">
+      {/* 工具栏：搜索 + 批量删除 */}
+      <div className="flex items-center gap-3 p-4 border-b border-ink-200">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="w-4 h-4 text-ink-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索单词 / 中文释义"
+            className="w-full pl-9 pr-3 py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
+          />
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          {selected.size > 0 && (
+            <span className="text-ui-sm text-ink-500">已选 {selected.size} 个</span>
+          )}
+          <button
+            onClick={handleDeleteSelected}
+            disabled={selected.size === 0}
+            className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 bg-red-500 rounded-control hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            <Trash2 className="w-4 h-4" /> 删除选中
+          </button>
+        </div>
+      </div>
+
+      {/* 列表 */}
+      {words.length === 0 ? (
+        <div className="py-16 text-center text-ui-sm text-ink-400">暂无单词，可在「学习」视图里添加</div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center text-ui-sm text-ink-400">没有找到匹配的单词</div>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 px-4 py-2 bg-paper-100/50 text-ui-xs text-ink-400 border-b border-ink-200">
+            <input
+              type="checkbox"
+              className="accent-seal-600"
+              checked={pageAllSelected}
+              onChange={togglePageAll}
+            />
+            <span>全选本页</span>
+          </div>
+          <div className="divide-y divide-ink-100">
+            {pageItems.map((w) => (
+              <div key={w.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-paper-100/60 transition">
+                <input
+                  type="checkbox"
+                  className="accent-seal-600 shrink-0"
+                  checked={selected.has(w.id)}
+                  onChange={() => toggleOne(w.id)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-ui-sm font-medium text-ink-800 truncate">{w.word || '（空）'}</span>
+                    {w.phonetic && <span className="text-ui-xs text-ink-400 truncate">{w.phonetic}</span>}
+                  </div>
+                  {w.meaning && <div className="text-ui-xs text-ink-500 truncate">{w.meaning}</div>}
+                </div>
+                <span className={`shrink-0 px-2 py-0.5 rounded-full text-ui-2xs font-medium ${WORD_STATUS_CLS[w.status] ?? 'bg-ink-100 text-ink-500'}`}>
+                  {WORD_STATUS_LABELS[w.status] ?? w.status}
+                </span>
+                <button
+                  onClick={() => handleDeleteOne(w)}
+                  title="删除单词"
+                  className="shrink-0 p-1.5 text-ink-400 hover:text-red-500 hover:bg-red-50 rounded-control-sm transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <PaginationBar total={filtered.length} page={page} totalPages={totalPages} onPage={setPage} />
+        </>
+      )}
+    </div>
+  )
+}
+
 function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProps) {
   const [settings, setSettings] = useState<WordStudySettings>(DEFAULT_WORD_SETTINGS)
   /** 设置是否已从私库读回来 —— 读完之前不许回写，免得用默认值盖掉用户的偏好 */
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  /** 单词 tab 的视图：学习首页 / 单词列表（列表里可浏览、可删词） */
+  const [view, setView] = useState<'study' | 'list'>('study')
   /** 「一键修复」进行中 —— 防连点；AI 补全那步会慢 */
   const [repairing, setRepairing] = useState(false)
   /** AI-1 是否已配置：语义字段（释义/定义/例句译文）只有 AI 能补，没配就明说 */
@@ -2448,6 +2631,30 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   return (
     <div className="space-y-4">
+      {/* 视图切换：学习首页 / 单词列表（列表里能浏览并删掉过去的词） */}
+      <div className="flex items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
+        <button
+          onClick={() => setView('study')}
+          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
+            view === 'study' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4" /> 学习
+        </button>
+        <button
+          onClick={() => setView('list')}
+          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
+            view === 'list' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
+          }`}
+        >
+          <List className="w-4 h-4" /> 单词列表
+        </button>
+      </div>
+
+      {view === 'list' ? (
+        <WordListView words={words} setWords={setWords} />
+      ) : (
+        <>
       {/* 统计条 */}
       <div className="bg-paper-50 rounded-card border border-ink-200 p-4">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
@@ -2699,6 +2906,8 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
       </div>
 
       {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
+        </>
+      )}
     </div>
   )
 }

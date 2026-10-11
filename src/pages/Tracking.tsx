@@ -45,6 +45,7 @@ import {
   removeLiterature,
   type Literature,
 } from '../services/literatureData'
+import { cascadeCleanupLiterature } from '../services/literatureCleanup'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { translateText } from '../services/asr'
 import { isAbortError } from '../services/ai/abort'
@@ -1447,6 +1448,17 @@ export default function TrackingPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`撤销入库失败：${msg}`)
+      return
+    }
+    // 撤出文献库 = 删除这篇文献，关联的单词 / 长难句 / 翻译 / 笔记 / 批注 / 任务 / 项目引用一并清理
+    const { csvErrors, fileErrors, refError } = await cascadeCleanupLiterature([lit.doi])
+    const problems = [
+      csvErrors.length > 0 ? `学习数据(${csvErrors.join('、')})` : '',
+      fileErrors.length > 0 ? '文献文件' : '',
+      refError ? '项目引用' : '',
+    ].filter(Boolean)
+    if (problems.length > 0) {
+      toast.error(`「${lit.title || lit.doi}」已移出文献库，但关联物件未清理干净：${problems.join('；')}`)
     }
   }
 
@@ -1478,6 +1490,18 @@ export default function TrackingPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`批量撤销入库失败：${msg}`)
+      return
+    }
+    // 批量撤出 = 批量删除，关联物件一并清理（一次传一批 DOI，每张表只读写一遍）
+    const dois = targets.map((l) => l.doi)
+    const { csvErrors, fileErrors, refError } = await cascadeCleanupLiterature(dois)
+    const problems = [
+      csvErrors.length > 0 ? `学习数据(${csvErrors.join('、')})` : '',
+      fileErrors.length > 0 ? `文献文件(${fileErrors.length} 篇)` : '',
+      refError ? '项目引用' : '',
+    ].filter(Boolean)
+    if (problems.length > 0) {
+      toast.error(`${count} 篇已移出文献库，但部分关联物件未清理干净：${problems.join('；')}`)
     }
   }
 
