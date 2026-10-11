@@ -30,7 +30,6 @@ import {
   Pause,
   Square,
   Headphones,
-  GripVertical,
   Check,
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
@@ -4087,10 +4086,7 @@ export default function ReadingPage() {
         className={`absolute inset-y-0 right-[calc(var(--ui-gap)/-2)] z-10 hidden w-2 translate-x-1/2 cursor-col-resize touch-none items-center justify-center transition-colors min-[1101px]:flex ${
           readerDragging ? 'bg-seal-200/60' : 'hover:bg-seal-200/50'
         }`}
-      >
-        <span className="h-full w-px bg-ink-200" />
-        <GripVertical className="absolute h-3 w-3 text-ink-400" />
-      </div>
+      />
       </div>
 
       {/* 右栏：问 AI / 笔记 / 批注 —— 文献与图书同一套 */}

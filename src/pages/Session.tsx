@@ -15,7 +15,6 @@
  * 切页面、切任务都不中断（ADJ-46）。本页中栏只是同一份状态的另一种呈现。
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { GripVertical } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadProjects, type Project } from '../services/projectData'
 import { useTaskStore } from '../stores/task'
@@ -166,10 +165,7 @@ export default function SessionPage() {
               isDragging ? 'bg-seal-200/60' : 'hover:bg-seal-200/50'
             }`}
             style={{ right: 'calc(var(--ui-gap) / -2)' }}
-          >
-            <span className="h-full w-px bg-ink-200" />
-            <GripVertical className="absolute h-3 w-3 text-ink-400" />
-          </div>
+          />
         </div>
 
         <div className="min-w-0">

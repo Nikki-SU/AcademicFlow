@@ -142,12 +142,6 @@ export function StackHandle({
       className={`group flex h-3 shrink-0 touch-none items-center justify-center ${
         enabled ? 'cursor-row-resize' : ''
       }`}
-    >
-      <div
-        className={`h-1 w-10 rounded-full transition-colors ${
-          enabled ? 'bg-ink-200 group-hover:bg-seal-400' : 'bg-transparent'
-        }`}
-      />
-    </div>
+    />
   )
 }
