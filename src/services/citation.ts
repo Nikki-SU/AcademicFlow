@@ -253,7 +253,7 @@ async function fetchFromCrossref(doi: string): Promise<CitationEntry | null> {
 
     return {
       doi: (msg.DOI || doi).toLowerCase(),
-      title: msg.title?.[0] || '',
+      title: cleanTitle(msg.title?.[0]),
       authors,
       journal: msg['container-title']?.[0],
       year,
@@ -318,6 +318,20 @@ function decodeEntities(raw: string): string {
 export function cleanAbstract(raw: string | undefined): string {
   if (!raw) return ''
   return decodeEntities(raw.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * 清洗标题文本：压掉内嵌换行与连续空白，**但保留**受限内联标记。
+ *
+ * Crossref 的标题常是带缩进的多行 JATS 片段（例如化学名词里的 <i>tert</i>
+ * 独占一行、前后带换行与空格），直接入库会变成「跨行字段」——这在 CSV 里合法，
+ * 但一旦被任何逐行解析器读到就会被劈成多条（历史踩坑：一个文件成三条）。
+ * 这里只把 `\s+` 压成单个空格、让标题回到单行；<sup>/<sub>/<i>/<b> 等由
+ * parseInlineMarkup 渲染，故**不剥标签**（与 cleanAbstract 的「剥标签」口径不同，勿混用）。
+ */
+export function cleanTitle(raw: string | undefined): string {
+  if (!raw) return ''
+  return raw.replace(/\s+/g, ' ').trim()
 }
 
 /** 允许在标题里兑现的受限内联标记 → 渲染语义（其余标记一律剥掉） */
@@ -509,7 +523,7 @@ export async function searchCrossref(query: string, rows = 10): Promise<OnlineSe
         .join('; ')
       return {
         doi: (item.DOI || '').toLowerCase(),
-        title: item.title?.[0] || '',
+        title: cleanTitle(item.title?.[0]),
         authors,
         year: item.issued?.['date-parts']?.[0]?.[0] || 0,
         journal: item['container-title']?.[0] || '',

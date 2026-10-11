@@ -64,7 +64,7 @@ import {
   isValidMorphemeSplit, MORPHEME_TYPE_LABELS,
 } from '../services/learningData'
 import type { WordData, Morpheme, MorphemeType } from '../services/learningData'
-import { normalizeDoi, isSameDoi, getCitationEntries, cleanAbstract, formatAuthorsForLibrary, parseInlineMarkup } from '../services/citation'
+import { normalizeDoi, isSameDoi, getCitationEntries, cleanAbstract, cleanTitle, formatAuthorsForLibrary, parseInlineMarkup } from '../services/citation'
 import { loadJournalAbbrevMap, saveJournalAbbrev, mergeJournalAbbrevs, lookupJournalAbbrevsWithAI } from '../services/journalAbbrev'
 import {
   BookMarked,
@@ -1373,7 +1373,7 @@ export default function ManagementPage() {
       const data = await res.json()
       const m = data.message as Record<string, unknown>
 
-      const title = (Array.isArray(m.title) ? (m.title as string[])[0] : '') || ''
+      const title = cleanTitle(Array.isArray(m.title) ? (m.title as string[])[0] : '')
       const authors = Array.isArray(m.author)
         ? (m.author as Array<{ given?: string; family?: string; name?: string }>)
             .map((a) => (a.name || `${a.given || ''} ${a.family || ''}`).trim())
