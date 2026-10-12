@@ -35,7 +35,6 @@ import {
   AlertTriangle,
   FolderOpen,
   Clipboard,
-  GripVertical,
   BookPlus,
   Package,
   Upload,
@@ -5492,14 +5491,9 @@ export default function WritingPage() {
                 aria-orientation="vertical"
                 aria-label="拖动调整左右两栏比例"
                 onMouseDown={handleDragStart}
-                className={`absolute inset-y-0 z-10 hidden w-2 translate-x-1/2 cursor-col-resize touch-none items-center justify-center transition-colors min-[1101px]:flex ${
-                  isDragging ? 'bg-seal-200/60' : 'hover:bg-seal-200/50'
-                }`}
+                className="absolute inset-y-0 z-10 hidden w-2 translate-x-1/2 cursor-col-resize touch-none bg-transparent min-[1101px]:flex"
                 style={{ right: 'calc(var(--ui-gap) / -2)' }}
-              >
-                <span className="h-full w-px bg-ink-200" />
-                <GripVertical className="absolute h-3 w-3 text-ink-400" />
-              </div>
+              />
             )}
           </div>
         ))}
