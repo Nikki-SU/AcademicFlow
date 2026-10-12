@@ -44,6 +44,7 @@ import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockD
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
 import { TRACKING_PLANS_PATH } from './trackingPlanData'
 import { loadLiteratures, saveLiteratures } from './literatureData'
+import { loadWords, saveWords, hasDuplicatedMeaningDef, repairWordByRules } from './learningData'
 import { APP_VERSION } from '../constants/version'
 
 /**
@@ -447,6 +448,42 @@ const literatureAuthorsNormalize: Migration = {
     })
     // 复用 saveLiteratures 写入漏斗：保留 Bot 写的状态字段 / 通讯 / 共一，并按 isSameDoi 去重
     await saveLiteratures(updated)
+  },
+}
+
+/**
+ * 清洗历史脏数据：单词的「中文释义」与「中文定义」被写成同一个值。
+ *
+ * 根因在后端抽词管线（旧 WORDS_EXTRACT_PROMPT 把 definition_cn/en 定义成"释义"、且没有
+ * word_cn 字段），写库时 `word_cn ← w.definition_cn` 与 `definition_cn ← w.definition_cn`
+ * 同值复制，于是 vocabulary.csv 里大量词出现 `word_cn === definition_cn`。释义（翻译，短词）
+ * 与定义（学术解释，一句话）本是两回事，同值即脏数据（已修后端，见 backend 14→15）。
+ *
+ * 本迁移只做「清洗」：按内容判断同一份值更符合哪个字段的角色，保对的一侧、清掉错的一侧；
+ * **空出来的字段不凭空造**（语义字段规则造不出来），交由学习页「一键修复」（AI）补。
+ * 「一键修复」/ 规则补丁保留作安全网（本迁移只处理存量，不替代它们）。
+ */
+const vocabMeaningDefCleanup: Migration = {
+  id: 'vocab-meaning-def-cleanup-v1',
+  affects: ['learn'],
+  since: 11,
+  label: '修单词「释义 = 定义」脏数据',
+  detect: async () => {
+    const words = await loadWords(true)
+    return words.some(hasDuplicatedMeaningDef)
+  },
+  run: async () => {
+    const words = await loadWords(true)
+    if (words.length === 0) return
+    let changed = false
+    const next = words.map((w) => {
+      // 只动「释义与定义同值」的脏词，其余原样保留（迁移只负责清洗，不顺手改别的）
+      if (!hasDuplicatedMeaningDef(w)) return w
+      const r = repairWordByRules(w, { resolveDuplicates: true })
+      if (r.changed) changed = true
+      return r.word
+    })
+    if (changed) await saveWords(next)
   },
 }
 
@@ -1033,6 +1070,7 @@ export const MIGRATIONS: Migration[] = [
   journalsIssnField,
   trackingPlanSemimonthly,
   literatureAuthorsNormalize,
+  vocabMeaningDefCleanup,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
