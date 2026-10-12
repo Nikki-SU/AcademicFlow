@@ -830,43 +830,6 @@ function buildTranslationItems(
   return out
 }
 
-/**
- * 批量补提的串行执行器：逐篇处理、可中断、单篇失败不中断整批。
- * 每篇处理结果由 processOne 决定（内部负责增量落盘）。
- */
-async function runBatchExtraction(
-  candidates: Literature[],
-  processOne: (lit: Literature) => Promise<{ ok: boolean; reason?: string }>,
-  ctl: {
-    onProgress: (done: number, total: number, title: string) => void
-    shouldStop: () => boolean
-    onFailure: (title: string, reason: string) => void
-  },
-): Promise<{ processed: number; failed: number; stopped: boolean }> {
-  let processed = 0
-  let failed = 0
-  for (const lit of candidates) {
-    if (ctl.shouldStop()) return { processed, failed, stopped: true }
-    ctl.onProgress(processed, candidates.length, lit.title || lit.doi)
-    try {
-      const r = await processOne(lit)
-      if (!r.ok) {
-        failed++
-        ctl.onFailure(lit.title || lit.doi, r.reason || '未知失败')
-      }
-    } catch (err) {
-      // 用户点了「停止」→ 我们 abort 了这篇正在跑的 AI 任务。这不是这篇文献失败，
-      // 整轮就此收尾（已完成的部分已经增量落盘）。
-      if (ctl.shouldStop()) return { processed, failed, stopped: true }
-      failed++
-      ctl.onFailure(lit.title || lit.doi, err instanceof Error ? err.message : String(err))
-    }
-    processed++
-    ctl.onProgress(processed, candidates.length, '')
-  }
-  return { processed, failed, stopped: false }
-}
-
 export default function LearnPage() {
   const { repo } = useWorkspaceStore()
   const [activeTab, setActiveTab] = useState<TabId>('words')
