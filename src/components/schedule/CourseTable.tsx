@@ -15,6 +15,8 @@
  * - **DDL 死线**：进了右栏 DDL 的任务（非周期任务、且在一个月内），只在**它到期的那一天**（本周这一天）对应列画一条
  *   **红色粗线**（不再按「周几」每周重画）；默认不写任何文字（不挡课）；悬停或点击才
  *   浮出任务名 + 时间，并让 DDL 清单 / 任务栏里对应条目**亮起**（联动由 Schedule.tsx 的 highlightId 统一驱动）。
+ *   到期时刻落在固定轴 07:00–23:00 之外的，按 placeDue **往早钳制到轴端点**（早于 07:00 → 前一天 23:00、
+ *   晚于 23:00 → 当天 23:00）；弹层 / 无障碍文案仍显示**真实**到期时刻，只挪「线画在哪」。
  * - 点块 = 编辑（改时间 / 地点 /（定时任务）归属任务，或删除）。
  * 尺寸全部走 index.css 的 --ui-* 流体口径（时间轴列宽 --ui-axis、
  * 字号 --ui-text-*），不再有任何写死的像素值。
@@ -53,6 +55,31 @@ function minutesOfDay(ts: number): number {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return -1
   return d.getHours() * 60 + d.getMinutes()
+}
+
+/** 课表纵轴固定作息区间：07:00–23:00（用户 2026-10-11 定「7-23」；固定后每天 / 每周纵轴一致） */
+const AXIS_START = 7 * 60
+const AXIS_END = 23 * 60
+
+/**
+ * 把 DDL 到期时刻换算成课表上的**有效落位**：列日期 + 轴分钟。
+ * 纵轴固定 07:00–23:00，轴外的 DDL 原本画不出来；按用户口径一律**往早里挪到轴端点**：
+ * - 早于（含等于）轴起点 07:00 的 → 挪到**前一天 23:00**（如 10-14 00:00 画在 10-13 23:00；
+ *   用户原话「次日7:00的画在前一天的23:00」）——**归属列也随之前移一天**；
+ * - 晚于轴终点 23:00 的 → 挪到**当天 23:00**；
+ * - 其余原样落位。
+ * 只挪「线画在哪」，弹层 / 无障碍文案仍显示**真实到期时刻**（formatDue(dp.dueAt)），不撒谎。
+ * 返回 null = 到期时刻非法（无从落位）。
+ */
+function placeDue(dueAt: number): { day: Date; min: number } | null {
+  const raw = minutesOfDay(dueAt)
+  if (raw < 0) return null
+  const d = new Date(dueAt)
+  if (raw <= AXIS_START) {
+    return { day: new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1), min: AXIS_END }
+  }
+  if (raw > AXIS_END) return { day: d, min: AXIS_END }
+  return { day: d, min: raw }
 }
 
 /** Unix ms → YYYY-MM-DD HH:MM */
@@ -208,22 +235,29 @@ export function CourseTable({
   const hiddenByExamWeek = (col: Date | undefined) =>
     !!col && examWeekStartMs > 0 && col.getTime() >= examWeekStartMs
 
-  // 只有**落在本周**的 DDL 才进课表：死线不再按「周几」每周重画，只在到期那天出现
+  // 只有**有效落位在本周**的 DDL 才进课表：死线不再按「周几」每周重画，只在到期那天出现。
+  // 注意按 placeDue **钳制后的落位日期**判周，而不是原始 dueAt——轴外的 DDL 会提前到前一天
+  // （如「下周一 04:00」钳进「本周日 23:00」，按原始 dueAt 会漏掉；「本周一 04:00」钳到上周日
+  // 则本就该排除），按落位日期判才自洽。
   const weekDdls = useMemo(() => {
     const mon = weekDates.get(1)!
     const sun = weekDates.get(7)!
     const start = mon.getTime()
-    const end = new Date(sun.getFullYear(), sun.getMonth(), sun.getDate(), 23, 59, 59, 999).getTime()
-    return ddls.filter((p) => p.dueAt >= start && p.dueAt <= end)
+    const end = sun.getTime()
+    return ddls.filter((p) => {
+      const at = placeDue(p.dueAt)
+      if (!at) return false
+      const t = at.day.getTime()
+      return t >= start && t <= end
+    })
   }, [ddls, weekDates])
 
   // ---------- 时间轴范围：固定 07:00–23:00 ----------
   // 不再按当天数据收缩：作息区间是**全天候可编排窗口**，固定后每天 / 每周的课表纵轴一致，
   // 早课（7 点）与晚课（22 点）都排得进，横向比对也稳定（用户 2026-10-11 定「7-23」）。
-  // 取舍：不在 07:00–23:00 内的 DDL 红线不画（见 ddlsOf 的范围过滤），仍可在右侧 DDL 清单看到；
-  // 同理，这个区间外的课块不会显示——课表只呈现作息区间内的安排。
-  const rangeStart = 7 * 60
-  const rangeEnd = 23 * 60
+  // DDL 红线：轴外的到期时刻已由 placeDue「提前钳制」到轴端点（不再直接不画）；区间外的**课块**仍不显示。
+  const rangeStart = AXIS_START
+  const rangeEnd = AXIS_END
 
   const hourTicks = useMemo(() => {
     const ticks: number[] = []
@@ -255,13 +289,18 @@ export function CourseTable({
     })
   }
 
-  // 某一天（周几）要画的 DDL 红线：只画**到期日正好是这一列日期**的那几条
+  // 某一天（周几）要画的 DDL 红线：只画**有效落位在本列日期**的那几条（轴外 DDL 已由 placeDue 提前钳制）
   const ddlsOf = (weekday: number) => {
     const col = weekDates.get(weekday)
     if (!col) return []
     return weekDdls
-      .map((p) => ({ project: p, min: minutesOfDay(p.dueAt), d: new Date(p.dueAt) }))
-      .filter((x) => isSameDay(x.d, col) && x.min >= rangeStart && x.min <= rangeEnd)
+      .map((p) => {
+        const at = placeDue(p.dueAt)
+        return at ? { project: p, min: at.min, day: at.day } : null
+      })
+      .filter(
+        (x): x is { project: Project; min: number; day: Date } => !!x && isSameDay(x.day, col),
+      )
   }
 
   // 今天是否真排课（假期 / 无课周末 = null）；「高亮哪一列」一律按**日期**判断，
