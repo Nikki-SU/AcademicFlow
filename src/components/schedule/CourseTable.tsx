@@ -473,7 +473,7 @@ export function CourseTable({
                       </button>
                     )
                   })}
-                  {/* DDL 死线：统一红色粗线，线上直接标「死线」；悬停 / 点击显示内容并联动高亮 */}
+                  {/* DDL 死线：与「当前时刻」线同形态的全宽红色横线，默认不写任何文字（不挡课）；悬停 / 点击才浮出任务名 + 时间并联动高亮 */}
                   {ddlsOf(w).map(({ project: dp, min }) => {
                     const active = highlightId === dp.projectId
                     const top = pct(min, rangeStart, rangeEnd)
@@ -491,18 +491,15 @@ export function CourseTable({
                           onClick={() => onPickDdl(dp.projectId)}
                           title={`DDL · ${label} · ${formatDue(dp.dueAt)}`}
                           aria-label={`DDL ${label} ${formatDue(dp.dueAt)}`}
-                          className="absolute inset-x-0 flex h-3 -translate-y-1/2 items-center gap-1"
+                          className="absolute inset-x-0 flex h-3 -translate-y-1/2 items-center"
                         >
                           <span
-                            className={`h-[0.21vw] flex-1 rounded-full bg-hl-red-deep transition ${
+                            className={`w-full border-t-2 border-hl-red-deep transition ${
                               active
                                 ? 'shadow-[0_0_0_0.14vw_rgba(158,58,50,0.30)]'
                                 : 'opacity-80 hover:opacity-100'
                             }`}
                           />
-                          <span className="shrink-0 font-mono text-ui-2xs font-medium leading-none text-hl-red-deep">
-                            死线
-                          </span>
                         </button>
                         {active && (
                           <div
