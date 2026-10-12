@@ -554,7 +554,7 @@ def search_openalex_journal(issn, from_date, to_date, per_page=50):
 # ============================================================
 # 期刊 RSS/Atom：追踪时**优先用 RSS**，无 feed / 失败再退回 OpenAlex
 # ============================================================
-DOI_RE = re.compile(r'10\\.\\d{4,9}/[^\\s"\'<>]+')
+DOI_RE = re.compile(r'10\\.\\d{4,9}/[^\\s\\x22\\x27<>]+')
 
 
 def _local(tag):
