@@ -43,8 +43,28 @@ import { readAnyDocument } from './blocks.mjs'
 import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockDoc } from './translation'
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
 import { TRACKING_PLANS_PATH } from './trackingPlanData'
-import { loadLiteratures, saveLiteratures } from './literatureData'
-import { loadWords, saveWords, hasDuplicatedMeaningDef, repairWordByRules } from './learningData'
+import { loadLiteratures, saveLiteratures, loadAiSourceText } from './literatureData'
+import {
+  loadWords,
+  saveWords,
+  hasDuplicatedMeaningDef,
+  repairWordByRules,
+  loadSentences,
+  saveSentences,
+  loadTranslations,
+  saveTranslations,
+  type SentenceData,
+  type TranslationData,
+  type TranslationDirection,
+} from './learningData'
+import {
+  buildLearningInstruction,
+  parseLearningJSON,
+  buildTranslationItems,
+  toStringArray,
+} from './learningGen'
+import { runDualEngine } from './ai/dual-engine'
+import { useSettingsStore } from '../stores/settings'
 import { APP_VERSION } from '../constants/version'
 
 /**
@@ -484,6 +504,198 @@ const vocabMeaningDefCleanup: Migration = {
       return r.word
     })
     if (changed) await saveWords(next)
+  },
+}
+
+/**
+ * 为历史文献自动补提学习内容（长难句 + 摘要翻译）。
+ *
+ * 背景：过去补提历史文献要靠学习页两个手动按钮「批量补提历史文献」，用户不点就永远没有内容。
+ * 现改为**版本更新管线自动执行**（ADJ-126）——新增学习内容不需要「兼容旧版」分支，直接作为
+ * 一次数据迁移：迁移期间 `MigrationLock` 按 `affects` 自动锁住学习页并显示进度，迁完自动消失。
+ *
+ * 范围（与旧手动补提口径完全一致，共用 learningGen.ts 的同一套 prompt / 解析器）：
+ *   - 长难句：只补「已转换出 md（mdStatus==='done'）且尚未提取过长难句」的文献（读 md 正文 → AI 提取）。
+ *   - 摘要翻译：只补「有摘要（英/中至少一边非空）且尚未出过翻译题」的文献（题面/参考答案来自元数据）。
+ *   - 单词不补（历史单词来自后端抽词管线，不属于这里的补提范畴）。
+ *
+ * 约束（ADJ-68 / ADJ-70）：prompt 早已把 JSON schema 约束死（见 buildLearningInstruction），解析失败
+ * **不静默降级成空**；这里逐篇容错是为了「单篇失败不拖垮整批」，但**不掩盖失败** —— 收齐失败清单后
+ * 抛出可读错误，由迁移屏保留锁域 + 提供重试（重试为增量：已增量落盘的文献会被跳过，只补失败的）。
+ */
+const learnAutoBackfill: Migration = {
+  id: 'learn-auto-backfill-v1',
+  affects: ['learn'],
+  since: 12,
+  label: '为历史文献自动补提学习内容',
+  detect: async () => {
+    const [lits, sentences, translations] = await Promise.all([
+      loadLiteratures(true),
+      loadSentences(),
+      loadTranslations(),
+    ])
+    const sentenceDois = new Set(sentences.map((s) => s.sourceDoi).filter(Boolean))
+    const translationDois = new Set(translations.map((t) => t.sourceDoi).filter(Boolean))
+    return lits.some(
+      (l) =>
+        (l.mdStatus === 'done' && !sentenceDois.has(l.doi)) ||
+        (((l.abstractEn || '').trim() || (l.abstractCn || '').trim()) &&
+          !translationDois.has(l.doi)),
+    )
+  },
+  run: async (onProgress) => {
+    const settings = useSettingsStore.getState()
+    const { ai1, ai2 } = settings.getDualEngineConfig()
+    const sentenceCount = settings.sentenceGenCount || 8
+
+    const [literatures, sentences, translations] = await Promise.all([
+      loadLiteratures(true),
+      loadSentences(),
+      loadTranslations(),
+    ])
+
+    const sentenceDois = new Set(sentences.map((s) => s.sourceDoi).filter(Boolean))
+    const translationDois = new Set(translations.map((t) => t.sourceDoi).filter(Boolean))
+    const sentenceCandidates = literatures.filter(
+      (l) => l.mdStatus === 'done' && !sentenceDois.has(l.doi),
+    )
+    const translationCandidates = literatures.filter(
+      (l) =>
+        (((l.abstractEn || '').trim() || (l.abstractCn || '').trim()) &&
+          !translationDois.has(l.doi)),
+    )
+
+    const total = sentenceCandidates.length + translationCandidates.length
+    if (total === 0) return
+
+    let done = 0
+    const report = () => onProgress?.(done / total)
+    const failures: string[] = []
+
+    // ── 长难句补提（串行逐篇；单篇失败不中断整批） ──
+    if (sentenceCandidates.length > 0) {
+      const instruction = buildLearningInstruction(
+        { words: false, sentences: true, translation: false, wordCount: 0, sentenceCount },
+        { en: '', cn: '' },
+      )
+      let next = [...sentences]
+      for (const lit of sentenceCandidates) {
+        try {
+          const sourceMaterial = await loadAiSourceText(lit.doi)
+          if (!sourceMaterial.trim()) {
+            failures.push(`${lit.title || lit.doi}：未读到 md 正文（loadAiSourceText 为空）`)
+          } else {
+            const result = await runDualEngine({
+              taskType: 'faithfulness_check',
+              sourceMaterial,
+              ai1Instruction: instruction,
+              ai1,
+              ai2,
+            })
+            const parsed = parseLearningJSON(result.ai1Output || '')
+            const now = Date.now()
+            const newItems: SentenceData[] = parsed.sentences
+              .filter((s) => (s.sentenceEn || '').trim())
+              .slice(0, sentenceCount)
+              .map((s, i) => ({
+                id: `ai_${now}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+                sentenceEn: s.sentenceEn || '',
+                sentenceCn: s.sentenceCn || '',
+                aiReferenceCn: s.aiReferenceCn || '',
+                sourceDoi: lit.doi,
+                status: 'new',
+                addedAt: now,
+                lastReview: 0,
+                reviewCount: 0,
+                sm2Interval: 1,
+                sm2Ease: 2.5,
+                scoringPoints: toStringArray(s.scoring_points),
+                difficultyNote: (s.difficulty_note || '').trim() || undefined,
+                latestUserTranslation: '',
+                latestAiFeedback: '',
+                latestErrorWords: '',
+                practiceCount: 0,
+                lastPractice: 0,
+              }))
+            if (newItems.length === 0) {
+              // AI 没给出可用长难句：记为失败，绝不误报「已补提」
+              failures.push(`${lit.title || lit.doi}：AI 未返回可用长难句`)
+            } else {
+              // 增量落盘：每篇完成立刻写回，失败重试时已完成的会被跳过
+              next = [...next, ...newItems]
+              await saveSentences(next)
+            }
+          }
+        } catch (err) {
+          failures.push(`${lit.title || lit.doi}：${err instanceof Error ? err.message : String(err)}`)
+        }
+        done++
+        report()
+      }
+    }
+
+    // ── 摘要翻译补提（串行逐篇；单篇失败不中断整批） ──
+    if (translationCandidates.length > 0) {
+      let next: TranslationData[] = [...translations]
+      for (const lit of translationCandidates) {
+        try {
+          const en = (lit.abstractEn || '').trim()
+          const cn = (lit.abstractCn || '').trim()
+          if (!en && !cn) {
+            failures.push(`${lit.title || lit.doi}：该文献没有摘要，无法出题`)
+          } else {
+            const sourceMaterial = [`【英文摘要】${en}`, `【中文摘要】${cn}`].join('\n\n')
+            const instruction = buildLearningInstruction(
+              { words: false, sentences: false, translation: true, wordCount: 0, sentenceCount: 0 },
+              { en, cn },
+            )
+            const result = await runDualEngine({
+              taskType: 'faithfulness_check',
+              sourceMaterial,
+              ai1Instruction: instruction,
+              ai1,
+              ai2,
+            })
+            const parsed = parseLearningJSON(result.ai1Output || '')
+            const pointsByDirection: Partial<Record<TranslationDirection, string[]>> = {}
+            const referenceOverride: Partial<Record<TranslationDirection, string>> = {}
+            for (const t of parsed.translations) {
+              const dir: TranslationDirection | null =
+                t.direction === 'cn2en' ? 'cn2en' : t.direction === 'en2cn' ? 'en2cn' : null
+              if (dir) pointsByDirection[dir] = toStringArray(t.scoring_points)
+              const ref = (t.reference_translation || '').trim()
+              if (dir && ref) referenceOverride[dir] = ref
+            }
+            // 题面 / 参考答案由元数据注入（缺一边时用 AI 补的参考译文）
+            const items = buildTranslationItems(
+              lit,
+              pointsByDirection,
+              Date.now(),
+              `ai_${lit.doi}_`,
+              referenceOverride,
+            )
+            if (items.length === 0) {
+              failures.push(`${lit.title || lit.doi}：未能生成任何翻译题`)
+            } else {
+              next = [...next, ...items]
+              await saveTranslations(next)
+            }
+          }
+        } catch (err) {
+          failures.push(`${lit.title || lit.doi}：${err instanceof Error ? err.message : String(err)}`)
+        }
+        done++
+        report()
+      }
+    }
+
+    report()
+    // 收齐失败清单后如实报错（不静默降级）：迁移屏保留锁域并提示重试，重试为增量补漏。
+    if (failures.length > 0) {
+      const shown = failures.slice(0, 5).join('；')
+      const more = failures.length > 5 ? ` 等 ${failures.length} 篇` : ''
+      throw new Error(`历史文献补提有 ${failures.length} 篇未完成：${shown}${more}`)
+    }
   },
 }
 
@@ -1071,6 +1283,7 @@ export const MIGRATIONS: Migration[] = [
   trackingPlanSemimonthly,
   literatureAuthorsNormalize,
   vocabMeaningDefCleanup,
+  learnAutoBackfill,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
