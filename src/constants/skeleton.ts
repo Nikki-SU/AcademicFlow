@@ -255,7 +255,24 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -m "chore: daily tracking - \$(date +%Y-%m-%d)"
-            git push
+            # 私库 main 会被前端「学习数据自动落库」高频提交（vocabulary / sentences /
+            # translation_practice / 学习进度，每约 2.5 分钟一批），追踪结果往 main 推时
+            # 撞上就是非快进拒绝（! [rejected] ... fetch first）——这是常态、不是异常。
+            # 与 latex_compile.yml 同一套管线：push 被拒就 rebase 到远程最新再退避重试，
+            # 否则「追踪脚本明明跑出结果、job 却整体 failure」。
+            pushed=0
+            for i in \$(seq 1 10); do
+              if git push; then pushed=1; break; fi
+              echo "push 被拒（main 上有新提交），rebase 后重试（第 \$i 次）"
+              if ! git pull --rebase --autostash origin "\$GITHUB_REF_NAME"; then
+                git rebase --abort 2>/dev/null || true
+              fi
+              sleep \$(( i * 2 + RANDOM % 3 ))
+            done
+            if [ "\$pushed" != "1" ]; then
+              echo "多次重试后仍无法推送追踪结果" >&2
+              exit 1
+            fi
             echo "Tracking results committed and pushed."
           else
             echo "No changes from daily tracking."
@@ -1447,7 +1464,21 @@ jobs:
             echo "No old PDFs to remove."
           else
             git commit -m "chore: monthly cleanup - remove PDFs older than 30 days"
-            git push
+            # 同 daily-tracking：私库 main 被前端高频提交，push 被非快进拒绝是常态、
+            # 不是异常；push 被拒就 rebase 到远程最新再退避重试（与 latex_compile.yml 一致）。
+            pushed=0
+            for i in \$(seq 1 10); do
+              if git push; then pushed=1; break; fi
+              echo "push 被拒（main 上有新提交），rebase 后重试（第 \$i 次）"
+              if ! git pull --rebase --autostash origin "\$GITHUB_REF_NAME"; then
+                git rebase --abort 2>/dev/null || true
+              fi
+              sleep \$(( i * 2 + RANDOM % 3 ))
+            done
+            if [ "\$pushed" != "1" ]; then
+              echo "多次重试后仍无法推送清理结果" >&2
+              exit 1
+            fi
             echo "Cleanup committed and pushed."
           fi
 `
