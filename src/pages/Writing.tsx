@@ -35,7 +35,6 @@ import {
   AlertTriangle,
   FolderOpen,
   Clipboard,
-  GripVertical,
   BookPlus,
   Package,
   Upload,
@@ -5496,10 +5495,7 @@ export default function WritingPage() {
                   isDragging ? 'bg-seal-200/60' : 'hover:bg-seal-200/50'
                 }`}
                 style={{ right: 'calc(var(--ui-gap) / -2)' }}
-              >
-                <span className="h-full w-px bg-ink-200" />
-                <GripVertical className="absolute h-3 w-3 text-ink-400" />
-              </div>
+              />
             )}
           </div>
         ))}

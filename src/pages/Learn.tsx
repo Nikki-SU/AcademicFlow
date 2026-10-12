@@ -18,26 +18,37 @@ import {
   MessageSquare,
   FileText,
   Loader2,
-  Square,
   Pencil,
-  History,
   AlertCircle,
   Search,
-  List,
   Trash2,
 } from 'lucide-react'
+import Button from '../components/ui/Button'
+import { PillTabs, SegmentedTabs, type TabItem } from '../components/ui/Tabs'
 import { toast } from 'sonner'
-import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS, missingWordFields, repairWordByRules, hasDuplicatedMeaningDef, WORD_CORE_FIELD_LABELS } from '../services/learningData'
+import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS, missingWordFields, repairWordByRules, hasDuplicatedMeaningDef } from '../services/learningData'
 import { PAGE_SIZE, PaginationBar } from '../components/PaginationBar'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
-import type { WordData, WordStatus, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
+import type { WordData, WordStatus, SentenceData, TranslationData, TranslationDirection, AffixData } from '../services/learningData'
 import { loadProgress, updateProgress } from '../services/learningProgress'
 import { playCorrectSfx, playWrongSfx } from '../services/sfx'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { callAI } from '../services/ai/client'
 import { isAbortError } from '../services/ai/abort'
 import { loadLiteratures, loadAiSourceText, type Literature } from '../services/literatureData'
+import {
+  parseLearningJSON,
+  normalizeAiMorphemes,
+  toStringArray,
+  listToCsv,
+  csvToList,
+  directionLabelOf,
+  buildLearningInstruction,
+  gradeTranslationWithAI,
+  buildTranslationItems,
+} from '../services/learnGeneration'
+import type { GradeResult } from '../services/learnGeneration'
 
 type TabId = 'words' | 'sentences' | 'translation'
 
@@ -110,10 +121,17 @@ function availableTypes(selected: WordQuestionType[], voiceOn: boolean): WordQue
   return voiceOn ? selected : selected.filter((t) => !VOICE_ONLY_TYPES.includes(t))
 }
 
-const subTabs = [
-  { id: 'words' as TabId, label: '单词', icon: Brain },
-  { id: 'sentences' as TabId, label: '长难句', icon: Type },
-  { id: 'translation' as TabId, label: '翻译练习', icon: Languages },
+const subTabs: TabItem<TabId>[] = [
+  { id: 'words', label: '单词', icon: <Brain className="h-ui-icon-sm w-ui-icon-sm" /> },
+  { id: 'sentences', label: '长难句', icon: <Type className="h-ui-icon-sm w-ui-icon-sm" /> },
+  { id: 'translation', label: '翻译练习', icon: <Languages className="h-ui-icon-sm w-ui-icon-sm" /> },
+]
+
+/** 学习 / 管理（列表）—— 三个内容分区共用同一开关，由页头统一持有 */
+type LearnView = 'study' | 'list'
+const viewTabs: TabItem<LearnView>[] = [
+  { id: 'study', label: '学习' },
+  { id: 'list', label: '管理' },
 ]
 
 const DEFAULT_WORDS: WordData[] = []
@@ -423,455 +441,15 @@ function speakEnglish(text: string, onDone?: () => void) {
   speakSequence([t], onDone)
 }
 
-/**
- * 解析 AI-1 输出的学习内容 JSON。
- * prompt 已把格式约束死（严格 JSON、逐字字段名、禁代码块，见 buildLearningInstruction）。
- * 这里只做一层**格式级安全网**：容忍模型多包一层代码块 / 前后带一句话。
- * **绝不把「解析失败」静默降级成空数组** —— 那会把失败伪装成「AI 生成完成（0 条）」，
- * 违反「先约束再容错」原则（见 架构.md §1.10 / ADJ-70）。
- */
-interface ParsedLearningJSON {
-  words: Array<{
-    word?: string
-    phonetic?: string
-    meaning?: string
-    definitionCn?: string
-    definitionEn?: string
-    exampleEn?: string
-    exampleZh?: string
-    morphemes?: unknown
-  }>
-  sentences: Array<{
-    sentenceEn?: string
-    sentenceCn?: string
-    aiReferenceCn?: string
-    scoring_points?: unknown
-    difficulty_note?: string
-  }>
-  translations: Array<{ direction?: string; originalText?: string; scoring_points?: unknown; reference_translation?: string }>
-}
-function parseLearningJSON(raw: string): ParsedLearningJSON {
-  let text = raw.trim()
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fenceMatch) text = fenceMatch[1].trim()
-  const firstBrace = text.indexOf('{')
-  const lastBrace = text.lastIndexOf('}')
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    text = text.slice(firstBrace, lastBrace + 1)
-  }
-  try {
-    const parsed = JSON.parse(text) as Partial<ParsedLearningJSON>
-    return {
-      words: Array.isArray(parsed.words) ? parsed.words : [],
-      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
-      translations: Array.isArray(parsed.translations) ? parsed.translations : [],
-    }
-  } catch {
-    // 约束已在 prompt 里写死，解析失败就是模型没照约定输出 —— 报错让用户重试，不静默当空。
-    throw new Error('AI-1 输出的学习内容不是合法 JSON（已要求严格 JSON、禁代码块），请重试')
-  }
-}
-
-// ============================================================
-// 长难句 / 翻译练习 共享工具（提取指令、判分、踩分点序列化）
-// ============================================================
-
-/**
- * AI 给的词素切分归一 —— 跟后端 runner 同一口径：形状交给 parseMorphemes 清洗，
- * 再要求各段按顺序拼回来正好等于原词，拼不回来就整组丢弃。
- */
-function normalizeAiMorphemes(raw: unknown, word: string): Morpheme[] {
-  const list = parseMorphemes(Array.isArray(raw) ? JSON.stringify(raw) : undefined)
-  return isValidMorphemeSplit(word, list) ? list : []
-}
-
-/** AI 返回的数组字段归一：string[] / 分隔符字符串 / 其它 → 干净的 string[] */
-function toStringArray(raw: unknown): string[] {
-  if (Array.isArray(raw)) {
-    return raw.map((x) => (x == null ? '' : String(x)).trim()).filter(Boolean)
-  }
-  if (typeof raw === 'string') {
-    return raw.split(/[\n;；]+/).map((s) => s.trim()).filter(Boolean)
-  }
-  return []
-}
-
-/** 字符串数组 → CSV 单元字符串（JSON 数组；空则空串，与 learningData 的解析对齐） */
-function listToCsv(list: string[]): string {
-  const clean = (list || []).map((s) => s.trim()).filter(Boolean)
-  return clean.length ? JSON.stringify(clean) : ''
-}
-
-/** CSV 里存回的列表字符串 → string[]（容错 JSON / 旧的分隔符写法） */
-function csvToList(raw: string): string[] {
-  const t = (raw || '').trim()
-  if (!t) return []
-  if (t.startsWith('[')) {
-    try {
-      const arr = JSON.parse(t)
-      if (Array.isArray(arr)) return arr.map((x) => String(x).trim()).filter(Boolean)
-    } catch {
-      // 坏 JSON：退化成按分隔符切
-    }
-  }
-  return t.split(/[\n;；、]+/).map((s) => s.trim()).filter(Boolean)
-}
-
-/** 翻译题方向 → 界面标签 */
-function directionLabelOf(dir: TranslationDirection | undefined): string {
-  return dir === 'cn2en' ? '中译英' : '英译中'
-}
-
-interface LearningGenOptions {
-  words: boolean
-  sentences: boolean
-  translation: boolean
-  /** 生词条数（来自设置 wordGenCount） */
-  wordCount: number
-  /** 长难句条数（来自设置 sentenceGenCount） */
-  sentenceCount: number
-}
-
-/**
- * 拼装 AI-1 的学习内容提取指令。
- * 交互式「AI 补充生成」与「历史批量补提」共用同一套 prompt，保证口径一致。
- *
- * 摘要翻译的题面/参考答案直接来自文献元数据（abstractEn/abstractCn），
- * AI 既不翻译也不产出译文，只需给两个方向的**踩分点** —— 这点必须在 prompt 里说死，
- * 否则模型很容易自作主张去翻译。
- */
-function buildLearningInstruction(
-  o: LearningGenOptions,
-  abstracts: { en: string; cn: string },
-): string {
-  // 摘要常常只有一边（只靠 DOI 元数据入库的文献通常只有英文摘要）。
-  // 有哪边就出哪个方向：英译中要英文题面、中译英要中文题面；
-  // 而参考答案缺的一边（如英译中却没有中文摘要）由 AI 在 reference_translation 里补。
-  const hasEn = !!abstracts.en.trim()
-  const hasCn = !!abstracts.cn.trim()
-  const translationDirs: Array<{ dir: TranslationDirection; needRef: boolean }> = []
-  if (hasEn) translationDirs.push({ dir: 'en2cn', needRef: !hasCn })
-  if (hasCn) translationDirs.push({ dir: 'cn2en', needRef: !hasEn })
-
-  const tasks: string[] = []
-  if (o.words) {
-    tasks.push(
-      `生词卡片：从原文中挑选 ${o.wordCount} 个学术核心单词，每条含 ` +
-        `word / phonetic / meaning(中文释义，答题用的简短短词) / definitionCn(中文定义，一句话，与 definitionEn 相对) / ` +
-        `definitionEn(英文定义，一句话) / exampleEn(原文中含该词的那句，逐字) / exampleZh(该例句的中文译文) / ` +
-        `morphemes(词根词缀切分，见下方规则)。注意 meaning 是释义、definitionCn 是定义，两者内容不同，都要单独给`,
-    )
-  }
-  if (o.sentences) {
-    tasks.push(
-      `长难句：从原文中挑选 ${o.sentenceCount} 个有学习价值的长难句，每条含 sentenceEn(原文逐字)/sentenceCn(中文翻译)/aiReferenceCn(参考译文)/scoring_points(踩分点数组)/difficulty_note(说明这句"难"在哪里)`,
-    )
-  }
-  if (o.translation) {
-    tasks.push('摘要翻译踩分点：为下面可用摘要的每个翻译方向各生成一组踩分点（写入 JSON 的 translations 字段）')
-  }
-
-  const lines: string[] = [
-    '请基于上述源材料生成以下学习内容：',
-    tasks.map((t, i) => `${i + 1}. ${t}`).join('\n'),
-    '',
-  ]
-
-  if (o.translation) {
-    lines.push(
-      '【翻译题（题面与参考答案优先由系统直接从文献元数据注入）】',
-      '- en2cn（英译中）：题面 = 英文摘要原文，参考答案 = 中文摘要',
-      '- cn2en（中译英）：题面 = 中文摘要原文，参考答案 = 英文摘要',
-    )
-    if (translationDirs.some((d) => d.needRef)) {
-      lines.push(
-        '本摘要只有一边语言，题面方向照常出，但缺失的那一边请你在该方向的 reference_translation 字段里补出一份**参考译文**（这就是参考答案，系统会直接采用）。',
-      )
-    } else {
-      lines.push('两个方向的参考答案都已给出，你不需要翻译，也不得输出任何译文。')
-    }
-    lines.push(
-      '你另需为可用方向给出**踩分点**（判分标准，主要覆盖逻辑关系与关键术语/词汇）。',
-      '',
-      `【英文摘要】${abstracts.en || '[NOT_IN_SOURCE] abstract_en'}`,
-      `【中文摘要】${abstracts.cn || '[NOT_IN_SOURCE] abstract_cn'}`,
-      '',
-    )
-  }
-
-  const schema: string[] = []
-  if (o.words) {
-    schema.push(
-      '  "words": [{"word":"...","phonetic":"...","meaning":"...","definitionCn":"...","definitionEn":"...","exampleEn":"...","exampleZh":"...","morphemes":[{"text":"...","type":"prefix|root|suffix|connective","meaning":"..."}]}]',
-    )
-  }
-  if (o.sentences) {
-    schema.push('  "sentences": [{"sentenceEn":"...","sentenceCn":"...","aiReferenceCn":"...","scoring_points":["..."],"difficulty_note":"..."}]')
-  }
-  if (o.translation) {
-    const dirSchemas = translationDirs.map(
-      (d) =>
-        `{"direction":"${d.dir}","scoring_points":["..."]${d.needRef ? ',"reference_translation":"..."' : ''}}`,
-    )
-    schema.push(`  "translations": [${dirSchemas.join(',')}]`)
-  }
-
-  const translationRules: string[] = []
-  if (o.translation) {
-    const needRefList = translationDirs.filter((d) => d.needRef).map((d) => d.dir).join(' / ')
-    translationRules.push(
-      translationDirs.some((d) => d.needRef)
-        ? `- translations 只在 ${needRefList} 里输出 reference_translation（那份参考译文），其余方向不得输出任何译文，也不得输出 originalText`
-        : '- translations **只输出 scoring_points**，不得输出 originalText / reference_translation / 任何译文',
-    )
-  }
-
-  lines.push(
-    '【输出格式（严格 JSON，不要 markdown 代码块包裹）】',
-    '{',
-    schema.join(',\n'),
-    '}',
-    '',
-    '【严格要求】',
-    '- word/exampleEn/sentenceEn 等英文片段必须**逐字复制**自源材料，禁止改写或编造',
-    '- sentenceCn/aiReferenceCn 为中文翻译，可基于学术常识给出',
-    '- scoring_points 是判分用的踩分点清单，每条一句话，聚焦逻辑关系（因果/转折/递进/让步等）与关键术语词汇，不要泛泛而谈',
-    ...translationRules,
-    '- 源材料未涉及的字段用 [NOT_IN_SOURCE] <字段名> 标注',
-    '- 输出语言：word / definitionEn / exampleEn 这些字段用英文（exampleEn 必须逐字来自原文），meaning / definitionCn / exampleZh / 译文 / 踩分点用中文',
-    '- morphemes 是词根词缀切分：各段 text 按顺序拼起来必须正好等于 word（一个字母都不能差）；拆不出就给空数组 []，**不要硬拆**；type 取 prefix/root/suffix/connective（connective = 连接元音，如 photocatalysis 里的 o、i）',
-  )
-  return lines.join('\n')
-}
-
-/** 判分结果（AI 只判分，不参与出标准） */
-interface GradeResult {
-  score: number
-  hitPoints: string[]
-  missedPoints: string[]
-  /** 每个漏掉的踩分点扣了多少分（AI 给；键 = 踩分点原文） */
-  pointDeductions: Record<string, number>
-  feedback: string
-}
-
-/**
- * 把 AI 回的 point_deductions 归一化成「踩分点 → 扣分」映射。
- * prompt 已把格式**约束死**：数组、每项恰好 {point, deduction}（见 gradeTranslationWithAI）。
- * 这里只做一层安全网：仍兼容「对象映射」这一种等价写法，但**键名按约定**，
- * 不再猜 scoring_point / name / deduct 之类的别名 —— 否则等于用容错去掩盖模型没按约束输出。
- */
-function parsePointDeductions(raw: unknown): Record<string, number> {
-  const out: Record<string, number> = {}
-  const put = (point: unknown, deduction: unknown) => {
-    const key = typeof point === 'string' ? point.trim() : ''
-    const num = Number(deduction)
-    if (key && Number.isFinite(num) && num > 0) out[key] = Math.round(num)
-  }
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (item && typeof item === 'object') {
-        const o = item as Record<string, unknown>
-        put(o.point, o.deduction)
-      }
-    }
-  } else if (raw && typeof raw === 'object') {
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) put(k, v)
-  }
-  return out
-}
-
-/** 解析判分 JSON（容错去 ```json 包裹 / 截首尾花括号），失败抛可读错误 */
-function parseGradeJSON(raw: string): GradeResult {
-  let text = (raw || '').trim()
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fence) text = fence[1].trim()
-  const first = text.indexOf('{')
-  const last = text.lastIndexOf('}')
-  if (first >= 0 && last > first) text = text.slice(first, last + 1)
-
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(text) as Record<string, unknown>
-  } catch {
-    throw new Error('AI 判分结果不是合法 JSON，请重试')
-  }
-  const scoreNum = Number(parsed.score)
-  // score 是判分的核心结论：缺失 / 非数字就报错让用户重试，绝不静默当 0 分（Garbage in, garbage out）
-  if (!Number.isFinite(scoreNum)) {
-    throw new Error('AI 判分结果缺少合法的 score（应为 0-100 的整数），请重试')
-  }
-  return {
-    score: Math.max(0, Math.min(100, Math.round(scoreNum))),
-    hitPoints: toStringArray(parsed.hit_points),
-    missedPoints: toStringArray(parsed.missed_points),
-    pointDeductions: parsePointDeductions(parsed.point_deductions),
-    feedback: typeof parsed.feedback === 'string' ? parsed.feedback.trim() : '',
-  }
-}
-
-/**
- * 调用 AI 判分 —— 单次调用即可（不走双引擎）。
- * AI 负责按给定的踩分点清单打分，返回命中/漏掉的踩分点，
- * 并对**每个漏掉的点单独给出扣了多少分**（不同踩分点权重本就不一样，
- * 关键术语漏了比修饰成分漏了严重得多，所以扣分不能一律等权）。
- */
-async function gradeTranslationWithAI(params: {
-  question: string
-  directionLabel: string
-  userTranslation: string
-  referenceTranslation: string
-  scoringPoints: string[]
-}): Promise<GradeResult> {
-  const { ai1 } = useSettingsStore.getState().getDualEngineConfig()
-  const pointList = params.scoringPoints.length
-    ? params.scoringPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')
-    : '（本题未设置踩分点，请按整体忠实度与表达给分）'
-
-  const resp = await callAI({
-    baseUrl: ai1.baseUrl,
-    apiKey: ai1.apiKey,
-    model: ai1.model,
-    temperature: 0,
-    messages: [
-      {
-        role: 'system',
-        content:
-          '你是学术翻译阅卷老师。你的职责只有判分：严格按给定的「踩分点」核对学生的译文，' +
-          '指出命中了哪些、漏掉了哪些，对每个漏掉的点给出具体扣分（各点权重可以不同），' +
-          '并给出 0-100 的综合得分和简短中文反馈。' +
-          '不得自行新增或改写踩分点，也不得重写学生译文。只输出 JSON。',
-      },
-      {
-        role: 'user',
-        content: [
-          `【翻译方向】${params.directionLabel}`,
-          '',
-          '【题面原文】',
-          params.question,
-          '',
-          '【参考答案】',
-          params.referenceTranslation || '（无）',
-          '',
-          '【评分标准（踩分点）】',
-          pointList,
-          '',
-          '【学生译文】',
-          params.userTranslation,
-          '',
-          '请严格按上述踩分点核对，并只返回一个 JSON 对象（不要 markdown 代码块、不要任何解释文字）：',
-          '{',
-          '  "score": 82,',
-          '  "hit_points": ["命中的踩分点原文"],',
-          '  "missed_points": ["漏掉或表达不到位的踩分点原文"],',
-          '  "point_deductions": [{"point": "漏掉的踩分点原文", "deduction": 12}],',
-          '  "feedback": "一段中文反馈，说明扣分原因与改进建议"',
-          '}',
-          '',
-          '字段约束（必须逐字遵守，违反即视为无效输出）：',
-          '- 只输出上面这一个 JSON 对象，字段名与层级**逐字**一致，不增字段、不删字段，不要代码块或任何多余文字；',
-          '- score：JSON 数字，0-100 的整数（= 100 减去所有扣分之和，四舍五入）；不得写成字符串，不得带百分号 / 单位 / 解释；',
-          '- hit_points / missed_points：JSON**字符串数组**，每个元素**逐字**取自上面的踩分点清单；不得用换行 / 分号把多条拼成一个字符串；',
-          '- point_deductions：JSON**数组**（不要写成「踩分点 → 扣分」的对象映射），每项**恰好**两个键：point（字符串，逐字取自清单）、deduction（正整数，> 0）；',
-          '- feedback：一个字符串。',
-          '',
-          '扣分要求：每个漏掉的踩分点都要出现在 point_deductions 里；关键术语/逻辑关系的缺失扣得多，',
-          '修饰成分、表述不够地道扣得少；各点扣分之和应等于 100 - score。命中的点不要出现在 point_deductions 里。',
-        ].join('\n'),
-      },
-    ],
-  })
-  return parseGradeJSON(resp.content)
-}
-
-/**
- * 依据文献摘要元数据构造翻译题。
- * 题面与参考答案优先取自 abstractEn/abstractCn，AI 只提供踩分点。
- *
- * 只靠 DOI 元数据入库的文献通常**只有英文摘要**（Crossref / OpenAlex 都不给中文），
- * 这种时候不能让整道题消失 —— 用户要的是"有摘要就有摘要题"。
- * 所以缺失的那一边由 AI 在 reference_translation 里补一份参考译文（referenceOverride），
- * 该方向照常出题；题面缺失的方向（比如没有中文摘要就出不了中译英）直接跳过。
- */
-function buildTranslationItems(
-  lit: Literature,
-  pointsByDirection: Partial<Record<TranslationDirection, string[]>>,
-  now: number,
-  idPrefix: string,
-  referenceOverride?: Partial<Record<TranslationDirection, string>>,
-): TranslationData[] {
-  const en = (lit.abstractEn || '').trim()
-  const cn = (lit.abstractCn || '').trim()
-  const make = (direction: TranslationDirection, originalText: string, referenceTranslation: string, seq: number): TranslationData => ({
-    id: `${idPrefix}${now}_${seq}_${Math.random().toString(36).slice(2, 6)}`,
-    originalText,
-    direction,
-    referenceTranslation,
-    scoringPoints: pointsByDirection[direction] || [],
-    sourceKind: 'abstract',
-    sourceDoi: lit.doi,
-    latestUserTranslation: '',
-    latestAiFeedback: '',
-    latestErrorWords: '',
-    status: 'pending',
-    addedAt: now,
-    lastPractice: 0,
-    practiceCount: 0,
-  })
-  const out: TranslationData[] = []
-  let seq = 0
-  // 英译中：题面必须英文；参考答案优先中文摘要，缺了就用 AI 补的参考译文
-  if (en) {
-    const ref = cn || (referenceOverride?.en2cn || '').trim()
-    if (ref) out.push(make('en2cn', en, ref, seq++))
-  }
-  // 中译英：题面必须中文；参考答案优先英文摘要，缺了就用 AI 补的参考译文
-  if (cn) {
-    const ref = en || (referenceOverride?.cn2en || '').trim()
-    if (ref) out.push(make('cn2en', cn, ref, seq++))
-  }
-  return out
-}
-
-/**
- * 批量补提的串行执行器：逐篇处理、可中断、单篇失败不中断整批。
- * 每篇处理结果由 processOne 决定（内部负责增量落盘）。
- */
-async function runBatchExtraction(
-  candidates: Literature[],
-  processOne: (lit: Literature) => Promise<{ ok: boolean; reason?: string }>,
-  ctl: {
-    onProgress: (done: number, total: number, title: string) => void
-    shouldStop: () => boolean
-    onFailure: (title: string, reason: string) => void
-  },
-): Promise<{ processed: number; failed: number; stopped: boolean }> {
-  let processed = 0
-  let failed = 0
-  for (const lit of candidates) {
-    if (ctl.shouldStop()) return { processed, failed, stopped: true }
-    ctl.onProgress(processed, candidates.length, lit.title || lit.doi)
-    try {
-      const r = await processOne(lit)
-      if (!r.ok) {
-        failed++
-        ctl.onFailure(lit.title || lit.doi, r.reason || '未知失败')
-      }
-    } catch (err) {
-      // 用户点了「停止」→ 我们 abort 了这篇正在跑的 AI 任务。这不是这篇文献失败，
-      // 整轮就此收尾（已完成的部分已经增量落盘）。
-      if (ctl.shouldStop()) return { processed, failed, stopped: true }
-      failed++
-      ctl.onFailure(lit.title || lit.doi, err instanceof Error ? err.message : String(err))
-    }
-    processed++
-    ctl.onProgress(processed, candidates.length, '')
-  }
-  return { processed, failed, stopped: false }
-}
+// 学习内容生成 / 判分相关的共享工具已抽到 services/learnGeneration.ts ——
+// 页面与「自动补提」迁移共用同一套 prompt / 解析口径（见文件头注释）。
 
 export default function LearnPage() {
   const { repo } = useWorkspaceStore()
   const [activeTab, setActiveTab] = useState<TabId>('words')
+  const [view, setView] = useState<LearnView>('study')
+  const [addModalOpen, setAddModalOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [aiGenOpen, setAiGenOpen] = useState(false)
   const [selectedPaper, setSelectedPaper] = useState('')
   const [genTypes, setGenTypes] = useState({ words: true, sentences: true, translation: true })
@@ -1193,34 +771,25 @@ export default function LearnPage() {
 
   return (
     <div className="page-container flex h-full flex-col py-ui-page">
-      <div className="mb-6 flex shrink-0 items-center justify-end">
-        <button
-          onClick={() => setAiGenOpen(true)}
-          className="flex items-center gap-2 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-sm"
-        >
-          <Sparkles className="w-4 h-4" />
-          AI 补充生成
-        </button>
-      </div>
-
-      <div className="mb-6 flex shrink-0 items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
-        {subTabs.map((tab) => {
-          const Icon = tab.icon
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-ui-gap py-2 rounded-control-sm text-ui-sm font-medium transition ${
-                activeTab === tab.id
-                  ? 'bg-seal-50 text-seal-700'
-                  : 'text-ink-500 hover:text-ink-700'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          )
-        })}
+      {/* 单行页头：左=内容分区（单词 / 长难句 / 翻译练习）+ 学习 / 管理，右=AI 生成 / 手动添加 / 学习设置 */}
+      <div className="mb-6 flex shrink-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <PillTabs items={subTabs} value={activeTab} onChange={(v) => { setActiveTab(v); setAddModalOpen(false); setSettingsOpen(false) }} />
+          <SegmentedTabs items={viewTabs} value={view} onChange={setView} />
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="sm" icon={<Sparkles />} onClick={() => setAiGenOpen(true)}>
+            AI 生成
+          </Button>
+          <Button variant="ghost" size="sm" icon={<Plus />} onClick={() => setAddModalOpen(true)}>
+            手动添加
+          </Button>
+          {activeTab !== 'translation' && (
+            <Button variant="ghost" size="sm" icon={<Settings />} onClick={() => setSettingsOpen(true)}>
+              学习设置
+            </Button>
+          )}
+        </div>
       </div>
 
       {aiGenOpen && (
@@ -1230,9 +799,6 @@ export default function LearnPage() {
               <Sparkles className="w-5 h-5 text-seal-600" />
               AI 补充生成学习内容
             </h3>
-            <p className="text-ui-sm text-ink-500 mb-4">
-              从选定文献的 Markdown 内容中自动提取并生成学习卡片
-            </p>
             <div className="space-y-4">
               <div>
                 <label className="text-ui-sm font-medium text-ink-700 mb-1.5 block">选择文献</label>
@@ -1296,17 +862,27 @@ export default function LearnPage() {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         {activeTab === 'words' && (
           <WordSection
-            words={words}
-            setWords={setWords}
-            studyStats={studyStats}
-            onStudied={markStudied}
+            words={words} setWords={setWords} studyStats={studyStats} onStudied={markStudied}
+            view={view} addModalOpen={addModalOpen} onAddModalOpen={() => setAddModalOpen(true)} onAddModalClose={() => setAddModalOpen(false)}
+            settingsOpen={settingsOpen} onSettingsClose={() => setSettingsOpen(false)}
           />
         )}
-        {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} literatures={literatures} />}
-        {activeTab === 'translation' && <TranslationSection translations={translations} setTranslations={setTranslations} literatures={literatures} />}
+        {activeTab === 'sentences' && (
+          <SentenceSection
+            sentences={sentences} setSentences={setSentences}
+            view={view} addModalOpen={addModalOpen} onAddModalClose={() => setAddModalOpen(false)}
+            settingsOpen={settingsOpen} onSettingsClose={() => setSettingsOpen(false)}
+          />
+        )}
+        {activeTab === 'translation' && (
+          <TranslationSection
+            translations={translations} setTranslations={setTranslations}
+            view={view} addModalOpen={addModalOpen} onAddModalClose={() => setAddModalOpen(false)}
+          />
+        )}
       </div>
     </div>
   )
@@ -1430,6 +1006,15 @@ interface WordSectionProps {
   setWords: React.Dispatch<React.SetStateAction<WordData[]>>
   studyStats: StudyStats
   onStudied: (wordId: string) => void
+  /** 学习 / 管理（列表）视图，由页头统一持有 */
+  view: LearnView
+  /** 「手动添加」弹窗开关，由页头按钮控制 */
+  addModalOpen: boolean
+  onAddModalOpen: () => void
+  onAddModalClose: () => void
+  /** 「学习设置」弹窗开关，由页头按钮控制 */
+  settingsOpen: boolean
+  onSettingsClose: () => void
 }
 
 /** 单词学习设置（对齐 CAT：队列长度 / 题型多选 / 掌握所需轮数 / 斩词 / 发音） */
@@ -1978,21 +1563,12 @@ function TranslationListView({ translations, setTranslations }: {
   )
 }
 
-function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProps) {
+function WordSection({ words, setWords, studyStats, onStudied, view, addModalOpen, onAddModalOpen, onAddModalClose, settingsOpen, onSettingsClose }: WordSectionProps) {
   const [settings, setSettings] = useState<WordStudySettings>(DEFAULT_WORD_SETTINGS)
   /** 设置是否已从私库读回来 —— 读完之前不许回写，免得用默认值盖掉用户的偏好 */
   const [settingsLoaded, setSettingsLoaded] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showAddModal, setShowAddModal] = useState(false)
-  /** 单词 tab 的视图：学习首页 / 单词列表（列表里可浏览、可删词） */
-  const [view, setView] = useState<'study' | 'list'>('study')
   /** 「一键修复」进行中 —— 防连点；AI 补全那步会慢 */
   const [repairing, setRepairing] = useState(false)
-  /** AI-1 是否已配置：语义字段（释义/定义/例句译文）只有 AI 能补，没配就明说 */
-  const aiReady = useSettingsStore((s) => {
-    const cfg = s.getDualEngineConfig()
-    return !!(cfg.ai1 && cfg.ai1.baseUrl && cfg.ai1.apiKey && cfg.ai1.model)
-  })
 
   const [session, setSession] = useState<StudySession | null>(null)
   const [question, setQuestion] = useState<GeneratedWordQuestion | null>(null)
@@ -2524,7 +2100,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   const handleAddWord = (word: WordData) => {
     setWords((prev) => [...prev, word])
-    setShowAddModal(false)
+    onAddModalClose()
   }
 
   // ── 空状态 ──
@@ -2534,12 +2110,12 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         <Brain className="w-16 h-16 text-ink-300 mx-auto mb-4" />
         <p className="text-ink-500 mb-4">还没有单词，快来添加吧！</p>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={onAddModalOpen}
           className="px-ui-gap py-2 bg-seal-600 text-paper-50 rounded-control text-ui-sm font-medium hover:bg-seal-700 transition"
         >
           添加单词
         </button>
-        {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
+        {addModalOpen && <AddWordModal onClose={onAddModalClose} onAdd={handleAddWord} />}
       </div>
     )
   }
@@ -2943,284 +2519,228 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   return (
     <div className="space-y-4">
-      {/* 视图切换：学习首页 / 单词列表（列表里能浏览并删掉过去的词） */}
-      <div className="flex items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
-        <button
-          onClick={() => setView('study')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'study' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <GraduationCap className="w-4 h-4" /> 学习
-        </button>
-        <button
-          onClick={() => setView('list')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'list' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <List className="w-4 h-4" /> 单词列表
-        </button>
-      </div>
-
-      {view === 'list' ? (
-        <WordListView words={words} setWords={setWords} />
-      ) : (
-        <>
-      {/* 统计条 */}
-      <div className="bg-paper-50 rounded-card border border-ink-200 p-4">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          {statChips.map((c) => (
-            <div key={c.label} className="text-ui-sm">
-              <span className="text-ink-400">{c.label} </span>
-              <span className={`font-semibold ${c.cls}`}>{c.value}</span>
+      {view === 'study' && (
+        <div className="space-y-4">
+          {/* 统计条 */}
+          <div className="bg-paper-50 rounded-card border border-ink-200 p-4">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              {statChips.map((c) => (
+                <div key={c.label} className="text-ui-sm">
+                  <span className="text-ink-400">{c.label} </span>
+                  <span className={`font-semibold ${c.cls}`}>{c.value}</span>
+                </div>
+              ))}
+              <div className="text-ui-sm ml-auto">
+                <span className="text-ink-400">今日已学 </span>
+                <span className="font-semibold text-seal-600">{studyStats.todayLearned.length}</span>
+                <span className="text-ink-400"> / {settings.dailyGoal}</span>
+              </div>
             </div>
-          ))}
-          <div className="text-ui-sm ml-auto">
-            <span className="text-ink-400">今日已学 </span>
-            <span className="font-semibold text-seal-600">{studyStats.todayLearned.length}</span>
-            <span className="text-ink-400"> / {settings.dailyGoal}</span>
           </div>
-        </div>
-      </div>
 
-      {/* 旧词缺字段：一键修复（规则 + AI 补全） */}
-      {incompleteWords.length > 0 && (
-        <div className="bg-amber-50 rounded-card border border-amber-200 p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-ui-sm text-amber-800">
-                有 <span className="font-semibold">{incompleteWords.length}</span> 个单词字段有问题
-                （{(() => {
-                  const parts = (['meaning', 'definitionCn', 'definitionEn', 'exampleZh'] as const)
-                    .map((f) => ({
-                      f,
-                      n: incompleteWords.filter((w) => missingWordFields(w).includes(f)).length,
-                    }))
-                    .filter((x) => x.n > 0)
-                    .map((x) => `${x.n} 缺${WORD_CORE_FIELD_LABELS[x.f]}`)
-                  const dup = incompleteWords.filter(hasDuplicatedMeaningDef).length
-                  if (dup > 0) parts.push(`${dup} 释义与定义重复`)
-                  return parts.join(' · ')
-                })()}），会影响定义/例句类题型出题。
-              </p>
-              <p className="text-ui-xs text-amber-600 mt-1">
-                规则会校正数值、丢弃脏词素，并清掉旧版「释义与定义被错填成同一个值」的脏数据；释义/定义/例句译文这些语义字段由 AI 补对
-                {aiReady
-                  ? '。'
-                  : '。当前未配置 AI 服务，点「一键修复」只做规则部分，语义字段不会变 —— 请先在设置里配置 AI 服务。'}
-              </p>
+          {/* 旧词缺字段：一键修复（规则 + AI 补全） */}
+          {incompleteWords.length > 0 && (
+            <div className="bg-amber-50 rounded-card border border-amber-200 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-ui-sm text-amber-800">
+                    有 <span className="font-semibold">{incompleteWords.length}</span> 个单词字段不完整，会影响定义/例句类题型出题
+                  </p>
+                </div>
+                <button
+                  onClick={handleRepairAll}
+                  disabled={repairing}
+                  className="flex items-center gap-1.5 px-ui-gap py-2 bg-amber-600 text-white rounded-control text-ui-sm hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
+                >
+                  {repairing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {repairing ? '修复中…' : '一键修复'}
+                </button>
+              </div>
             </div>
+          )}
+
+          {/* 开始按钮 */}
+          <div className="flex gap-4">
             <button
-              onClick={handleRepairAll}
-              disabled={repairing}
-              className="flex items-center gap-1.5 px-ui-gap py-2 bg-amber-600 text-white rounded-control text-ui-sm hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
+              onClick={() => startSession('learn')}
+              disabled={stats.new + stats.learning === 0}
+              className="flex-1 py-4 bg-seal-600 text-paper-50 rounded-card hover:bg-seal-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
             >
-              {repairing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {repairing ? '修复中…' : '一键修复'}
+              <span className="block text-base font-medium">开始学习</span>
+              <span className="text-ui-xs opacity-80">
+                {stats.new + stats.learning > 0 ? `${stats.learning} 个学习中 + ${stats.new} 个新词` : '暂无新词'}
+              </span>
+            </button>
+            <button
+              onClick={() => startSession('review')}
+              disabled={stats.due === 0}
+              className="flex-1 py-4 bg-emerald-600 text-paper-50 rounded-card hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <span className="block text-base font-medium">开始复习</span>
+              <span className="text-ui-xs opacity-80">
+                {stats.due > 0 ? `${stats.due} 个词已到期` : '暂无到期复习'}
+              </span>
             </button>
           </div>
         </div>
       )}
 
-      {/* 设置面板 */}
-      <div className="bg-paper-50 rounded-card border border-ink-200 p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-ui-sm font-medium text-ink-800">学习设置</h3>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-1 text-ui-sm text-seal-600 hover:bg-seal-50 px-2.5 py-1 rounded-control transition"
-            >
-              <Plus className="w-4 h-4" /> 添加单词
-            </button>
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="flex items-center gap-1 text-ui-sm text-ink-500 hover:text-ink-700 px-2.5 py-1 rounded-control hover:bg-ink-100 transition"
-            >
-              <Settings className="w-4 h-4" />
-              {showSettings ? '收起' : '展开'}
-            </button>
-          </div>
-        </div>
+      {view === 'list' && <WordListView words={words} setWords={setWords} />}
 
-        {showSettings && (
-          <div className="mt-4 space-y-5">
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-1">每组词数</label>
-              <p className="text-ui-xs text-ink-400 mb-2">
-                一次学一组，不是每日上限。组内按下面的题型顺序分轮过完，才会换下一组（A-D 全部过完，才轮到 E-H）。
-              </p>
-              <div className="flex gap-2">
-                {[5, 7, 9].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setSettings((p) => ({ ...p, queueLength: n }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.queueLength === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {n} 个/组
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-1">每日目标</label>
-              <p className="text-ui-xs text-ink-400 mb-2">
-                学满这个词数就收尾（一组接一组自动往下学，不会中途停下来问你），当天不再自动续组；
-                想多学可以自己在完成页点「再来一组」。
-              </p>
-              <div className="flex gap-2">
-                {DAILY_GOAL_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setSettings((p) => ({ ...p, dailyGoal: n }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.dailyGoal === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {n} 词/天
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-2">题型选择（按勾选顺序分轮出题，答错就地重做这道题）</label>
-              <div className="flex flex-wrap gap-2">
-                {WORD_QUESTION_TYPES.map((t) => {
-                  const Icon = t.icon
-                  const checked = settings.questionTypes.includes(t.key)
-                  // 听音类题型在静音模式下用不了：灰掉但保留勾选，切回语音模式即恢复
-                  const needsVoice = !settings.voiceEnabled && VOICE_ONLY_TYPES.includes(t.key)
-                  return (
-                    <label
-                      key={t.key}
-                      className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control border text-ui-sm transition ${
-                        needsVoice
-                          ? 'bg-paper-100 border-ink-200 text-ink-300 cursor-not-allowed'
-                          : checked
-                            ? 'bg-seal-50 border-seal-300 text-seal-700 cursor-pointer'
-                            : 'bg-paper-100 border-ink-200 text-ink-500 cursor-pointer'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="accent-seal-600"
-                        disabled={needsVoice}
-                        checked={checked}
-                        onChange={(e) => {
-                          setSettings((p) => {
-                            const exists = p.questionTypes.includes(t.key)
-                            if (e.target.checked && !exists) return { ...p, questionTypes: [...p.questionTypes, t.key] }
-                            if (!exists) return p
-                            const next = p.questionTypes.filter((k) => k !== t.key)
-                            return { ...p, questionTypes: next.length ? next : ['en_select_cn'] }
-                          })
-                        }}
-                      />
-                      <Icon className="w-3.5 h-3.5" />
-                      {t.label}
-                      {needsVoice && <span className="text-ui-2xs">需语音</span>}
-                    </label>
-                  )
-                })}
-              </div>
-              <p className="text-ui-xs text-ink-400 mt-1.5">
-                定义/例句类题型需要单词含有 definition_cn 或原文例句，缺字段的词会自动跳过该轮；
-                拼写题按词根词缀切块，切不出来的词退化成逐字母拼写
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-2">掌握条件（走满多少轮算掌握）</label>
-              <div className="flex gap-2">
-                {MASTER_ROUND_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setSettings((p) => ({ ...p, masterRounds: n }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.masterRounds === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {n} 轮
-                  </button>
-                ))}
-              </div>
-              <p className="text-ui-xs text-ink-400 mt-1.5">
-                一轮 = 把选中的题型各答对一遍；答错会立刻重做这道题，不计入下一轮
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-2">学习模式</label>
-              <div className="flex flex-wrap gap-2">
-                {VOICE_MODE_OPTIONS.map((o) => (
-                  <button
-                    key={o.label}
-                    onClick={() => setSettings((p) => ({ ...p, voiceEnabled: o.on }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.voiceEnabled === o.on
-                        ? 'bg-seal-600 text-paper-50'
-                        : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-ui-xs text-ink-400 mt-1.5">
-                {VOICE_MODE_OPTIONS.find((o) => o.on === settings.voiceEnabled)?.hint}
-                ；语音模式下答完题展开单词卡会先读单词、停顿后再读例句
-              </p>
-            </div>
-
-            <div className="flex items-center gap-6 pt-1">
-              <label className="flex items-center gap-2 text-ui-sm text-ink-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="accent-seal-600"
-                  checked={settings.allowZhan}
-                  onChange={(e) => setSettings((p) => ({ ...p, allowZhan: e.target.checked }))}
-                />
-                允许斩词
-              </label>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 开始按钮 */}
-      <div className="flex gap-4">
-        <button
-          onClick={() => startSession('learn')}
-          disabled={stats.new + stats.learning === 0}
-          className="flex-1 py-4 bg-seal-600 text-paper-50 rounded-card hover:bg-seal-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-        >
-          <span className="block text-base font-medium">开始学习</span>
-          <span className="text-ui-xs opacity-80">
-            {stats.new + stats.learning > 0 ? `${stats.learning} 个学习中 + ${stats.new} 个新词` : '暂无新词'}
-          </span>
-        </button>
-        <button
-          onClick={() => startSession('review')}
-          disabled={stats.due === 0}
-          className="flex-1 py-4 bg-emerald-600 text-paper-50 rounded-card hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-        >
-          <span className="block text-base font-medium">开始复习</span>
-          <span className="text-ui-xs opacity-80">
-            {stats.due > 0 ? `${stats.due} 个词已到期` : '暂无到期复习'}
-          </span>
-        </button>
-      </div>
-
-      {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
-        </>
+      {addModalOpen && <AddWordModal onClose={onAddModalClose} onAdd={handleAddWord} />}
+      {settingsOpen && (
+        <WordSettingsModal settings={settings} setSettings={setSettings} onClose={onSettingsClose} />
       )}
     </div>
+  )
+}
+
+
+/** 单词学习设置弹窗：由页头「学习设置」按钮触发，改完即生效 */
+function WordSettingsModal({ settings, setSettings, onClose }: {
+  settings: WordStudySettings
+  setSettings: React.Dispatch<React.SetStateAction<WordStudySettings>>
+  onClose: () => void
+}) {
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-bold text-ink-800">学习设置</h3>
+          <button onClick={onClose} className="p-1 text-ink-400 hover:text-ink-600 transition">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-5">
+          <div>
+            <label className="block text-ui-sm text-ink-600 mb-2">每组词数</label>
+            <div className="flex gap-2">
+              {[5, 7, 9].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setSettings((p) => ({ ...p, queueLength: n }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.queueLength === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {n} 个/组
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-ui-sm text-ink-600 mb-2">每日目标</label>
+            <div className="flex gap-2">
+              {DAILY_GOAL_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setSettings((p) => ({ ...p, dailyGoal: n }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.dailyGoal === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {n} 词/天
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-ui-sm text-ink-600 mb-2">题型选择</label>
+            <div className="flex flex-wrap gap-2">
+              {WORD_QUESTION_TYPES.map((t) => {
+                const Icon = t.icon
+                const checked = settings.questionTypes.includes(t.key)
+                // 听音类题型在静音模式下用不了：灰掉但保留勾选，切回语音模式即恢复
+                const needsVoice = !settings.voiceEnabled && VOICE_ONLY_TYPES.includes(t.key)
+                return (
+                  <label
+                    key={t.key}
+                    className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control border text-ui-sm transition ${
+                      needsVoice
+                        ? 'bg-paper-100 border-ink-200 text-ink-300 cursor-not-allowed'
+                        : checked
+                          ? 'bg-seal-50 border-seal-300 text-seal-700 cursor-pointer'
+                          : 'bg-paper-100 border-ink-200 text-ink-500 cursor-pointer'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-seal-600"
+                      disabled={needsVoice}
+                      checked={checked}
+                      onChange={(e) => {
+                        setSettings((p) => {
+                          const exists = p.questionTypes.includes(t.key)
+                          if (e.target.checked && !exists) return { ...p, questionTypes: [...p.questionTypes, t.key] }
+                          if (!exists) return p
+                          const next = p.questionTypes.filter((k) => k !== t.key)
+                          return { ...p, questionTypes: next.length ? next : ['en_select_cn'] }
+                        })
+                      }}
+                    />
+                    <Icon className="w-3.5 h-3.5" />
+                    {t.label}
+                    {needsVoice && <span className="text-ui-2xs">需语音</span>}
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-ui-sm text-ink-600 mb-2">掌握条件</label>
+            <div className="flex gap-2">
+              {MASTER_ROUND_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setSettings((p) => ({ ...p, masterRounds: n }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.masterRounds === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {n} 轮
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-ui-sm text-ink-600 mb-2">学习模式</label>
+            <div className="flex flex-wrap gap-2">
+              {VOICE_MODE_OPTIONS.map((o) => (
+                <button
+                  key={o.label}
+                  onClick={() => setSettings((p) => ({ ...p, voiceEnabled: o.on }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.voiceEnabled === o.on ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-ui-sm text-ink-600 cursor-pointer">
+            <input
+              type="checkbox"
+              className="accent-seal-600"
+              checked={settings.allowZhan}
+              onChange={(e) => setSettings((p) => ({ ...p, allowZhan: e.target.checked }))}
+            />
+            允许斩词
+          </label>
+        </div>
+
+        <div className="flex justify-end pt-6">
+          <Button variant="primary" size="sm" onClick={onClose}>完成</Button>
+        </div>
+      </div>
+    </ModalBackdrop>
   )
 }
 
@@ -3632,78 +3152,66 @@ function PracticePanel({
   )
 }
 
-/** 批量补提的进度 / 失败汇总面板（长难句 / 翻译练习共用） */
-function BatchProgressPanel({
-  running,
-  done,
-  total,
-  title,
-  failures,
-  onStop,
-}: {
-  running: boolean
-  done: number
-  total: number
-  title: string
-  failures: string[]
-  onStop: () => void
+interface SentenceSectionProps {
+  sentences: SentenceData[]
+  setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>>
+  /** 学习 / 管理（列表）视图，由页头统一持有 */
+  view: LearnView
+  /** 「手动添加」弹窗开关，由页头按钮控制 */
+  addModalOpen: boolean
+  onAddModalClose: () => void
+  /** 「学习设置」弹窗开关，由页头按钮控制 */
+  settingsOpen: boolean
+  onSettingsClose: () => void
+}
+
+/** 长难句的学习设置：只有「学习模式（语音 / 静音）」，与单词页共用同一偏好 */
+function SentenceSettingsModal({ voiceOn, onVoiceChange, onClose }: {
+  voiceOn: boolean
+  onVoiceChange: (on: boolean) => void
+  onClose: () => void
 }) {
-  if (!running && failures.length === 0) return null
   return (
-    <div className="space-y-2">
-      {running && (
-        <div className="bg-paper-50 rounded-card border border-ink-200 p-4 space-y-2">
-          <div className="flex items-center justify-between text-ui-sm">
-            <span className="text-ink-600">
-              批量补提中：已完成 {done} / {total} 篇
-            </span>
+    <ModalBackdrop onClose={onClose}>
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-bold text-ink-800">学习设置</h3>
+          <button onClick={onClose} className="p-1 text-ink-400 hover:text-ink-600 transition">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <label className="block text-ui-sm text-ink-600 mb-2">学习模式</label>
+        <div className="flex flex-wrap gap-2">
+          {VOICE_MODE_OPTIONS.map((o) => (
             <button
-              onClick={onStop}
-              className="flex items-center gap-1 px-ui-gap py-1 text-red-600 hover:bg-red-50 rounded-control transition"
+              key={o.label}
+              onClick={() => onVoiceChange(o.on)}
+              className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                voiceOn === o.on ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+              }`}
             >
-              <Square className="w-3.5 h-3.5" />
-              停止
+              {o.label}
             </button>
-          </div>
-          {title && <p className="text-ui-xs text-ink-400 truncate">正在处理：{title}</p>}
-          <div className="w-full h-2 bg-ink-100 rounded-full overflow-hidden">
-            <div
-              className="h-2 bg-seal-600 rounded-full transition-all"
-              style={{ width: `${total ? (done / total) * 100 : 0}%` }}
-            />
-          </div>
-          <p className="text-ui-xs text-ink-400">
-            逐篇串行调用后端（GitHub Actions），每篇完成后立即增量落盘；点「停止」不会丢失已完成的部分。
-          </p>
+          ))}
         </div>
-      )}
-      {!running && failures.length > 0 && (
-        <div className="bg-red-50 border border-red-100 rounded-card p-4">
-          <p className="text-ui-sm font-medium text-red-600 mb-1">以下文献补提失败（{failures.length} 篇）</p>
-          <ul className="space-y-0.5 max-h-44 overflow-y-auto">
-            {failures.map((f, i) => (
-              <li key={i} className="text-ui-xs text-red-500">{f}</li>
-            ))}
-          </ul>
+        <div className="flex justify-end pt-6">
+          <Button variant="primary" size="sm" onClick={onClose}>完成</Button>
         </div>
-      )}
-    </div>
+      </div>
+    </ModalBackdrop>
   )
 }
 
 function SentenceSection({
   sentences,
   setSentences,
-  literatures,
-}: {
-  sentences: SentenceData[]
-  setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>>
-  literatures: Literature[]
-}) {
+  view,
+  addModalOpen,
+  onAddModalClose,
+  settingsOpen,
+  onSettingsClose,
+}: SentenceSectionProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [showAddModal, setShowAddModal] = useState(false)
-  /** 长难句 tab 的视图：练习卡片 / 长难句列表（列表里可浏览、可删句） */
-  const [view, setView] = useState<'study' | 'list'>('study')
   /**
    * 长难句也有"语音 / 静音"两个模式，跟单词页共用同一个偏好
    * （settings/learning_progress.md 的 word_voice_enabled）。
@@ -3712,16 +3220,6 @@ function SentenceSection({
   const [voiceOn, setVoiceOn] = useState(false)
   /** 低分线（设置里的「翻译判分标准」）：低于它才弹学习卡片 */
   const lowScore = useSettingsStore((s) => s.translationLowScore ?? 70)
-
-  // 批量补提状态
-  const [batchRunning, setBatchRunning] = useState(false)
-  const [batchDone, setBatchDone] = useState(0)
-  const [batchTotal, setBatchTotal] = useState(0)
-  const [batchTitle, setBatchTitle] = useState('')
-  const [batchFailures, setBatchFailures] = useState<string[]>([])
-  const stopRef = useRef(false)
-  /** 正在跑的那一篇的取消句柄：点「停止」要能立刻断掉它，而不是等它跑完 */
-  const batchAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -3774,7 +3272,7 @@ function SentenceSection({
 
   const handleAddSentence = (sentence: SentenceData) => {
     setSentences((prev) => [...prev, sentence])
-    setShowAddModal(false)
+    onAddModalClose()
   }
 
   /**

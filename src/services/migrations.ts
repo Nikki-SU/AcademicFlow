@@ -44,6 +44,7 @@ import { splitMarkdownIntoParagraphs, alignParagraphs, alignedParagraphsToBlockD
 import { STAGE_META, CSV_HEADERS_V2, type PipelineStage } from '../stores/taskQueue'
 import { TRACKING_PLANS_PATH } from './trackingPlanData'
 import { loadLiteratures, saveLiteratures } from './literatureData'
+import { hasLearnBackfillWork, backfillLearnContent } from './learnBackfill'
 import { APP_VERSION } from '../constants/version'
 
 /**
@@ -448,6 +449,24 @@ const literatureAuthorsNormalize: Migration = {
     // 复用 saveLiteratures 写入漏斗：保留 Bot 写的状态字段 / 通讯 / 共一，并按 isSameDoi 去重
     await saveLiteratures(updated)
   },
+}
+
+/**
+ * 为历史文献自动补提学习内容（长难句 + 摘要翻译）。
+ * 旧实现是学习页里两个「批量补提历史文献」手动按钮；用户要求更新一并走版本更新管线、
+ * 不再让用户手动点。补提逻辑落在 services/learnBackfill.ts（与 learnGeneration 共用同一套 prompt / 解析）。
+ * 严格语义：AI / 双引擎未配置时 run() 抛可读错误 → 迁移失败 → 学习页被 MigrationLock 锁定并给「重试」，
+ * 配好 AI 后重试即续跑（已补提的文献按 sourceDoi 去重跳过）。
+ * `ledger: true`：版本号未知的老设备回退到逐条 detect() 时，记录本迁移已应用，避免重复探测。
+ */
+const learnBackfillV1: Migration = {
+  id: 'learn-backfill-v1',
+  affects: ['learn'],
+  since: 11,
+  label: '为历史文献自动补提长难句与摘要翻译',
+  ledger: true,
+  detect: () => hasLearnBackfillWork(),
+  run: (onProgress) => backfillLearnContent(onProgress),
 }
 
 // ============================================================
@@ -1033,6 +1052,7 @@ export const MIGRATIONS: Migration[] = [
   journalsIssnField,
   trackingPlanSemimonthly,
   literatureAuthorsNormalize,
+  learnBackfillV1,
 ]
 
 const APPLIED_MIGRATIONS_PATH = 'settings/applied-migrations.csv'
