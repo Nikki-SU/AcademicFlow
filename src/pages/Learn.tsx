@@ -18,17 +18,15 @@ import {
   MessageSquare,
   FileText,
   Loader2,
-  Square,
   Pencil,
-  History,
   AlertCircle,
   Search,
-  List,
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadWords, saveWords, loadSentences, saveSentences, loadTranslations, saveTranslations, loadAffixes, parseMorphemes, isValidMorphemeSplit, MORPHEME_TYPE_LABELS, missingWordFields, repairWordByRules, hasDuplicatedMeaningDef, WORD_CORE_FIELD_LABELS } from '../services/learningData'
 import { PAGE_SIZE, PaginationBar } from '../components/PaginationBar'
+import { SegmentedTabs } from '../components/ui/Tabs'
 import { useSettingsStore } from '../stores/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import type { WordData, WordStatus, SentenceData, TranslationData, TranslationDirection, AffixData, Morpheme } from '../services/learningData'
@@ -110,10 +108,10 @@ function availableTypes(selected: WordQuestionType[], voiceOn: boolean): WordQue
   return voiceOn ? selected : selected.filter((t) => !VOICE_ONLY_TYPES.includes(t))
 }
 
-const subTabs = [
-  { id: 'words' as TabId, label: '单词', icon: Brain },
-  { id: 'sentences' as TabId, label: '长难句', icon: Type },
-  { id: 'translation' as TabId, label: '翻译练习', icon: Languages },
+const subTabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
+  { id: 'words', label: '单词', icon: <Brain className="h-3.5 w-3.5" /> },
+  { id: 'sentences', label: '长难句', icon: <Type className="h-3.5 w-3.5" /> },
+  { id: 'translation', label: '翻译', icon: <Languages className="h-3.5 w-3.5" /> },
 ]
 
 const DEFAULT_WORDS: WordData[] = []
@@ -872,6 +870,12 @@ async function runBatchExtraction(
 export default function LearnPage() {
   const { repo } = useWorkspaceStore()
   const [activeTab, setActiveTab] = useState<TabId>('words')
+  /** 三个学习域的「学习 / 管理」视图 —— 上提到页头，由中部的页签统一切换 */
+  const [view, setView] = useState<'study' | 'list'>('study')
+  /** 页头「手动添加」：打开当前学习域的手动添加弹窗 */
+  const [addOpen, setAddOpen] = useState(false)
+  /** 页头「学习设置」：打开当前学习域的设置弹窗（翻译域没有本页设置，按钮隐藏） */
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [aiGenOpen, setAiGenOpen] = useState(false)
   const [selectedPaper, setSelectedPaper] = useState('')
   const [genTypes, setGenTypes] = useState({ words: true, sentences: true, translation: true })
@@ -1193,34 +1197,46 @@ export default function LearnPage() {
 
   return (
     <div className="page-container flex h-full flex-col py-ui-page">
-      <div className="mb-6 flex shrink-0 items-center justify-end">
-        <button
-          onClick={() => setAiGenOpen(true)}
-          className="flex items-center gap-2 px-ui-gap py-2 bg-gradient-to-r from-seal-600 to-purple-600 text-paper-50 rounded-control text-ui-sm font-medium hover:from-seal-700 hover:to-purple-700 transition shadow-sm"
-        >
-          <Sparkles className="w-4 h-4" />
-          AI 补充生成
-        </button>
-      </div>
-
-      <div className="mb-6 flex shrink-0 items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
-        {subTabs.map((tab) => {
-          const Icon = tab.icon
-          return (
+      {/* 页头一行：左＝学习域，中＝学习/管理，右＝操作 */}
+      <div className="mb-4 flex shrink-0 items-center gap-2">
+        <SegmentedTabs
+          items={subTabs}
+          value={activeTab}
+          onChange={(id) => { setActiveTab(id); setAddOpen(false); setSettingsOpen(false) }}
+        />
+        <SegmentedTabs
+          items={[
+            { id: 'study', label: '学习' },
+            { id: 'list', label: '管理' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() => setAiGenOpen(true)}
+            className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-2xs font-medium text-ink-600 transition hover:bg-paper-100"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            AI 生成
+          </button>
+          <button
+            onClick={() => setAddOpen(true)}
+            className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-2xs font-medium text-ink-600 transition hover:bg-paper-100"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            手动添加
+          </button>
+          {activeTab !== 'translation' && (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-ui-gap py-2 rounded-control-sm text-ui-sm font-medium transition ${
-                activeTab === tab.id
-                  ? 'bg-seal-50 text-seal-700'
-                  : 'text-ink-500 hover:text-ink-700'
-              }`}
+              onClick={() => setSettingsOpen(true)}
+              className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-2xs font-medium text-ink-600 transition hover:bg-paper-100"
             >
-              <Icon className="w-4 h-4" />
-              {tab.label}
+              <Settings className="h-3.5 w-3.5" />
+              学习设置
             </button>
-          )
-        })}
+          )}
+        </div>
       </div>
 
       {aiGenOpen && (
@@ -1230,9 +1246,6 @@ export default function LearnPage() {
               <Sparkles className="w-5 h-5 text-seal-600" />
               AI 补充生成学习内容
             </h3>
-            <p className="text-ui-sm text-ink-500 mb-4">
-              从选定文献的 Markdown 内容中自动提取并生成学习卡片
-            </p>
             <div className="space-y-4">
               <div>
                 <label className="text-ui-sm font-medium text-ink-700 mb-1.5 block">选择文献</label>
@@ -1296,17 +1309,44 @@ export default function LearnPage() {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* 主体：能一屏放下就不滚；必要的滚动用自然滚动且不露滚动条 */}
+      <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto">
         {activeTab === 'words' && (
           <WordSection
             words={words}
             setWords={setWords}
             studyStats={studyStats}
             onStudied={markStudied}
+            view={view}
+            addOpen={addOpen}
+            onOpenAdd={() => setAddOpen(true)}
+            onCloseAdd={() => setAddOpen(false)}
+            settingsOpen={settingsOpen}
+            onCloseSettings={() => setSettingsOpen(false)}
           />
         )}
-        {activeTab === 'sentences' && <SentenceSection sentences={sentences} setSentences={setSentences} literatures={literatures} />}
-        {activeTab === 'translation' && <TranslationSection translations={translations} setTranslations={setTranslations} literatures={literatures} />}
+        {activeTab === 'sentences' && (
+          <SentenceSection
+            sentences={sentences}
+            setSentences={setSentences}
+            view={view}
+            addOpen={addOpen}
+            onOpenAdd={() => setAddOpen(true)}
+            onCloseAdd={() => setAddOpen(false)}
+            settingsOpen={settingsOpen}
+            onCloseSettings={() => setSettingsOpen(false)}
+          />
+        )}
+        {activeTab === 'translation' && (
+          <TranslationSection
+            translations={translations}
+            setTranslations={setTranslations}
+            view={view}
+            addOpen={addOpen}
+            onOpenAdd={() => setAddOpen(true)}
+            onCloseAdd={() => setAddOpen(false)}
+          />
+        )}
       </div>
     </div>
   )
@@ -1425,11 +1465,207 @@ async function completeWordFieldsWithAI(
   return out
 }
 
-interface WordSectionProps {
+/**
+ * 单词「学习设置」弹窗。
+ * 从原先的内联设置面板搬进弹窗（页头「学习设置」按钮打开）；按 UX 规则删掉全部解释性文案。
+ */
+function WordSettingsModal({
+  settings,
+  setSettings,
+  onClose,
+}: {
+  settings: WordStudySettings
+  setSettings: React.Dispatch<React.SetStateAction<WordStudySettings>>
+  onClose: () => void
+}) {
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div className="p-5">
+        <h3 className="mb-4 text-ui-sm font-medium text-ink-800">学习设置</h3>
+        <div className="space-y-5">
+          <div>
+            <label className="mb-2 block text-ui-sm text-ink-600">每组词数</label>
+            <div className="flex gap-2">
+              {[5, 7, 9].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setSettings((p) => ({ ...p, queueLength: n }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.queueLength === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {n} 个/组
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-ui-sm text-ink-600">每日目标</label>
+            <div className="flex gap-2">
+              {DAILY_GOAL_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setSettings((p) => ({ ...p, dailyGoal: n }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.dailyGoal === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {n} 词/天
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-ui-sm text-ink-600">题型选择</label>
+            <div className="flex flex-wrap gap-2">
+              {WORD_QUESTION_TYPES.map((t) => {
+                const Icon = t.icon
+                const checked = settings.questionTypes.includes(t.key)
+                // 听音类题型在静音模式下用不了：灰掉但保留勾选，切回语音模式即恢复
+                const needsVoice = !settings.voiceEnabled && VOICE_ONLY_TYPES.includes(t.key)
+                return (
+                  <label
+                    key={t.key}
+                    className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control border text-ui-sm transition ${
+                      needsVoice
+                        ? 'bg-paper-100 border-ink-200 text-ink-300 cursor-not-allowed'
+                        : checked
+                          ? 'bg-seal-50 border-seal-300 text-seal-700 cursor-pointer'
+                          : 'bg-paper-100 border-ink-200 text-ink-500 cursor-pointer'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-seal-600"
+                      disabled={needsVoice}
+                      checked={checked}
+                      onChange={(e) => {
+                        setSettings((p) => {
+                          const exists = p.questionTypes.includes(t.key)
+                          if (e.target.checked && !exists) return { ...p, questionTypes: [...p.questionTypes, t.key] }
+                          if (!exists) return p
+                          const next = p.questionTypes.filter((k) => k !== t.key)
+                          return { ...p, questionTypes: next.length ? next : ['en_select_cn'] }
+                        })
+                      }}
+                    />
+                    <Icon className="w-3.5 h-3.5" />
+                    {t.label}
+                    {needsVoice && <span className="text-ui-2xs">需语音</span>}
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-ui-sm text-ink-600">掌握条件</label>
+            <div className="flex gap-2">
+              {MASTER_ROUND_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setSettings((p) => ({ ...p, masterRounds: n }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.masterRounds === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {n} 轮
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-ui-sm text-ink-600">学习模式</label>
+            <div className="flex flex-wrap gap-2">
+              {VOICE_MODE_OPTIONS.map((o) => (
+                <button
+                  key={o.label}
+                  onClick={() => setSettings((p) => ({ ...p, voiceEnabled: o.on }))}
+                  className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                    settings.voiceEnabled === o.on ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-ui-sm text-ink-600 cursor-pointer">
+            <input
+              type="checkbox"
+              className="accent-seal-600"
+              checked={settings.allowZhan}
+              onChange={(e) => setSettings((p) => ({ ...p, allowZhan: e.target.checked }))}
+            />
+            允许斩词
+          </label>
+        </div>
+      </div>
+    </ModalBackdrop>
+  )
+}
+
+/**
+ * 长难句「学习设置」：只有「语音 / 静音」一项。
+ * 跟单词页共用同一个偏好（settings/learning_progress.md 的 word_voice_enabled）——
+ * 语音模式下换句自动朗读英文原句，静音模式不出声。
+ */
+function SentenceSettingsModal({
+  voiceOn,
+  onChange,
+  onClose,
+}: {
+  voiceOn: boolean
+  onChange: (on: boolean) => void
+  onClose: () => void
+}) {
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div className="p-5">
+        <h3 className="mb-4 text-ui-sm font-medium text-ink-800">学习设置</h3>
+        <div>
+          <label className="mb-2 block text-ui-sm text-ink-600">学习模式</label>
+          <div className="flex flex-wrap gap-2">
+            {VOICE_MODE_OPTIONS.map((o) => (
+              <button
+                key={o.label}
+                onClick={() => onChange(o.on)}
+                className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
+                  voiceOn === o.on ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </ModalBackdrop>
+  )
+}
+
+/** 页头上提的「学习 / 管理」视图与「手动添加」弹窗控制 —— 三个学习域共用 */
+interface StudyViewControls {
+  /** 学习（练习）/ 管理（列表）视图 */
+  view: 'study' | 'list'
+  /** 「手动添加」弹窗是否打开 */
+  addOpen: boolean
+  onOpenAdd: () => void
+  onCloseAdd: () => void
+}
+
+interface WordSectionProps extends StudyViewControls {
   words: WordData[]
   setWords: React.Dispatch<React.SetStateAction<WordData[]>>
   studyStats: StudyStats
   onStudied: (wordId: string) => void
+  /** 「学习设置」弹窗是否打开 */
+  settingsOpen: boolean
+  onCloseSettings: () => void
 }
 
 /** 单词学习设置（对齐 CAT：队列长度 / 题型多选 / 掌握所需轮数 / 斩词 / 发音） */
@@ -1978,14 +2214,21 @@ function TranslationListView({ translations, setTranslations }: {
   )
 }
 
-function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProps) {
+function WordSection({
+  words,
+  setWords,
+  studyStats,
+  onStudied,
+  view,
+  addOpen,
+  onOpenAdd,
+  onCloseAdd,
+  settingsOpen,
+  onCloseSettings,
+}: WordSectionProps) {
   const [settings, setSettings] = useState<WordStudySettings>(DEFAULT_WORD_SETTINGS)
   /** 设置是否已从私库读回来 —— 读完之前不许回写，免得用默认值盖掉用户的偏好 */
   const [settingsLoaded, setSettingsLoaded] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showAddModal, setShowAddModal] = useState(false)
-  /** 单词 tab 的视图：学习首页 / 单词列表（列表里可浏览、可删词） */
-  const [view, setView] = useState<'study' | 'list'>('study')
   /** 「一键修复」进行中 —— 防连点；AI 补全那步会慢 */
   const [repairing, setRepairing] = useState(false)
   /** AI-1 是否已配置：语义字段（释义/定义/例句译文）只有 AI 能补，没配就明说 */
@@ -2524,7 +2767,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
 
   const handleAddWord = (word: WordData) => {
     setWords((prev) => [...prev, word])
-    setShowAddModal(false)
+    onCloseAdd()
   }
 
   // ── 空状态 ──
@@ -2534,12 +2777,13 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         <Brain className="w-16 h-16 text-ink-300 mx-auto mb-4" />
         <p className="text-ink-500 mb-4">还没有单词，快来添加吧！</p>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={onOpenAdd}
           className="px-ui-gap py-2 bg-seal-600 text-paper-50 rounded-control text-ui-sm font-medium hover:bg-seal-700 transition"
         >
           添加单词
         </button>
-        {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
+        {addOpen && <AddWordModal onClose={onCloseAdd} onAdd={handleAddWord} />}
+        {settingsOpen && <WordSettingsModal settings={settings} setSettings={setSettings} onClose={onCloseSettings} />}
       </div>
     )
   }
@@ -2942,27 +3186,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
   ]
 
   return (
-    <div className="space-y-4">
-      {/* 视图切换：学习首页 / 单词列表（列表里能浏览并删掉过去的词） */}
-      <div className="flex items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
-        <button
-          onClick={() => setView('study')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'study' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <GraduationCap className="w-4 h-4" /> 学习
-        </button>
-        <button
-          onClick={() => setView('list')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'list' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <List className="w-4 h-4" /> 单词列表
-        </button>
-      </div>
-
+    <div className="flex h-full flex-col space-y-4">
       {view === 'list' ? (
         <WordListView words={words} setWords={setWords} />
       ) : (
@@ -3024,174 +3248,7 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         </div>
       )}
 
-      {/* 设置面板 */}
-      <div className="bg-paper-50 rounded-card border border-ink-200 p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-ui-sm font-medium text-ink-800">学习设置</h3>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-1 text-ui-sm text-seal-600 hover:bg-seal-50 px-2.5 py-1 rounded-control transition"
-            >
-              <Plus className="w-4 h-4" /> 添加单词
-            </button>
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="flex items-center gap-1 text-ui-sm text-ink-500 hover:text-ink-700 px-2.5 py-1 rounded-control hover:bg-ink-100 transition"
-            >
-              <Settings className="w-4 h-4" />
-              {showSettings ? '收起' : '展开'}
-            </button>
-          </div>
-        </div>
-
-        {showSettings && (
-          <div className="mt-4 space-y-5">
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-1">每组词数</label>
-              <p className="text-ui-xs text-ink-400 mb-2">
-                一次学一组，不是每日上限。组内按下面的题型顺序分轮过完，才会换下一组（A-D 全部过完，才轮到 E-H）。
-              </p>
-              <div className="flex gap-2">
-                {[5, 7, 9].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setSettings((p) => ({ ...p, queueLength: n }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.queueLength === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {n} 个/组
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-1">每日目标</label>
-              <p className="text-ui-xs text-ink-400 mb-2">
-                学满这个词数就收尾（一组接一组自动往下学，不会中途停下来问你），当天不再自动续组；
-                想多学可以自己在完成页点「再来一组」。
-              </p>
-              <div className="flex gap-2">
-                {DAILY_GOAL_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setSettings((p) => ({ ...p, dailyGoal: n }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.dailyGoal === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {n} 词/天
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-2">题型选择（按勾选顺序分轮出题，答错就地重做这道题）</label>
-              <div className="flex flex-wrap gap-2">
-                {WORD_QUESTION_TYPES.map((t) => {
-                  const Icon = t.icon
-                  const checked = settings.questionTypes.includes(t.key)
-                  // 听音类题型在静音模式下用不了：灰掉但保留勾选，切回语音模式即恢复
-                  const needsVoice = !settings.voiceEnabled && VOICE_ONLY_TYPES.includes(t.key)
-                  return (
-                    <label
-                      key={t.key}
-                      className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control border text-ui-sm transition ${
-                        needsVoice
-                          ? 'bg-paper-100 border-ink-200 text-ink-300 cursor-not-allowed'
-                          : checked
-                            ? 'bg-seal-50 border-seal-300 text-seal-700 cursor-pointer'
-                            : 'bg-paper-100 border-ink-200 text-ink-500 cursor-pointer'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="accent-seal-600"
-                        disabled={needsVoice}
-                        checked={checked}
-                        onChange={(e) => {
-                          setSettings((p) => {
-                            const exists = p.questionTypes.includes(t.key)
-                            if (e.target.checked && !exists) return { ...p, questionTypes: [...p.questionTypes, t.key] }
-                            if (!exists) return p
-                            const next = p.questionTypes.filter((k) => k !== t.key)
-                            return { ...p, questionTypes: next.length ? next : ['en_select_cn'] }
-                          })
-                        }}
-                      />
-                      <Icon className="w-3.5 h-3.5" />
-                      {t.label}
-                      {needsVoice && <span className="text-ui-2xs">需语音</span>}
-                    </label>
-                  )
-                })}
-              </div>
-              <p className="text-ui-xs text-ink-400 mt-1.5">
-                定义/例句类题型需要单词含有 definition_cn 或原文例句，缺字段的词会自动跳过该轮；
-                拼写题按词根词缀切块，切不出来的词退化成逐字母拼写
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-2">掌握条件（走满多少轮算掌握）</label>
-              <div className="flex gap-2">
-                {MASTER_ROUND_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setSettings((p) => ({ ...p, masterRounds: n }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.masterRounds === n ? 'bg-seal-600 text-paper-50' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {n} 轮
-                  </button>
-                ))}
-              </div>
-              <p className="text-ui-xs text-ink-400 mt-1.5">
-                一轮 = 把选中的题型各答对一遍；答错会立刻重做这道题，不计入下一轮
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-ui-sm text-ink-600 mb-2">学习模式</label>
-              <div className="flex flex-wrap gap-2">
-                {VOICE_MODE_OPTIONS.map((o) => (
-                  <button
-                    key={o.label}
-                    onClick={() => setSettings((p) => ({ ...p, voiceEnabled: o.on }))}
-                    className={`px-ui-gap py-1.5 rounded-control text-ui-sm transition ${
-                      settings.voiceEnabled === o.on
-                        ? 'bg-seal-600 text-paper-50'
-                        : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                    }`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-ui-xs text-ink-400 mt-1.5">
-                {VOICE_MODE_OPTIONS.find((o) => o.on === settings.voiceEnabled)?.hint}
-                ；语音模式下答完题展开单词卡会先读单词、停顿后再读例句
-              </p>
-            </div>
-
-            <div className="flex items-center gap-6 pt-1">
-              <label className="flex items-center gap-2 text-ui-sm text-ink-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="accent-seal-600"
-                  checked={settings.allowZhan}
-                  onChange={(e) => setSettings((p) => ({ ...p, allowZhan: e.target.checked }))}
-                />
-                允许斩词
-              </label>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* 设置面板已改为页头「学习设置」按钮打开的弹窗（WordSettingsModal） */}
 
       {/* 开始按钮 */}
       <div className="flex gap-4">
@@ -3217,9 +3274,11 @@ function WordSection({ words, setWords, studyStats, onStudied }: WordSectionProp
         </button>
       </div>
 
-      {showAddModal && <AddWordModal onClose={() => setShowAddModal(false)} onAdd={handleAddWord} />}
+      {addOpen && <AddWordModal onClose={onCloseAdd} onAdd={handleAddWord} />}
         </>
       )}
+
+      {settingsOpen && <WordSettingsModal settings={settings} setSettings={setSettings} onClose={onCloseSettings} />}
     </div>
   )
 }
@@ -3632,78 +3691,21 @@ function PracticePanel({
   )
 }
 
-/** 批量补提的进度 / 失败汇总面板（长难句 / 翻译练习共用） */
-function BatchProgressPanel({
-  running,
-  done,
-  total,
-  title,
-  failures,
-  onStop,
-}: {
-  running: boolean
-  done: number
-  total: number
-  title: string
-  failures: string[]
-  onStop: () => void
-}) {
-  if (!running && failures.length === 0) return null
-  return (
-    <div className="space-y-2">
-      {running && (
-        <div className="bg-paper-50 rounded-card border border-ink-200 p-4 space-y-2">
-          <div className="flex items-center justify-between text-ui-sm">
-            <span className="text-ink-600">
-              批量补提中：已完成 {done} / {total} 篇
-            </span>
-            <button
-              onClick={onStop}
-              className="flex items-center gap-1 px-ui-gap py-1 text-red-600 hover:bg-red-50 rounded-control transition"
-            >
-              <Square className="w-3.5 h-3.5" />
-              停止
-            </button>
-          </div>
-          {title && <p className="text-ui-xs text-ink-400 truncate">正在处理：{title}</p>}
-          <div className="w-full h-2 bg-ink-100 rounded-full overflow-hidden">
-            <div
-              className="h-2 bg-seal-600 rounded-full transition-all"
-              style={{ width: `${total ? (done / total) * 100 : 0}%` }}
-            />
-          </div>
-          <p className="text-ui-xs text-ink-400">
-            逐篇串行调用后端（GitHub Actions），每篇完成后立即增量落盘；点「停止」不会丢失已完成的部分。
-          </p>
-        </div>
-      )}
-      {!running && failures.length > 0 && (
-        <div className="bg-red-50 border border-red-100 rounded-card p-4">
-          <p className="text-ui-sm font-medium text-red-600 mb-1">以下文献补提失败（{failures.length} 篇）</p>
-          <ul className="space-y-0.5 max-h-44 overflow-y-auto">
-            {failures.map((f, i) => (
-              <li key={i} className="text-ui-xs text-red-500">{f}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function SentenceSection({
   sentences,
   setSentences,
-  literatures,
-}: {
+  view,
+  addOpen,
+  onCloseAdd,
+  settingsOpen,
+  onCloseSettings,
+}: StudyViewControls & {
   sentences: SentenceData[]
   setSentences: React.Dispatch<React.SetStateAction<SentenceData[]>>
-  literatures: Literature[]
+  settingsOpen: boolean
+  onCloseSettings: () => void
 }) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [showAddModal, setShowAddModal] = useState(false)
-  /** 长难句 tab 的视图：练习卡片 / 长难句列表（列表里可浏览、可删句） */
-  const [view, setView] = useState<'study' | 'list'>('study')
   /**
    * 长难句也有"语音 / 静音"两个模式，跟单词页共用同一个偏好
    * （settings/learning_progress.md 的 word_voice_enabled）。
@@ -3712,16 +3714,6 @@ function SentenceSection({
   const [voiceOn, setVoiceOn] = useState(false)
   /** 低分线（设置里的「翻译判分标准」）：低于它才弹学习卡片 */
   const lowScore = useSettingsStore((s) => s.translationLowScore ?? 70)
-
-  // 批量补提状态
-  const [batchRunning, setBatchRunning] = useState(false)
-  const [batchDone, setBatchDone] = useState(0)
-  const [batchTotal, setBatchTotal] = useState(0)
-  const [batchTitle, setBatchTitle] = useState('')
-  const [batchFailures, setBatchFailures] = useState<string[]>([])
-  const stopRef = useRef(false)
-  /** 正在跑的那一篇的取消句柄：点「停止」要能立刻断掉它，而不是等它跑完 */
-  const batchAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -3774,191 +3766,28 @@ function SentenceSection({
 
   const handleAddSentence = (sentence: SentenceData) => {
     setSentences((prev) => [...prev, sentence])
-    setShowAddModal(false)
+    onCloseAdd()
   }
 
   /**
-   * 历史批量补提：只处理「已转换出 md」且尚未提取过长难句的文献。
-   * 串行逐篇 loadAiSourceText → runDualEngine 提取，每篇完成立刻增量落盘。
+   * 历史存量长难句补提已改由**版本更新管线**自动执行（migrations.ts 的 learnAutoBackfill，
+   * since=11）：升级数据版本即自动补提，无需用户手动点按钮。
    */
-  const handleBatchBackfill = async () => {
-    if (batchRunning) return
-    const existing = new Set(sentences.map((s) => s.sourceDoi).filter(Boolean))
-    const candidates = literatures.filter((l) => l.mdStatus === 'done' && !existing.has(l.doi))
-    if (candidates.length === 0) {
-      toast.info('没有需要补提的文献（仅处理已转换出 md 且尚未提取过的文献）')
-      return
-    }
-    const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
-    const sentenceCount = useSettingsStore.getState().sentenceGenCount || 8
-    const instruction = buildLearningInstruction(
-      { words: false, sentences: true, translation: false, wordCount: 0, sentenceCount },
-      { en: '', cn: '' },
-    )
-
-    stopRef.current = false
-    setBatchRunning(true)
-    setBatchFailures([])
-    setBatchDone(0)
-    setBatchTotal(candidates.length)
-    setBatchTitle('')
-
-    const failures: string[] = []
-    let addedTotal = 0
-    const res = await runBatchExtraction(
-      candidates,
-      async (lit) => {
-        const sourceMaterial = await loadAiSourceText(lit.doi)
-        if (!sourceMaterial.trim()) {
-          return { ok: false, reason: '未读到 md 正文（loadAiSourceText 为空）' }
-        }
-        // 这一篇的取消句柄：点「停止」立刻断掉正在跑的这篇，而不是等它跑完
-        const controller = new AbortController()
-        batchAbortRef.current = controller
-        const result = await runDualEngine({
-          taskType: 'faithfulness_check',
-          sourceMaterial,
-          ai1Instruction: instruction,
-          ai1,
-          ai2,
-          signal: controller.signal,
-        })
-        batchAbortRef.current = null
-        const parsed = parseLearningJSON(result.ai1Output || '')
-        const now = Date.now()
-        const newItems: SentenceData[] = parsed.sentences
-          .filter((s) => (s.sentenceEn || '').trim())
-          .slice(0, sentenceCount)
-          .map((s, i) => ({
-            id: `ai_${now}_${i}_${Math.random().toString(36).slice(2, 6)}`,
-            sentenceEn: s.sentenceEn || '',
-            sentenceCn: s.sentenceCn || '',
-            aiReferenceCn: s.aiReferenceCn || '',
-            sourceDoi: lit.doi,
-            status: 'new',
-            addedAt: now,
-            lastReview: 0,
-            reviewCount: 0,
-            sm2Interval: 1,
-            sm2Ease: 2.5,
-            scoringPoints: toStringArray(s.scoring_points),
-            difficultyNote: (s.difficulty_note || '').trim() || undefined,
-            latestUserTranslation: '',
-            latestAiFeedback: '',
-            latestErrorWords: '',
-            practiceCount: 0,
-            lastPractice: 0,
-          }))
-        if (newItems.length === 0) {
-          // AI 没给出可用长难句：记为失败，绝不误报"已完成"
-          return { ok: false, reason: 'AI 未返回可用长难句' }
-        }
-        // 增量落盘：追加进 state，父组件的防抖副作用会写回 CSV
-        setSentences((prev) => [...prev, ...newItems])
-        existing.add(lit.doi)
-        addedTotal += newItems.length
-        return { ok: true }
-      },
-      {
-        onProgress: (done, total, title) => {
-          setBatchDone(done)
-          setBatchTotal(total)
-          if (title) setBatchTitle(title)
-        },
-        shouldStop: () => stopRef.current,
-        onFailure: (title, reason) => failures.push(`${title}：${reason}`),
-      },
-    )
-
-    setBatchTitle('')
-    setBatchFailures([...failures])
-    setBatchRunning(false)
-
-    if (!res.stopped && failures.length > 0) {
-      toast.warning(`补提完成（新增 ${addedTotal} 条长难句），${failures.length} 篇失败，详见下方清单`)
-    }
-  }
 
   return (
-    <div className="space-y-4">
-      {/* 视图切换：练习卡片 / 长难句列表（列表里能浏览并删掉不要的句子） */}
-      <div className="flex items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
-        <button
-          onClick={() => setView('study')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'study' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <GraduationCap className="w-4 h-4" /> 练习
-        </button>
-        <button
-          onClick={() => setView('list')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'list' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <List className="w-4 h-4" /> 长难句列表
-        </button>
-      </div>
-
+    <div className="flex h-full flex-col space-y-4">
       {view === 'list' ? (
         <SentenceListView sentences={sentences} setSentences={setSentences} />
       ) : (
       <>
-      <div className="flex flex-wrap justify-between items-center gap-3">
-        <div className="flex items-center gap-3">
-          <div className="text-ui-sm text-ink-500">
-            进度：{sentences.length > 0 ? `${safeIndex + 1} / ${sentences.length}` : '0 / 0'}
-          </div>
-          {/* 长难句的两个模式：开语音时换句自动朗读英文原句 */}
-          <div className="flex items-center gap-1 bg-paper-50 border border-ink-200 rounded-control p-0.5">
-            {VOICE_MODE_OPTIONS.map((o) => (
-              <button
-                key={o.label}
-                onClick={() => { setVoiceOn(o.on); updateProgress({ wordVoiceEnabled: o.on }) }}
-                className={`px-2.5 py-1 rounded-control-sm text-ui-xs font-medium transition ${
-                  voiceOn === o.on ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleBatchBackfill}
-            disabled={batchRunning}
-            className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm text-seal-600 hover:bg-seal-50 rounded-control transition disabled:opacity-50"
-          >
-            <History className="w-4 h-4" />
-            批量补提历史文献
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm text-seal-600 hover:bg-seal-50 rounded-control transition"
-          >
-            <Plus className="w-4 h-4" />
-            手动添加
-          </button>
-        </div>
+      <div className="text-ui-sm text-ink-500">
+        进度：{sentences.length > 0 ? `${safeIndex + 1} / ${sentences.length}` : '0 / 0'}
       </div>
-
-      <BatchProgressPanel
-        running={batchRunning}
-        done={batchDone}
-        total={batchTotal}
-        title={batchTitle}
-        failures={batchFailures}
-        onStop={() => { stopRef.current = true; batchAbortRef.current?.abort() }}
-      />
 
       {sentences.length === 0 || !currentSentence ? (
         <div className="text-center py-16">
           <Type className="w-16 h-16 text-ink-300 mx-auto mb-4" />
-          <p className="text-ink-500 mb-4">
-            还没有长难句。可点上方「批量补提历史文献」（仅对有 md 的文献生效），或手动添加。
-          </p>
+          <p className="text-ink-500">还没有长难句，可在页头「手动添加」。</p>
         </div>
       ) : (
         <>
@@ -4004,7 +3833,14 @@ function SentenceSection({
         </>
       )}
 
-      {showAddModal && <AddSentenceModal onClose={() => setShowAddModal(false)} onAdd={handleAddSentence} />}
+      {addOpen && <AddSentenceModal onClose={onCloseAdd} onAdd={handleAddSentence} />}
+      {settingsOpen && (
+        <SentenceSettingsModal
+          voiceOn={voiceOn}
+          onChange={(on) => { setVoiceOn(on); updateProgress({ wordVoiceEnabled: on }) }}
+          onClose={onCloseSettings}
+        />
+      )}
       </>
       )}
     </div>
@@ -4014,28 +3850,16 @@ function SentenceSection({
 function TranslationSection({
   translations,
   setTranslations,
-  literatures,
-}: {
+  view,
+  addOpen,
+  onCloseAdd,
+}: StudyViewControls & {
   translations: TranslationData[]
   setTranslations: React.Dispatch<React.SetStateAction<TranslationData[]>>
-  literatures: Literature[]
 }) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [showAddModal, setShowAddModal] = useState(false)
-  /** 翻译 tab 的视图：练习卡片 / 翻译练习列表（列表里可浏览、可删题） */
-  const [view, setView] = useState<'study' | 'list'>('study')
   /** 低分线（设置里的「翻译判分标准」）：低于它才弹学习卡片 */
   const lowScore = useSettingsStore((s) => s.translationLowScore ?? 70)
-
-  // 批量补提状态
-  const [batchRunning, setBatchRunning] = useState(false)
-  const [batchDone, setBatchDone] = useState(0)
-  const [batchTotal, setBatchTotal] = useState(0)
-  const [batchTitle, setBatchTitle] = useState('')
-  const [batchFailures, setBatchFailures] = useState<string[]>([])
-  const stopRef = useRef(false)
-  /** 正在跑的那一篇的取消句柄：点「停止」要能立刻断掉它，而不是等它跑完 */
-  const batchAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -4075,165 +3899,30 @@ function TranslationSection({
 
   const handleAddTranslation = (item: TranslationData) => {
     setTranslations((prev) => [...prev, item])
-    setShowAddModal(false)
+    onCloseAdd()
   }
 
   /**
-   * 历史批量补提（摘要翻译）：处理所有有摘要（至少英/中一边非空）且尚未出过题的文献。
-   * 不需要 md —— 题面与参考答案直接来自文献元数据。
+   * 历史存量翻译题补提已改由**版本更新管线**自动执行（migrations.ts 的 learnAutoBackfill，
+   * since=11）：升级数据版本即自动补齐，无需用户手动点按钮。
    */
-  const handleBatchBackfill = async () => {
-    if (batchRunning) return
-    const existing = new Set(translations.map((t) => t.sourceDoi).filter(Boolean))
-    const candidates = literatures.filter(
-      (l) => (((l.abstractEn || '').trim() || (l.abstractCn || '').trim()) && !existing.has(l.doi)),
-    )
-    if (candidates.length === 0) {
-      toast.info('没有需要补提的文献（需要有摘要且尚未出过题）')
-      return
-    }
-    const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
-
-    stopRef.current = false
-    setBatchRunning(true)
-    setBatchFailures([])
-    setBatchDone(0)
-    setBatchTotal(candidates.length)
-    setBatchTitle('')
-
-    const failures: string[] = []
-    let addedTotal = 0
-    const res = await runBatchExtraction(
-      candidates,
-      async (lit) => {
-        const en = (lit.abstractEn || '').trim()
-        const cn = (lit.abstractCn || '').trim()
-        if (!en && !cn) {
-          return { ok: false, reason: '该文献没有摘要，无法出题' }
-        }
-        const sourceMaterial = [`【英文摘要】${en}`, `【中文摘要】${cn}`].join('\n\n')
-        const instruction = buildLearningInstruction(
-          { words: false, sentences: false, translation: true, wordCount: 0, sentenceCount: 0 },
-          { en, cn },
-        )
-        // 这一篇的取消句柄：点「停止」立刻断掉正在跑的这篇，而不是等它跑完
-        const controller = new AbortController()
-        batchAbortRef.current = controller
-        const result = await runDualEngine({
-          taskType: 'faithfulness_check',
-          sourceMaterial,
-          ai1Instruction: instruction,
-          ai1,
-          ai2,
-          signal: controller.signal,
-        })
-        batchAbortRef.current = null
-        const parsed = parseLearningJSON(result.ai1Output || '')
-        const pointsByDirection: Partial<Record<TranslationDirection, string[]>> = {}
-        const referenceOverride: Partial<Record<TranslationDirection, string>> = {}
-        for (const t of parsed.translations) {
-          const dir: TranslationDirection | null =
-            t.direction === 'cn2en' ? 'cn2en' : t.direction === 'en2cn' ? 'en2cn' : null
-          if (dir) pointsByDirection[dir] = toStringArray(t.scoring_points)
-          const ref = (t.reference_translation || '').trim()
-          if (dir && ref) referenceOverride[dir] = ref
-        }
-        // 题面/参考答案由元数据注入（缺一边时用 AI 补的参考译文）
-        const items = buildTranslationItems(lit, pointsByDirection, Date.now(), `ai_${lit.doi}_`, referenceOverride)
-        if (items.length === 0) {
-          return { ok: false, reason: '未能生成任何翻译题' }
-        }
-        setTranslations((prev) => [...prev, ...items])
-        existing.add(lit.doi)
-        addedTotal += items.length
-        return { ok: true }
-      },
-      {
-        onProgress: (done, total, title) => {
-          setBatchDone(done)
-          setBatchTotal(total)
-          if (title) setBatchTitle(title)
-        },
-        shouldStop: () => stopRef.current,
-        onFailure: (title, reason) => failures.push(`${title}：${reason}`),
-      },
-    )
-
-    setBatchTitle('')
-    setBatchFailures([...failures])
-    setBatchRunning(false)
-
-    if (!res.stopped && failures.length > 0) {
-      toast.warning(`补提完成（新增 ${addedTotal} 条翻译题），${failures.length} 篇失败，详见下方清单`)
-    }
-  }
 
   const directionLabel = directionLabelOf(currentItem?.direction)
 
   return (
     <div className="space-y-4">
-      {/* 视图切换：练习卡片 / 翻译练习列表（列表里能浏览并删掉不要的题） */}
-      <div className="flex items-center gap-1 bg-paper-50 rounded-control border border-ink-200 p-1 w-fit">
-        <button
-          onClick={() => setView('study')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'study' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <GraduationCap className="w-4 h-4" /> 练习
-        </button>
-        <button
-          onClick={() => setView('list')}
-          className={`flex items-center gap-1.5 px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
-            view === 'list' ? 'bg-seal-50 text-seal-700' : 'text-ink-500 hover:text-ink-700'
-          }`}
-        >
-          <List className="w-4 h-4" /> 翻译练习列表
-        </button>
-      </div>
-
       {view === 'list' ? (
         <TranslationListView translations={translations} setTranslations={setTranslations} />
       ) : (
       <>
-      <div className="flex flex-wrap justify-between items-center gap-3">
-        <div className="text-ui-sm text-ink-500">
-          进度：{translations.length > 0 ? `${safeIndex + 1} / ${translations.length}` : '0 / 0'}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleBatchBackfill}
-            disabled={batchRunning}
-            className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm text-seal-600 hover:bg-seal-50 rounded-control transition disabled:opacity-50"
-          >
-            <History className="w-4 h-4" />
-            批量补提历史文献
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm text-seal-600 hover:bg-seal-50 rounded-control transition"
-          >
-            <Plus className="w-4 h-4" />
-            手动添加
-          </button>
-        </div>
+      <div className="text-ui-sm text-ink-500">
+        进度：{translations.length > 0 ? `${safeIndex + 1} / ${translations.length}` : '0 / 0'}
       </div>
-
-      <BatchProgressPanel
-        running={batchRunning}
-        done={batchDone}
-        total={batchTotal}
-        title={batchTitle}
-        failures={batchFailures}
-        onStop={() => { stopRef.current = true; batchAbortRef.current?.abort() }}
-      />
 
       {translations.length === 0 || !currentItem ? (
         <div className="text-center py-16">
           <Languages className="w-16 h-16 text-ink-300 mx-auto mb-4" />
-          <p className="text-ink-500 mb-4">
-            还没有翻译练习。可点上方「批量补提历史文献」（只需文献有摘要，不需要 md），或手动添加。
-          </p>
+          <p className="text-ink-500">还没有翻译练习，可在页头「手动添加」，或点「AI 生成」按文献摘要出题。</p>
         </div>
       ) : (
         <>
@@ -4278,7 +3967,7 @@ function TranslationSection({
         </>
       )}
 
-      {showAddModal && <AddTranslationModal onClose={() => setShowAddModal(false)} onAdd={handleAddTranslation} />}
+      {addOpen && <AddTranslationModal onClose={onCloseAdd} onAdd={handleAddTranslation} />}
       </>
       )}
     </div>
