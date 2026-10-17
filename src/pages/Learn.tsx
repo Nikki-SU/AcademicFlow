@@ -143,13 +143,15 @@ function getTodayString(): string {
  * 这样历史词即使一导入就落进复习模式，第一次看到的仍是中文。
  *
  * 只用 definitionCn / definitionEn —— 它们是"定义"，不能用 meaning（中文释义短词）顶替。
+ * **不做跨语言回退**：第二轮起的题面/选项必须是英文定义，缺 definitionEn 就不出这道题
+ * （交给「一键修复」补），否则会出现"英文定义题里混进中文选项"，看语言就能选出答案。
  */
 function wordDefinition(w: WordData): string {
-  if (w.reviewCount > 0) return w.definitionEn || w.definitionCn || ''
-  return w.definitionCn || ''
+  if (w.reviewCount > 0) return w.definitionEn
+  return w.definitionCn
 }
 
-/** 定义题当前该用哪一侧定义 —— 与 wordDefinition 的分支保持一致（首轮中文，之后英文） */
+/** 定义题当前该用哪一侧定义 —— 与 wordDefinition 的分支严格一致（首轮中文，之后英文） */
 function definitionSide(w: WordData): 'cn' | 'en' {
   return w.reviewCount > 0 ? 'en' : 'cn'
 }
@@ -250,6 +252,7 @@ function buildBlockPool(
   word: WordData,
   pool: WordData[],
   affixes: AffixData[],
+  fallbackPool: WordData[] = [],
 ): string[] {
   const used = new Set(answerBlocks.map((b) => b.toLowerCase()))
   const letters = new Set(word.word.toLowerCase().split(''))
@@ -260,8 +263,17 @@ function buildBlockPool(
     distractors.push(t)
   }
 
-  for (const w of shuffleArray(pool.filter((x) => x.id !== word.id))) {
-    if (isValidMorphemeSplit(w.word, w.morphemes)) w.morphemes.forEach((m) => push(m.text))
+  const seenIds = new Set<string>([word.id])
+  outer: for (const tier of [pool, fallbackPool]) {
+    for (const w of shuffleArray(tier)) {
+      if (seenIds.has(w.id)) continue
+      seenIds.add(w.id)
+      if (!isValidMorphemeSplit(w.word, w.morphemes)) continue
+      for (const m of w.morphemes) {
+        push(m.text)
+        if (distractors.length >= 6) break outer
+      }
+    }
   }
   for (const a of shuffleArray(affixes)) push(a.affix)
 
@@ -276,8 +288,11 @@ function buildBlockPool(
 }
 
 /**
- * 生成一道四选一题：1 个正确项 + 最多 3 个干扰项（从同轮可答词池中取，去重去重）。
- * 词池不足时降级为 2~3 个选项。
+ * 生成一道四选一题：1 个正确项 + 最多 3 个干扰项。
+ *
+ * 干扰项来源分两层：**同组词优先**（同批入库、难度相近，干扰性最好），
+ * 组内不够 3 个再从 `fallbackPool`（全库其它词）补位 —— 半组只剩 1~2 个词、
+ * 或组内释义重复时，才不会退化成 2~3 个选项。
  * 拼写题不用 options，改用 answerBlocks/blockPool（见 buildBlockPool）。
  */
 function buildQuestion(
@@ -285,6 +300,7 @@ function buildQuestion(
   type: WordQuestionType,
   pool: WordData[],
   affixes: AffixData[] = [],
+  fallbackPool: WordData[] = [],
 ): GeneratedWordQuestion | null {
   if (!isWordEligible(word, type)) return null
   const typeMeta = WORD_QUESTION_TYPES.find((t) => t.key === type)!
@@ -326,21 +342,29 @@ function buildQuestion(
       case 'en_select_def': return wordDefinition(w)
     }
   }
-  // 定义题（问题=英文单词、选项=定义）：干扰项必须跟答案同一语言 ——
-  // 同一组里可能有"首轮用中文定义"的新词和"之后用英文定义"的学习中词，
-  // 不筛的话选项里中英混排，用户看语言就能选出答案。
-  const sameDefSide = type === 'en_select_def'
-  const targetSide = definitionSide(word)
-  const candidates = pool.filter(
-    (x) => x.id !== word.id && (!sameDefSide || definitionSide(x) === targetSide),
-  )
-  const distractors: string[] = []
-  for (const w of shuffleArray(candidates)) {
-    const v = answerOf(w).trim()
-    if (v && v !== answer.trim() && !distractors.includes(v)) distractors.push(v)
-    if (distractors.length >= 3) break
+  // 拼写题不用 options（改用 answerBlocks / blockPool），别为它白跑一遍全库候选
+  let options: string[] = []
+  if (type !== 'spell_block') {
+    // 定义题（问题=英文单词、选项=定义）：干扰项必须跟答案同一语言 ——
+    // 同一组里可能有"首轮用中文定义"的新词和"之后用英文定义"的学习中词，
+    // 不筛的话选项里中英混排，用户看语言就能选出答案。
+    const sameDefSide = type === 'en_select_def'
+    const targetSide = definitionSide(word)
+    // 两层候选：同组打乱在前、全库打乱在后，逐个去重（同 id 只取一次），凑满 3 个就停
+    const seenIds = new Set<string>([word.id])
+    const distractors: string[] = []
+    outer: for (const tier of [pool, fallbackPool]) {
+      for (const x of shuffleArray(tier)) {
+        if (seenIds.has(x.id)) continue
+        seenIds.add(x.id)
+        if (sameDefSide && definitionSide(x) !== targetSide) continue
+        const v = answerOf(x).trim()
+        if (v && v !== answer.trim() && !distractors.includes(v)) distractors.push(v)
+        if (distractors.length >= 3) break outer
+      }
+    }
+    options = shuffleArray([answer, ...distractors.slice(0, 3)])
   }
-  const options = shuffleArray([answer, ...distractors.slice(0, 3)])
 
   const base: GeneratedWordQuestion = {
     wordId: word.id,
@@ -355,7 +379,7 @@ function buildQuestion(
   if (type === 'spell_block') {
     const answerBlocks = spellBlocksOf(word)
     if (answerBlocks.length < 2) return null
-    return { ...base, answerBlocks, blockPool: buildBlockPool(answerBlocks, word, pool, affixes) }
+    return { ...base, answerBlocks, blockPool: buildBlockPool(answerBlocks, word, pool, affixes, fallbackPool) }
   }
   if (type === 'cn_select_sound') return { ...base, optionAudio: true }
   return base
@@ -2225,7 +2249,8 @@ function WordSection({
     const list = s.phase === 'main' ? s.roundWords : s.pendingRetry
     const wid = s.retryId ?? list[s.pos]
     const w = wid ? byId.get(wid) : undefined
-    const q = w ? buildQuestion(w, activeTypes[s.typeIdx], pool, affixes) : null
+    // 干扰项：本组词优先，组内不够再从全库补位（半组只有 1~2 个词时也能凑满四个选项）
+    const q = w ? buildQuestion(w, activeTypes[s.typeIdx], pool, affixes, words) : null
     if (!wid || !w || !q) {
       // 理论上不该发生：roundWords 已按「确实出得出来」筛过 —— 安全收尾
       setFinished(s)
@@ -2243,7 +2268,7 @@ function WordSection({
     setSpellPicked([])
     setFirstAsk(isFirst)
     setShowCard(false)
-  }, [byId, sessionPool, activeTypes, affixes])
+  }, [byId, sessionPool, activeTypes, affixes, words])
 
   /**
    * 起一组（不弹提示）。成功返回 true。
