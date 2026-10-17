@@ -17,11 +17,14 @@ export function SegmentedTabs<T extends string>({
   items,
   value,
   onChange,
+  size = 'sm',
   className = '',
 }: {
   items: TabItem<T>[]
   value: T
   onChange: (id: T) => void
+  /** sm = 页头附带的常规尺寸；lg = 与其他页面内容区页签同档（字号/内距各放大一档） */
+  size?: 'sm' | 'lg'
   className?: string
 }) {
   return (
@@ -33,7 +36,9 @@ export function SegmentedTabs<T extends string>({
             key={it.id}
             type="button"
             onClick={() => onChange(it.id)}
-            className={`flex shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-control-sm px-ui-gap-sm py-0.5 text-ui-2xs font-medium transition ${
+            className={`flex shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-control-sm font-medium transition ${
+              size === 'lg' ? 'px-ui-gap py-1 text-ui-xs' : 'px-ui-gap-sm py-0.5 text-ui-2xs'
+            } ${
               active ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
             }`}
           >

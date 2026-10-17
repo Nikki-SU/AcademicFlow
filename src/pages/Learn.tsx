@@ -185,16 +185,30 @@ function isWordEligible(w: WordData, type: WordQuestionType): boolean {
 }
 
 /**
- * 某题型轮里真正要出题的词：剔除**本轮已答对过该题型**的词。
+ * 这个词能不能真的出这个题型的题。
+ * 在 isWordEligible 之上再卡一道「出题器确实出得出来」——拼写题要求能切出至少
+ * 两个块（buildQuestion 在 answerBlocks < 2 时返回 null），否则本轮分母里会混进
+ * 一个永远出不来题的词，走到那里就会被当成"本组结束"。
+ */
+function canAskQuestion(w: WordData, type: WordQuestionType): boolean {
+  if (!isWordEligible(w, type)) return false
+  if (type === 'spell_block') return spellBlocksOf(w).length >= 2
+  return true
+}
+
+/**
+ * 某题型轮里真正要出题的词序（**队列顺序**，只含本轮还没答对该题型的词）。
  * 跨会话续学靠它 —— 上一会话没走完一轮（roundTypes 已持久化），
  * 这次回来只答还没答对的题型，不重新开始一轮。
  */
-function roundEligible(
+function roundWordIds(
   pool: WordData[],
   type: WordQuestionType,
   correctTypes: Record<string, string[]>,
-): WordData[] {
-  return pool.filter((w) => isWordEligible(w, type) && !(correctTypes[w.id] || []).includes(type))
+): string[] {
+  return pool
+    .filter((w) => !(correctTypes[w.id] || []).includes(type) && canAskQuestion(w, type))
+    .map((w) => w.id)
 }
 
 interface GeneratedWordQuestion {
@@ -935,6 +949,7 @@ export default function LearnPage() {
         <SegmentedTabs
           items={subTabs}
           value={activeTab}
+          size="lg"
           onChange={(id) => { setActiveTab(id); setAddOpen(false); setSettingsOpen(false) }}
         />
         <SegmentedTabs
@@ -943,29 +958,30 @@ export default function LearnPage() {
             { id: 'list', label: '管理' },
           ]}
           value={view}
+          size="lg"
           onChange={setView}
         />
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={() => setAiGenOpen(true)}
-            className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-2xs font-medium text-ink-600 transition hover:bg-paper-100"
+            className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-paper-100"
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            <Sparkles className="h-4 w-4" />
             AI 生成
           </button>
           <button
             onClick={() => setAddOpen(true)}
-            className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-2xs font-medium text-ink-600 transition hover:bg-paper-100"
+            className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-paper-100"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-4 w-4" />
             手动添加
           </button>
           {activeTab !== 'translation' && (
             <button
               onClick={() => setSettingsOpen(true)}
-              className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-2xs font-medium text-ink-600 transition hover:bg-paper-100"
+              className="flex items-center gap-1.5 rounded-control px-ui-gap-sm py-1 text-ui-xs font-medium text-ink-600 transition hover:bg-paper-100"
             >
-              <Settings className="h-3.5 w-3.5" />
+              <Settings className="h-4 w-4" />
               学习设置
             </button>
           )}
@@ -1090,18 +1106,30 @@ export default function LearnPage() {
  *
  * 抽成纯函数是为了「一组学完自动进下一组」：推进到下一组时必须拿**最新**的
  * 单词状态来挑（刚学完的那批已从 learning 变成 learned），否则会反复挑到同一批词。
+ *
+ * 队列规则：
+ * - 学习：**上次学一半的半组（status=learning）单独清完**，绝不拿新词去凑满一组；
+ *   没有半组时才按添加顺序拿新词（new）。
+ * - 复习：到期词（status=learned 且到期）按上次复习时间先后排队，
+ *   每次只取 queueLength 个 —— 复习同样受「每组词数」约束，不再固定 20。
  */
 function pickStudyQueue(all: WordData[], mode: 'learn' | 'review', queueLength: number): WordData[] {
   if (mode === 'learn') {
-    // CAT：learning 优先，new 补齐
-    const learningWords = all.filter((w) => w.status === 'learning').sort((a, b) => a.addedAt - b.addedAt)
-    const newWords = all.filter((w) => w.status === 'new').sort((a, b) => a.addedAt - b.addedAt)
-    return [...learningWords, ...newWords].slice(0, queueLength)
+    // 半组：上次没走完首轮（答错一次就会落到 learning）的词，先单独清完，
+    // 不补新词 —— 否则这组永远是"半旧半新"，永远走不完整。
+    const learningWords = all
+      .filter((w) => w.status === 'learning')
+      .sort((a, b) => a.addedAt - b.addedAt)
+    if (learningWords.length > 0) return learningWords.slice(0, queueLength)
+    return all
+      .filter((w) => w.status === 'new')
+      .sort((a, b) => a.addedAt - b.addedAt)
+      .slice(0, queueLength)
   }
   return all
     .filter((w) => w.status === 'learned' && w.lastReview > 0 && w.lastReview + (w.sm2Interval || 1) * DAY_MS <= Date.now())
     .sort((a, b) => a.lastReview - b.lastReview)
-    .slice(0, 20)
+    .slice(0, queueLength)
 }
 
 // ============================================================
@@ -1219,7 +1247,7 @@ function WordSettingsModal({
           <div>
             <label className="mb-2 block text-ui-sm text-ink-600">每组词数</label>
             <div className="flex gap-2">
-              {[5, 7, 9].map((n) => (
+              {QUEUE_LENGTH_OPTIONS.map((n) => (
                 <button
                   key={n}
                   onClick={() => setSettings((p) => ({ ...p, queueLength: n }))}
@@ -1423,6 +1451,9 @@ const DEFAULT_WORD_SETTINGS: WordStudySettings = {
   dailyGoal: 20,
 }
 
+/** 「每组词数」可选的词数（学习 / 复习共用这一个队列口径） */
+const QUEUE_LENGTH_OPTIONS = [5, 7, 9]
+
 /** 「每日目标」可选的词数 */
 const DAILY_GOAL_OPTIONS = [10, 20, 30, 50]
 
@@ -1438,8 +1469,12 @@ const VOICE_MODE_OPTIONS: { on: boolean; label: string; hint: string }[] = [
 /**
  * 学习会话状态（移植自 CAT StudySession）
  * - queue：本组单词 id，跨所有题型轮次固定
- * - retryId：**待重做的错题**。答错就把这个词记在这里，卡片关掉后立刻重出同一道题
- *            （同一个词、同一个题型）；答对才清掉继续往下走。
+ * - roundWords：**当前题型轮**的固定词序（队列顺序，只含这轮还没答对该题型的词）。
+ *   指针只在这份固定列表上走，不再拿"已缩短的筛选结果"去索引 —— 那样会静默跳词。
+ * - phase / pos：main = 主趟正序过词；retry = 本轮末尾补考趟。pos 在各自列表上的下标。
+ * - retryId：**当场重做**的错题。答错先把卡片亮出来，关掉后立刻重出同一个词、同一个题型。
+ * - pendingRetry：主趟里**答错过一次**的词（哪怕当场重做已经答对），排到本轮末尾补考一遍。
+ * - carry：补考趟里"当场重做也没过"的词，再排一趟补考，直到本轮该词全对。
  * - askedOnce：本会话已经出过题的词。learn 模式下第一次出题的词，答完要把卡片亮出来。
  * - correctTypes：每个词**本轮**已答对的题型；全部适用题型答对 = 走完一轮
  */
@@ -1447,8 +1482,12 @@ interface StudySession {
   mode: 'learn' | 'review'
   queue: string[]
   typeIdx: number
-  wordIdx: number
+  roundWords: string[]
+  phase: 'main' | 'retry'
+  pos: number
   retryId: string | null
+  pendingRetry: string[]
+  carry: string[]
   correctTypes: Record<string, string[]>
   askedOnce: string[]
   correctCount: number
@@ -2141,7 +2180,7 @@ function WordSection({
       const mr = p.wordMasterRounds
       const dg = p.wordDailyGoal
       setSettings((prev) => ({
-        queueLength: ql !== undefined && [5, 7, 9].includes(ql) ? ql : prev.queueLength,
+        queueLength: ql !== undefined && QUEUE_LENGTH_OPTIONS.includes(ql) ? ql : prev.queueLength,
         masterRounds: mr !== undefined && MASTER_ROUND_OPTIONS.includes(mr) ? mr : prev.masterRounds,
         questionTypes: mergedTypes.length > 0 ? mergedTypes : prev.questionTypes,
         allowZhan: typeof p.wordAllowZhan === 'boolean' ? p.wordAllowZhan : prev.allowZhan,
@@ -2167,48 +2206,28 @@ function WordSection({
 
   // ── 出题 / 会话推进 ──
 
+  /** 本组所有词（按队列顺序解开成词对象） */
+  const sessionPool = useCallback((s: StudySession): WordData[] =>
+    s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w), [byId])
+
   /**
-   * 根据会话当前指针出题，并重置答题 UI。
+   * 根据会话指针出题，并重置答题 UI。
    *
-   * 一轮（一个题型轮）的顺序 = 把这组词按顺序各出一题。某道题答错，卡片关掉后**立刻重做**
-   * 同一个词、同一个题型（见 retryId），做对了才继续往下；答对就按 wordIdx 走下一个词。
-   * 本轮全部走完才换下一个题型。
-   * 卡片改为"答完才亮"：不再有开头的预展卡（先测后看），见 submitAnswer。
+   * 一轮（一个题型轮）的词序固定在 roundWords 里，指针只在**这份固定列表**上走：
+   * 某题答错 → 亮卡 → 关掉后立刻重做同一个词、同一个题型（retryId）；
+   * 重做又错 → 排进 pendingRetry，本轮末尾补考；补考再错就再排一趟，
+   * 直到这轮每个词都答对，才换下一个题型。
    */
   const presentQuestion = useCallback((s: StudySession) => {
     // 换题先掐掉上一题的朗读，免得听音题的发音跟下一题叠在一起
     stopSpeaking()
-    const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    // 当前题型轮若被「本轮已答对的题型」清空（跨会话续学时上回已答完这轮），
-    // 自动跳到下一个还有词可出的题型轮，而不是直接收尾。
-    let typeIdx = s.typeIdx
-    let eligible: WordData[] = []
-    while (typeIdx < activeTypes.length) {
-      const e = roundEligible(pool, activeTypes[typeIdx], s.correctTypes)
-      if (e.length > 0) { eligible = e; break }
-      typeIdx++
-    }
-    if (!eligible.length) {
-      // 所有题型轮都已答完 → 安全收尾
-      setFinished(s)
-      setSession(null)
-      setQuestion(null)
-      return
-    }
-    // 跳过空题型轮时 wordIdx 归零（下一轮从头出词）；否则沿用当前轮位置
-    const advancedType = typeIdx !== s.typeIdx
-    // 有待重做的错题时优先它；否则按 wordIdx 走第一遍
-    const wid = s.retryId ?? eligible[advancedType ? 0 : s.wordIdx]?.id
-    if (!wid) {
-      // 理论上不该发生：安全收尾
-      setFinished(s)
-      setSession(null)
-      setQuestion(null)
-      return
-    }
-    const w = byId.get(wid)
-    const q = w ? buildQuestion(w, activeTypes[typeIdx], eligible, affixes) : null
-    if (!q) {
+    const pool = sessionPool(s)
+    const list = s.phase === 'main' ? s.roundWords : s.pendingRetry
+    const wid = s.retryId ?? list[s.pos]
+    const w = wid ? byId.get(wid) : undefined
+    const q = w ? buildQuestion(w, activeTypes[s.typeIdx], pool, affixes) : null
+    if (!wid || !w || !q) {
+      // 理论上不该发生：roundWords 已按「确实出得出来」筛过 —— 安全收尾
       setFinished(s)
       setSession(null)
       setQuestion(null)
@@ -2217,7 +2236,6 @@ function WordSection({
     // 本会话第一次见这个词（仅 learn 模式）→ 答完之后要把卡片亮出来给用户看
     const isFirst = s.mode === 'learn' && !s.askedOnce.includes(wid)
     if (isFirst) s = { ...s, askedOnce: [...s.askedOnce, wid] }
-    if (advancedType) s = { ...s, typeIdx, wordIdx: 0 }
     setSession(s)
     setQuestion(q)
     setSelected(null)
@@ -2225,7 +2243,7 @@ function WordSection({
     setSpellPicked([])
     setFirstAsk(isFirst)
     setShowCard(false)
-  }, [byId, activeTypes, affixes])
+  }, [byId, sessionPool, activeTypes, affixes])
 
   /**
    * 起一组（不弹提示）。成功返回 true。
@@ -2242,8 +2260,10 @@ function WordSection({
     }
     // 选第一个对这组词"有题可出"的题型（剔除本轮已答对过的题型）
     let typeIdx = -1
+    let roundWords: string[] = []
     activeTypes.some((t, i) => {
-      if (queue.some((w) => roundEligible([w], t, correctTypes).length > 0)) { typeIdx = i; return true }
+      const ids = roundWordIds(queue, t, correctTypes)
+      if (ids.length > 0) { typeIdx = i; roundWords = ids; return true }
       return false
     })
     if (typeIdx < 0) return false
@@ -2252,8 +2272,12 @@ function WordSection({
       mode,
       queue: queue.map((w) => w.id),
       typeIdx,
-      wordIdx: 0,
+      roundWords,
+      phase: 'main',
+      pos: 0,
       retryId: null,
+      pendingRetry: [],
+      carry: [],
       correctTypes,
       askedOnce: [],
       correctCount: 0,
@@ -2263,23 +2287,47 @@ function WordSection({
     return true
   }, [settings.queueLength, activeTypes, presentQuestion])
 
-  /** 推进到下一题：本轮还有下一个词就走，走完则切下一个"有题可出"的题型 */
+  /**
+   * 推进一趟：
+   * - 本趟还有下一个词 → 走下一个；
+   * - 主趟走完且本轮答错过 → 进补考趟（pendingRetry）；
+   * - 补考趟走完但还有"当场重做也没过"的词 → 拿 carry 再开一趟，直到全过；
+   * - 本轮清干净 → 切下一个"有题可出"的题型；题型轮完 → 直接起下一组。
+   */
   const advance = useCallback((s: StudySession) => {
-    const types = activeTypes
-    const pool = s.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    // 剔除本轮已答对过该题型的词 —— 跨会话续学时，上回答过的题型轮可能只剩半截
-    const eligibleNow = roundEligible(pool, types[s.typeIdx], s.correctTypes)
-
-    // 本轮还没走完 → 下一词（错题已在 handleNext 里就地重做过，这里不会漏题）
-    if (s.wordIdx < eligibleNow.length - 1) {
-      presentQuestion({ ...s, wordIdx: s.wordIdx + 1, retryId: null })
+    const isMain = s.phase === 'main'
+    const list = isMain ? s.roundWords : s.pendingRetry
+    const nextPos = s.pos + 1
+    if (nextPos < list.length) {
+      presentQuestion({ ...s, pos: nextPos, retryId: null })
       return
     }
-    // 本轮清空 → 切下一个"有题可出"的题型
-    for (let ni = s.typeIdx + 1; ni < types.length; ni++) {
-      const eligibleNext = roundEligible(pool, types[ni], s.correctTypes)
-      if (eligibleNext.length > 0) {
-        presentQuestion({ ...s, typeIdx: ni, wordIdx: 0, retryId: null })
+    // 主趟走完：本轮答错过的词都要在轮末补考一遍 —— 哪怕当场重做已经答对
+    if (isMain) {
+      if (s.pendingRetry.length > 0) {
+        presentQuestion({ ...s, phase: 'retry', pos: 0, retryId: null })
+        return
+      }
+    } else if (s.carry.length > 0) {
+      // 补考趟走完：这些词补考时当场重做也没过 → 再排一趟，直到本轮全对
+      presentQuestion({ ...s, phase: 'retry', pos: 0, retryId: null, pendingRetry: s.carry, carry: [] })
+      return
+    }
+    // 本轮每个词都答对 → 切下一个"有题可出"的题型
+    const pool = sessionPool(s)
+    for (let ni = s.typeIdx + 1; ni < activeTypes.length; ni++) {
+      const ids = roundWordIds(pool, activeTypes[ni], s.correctTypes)
+      if (ids.length > 0) {
+        presentQuestion({
+          ...s,
+          typeIdx: ni,
+          roundWords: ids,
+          phase: 'main',
+          pos: 0,
+          retryId: null,
+          pendingRetry: [],
+          carry: [],
+        })
         return
       }
     }
@@ -2289,7 +2337,7 @@ function WordSection({
     setSession(null)
     setQuestion(null)
     setPendingAuto(s.mode)
-  }, [byId, activeTypes, presentQuestion])
+  }, [sessionPool, activeTypes, presentQuestion])
 
   const startSession = useCallback((mode: 'learn' | 'review') => {
     if (!beginSession(mode, words)) {
@@ -2335,11 +2383,14 @@ function WordSection({
       const cur = byId.get(wid)
       let nextWord: WordData | null = null
       let masteredNow = false
-      if (cur) {
+      // 本轮已经答对过这个题型了 → 这次是补考趟 / 确认趟的重复答对。
+      // 轮次只按"走完一轮"记一次，不能再 reviewCount+1（否则补考越多轮次涨得越快）。
+      const alreadyDone = (session.correctTypes[wid] || []).includes(question.type)
+      if (cur && !alreadyDone) {
         let next: WordData = { ...cur, streak: cur.streak + 1 }
         // 走完一轮 = 这个词把本轮选中的、且它适用的题型各答对了一遍。
         // 掌握以「轮次」计量：走满 masterRounds 轮才算掌握，单个题型答得再顺也不算。
-        const applicable = selectedTypes.filter((t) => isWordEligible(cur, t))
+        const applicable = selectedTypes.filter((t) => canAskQuestion(cur, t))
         if (applicable.every((t) => doneTypes.includes(t))) {
           const rounds = cur.reviewCount + 1
           masteredNow = rounds >= masterRounds && cur.status !== 'mastered'
@@ -2364,7 +2415,7 @@ function WordSection({
         const planned = nextWord
         setWords((prev) => prev.map((w) => (w.id === wid ? planned : w)))
       }
-      onStudied(wid)
+      if (!alreadyDone) onStudied(wid)
       const nextSession: StudySession = {
         ...session,
         // 答对就清掉重做标记，回到正常推进
@@ -2409,19 +2460,36 @@ function WordSection({
     } else {
       // 答错音效：仅朗读模式，与答对音效明显不同
       if (settings.voiceEnabled) playWrongSfx()
-      // 答错：streak 清零、wrong_count+1，并把这个词挂成"待重做" ——
-      // 卡片关掉后立刻重出同一个词、同一个题型，做对才继续往下
+      // 只记错、不降级：new 才算"开始学了"（→ learning）；
+      // learning / learned / mastered 保持原状态 —— 答错一次不该把已掌握的词打回去。
       setWords((prev) => prev.map((w) =>
         w.id === wid
-          ? { ...w, streak: 0, wrongCount: w.wrongCount + 1, status: 'learning' }
+          ? {
+            ...w,
+            streak: 0,
+            wrongCount: w.wrongCount + 1,
+            status: w.status === 'new' ? 'learning' : w.status,
+          }
           : w,
       ))
-      setShowCard(true)
-      setSession({
+      // 这一次是不是"当场重做"的那一遍（同一个词同一个题型连错两次）
+      const isRedoAttempt = session.retryId === wid
+      const nextSession: StudySession = {
         ...session,
-        retryId: wid,
+        // 第一次错 → 卡片关掉后当场重做同一题；重做又错 → 先放过它去下一题，
+        // 留给本轮末尾的补考趟收（见 advance 的 carry 循环）。
+        retryId: isRedoAttempt ? null : wid,
         wrongCount: session.wrongCount + 1,
-      })
+      }
+      if (session.phase === 'main') {
+        // 主趟只要错过一次就进补考名单 —— 哪怕当场重做已经答对，轮末仍要再考一次
+        if (!session.pendingRetry.includes(wid)) nextSession.pendingRetry = [...session.pendingRetry, wid]
+      } else if (isRedoAttempt && !session.carry.includes(wid)) {
+        // 补考趟里"当场重做也没过" → 再排一趟补考，直到过
+        nextSession.carry = [...session.carry, wid]
+      }
+      setShowCard(true)
+      setSession(nextSession)
     }
   }, [session, question, answered, firstAsk, settings.masterRounds, settings.voiceEnabled, activeTypes, setWords, onStudied, byId, advance])
 
@@ -2435,13 +2503,13 @@ function WordSection({
     advance(session)
   }, [session, advance, presentQuestion])
 
-  /** 斩词：直接标记掌握，清掉待重做标记 */
+  /** 斩词：直接标记掌握，并把本轮剩下的出题里这个词摘掉 */
   const handleZhan = useCallback(() => {
     if (!question) return
     const wid = question.wordId
     setWords((prev) => prev.map((w) =>
       w.id === wid
-        // 斩词 = 用户说"这个词我会了"：轮次直接记满，跟正常走满轮次掌握保持一致；
+        // 斩词 = 用户说"这个词我会了"：轮次直接记满，跟正常走完轮次掌握保持一致；
         // 本轮已答题型一并清空（已掌握的词不再参与出题）
         ? { ...w, status: 'mastered', reviewCount: Math.max(w.reviewCount, settings.masterRounds), roundTypes: [] }
         : w,
@@ -2449,11 +2517,20 @@ function WordSection({
     if (session) {
       advance({
         ...session,
+        // 把本轮所有题型都记成"已答对"，它就不会在后面的题型轮里再出现
+        correctTypes: { ...session.correctTypes, [wid]: [...activeTypes] },
         retryId: session.retryId === wid ? null : session.retryId,
+        // 主趟的 pos 指的是 roundWords，摘掉补考名单里这个词不会错位；
+        // 补考趟的 pos 正指着 pendingRetry，就地删会跳过下一个词 ——
+        // 让 pos 自己往前走越过它即可，只把 carry（还没开始的那趟）里的摘掉。
+        pendingRetry: session.phase === 'main'
+          ? session.pendingRetry.filter((id) => id !== wid)
+          : session.pendingRetry,
+        carry: session.carry.filter((id) => id !== wid),
         masteredCount: session.masteredCount + 1,
       })
     }
-  }, [question, session, setWords, settings.masterRounds, advance])
+  }, [question, session, setWords, settings.masterRounds, activeTypes, advance])
 
   const exitSession = useCallback(() => {
     if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null }
@@ -2561,12 +2638,12 @@ function WordSection({
 
   // ── 答题中 ──
   if (session && question) {
-    const currentType = activeTypes[session.typeIdx]
-    const pool = session.queue.map((id) => byId.get(id)).filter((w): w is WordData => !!w)
-    const eligible = pool.filter((w) => isWordEligible(w, currentType))
     const isRetry = session.retryId !== null
+    const isRetryPass = session.phase === 'retry'
+    // 分母跟着当前这一趟走：主趟看 roundWords，补考趟看 pendingRetry
+    const passTotal = isRetryPass ? session.pendingRetry.length : session.roundWords.length
     const currentWord = byId.get(question.wordId)
-    const progressPct = ((isRetry ? session.wordIdx : session.wordIdx + 1) / Math.max(eligible.length, 1)) * 100
+    const progressPct = ((session.pos + 1) / Math.max(passTotal, 1)) * 100
 
     return (
       <div className="space-y-4">
@@ -2574,12 +2651,13 @@ function WordSection({
         <div className="bg-paper-50 rounded-card border border-ink-200 p-4">
           <div className="flex items-center justify-between text-ui-sm text-ink-500 mb-2">
             <span>
-              第 {session.wordIdx + 1}/{eligible.length} 题 · 第 {session.typeIdx + 1}/{activeTypes.length} 轮
+              第 {session.pos + 1}/{passTotal} 题 · 第 {session.typeIdx + 1}/{activeTypes.length} 轮
             </span>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 bg-seal-50 text-seal-700 rounded-control-sm text-ui-xs font-medium">
                 {question.typeLabel}
               </span>
+              {isRetryPass && <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-control-sm text-ui-xs">补考</span>}
               {isRetry && <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded-control-sm text-ui-xs">重做</span>}
               {session.mode === 'review' && (
                 <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-control-sm text-ui-xs">复习</span>
