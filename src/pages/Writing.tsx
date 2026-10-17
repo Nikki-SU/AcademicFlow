@@ -2299,6 +2299,7 @@ export default function WritingPage() {
           hasGraphicalAbstract: false,
           addedAt: now,
           pdfAddedAt: 0,
+          hasPdf: false,
           source: 'manual',
           trackingGroup: '',
           mdStatus: 'none',

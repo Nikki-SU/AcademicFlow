@@ -65,7 +65,7 @@ async function doUpload(props: UploadLogicProps) {
         abstractEn: '', abstractCn: '',
         // 按标题自动推断一级（原创研究）/ 二级（综述）；之后可在编辑弹窗手改
         tier: inferPaperTier(finalTitle),
-        hasGraphicalAbstract: false, addedAt: now, pdfAddedAt: now,
+        hasGraphicalAbstract: false, addedAt: now, pdfAddedAt: now, hasPdf: true,
         source: 'PDF', trackingGroup: '', mdStatus: 'none', correspondingAuthor: '', coFirstAuthor: '',
       }
       await saveLiteratures([...lits, newLit])

@@ -283,7 +283,7 @@ export default function TrackingPage() {
   const [testingPlanId, setTestingPlanId] = useState<string | null>(null)
 
   // ---------- 右栏：已入库但还没传 PDF ----------
-  /** 文献库（literatures/literatures.csv）全量，右栏只取 pdfAddedAt === 0 的 */
+  /** 文献库（literatures/literatures.csv）全量，右栏只取 hasPdf === false 的 */
   const [literatures, setLiteratures] = useState<Literature[]>([])
   /** 正在上传 PDF 的文献 DOI（用于该行 loading） */
   const [pdfUploadingDoi, setPdfUploadingDoi] = useState<string | null>(null)
@@ -622,6 +622,7 @@ export default function TrackingPage() {
         hasGraphicalAbstract: false,
         addedAt: Date.now(),
         pdfAddedAt: 0,
+        hasPdf: false,
         source: 'DOI',
         trackingGroup: '',
         mdStatus: 'none',
@@ -1269,6 +1270,7 @@ export default function TrackingPage() {
     hasGraphicalAbstract: false,
     addedAt: Date.now(),
     pdfAddedAt: 0,
+    hasPdf: false,
     source: c.source || '追踪',
     trackingGroup: c.trackingGroup,
     mdStatus: 'none',
@@ -1468,7 +1470,7 @@ export default function TrackingPage() {
 
   /** 右栏「已入库未传 PDF」：按入库时间越旧越上（催处理，别让新的盖过旧的） */
   const libraryPendingPdf = useMemo(
-    () => literatures.filter((l) => !l.pdfAddedAt).sort((a, b) => a.addedAt - b.addedAt),
+    () => literatures.filter((l) => !l.hasPdf).sort((a, b) => a.addedAt - b.addedAt),
     [literatures],
   )
 
@@ -1520,7 +1522,7 @@ export default function TrackingPage() {
     setPdfUploadingDoi(doi)
     try {
       const res = await enqueuePaperMineruConvert(doi, file, lit.title)
-      // enqueuePaperMineruConvert 内部已 toast 失败；这里只负责成功后落 pdf_added_at
+      // enqueuePaperMineruConvert 内部已 toast 失败；这里只负责成功后落 pdf_added_at 并标已导入
       if (!res.ok) return
       const prevLiteratures = literatures
       const prevSelected = selectedLibraryDois
@@ -1528,7 +1530,9 @@ export default function TrackingPage() {
       await runOptimistic({
         apply: () => {
           setLiteratures((prev) =>
-            prev.map((l) => (l.doi === doi ? { ...l, pdfAddedAt: Date.now() } : l)),
+            prev.map((l) =>
+              l.doi === doi ? { ...l, pdfAddedAt: Date.now(), hasPdf: true } : l,
+            ),
           )
           setSelectedLibraryDois(nextSelected)
         },

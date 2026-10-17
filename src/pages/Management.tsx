@@ -234,7 +234,7 @@ function literatureToPaper(lit: Literature): Paper {
     hasNotes: false,
     mdStatus: lit.mdStatus || 'none',
     mdProgress: 0,
-    hasPdf: (lit.pdfAddedAt || 0) > 0,
+    hasPdf: lit.hasPdf,
     // 任务 / 标签关系存在 materials/meta.csv，加载时再填进来（见 loadData）
     taskId: '',
     tags: [],
@@ -262,6 +262,7 @@ function paperToLiterature(paper: Paper): Literature {
     hasGraphicalAbstract: !!paper.coverImage,
     addedAt: Date.now(),
     pdfAddedAt: 0,
+    hasPdf: paper.hasPdf,
     source: 'manual',
     // 追踪分组与文献分类是两回事，原样带回，不要被分类覆盖
     trackingGroup: paper.trackingGroup || '',
@@ -2250,7 +2251,7 @@ export default function ManagementPage() {
     const prevProgress = paper.mdProgress
 
     // helper：同时更新全局 papers 数组 + 正在编辑的 editingPaper（如果是同一篇）
-    const syncStatus = (patch: { mdStatus: Paper['mdStatus']; mdProgress: number }) => {
+    const syncStatus = (patch: Partial<Pick<Paper, 'mdStatus' | 'mdProgress' | 'hasPdf'>>) => {
       setPapers((prev) => prev.map((p) =>
         p.id === paper.id ? { ...p, ...patch } : p,
       ))
@@ -2267,6 +2268,9 @@ export default function ManagementPage() {
       if (!result.ok) {
         // enqueue 失败：回滚 UI 状态为 failed
         syncStatus({ mdStatus: 'failed', mdProgress: prevProgress })
+      } else {
+        // PDF 已上传进私库 literatures/{slug}/source/ → 「已导入」立即生效
+        syncStatus({ hasPdf: true })
       }
     } catch (err) {
       // 异常：回滚 UI 状态为 failed

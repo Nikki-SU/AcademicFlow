@@ -32,6 +32,12 @@ export interface Literature {
   hasGraphicalAbstract: boolean
   addedAt: number
   pdfAddedAt: number
+  /**
+   * 是否已导入 PDF。
+   * 权威来源是私库 literatures/{slug}/source/ 下实际存在的 .pdf 文件（见 loadLiteratures）；
+   * CSV 的 pdf_added_at 只是同一事实的时间戳记录，可能滞后，不再单独作为判定依据。
+   */
+  hasPdf: boolean
   source: string
   trackingGroup: string
   mdStatus: MdStatus
@@ -105,6 +111,7 @@ function mergeSameDoi(a: Literature, b: Literature): Literature {
     hasGraphicalAbstract: a.hasGraphicalAbstract || b.hasGraphicalAbstract,
     addedAt: a.addedAt || b.addedAt,
     pdfAddedAt: a.pdfAddedAt || b.pdfAddedAt,
+    hasPdf: a.hasPdf || b.hasPdf,
     source: a.source || b.source,
     trackingGroup: a.trackingGroup || b.trackingGroup,
     mdStatus: a.mdStatus || b.mdStatus,
@@ -224,6 +231,20 @@ function inferMdStatusFromFiles(doi: string, fileSet: Map<string, number>): MdSt
 }
 
 /**
+ * 从 git trees 收集「已有源 PDF」的 slug 集合。
+ * 判定路径：literatures/{slug}/source/ 下任意 .pdf —— 这是「已导入 PDF」的权威事实，
+ * 与 inferMdStatusFromFiles 一样不依赖可能滞后的 CSV 字段。
+ */
+function collectPdfSlugs(fileSet: Map<string, number>): Set<string> {
+  const slugs = new Set<string>()
+  for (const filePath of fileSet.keys()) {
+    const m = /^literatures\/([^/]+)\/source\/.+\.pdf$/i.exec(filePath)
+    if (m) slugs.add(m[1])
+  }
+  return slugs
+}
+
+/**
  * 仅凭 GitHub 实际文件推断某篇文献的 mdStatus（不读 CSV）。
  * 供后端 progress.json 缺失、且任务未记录 run_id 时的兜底判定，
  * 避免前端任务队列永远卡在 running。
@@ -242,6 +263,9 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
   ])
 
   if (!rows || rows.length <= 1) return []
+
+  // 「已导入 PDF」以仓库里的源 PDF 文件为权威；git trees 不可用时才退回 CSV 旗标
+  const pdfSlugs = fileSet ? collectPdfSlugs(fileSet) : null
 
   const EXPECTED_COLS = LITERATURE_HEADERS.length // 17
   const results: Literature[] = []
@@ -295,6 +319,10 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
     const finalStatus: MdStatus =
       csvStatus === 'failed' ? 'failed' : inferredStatus
 
+    const csvPdfAddedAt = parseInt(fixedRow[11] || '0', 10)
+    // 同样以仓库实际文件为准：source/ 下有 PDF 就是已导入，CSV 旗标只作时间戳
+    const hasPdf = pdfSlugs ? pdfSlugs.has(doiToSlug(doi)) : csvPdfAddedAt > 0
+
     results.push({
       doi,
       title: fixedRow[1] || '',
@@ -307,7 +335,8 @@ export async function loadLiteratures(force = false): Promise<Literature[]> {
       tier: parseInt(fixedRow[8] || '0', 10),
       hasGraphicalAbstract: fixedRow[9] === 'true',
       addedAt: parseInt(fixedRow[10] || '0', 10),
-      pdfAddedAt: parseInt(fixedRow[11] || '0', 10),
+      pdfAddedAt: csvPdfAddedAt,
+      hasPdf,
       source: fixedRow[12] || '',
       trackingGroup: fixedRow[13] || '',
       mdStatus: finalStatus,
@@ -361,6 +390,7 @@ export async function saveLiteratures(literatures: Literature[]): Promise<void> 
       ...lit,
       addedAt: gh.addedAt,
       pdfAddedAt: gh.pdfAddedAt,
+      hasPdf: gh.hasPdf,
       source: gh.source,
       trackingGroup: gh.trackingGroup,
       mdStatus: gh.mdStatus, // ✅ 关键：永远不覆盖 Bot 的 md_status

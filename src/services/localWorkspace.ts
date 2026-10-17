@@ -636,7 +636,7 @@ async function resolvePaperDoi(
 
   // 2) 库内「待补 PDF」文献 AI 匹配
   const lits = await loadLiteratures()
-  const noPdf = lits.filter((l) => l.doi && !l.pdfAddedAt)
+  const noPdf = lits.filter((l) => l.doi && !l.hasPdf)
   if (noPdf.length > 0) {
     const matched = await aiMatchDoiFromCandidates(
       fileName,
@@ -727,7 +727,7 @@ async function preparePaperForQueue(
   const lits = await loadLiteratures()
   const doi = resolved.doi
   const existing = lits.find((l) => isSameDoi(l.doi, doi))
-  if (existing && existing.pdfAddedAt) {
+  if (existing && existing.hasPdf) {
     return { outcome: { status: '重复跳过', note: `库中已有 DOI ${doi} 且已导入 PDF` } }
   }
 
@@ -747,6 +747,7 @@ async function preparePaperForQueue(
       hasGraphicalAbstract: false,
       addedAt: now,
       pdfAddedAt: now,
+      hasPdf: true,
       source: '本地工作区',
       trackingGroup: '',
       mdStatus: 'none',
