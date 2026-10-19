@@ -490,11 +490,6 @@ const HIGHLIGHT_COLORS = HIGHLIGHTERS
 
 
 
-function formatDate(timestamp: number): string {
-  const d = new Date(timestamp)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
 function formatTime(timestamp: number): string {
   const d = new Date(timestamp)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -728,6 +723,8 @@ export default function ReadingPage() {
   const pendingAnchorRef = useRef('')
   /** 批注面板的批量选择态 */
   const [checkedAnnotationIds, setCheckedAnnotationIds] = useState<string[]>([])
+  /** 批注面板的颜色筛选：all = 全部，其余只看该颜色 */
+  const [annotationColorFilter, setAnnotationColorFilter] = useState<HighlighterColor | 'all'>('all')
   /** 长文本隔块底色（荧光笔式交替底色，防串行） */
   const [zebraBands, setZebraBands] = useState(true)
   /** 宽度变化时 +1，用来触发条纹相位重算（见下方 ResizeObserver） */
@@ -1292,6 +1289,7 @@ export default function ReadingPage() {
     setCheckedAnnotationIds([])
     setSelectedAnnotationId(null)
     setEditingAnnotationId(null)
+    setAnnotationColorFilter('all')
 
     if (!docRef) {
       setAnnotations([])
@@ -1759,6 +1757,45 @@ export default function ReadingPage() {
       return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || a.createdAt - b.createdAt
     })
   }, [paperAnnotations, articleFlatText])
+
+  /** 每种颜色各有几条 —— 0 条的颜色不出筛选片，免得点进去一片空白 */
+  const annotationColorCounts = useMemo(() => {
+    const counts: Record<HighlighterColor, number> = { yellow: 0, green: 0, blue: 0, purple: 0, red: 0 }
+    for (const a of paperAnnotations) counts[getColorInfo(a.color).value] += 1
+    return counts
+  }, [paperAnnotations])
+
+  /**
+   * 当前筛选下真正展示的批注 —— 列表渲染、编号 n、全选、批量删除、导出都以它为准。
+   * 编号 n 不落库（annotations.csv 只有固定 8 列），只在这里按顺序派生：
+   * 新增 / 删除 / 改颜色后自然重排，不需要也不允许写回文件。
+   */
+  const visibleAnnotations = useMemo(
+    () =>
+      annotationColorFilter === 'all'
+        ? orderedAnnotations
+        : orderedAnnotations.filter((a) => getColorInfo(a.color).value === annotationColorFilter),
+    [orderedAnnotations, annotationColorFilter],
+  )
+
+  /** 勾选里落在当前筛选内的那些 —— 换筛选后不会误算 / 误删看不见的批注 */
+  const checkedVisibleIds = useMemo(() => {
+    const visible = new Set(visibleAnnotations.map((a) => a.id))
+    return checkedAnnotationIds.filter((id) => visible.has(id))
+  }, [checkedAnnotationIds, visibleAnnotations])
+
+  /** 换筛选 = 换一批可见项，旧勾选不能带过去 */
+  const changeAnnotationColorFilter = (next: HighlighterColor | 'all') => {
+    setAnnotationColorFilter(next)
+    setCheckedAnnotationIds([])
+  }
+
+  /** 筛选的那一色被删光了 → 回到「全部」，不让筛选片凭空消失 */
+  useEffect(() => {
+    if (annotationColorFilter !== 'all' && annotationColorCounts[annotationColorFilter] === 0) {
+      setAnnotationColorFilter('all')
+    }
+  }, [annotationColorFilter, annotationColorCounts])
 
   /**
    * 批注 → 它所属的块锚点（en-12 / cn-12）。
@@ -2379,22 +2416,35 @@ export default function ReadingPage() {
     return { md, report: bits.join('；') + '。' }
   }
 
-  const exportAllAnnotations = () => {
-    if (!docTitle || paperAnnotations.length === 0) return
-
-    let content = `# ${docTitle} - 批注导出\n\n`
-    content += `导出时间：${formatDate(Date.now())}\n\n`
-    content += `批注总数：${paperAnnotations.length}\n\n---\n\n`
-
-    orderedAnnotations.forEach((anno, idx) => {
-      content += `## 批注 ${idx + 1}\n\n`
-        content += `> ${anno.text}\n\n`
-        content += `**颜色**：${getColorInfo(anno.color).label}\n\n`
-        content += `**时间**：${formatDate(anno.createdAt)}\n\n`
-        content += `**批注内容**：\n\n${anno.note || '（无）'}\n\n---\n\n`
+  /**
+   * 批注导出：一条一段 `[原文n：……]批注n：……`。
+   * n 从 1 起按导出列表顺序重排（不落库，增删后天然重排）。
+   * 原文里的换行折成空格，保证「[原文n：…]」始终是一段；批注内容保留原有换行。
+   */
+  const exportAnnotations = (list: Annotation[], suffix: string) => {
+    if (!docTitle || list.length === 0) return
+    const body = list
+      .map((anno, idx) => {
+        const n = idx + 1
+        const source = (anno.text || '').replace(/\s+/g, ' ').trim()
+        const note = (anno.note || '').trim() || '（未填写）'
+        return `[原文${n}：${source}]批注${n}：${note}`
       })
+      .join('\n\n')
+    exportMarkdown(`${body}\n`, `${docTitle}-${suffix}.md`)
+  }
 
-    exportMarkdown(content, `${docTitle}-全部批注.md`)
+  /** 全局导出：不受面板筛选影响（阅读工具栏的「导出批注」也走这条） */
+  const exportAllAnnotations = () => exportAnnotations(orderedAnnotations, '全部批注')
+
+  /** 导出当前筛选；筛「全部」时等同于全局导出 */
+  const exportFilteredAnnotations = () => {
+    if (annotationColorFilter === 'all') {
+      exportAllAnnotations()
+      return
+    }
+    const color = getColorInfo(annotationColorFilter)
+    exportAnnotations(visibleAnnotations, `${color.label}色批注`)
   }
 
   /**
@@ -4187,21 +4237,68 @@ export default function ReadingPage() {
               </div>
             )
           ) : (
-            <div className="flex-1 flex flex-col">
+            /* min-h-0 是必需的：作为 flex 子项，默认 min-height:auto 会被内容顶高，
+               外层 overflow-hidden 一裁，里面那层 overflow-y-auto 就永远拿不到有界高度 → 批注滚不动 */
+            <div className="flex-1 min-h-0 flex flex-col">
               <div className="af-line-b px-ui-gap py-2 flex-shrink-0 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-ui-xs text-ink-500">
-                    共 <span className="font-medium text-ink-700">{paperAnnotations.length}</span> 条批注
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-ui-xs text-ink-500">
+                    共 <span className="font-medium text-ink-700">{visibleAnnotations.length}</span> 条批注
+                    {annotationColorFilter !== 'all' && (
+                      <span className="text-ink-400">（全部 {paperAnnotations.length} 条）</span>
+                    )}
                   </span>
-                  <button
-                    onClick={exportAllAnnotations}
-                    disabled={paperAnnotations.length === 0}
-                    className="flex items-center gap-1 px-2 py-1 text-ui-xs text-seal-600 hover:bg-seal-50 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    导出全部
-                  </button>
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    {annotationColorFilter !== 'all' && (
+                      <button
+                        onClick={exportAllAnnotations}
+                        className="px-2 py-1 text-ui-xs text-ink-500 hover:bg-paper-100 rounded-control-sm transition"
+                      >
+                        导出全部
+                      </button>
+                    )}
+                    <button
+                      onClick={exportFilteredAnnotations}
+                      disabled={visibleAnnotations.length === 0}
+                      className="flex items-center gap-1 px-2 py-1 text-ui-xs text-seal-600 hover:bg-seal-50 rounded-control-sm transition disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      {annotationColorFilter === 'all'
+                        ? '导出全部'
+                        : `导出${getColorInfo(annotationColorFilter).label}色`}
+                    </button>
+                  </div>
                 </div>
+                {/* 颜色筛选：不同颜色代表不同性质的笔记，按色看 / 按色导 */}
+                {paperAnnotations.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button
+                      onClick={() => changeAnnotationColorFilter('all')}
+                      className={`rounded-full border px-2 py-0.5 text-ui-xs transition ${
+                        annotationColorFilter === 'all'
+                          ? 'border-ink-400 bg-ink-100 font-medium text-ink-800'
+                          : 'border-ink-200 text-ink-500 hover:bg-paper-100'
+                      }`}
+                    >
+                      全部 <span className="tabular-nums text-ink-400">{paperAnnotations.length}</span>
+                    </button>
+                    {HIGHLIGHT_COLORS.filter((c) => annotationColorCounts[c.value] > 0).map((c) => (
+                      <button
+                        key={c.value}
+                        onClick={() => changeAnnotationColorFilter(c.value)}
+                        className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-ui-xs transition ${
+                          annotationColorFilter === c.value
+                            ? 'border-ink-400 bg-ink-100 font-medium text-ink-800'
+                            : 'border-ink-200 text-ink-500 hover:bg-paper-100'
+                        }`}
+                      >
+                        <span className={`h-2 w-2 rounded-full ${c.dot}`} />
+                        {c.label}
+                        <span className="tabular-nums text-ink-400">{annotationColorCounts[c.value]}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {/* 批量操作条 —— 批注一多，逐条点 × 删太折磨 */}
                 {paperAnnotations.length > 0 && (
                   <div className="flex items-center gap-2 text-ui-xs">
@@ -4210,29 +4307,29 @@ export default function ReadingPage() {
                         type="checkbox"
                         className="w-3.5 h-3.5 accent-seal-600"
                         checked={
-                          checkedAnnotationIds.length > 0 &&
-                          checkedAnnotationIds.length === paperAnnotations.length
+                          checkedVisibleIds.length > 0 &&
+                          checkedVisibleIds.length === visibleAnnotations.length
                         }
                         onChange={(e) =>
                           setCheckedAnnotationIds(
-                            e.target.checked ? paperAnnotations.map((a) => a.id) : [],
+                            e.target.checked ? visibleAnnotations.map((a) => a.id) : [],
                           )
                         }
                       />
                       全选
                     </label>
-                    {checkedAnnotationIds.length > 0 && (
-                      <span className="text-ink-400">已选 {checkedAnnotationIds.length} 条</span>
+                    {checkedVisibleIds.length > 0 && (
+                      <span className="text-ink-400">已选 {checkedVisibleIds.length} 条</span>
                     )}
                     <div className="ml-auto flex items-center gap-1">
                       <button
                         onClick={() => {
-                          if (checkedAnnotationIds.length === 0) return
-                          if (confirm(`确定删除选中的 ${checkedAnnotationIds.length} 条批注吗？`)) {
-                            deleteAnnotations(checkedAnnotationIds)
+                          if (checkedVisibleIds.length === 0) return
+                          if (confirm(`确定删除选中的 ${checkedVisibleIds.length} 条批注吗？`)) {
+                            deleteAnnotations(checkedVisibleIds)
                           }
                         }}
-                        disabled={checkedAnnotationIds.length === 0}
+                        disabled={checkedVisibleIds.length === 0}
                         className="px-2 py-1 rounded-control-sm border border-red-200 text-red-600 hover:bg-red-50 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:border-ink-200 disabled:text-ink-400"
                       >
                         删除选中
@@ -4245,7 +4342,7 @@ export default function ReadingPage() {
                         }}
                         className="px-2 py-1 rounded-control-sm border border-ink-200 text-ink-500 hover:bg-paper-100 transition"
                       >
-                        清空
+                        清空全部
                       </button>
                     </div>
                   </div>
@@ -4258,9 +4355,14 @@ export default function ReadingPage() {
                     <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-30" />
                     <p>暂无批注</p>
                   </div>
+                ) : visibleAnnotations.length === 0 ? (
+                  <div className="text-center py-12 text-ink-400 text-ui-sm">
+                    <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    <p>这一颜色下暂无批注</p>
+                  </div>
                 ) : (
                   <div className="p-2 space-y-2">
-                    {orderedAnnotations
+                    {visibleAnnotations
                       .map((anno) => {
                         const colorInfo = getColorInfo(anno.color)
                         const isSelected = selectedAnnotationId === anno.id
