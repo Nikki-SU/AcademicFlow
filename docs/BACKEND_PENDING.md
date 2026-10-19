@@ -4,13 +4,33 @@
 > 前端通过 Contents API 把 base64 嵌在 `src/constants/skeleton.ts` 里的副本「安装」进去。
 > 本文档记三件事：**现在两边是否一致**、**改后端必须遵守什么**、**还剩什么没做**。
 >
-> 最后更新：2026-10-11
+> 最后更新：2026-10-19
 
 ---
 
 ## 0. 当前状态（2026-09-28 已推私库，10/10 逐字节一致）
 
 **前端嵌入副本与私库 `main` 线上版本逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
+
+> ⚠️ **2026-10-19 待生效（backend 19→20，走 ADJ-126 自动同步）**：`paper_convert.mjs` 的 AI-1
+> clean / tag 分块由「定长 `slice(i, i+20000)`」改为「**结构安全边界切块**」：新增
+> `chunkMarkdown(text, size)` + `protectedRanges(s)` —— 修「某篇论文死也转不出来」
+> （`Studer-The Persistent Radical Effect in Organic Synthesis.pdf`，DOI `10.1002/anie.201903726`）。
+> 根因：`cleanMd` 续跑时由检查点 `.tmp_cleaned.md` 复用、切点纯确定性，20000 字符一旦落在
+> `![](images/xxx.jpg)` 中间，chunk N 只拿到半截图片语法、chunk N+1 以 `)` 开头 → AI 丢图 →
+> tag 阶段 `missingImages` 报丢图 → 一次重试后 `throw`，每次重跑都停在同一字符处。新逻辑优先在
+> **空行（段落边界）**切、退而求换行（只回扫目标点前 20%），并用 `protectedRanges` 收集
+> 「不可切断区间」（图片 / 行内与块公式 / 代码块 / 已打标块 `⟨⟨⟨…⟩⟩⟩` / 连续表格行），切点落入
+> 区间内部即退避（退头或推尾），仍无边界则整块输出、不硬切结构。本地已重新嵌进 `skeleton.ts`
+> （`PAPER_CONVERT_MJS_B64` 解码 **133860 B**、sha256
+> `97ec55ed23f9da4d57f7d91b2dc46aadf599c7e3aad7d5ef05f536b4d12d59c1`），逐字节一致、
+> `node --check` OK；私库尚未手动推 —— **无需手动推**：`APP_VERSION.backend` 已 +1（19→20），
+> 用户下次进入应用时 `pipelineAutoSync` 会比对私库 `settings/backend-version.csv` 并自动重写
+> （ADJ-126，零操作）。自动同步发生前私库线上仍是旧版（定长切块），对绝大多数论文行为等价，
+> 仅「20000 整倍恰好切断图片 / 公式 / 代码块 / 表格 / 已打标块」的论文才会复现「死也转不出来」。
+> 注：其间 backend 历经 13→20 多次 runner 变更（CSV 整份字符流解析、共一作者、pdf_added_at、
+> 各 workflow 并发安全推送、分块修复等），逐条见 `src/constants/version.ts` 与 `架构.md`；
+> 本节仅补记本次，未逐条回填。
 
 > ⚠️ **2026-10-11 待生效（backend 12→13，走 ADJ-126 自动同步）**：`paper_convert.mjs` 新增
 > **共一作者抽取** —— 与通讯作者同一趟 post-MinerU，从 md 首页作者块认 `†`/`‡`/`#` 记号与
