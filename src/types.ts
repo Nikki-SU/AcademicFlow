@@ -474,9 +474,13 @@ export interface SettingsState extends SettingsData {
 
 /** SPEC §9.1: OpenAI 兼容对话请求 */
 export interface AIRequest {
-  baseUrl: string
-  apiKey: string
-  model: string
+  /**
+   * 后端 chat handler 只认 GitHub Actions Secrets（AI1_xxx / AI2_xxx），这三个字段传了
+   * 也会被忽略；保留为可选只为兼容既有调用点的接口签名，新代码不必再传。
+   */
+  baseUrl?: string
+  apiKey?: string
+  model?: string
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[]
   temperature?: number
   maxTokens?: number

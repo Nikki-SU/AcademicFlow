@@ -67,7 +67,9 @@ async function pollResult(
   token: string,
   signal?: AbortSignal,
 ): Promise<AIResponse> {
-  const maxAttempts = 200 // 3s × 200 = 10min
+  // 与 dual-engine 对齐：后端 job 上限 50min、总预算 40min，前端轮询给到 60min，
+  // 免得后端还在跑、前端先报超时（旧值 10min 会把长回答误判成失败）。
+  const maxAttempts = 1200 // 3s × 1200 = 60min
   for (let i = 0; i < maxAttempts; i++) {
     if (signal?.aborted) throw abortError()
     await new Promise((r) => setTimeout(r, 3000))
@@ -90,7 +92,7 @@ async function pollResult(
       if (e?.message?.includes('后端 AI 失败')) throw e
     }
   }
-  throw new Error('AI 后端任务超时（10 分钟未返回）')
+  throw new Error('AI 后端任务超时（60 分钟未返回）')
 }
 
 /** 统一获取后端上下文 */

@@ -117,6 +117,14 @@ handler 抛错也会写一份 `{ error: "..." }` 的结果文件，前端 `parse
 | `dual_engine_runner.mjs` `TOTAL_BUDGET_MS` | 40 min | 整个任务的总预算，到点不再发起调用、带着已有结果正常返回 |
 | `ai_call.yml` `timeout-minutes` | 50 min | GitHub job 上限，**必须大于总预算**（给收尾留余量） |
 | `src/services/ai/dual-engine.ts` `maxAttempts` | 1200 × 3s = 60 min | 前端轮询上限，**必须大于 job 上限** |
+| `src/services/ai/web-search.ts` `maxAttempts` | 1200 × 3s = 60 min | 联网检索轮询上限，与上面同口径 |
+| `src/services/ai/client.ts` `maxAttempts` | 1200 × 3s = 60 min | 纯模型问答轮询上限，与上面同口径 |
+
+> **2026-10-19 为什么统一成 1200 次**（ADJ-156）：三条问 AI 链路（可信检索 / 联网 / 纯模型）
+> 此前预算不一致，长任务会在前端先超时报错，而后端 job 其实还在跑。现统一 `maxAttempts = 1200`
+> （60 min），比 `ai_call.yml` 的 50 min job 上限多 10 min 余量，保证「后端先收尾、前端后放弃」。
+> 同时 `ai_call.mjs` 的 `aiCall` 补了单次 15 min 硬超时（`AbortSignal.timeout`），
+> 修「上游静默挂住 → job 被 SIGKILL → 连结果文件都写不出」。
 
 > **2026-09-28 为什么整体上调**：接 GLM / 讯飞两家免费档 provider 时实测，
 > 免费档吞吐远低于 DeepSeek —— `spark-x2.5-4b` 转一篇 97KB 的 md，**AI-1 单次就要 437 秒**。

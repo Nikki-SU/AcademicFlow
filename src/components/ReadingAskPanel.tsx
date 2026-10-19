@@ -17,8 +17,9 @@
  *   联网        → 联网自由问答     → 单模型 + 来源列表（无审阅）
  *   都不开      → 纯模型问答       → 单模型，无依据、无来源、无审阅
  *
- * 联网检索走「配成 DeepSeek 的槽位」（AI-1 优先，否则 AI-2）—— DeepSeek 原生
- * web_search 只在 DeepSeek 的 Anthropic 兼容端点可用，后端会自动挑出该槽位。
+ * 联网检索走「有原生联网能力的 provider 槽位」：后端按 AI-1 → AI-2 的顺序挑第一个
+ * 支持联网的槽位（DeepSeek / 智谱 GLM / OpenRouter / 讯飞星火），火山方舟与硅基流动
+ * 会被明确拒绝。前端用 resolveWebSearchSupport() 按同一口径把不可用的联网开关置灰。
  *
  * 对话记录按「一篇文献 / 一本书一个大对话」持久化到
  *   literatures/{slug}/ai-chat.md 或 textbooks/{书名}/ai-chat.md
@@ -36,13 +37,14 @@ import {
   Globe,
   Loader2,
   Quote,
+  RotateCcw,
   Send,
   ShieldCheck,
   Sparkles,
   Square,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { callWebSearch, type WebSearchSource } from '../services/ai/web-search'
+import { callWebSearch, resolveWebSearchSupport, type WebSearchSource } from '../services/ai/web-search'
 import { callAI } from '../services/ai/client'
 import { runDualEngine } from '../services/ai/dual-engine'
 import { buildReadingSourceMaterial } from '../services/ai/readingSource'
@@ -74,6 +76,8 @@ export interface ReadingChatMessage {
    * 聊天记录里再存一份正文（否则 md 会翻倍膨胀）。
    */
   deliveredFiles?: DeliveredFileChip[]
+  /** 本条是失败提示（不进多轮上下文；界面给「重试」入口） */
+  failed?: boolean
 }
 
 /** 一条带引文的提问 → 在正文边上画一个「原点」 */
@@ -104,6 +108,16 @@ function splitUserContent(content: string): { question: string; quote: string } 
   const at = content.indexOf('\n\n> ')
   if (at < 0) return { question: content, quote: '' }
   return { question: content.slice(0, at), quote: content.slice(at + 5).trim() }
+}
+
+/** 失败提示：旧对话从 md 读回时没有 failed 标记，用固定前缀认出来 */
+function isFailedMessage(m: ReadingChatMessage): boolean {
+  return m.role === 'assistant' && (m.failed === true || m.content.startsWith('⚠️ 提问失败'))
+}
+
+/** 失败 / 已停止的提示不进多轮上下文，免得模型把错误文本当历史 */
+function isNoiseMessage(m: ReadingChatMessage): boolean {
+  return isFailedMessage(m) || (m.role === 'assistant' && m.content.trim() === '_（已停止）_')
 }
 
 /** 联网检索用的系统提示（可信路径与自由路径共用） */
@@ -223,6 +237,32 @@ export default function ReadingAskPanel({
   const skipSaveRef = useRef(false)
   /** 当前提问的取消句柄：点「停止」就 abort，前端立刻不再收后端输出 */
   const abortRef = useRef<AbortController | null>(null)
+  /** 本次回答已经等了多少秒（长任务给用户「还在跑」的确定感） */
+  const [elapsed, setElapsed] = useState(0)
+
+  // 联网能力跟设置里的 provider 走：切到不支持联网的 provider 时开关自动关掉并置灰。
+  const aiProviderMode = useSettingsStore((s) => s.aiProviderMode)
+  const ai2ProviderMode = useSettingsStore((s) => s.ai2ProviderMode)
+  const customAi1BaseUrl = useSettingsStore((s) => s.customAi1BaseUrl)
+  const customAi2BaseUrl = useSettingsStore((s) => s.customAi2BaseUrl)
+  const webSupport = useMemo(
+    () => resolveWebSearchSupport(),
+    [aiProviderMode, ai2ProviderMode, customAi1BaseUrl, customAi2BaseUrl],
+  )
+
+  useEffect(() => {
+    if (!webSupport.supported) setWeb(false)
+  }, [webSupport.supported])
+
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0)
+      return
+    }
+    const startedAt = Date.now()
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [busy])
 
   const docKey = docRef ? `${docRef.kind}:${docRef.id}` : ''
 
@@ -300,20 +340,34 @@ export default function ReadingAskPanel({
   }, [jumpToMessageId, loaded, onJumped])
 
   const send = useCallback(
-    async (question: string, useTrusted: boolean, useWeb: boolean, focusText: string) => {
+    async (
+      question: string,
+      useTrusted: boolean,
+      useWeb: boolean,
+      focusText: string,
+      historySource?: ReadingChatMessage[],
+    ) => {
       const q = question.trim()
       if (!q || busy || !docRef) return
+
+      // 联网开着但当前 provider 没有原生联网能力：直接说清原因，不假装检索
+      if (useWeb && !webSupport.supported) {
+        toast.error(webSupport.reason)
+        return
+      }
 
       // 当前端实际使用的槽位配置（可信检索需要 ai1 + ai2，自由问答只需 ai1）
       const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
 
-      // 联网检索走「配成 DeepSeek 的槽位」的凭据（后端自动挑），推理模式沿用 AI-1 位设置。
+      // 后端按 provider 能力自动挑联网槽位；推理模式沿用 AI-1 位设置。
       // '' 表示不干预 → 传 undefined，后端就不发 thinking（保持模型默认）。
       const webSearchThinking = useSettingsStore.getState().thinkingAi1 || undefined
 
       // 多轮上下文：保留最近 6 条，并按模型窗口派生的预算裁剪。
       // 注意：这是「对话记录」的预算，与图书正文无关 —— 图书正文不再截断（见 readingSource）。
-      const rawHistory = messages
+      // 失败/已停止的提示不进上下文；重试时传 historySource 以排除被撤掉的那一轮。
+      const rawHistory = (historySource ?? messages)
+        .filter((m) => !isNoiseMessage(m))
         .slice(-6)
         .map((m) => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
         .join('\n')
@@ -397,9 +451,12 @@ export default function ReadingAskPanel({
             } catch (err) {
               // 用户点了「停止」不是检索失败，别吞掉它去跑下一步
               if (isAbortError(err)) throw err
-              // 检索失败不该让整个提问失败 —— 退回「只依据正文」的可信检索
-              console.warn('[ReadingAsk] 可信检索的联网检索失败，退回只依据正文:', err)
-              toast.warning('联网检索失败，本次只依据正文做可信检索')
+              // 联网开关是用户明确打开的：检索失败就如实报错并给重试入口，
+              // 不静默降级成「只依据正文」—— 那会让用户以为答案用过联网。
+              console.warn('[ReadingAsk] 可信检索的联网检索失败:', err)
+              throw new Error(
+                `联网检索失败：${errText(err)}。可关闭「联网」只依据正文重试，或点「重试」再试一次。`,
+              )
             }
           }
 
@@ -458,8 +515,8 @@ export default function ReadingAskPanel({
             },
           ])
         } else if (useWeb) {
-          // 联网自由问答：后端直连 DeepSeek 的 Anthropic 兼容端点 + 内置 web_search
-          // 工具（自动挑配成 DeepSeek 的槽位）；不喂原文、也不经 settings 的本地 Key。
+          // 联网自由问答：后端按 provider 能力自动挑一个支持原生 web_search 的槽位；
+          // 不喂原文，凭据只从 Secrets 取（前端不传本地 Key）。
           const sys = SEARCH_SYSTEM
           const userContent = [
             historyContext ? `【此前的对话】\n${historyContext}` : '',
@@ -512,9 +569,6 @@ export default function ReadingAskPanel({
 
           setStage('AI-1 生成中…')
           const resp = await callAI({
-            baseUrl: ai1.baseUrl,
-            apiKey: ai1.apiKey,
-            model: ai1.model,
             messages: [
               { role: 'system', content: PLAIN_SYSTEM },
               { role: 'user', content: userContent },
@@ -568,6 +622,7 @@ export default function ReadingAskPanel({
               role: 'assistant',
               content: `⚠️ 提问失败：${msg}`,
               createdAt: Date.now(),
+              failed: true,
             },
           ])
         }
@@ -577,7 +632,7 @@ export default function ReadingAskPanel({
         setStage('')
       }
     },
-    [busy, docRef, docMarkdown, docTitle, messages],
+    [busy, docRef, docMarkdown, docTitle, messages, webSupport],
   )
 
   /** 停止本次提问：前端立刻不再接收后端输出，并让后端也停下（省额度） */
@@ -586,8 +641,34 @@ export default function ReadingAskPanel({
     setStage('正在停止…')
   }, [])
 
+  /** 失败消息重试：撤掉失败那一轮（含它的用户提问），按当前开关重新发一次 */
+  const retryFailed = useCallback(
+    (failedMsg: ReadingChatMessage) => {
+      if (busy) return
+      const idx = messages.findIndex((m) => m.id === failedMsg.id)
+      if (idx < 0) return
+      let userIdx = -1
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+          userIdx = i
+          break
+        }
+      }
+      if (userIdx < 0) return
+      const { question, quote } = splitUserContent(messages[userIdx].content)
+      const rest = messages.filter((_, i) => i !== idx && i !== userIdx)
+      setMessages(rest)
+      void send(question, trusted, web, quote, rest)
+    },
+    [busy, messages, send, trusted, web],
+  )
+
   /** 预设问法 1：查这个词的学术含义 —— 需要外部知识，开联网、关可信检索 */
   const askAcademicMeaning = () => {
+    if (!webSupport.supported) {
+      toast.error(`「查学术含义」需要联网检索：${webSupport.reason}`)
+      return
+    }
     const word = selectedText.trim() || input.trim()
     if (!word) {
       toast.error('请先在正文里选中一个词，或直接输入要查的词')
@@ -655,21 +736,33 @@ export default function ReadingAskPanel({
             <span className="ml-auto flex-shrink-0">{trusted ? '开' : '关'}</span>
           </button>
           <button
-            onClick={() => setWeb(!web)}
+            onClick={() => {
+              if (!webSupport.supported) {
+                toast.error(`联网不可用：${webSupport.reason}`)
+                return
+              }
+              setWeb(!web)
+            }}
             className={`flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 rounded-control-sm text-ui-xs transition border ${
-              web
-                ? 'bg-seal-50 border-seal-200 text-seal-700'
-                : 'bg-paper-50 border-ink-200 text-ink-500 hover:bg-paper-100'
+              !webSupport.supported
+                ? 'bg-paper-50 border-ink-200 text-ink-300 cursor-not-allowed'
+                : web
+                  ? 'bg-seal-50 border-seal-200 text-seal-700'
+                  : 'bg-paper-50 border-ink-200 text-ink-500 hover:bg-paper-100'
             }`}
             title={
-              web
-                ? '联网：回答前先联网检索（自动走配成 DeepSeek 的槽位）'
-                : '不联网：只用正文与模型自身知识回答'
+              !webSupport.supported
+                ? `联网不可用：${webSupport.reason}`
+                : web
+                  ? `联网：回答前先联网检索（由 ${webSupport.slot?.label ?? 'AI-1'} · ${webSupport.slot?.providerLabel ?? '当前 provider'} 提供）`
+                  : '不联网：只用正文与模型自身知识回答'
             }
           >
             <Globe className="w-3.5 h-3.5 flex-shrink-0" />
             <span className="font-medium truncate">联网</span>
-            <span className="ml-auto flex-shrink-0">{web ? '开' : '关'}</span>
+            <span className="ml-auto flex-shrink-0">
+              {!webSupport.supported ? '不可用' : web ? '开' : '关'}
+            </span>
           </button>
         </div>
         <div className="mt-1.5 flex items-center justify-between text-ui-2xs text-ink-400">
@@ -705,7 +798,9 @@ export default function ReadingAskPanel({
                 className={`rounded-control px-ui-gap py-2 text-ui-sm max-w-full ${
                   m.role === 'user'
                     ? 'bg-seal-600 text-paper-50'
-                    : 'bg-paper-100 border border-ink-200 text-ink-700'
+                    : isFailedMessage(m)
+                      ? 'bg-red-50 border border-red-200 text-ink-700'
+                      : 'bg-paper-100 border border-ink-200 text-ink-700'
                 }`}
               >
                 {m.role === 'user' ? (
@@ -728,6 +823,17 @@ export default function ReadingAskPanel({
                 {m.role === 'assistant' && m.deliveredFiles && m.deliveredFiles.length > 0 && (
                   <DeliveredFilesCard files={m.deliveredFiles} />
                 )}
+                {m.role === 'assistant' && isFailedMessage(m) && (
+                  <button
+                    onClick={() => retryFailed(m)}
+                    disabled={busy}
+                    className="mt-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-control-sm border border-red-200 text-red-600 hover:bg-red-100 transition disabled:opacity-40"
+                    title="撤掉这一轮，按当前开关重新提问一次"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    重试
+                  </button>
+                )}
               </div>
             </div>
           ))
@@ -735,7 +841,10 @@ export default function ReadingAskPanel({
         {busy && (
           <div className="flex items-center gap-2 text-ui-xs text-ink-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span className="flex-1 min-w-0 truncate">{stage || '处理中…'}</span>
+            <span className="flex-1 min-w-0 truncate">
+              {stage || '处理中…'}
+              {elapsed > 0 && <span className="ml-1 text-ink-300">已等待 {elapsed}s</span>}
+            </span>
             <button
               onClick={stop}
               className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-control-sm border border-ink-200 text-ink-500 hover:border-red-300 hover:text-red-600 transition flex-shrink-0"

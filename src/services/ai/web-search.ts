@@ -1,20 +1,26 @@
 /**
- * 联网检索 —— DeepSeek 原生 web_search（走 ai_call workflow）
+ * 联网检索 —— 走 ai_call workflow 的 web_search handler
  *
  * 与 callAI 的区别只在后端 handler：
- *   - ai_call 里 task_type='web_search'，直连 api.deepseek.com/anthropic/v1/messages
- *     并带上内置 web_search 工具，模型会先检索再作答，结果里附来源列表。
- *     （OpenAI 兼容端点的 /chat/completions 会忽略 web_search，所以这一步绕不开。）
- *   - 密钥在 runner 里取 AI1_*，前端不需要本地 API Key —— 所以这里不读 settings，
- *     也就没有「请先填写 AI-1 位的 API Key」这道卡。
+ *   - ai_call 里 task_type='web_search'，由后端按 provider 能力挑一个可用槽位：
+ *     DeepSeek（Anthropic 兼容端点 + web_search_20250305）/ 智谱 GLM / OpenRouter /
+ *     讯飞星火。火山方舟（收下工具但不真检索）与硅基流动（无原生联网）会被后端
+ *     明确拒绝，不静默降级。
+ *   - 密钥在 runner 里取 AI1_xxx / AI2_xxx（Secrets），前端不传也不读本地 Key。
+ *
+ * 前端要知道「当前两个槽位到底能不能联网」，用下面导出的 webSearchCapability /
+ * resolveWebSearchSupport —— 判定口径与后端 PROVIDERS/UNSUPPORTED 一一对应，
+ * 免得界面显示「能联网」而后端报不支持。
  *
  * 产物：temp/ai/web_search/search_{ts}_{rand}.json
  */
 import type { AIThinkingMode } from '../../types'
+import { AI_PROVIDERS, type AIProviderMode } from '../../types'
 import { dispatchAiCall } from '../workflowClient'
 import { readRepoTextFile } from '../github'
 import { abortError, cancelRemoteAiRun } from './abort'
 import { useAuthStore } from '../../stores/auth'
+import { useSettingsStore } from '../../stores/settings'
 import { useWorkspaceStore } from '../../stores/workspace'
 
 export interface WebSearchSource {
@@ -36,6 +42,103 @@ export interface WebSearchRequest {
   /** 推理模式：不传 = 后端不发 thinking 参数，沿用模型默认 */
   thinking?: AIThinkingMode
   signal?: AbortSignal
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// 联网能力判定 —— 口径必须与后端 ai_call.mjs 的 PROVIDERS / UNSUPPORTED 一致
+// ═════════════════════════════════════════════════════════════════════
+
+export type WebSearchCapability = 'supported' | 'unsupported' | 'unknown'
+
+export interface WebSearchSupport {
+  /** 两个槽位里是否至少有一个能真正联网 */
+  supported: boolean
+  /** 不能联网时的可读原因（supported=true 时为空串） */
+  reason: string
+  /** 能联网时，后端实际会挑中的槽位 */
+  slot?: { label: string; providerLabel: string; baseUrl: string }
+}
+
+const WEB_SEARCH_PROVIDERS = [
+  { label: 'DeepSeek', hostRe: /(^|\.)deepseek\.com$/ },
+  { label: '智谱 GLM', hostRe: /(^|\.)bigmodel\.cn$/ },
+  { label: 'OpenRouter', hostRe: /(^|\.)openrouter\.ai$/ },
+  { label: '讯飞星火', hostRe: /(^|\.)xf-yun\.com$/ },
+]
+
+const WEB_SEARCH_UNSUPPORTED = [
+  {
+    label: '火山方舟',
+    hostRe: /(^|\.)volces\.com$/,
+    reason: '订阅端点接受 web_search 工具但不真正检索（实测返回 200、引文为空、模型自述无法联网）',
+  },
+  { label: '硅基流动', hostRe: /(^|\.)siliconflow\.(cn|com)$/, reason: '没有原生联网检索能力' },
+]
+
+function hostOf(baseUrl: string): string {
+  try {
+    return new URL(baseUrl || '').hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/** 单个端点是否能联网 */
+export function webSearchCapability(baseUrl: string): WebSearchCapability {
+  const host = hostOf(baseUrl)
+  if (!host) return 'unknown'
+  if (WEB_SEARCH_UNSUPPORTED.some((p) => p.hostRe.test(host))) return 'unsupported'
+  if (WEB_SEARCH_PROVIDERS.some((p) => p.hostRe.test(host))) return 'supported'
+  return 'unknown'
+}
+
+/**
+ * 按当前设置里的两个槽位算「联网开关能不能开」。
+ * 只按 provider 主机名判定，不调用 getDualEngineConfig() —— 那里缺 Key 会抛异常，
+ * 渲染期不能让它炸掉面板；缺 Key / 缺模型由后端在真正检索时给可读错误。
+ */
+export function resolveWebSearchSupport(): WebSearchSupport {
+  const s = useSettingsStore.getState()
+  const slots: { label: string; mode: AIProviderMode; baseUrl: string }[] = [
+    {
+      label: 'AI-1',
+      mode: s.aiProviderMode,
+      baseUrl:
+        s.aiProviderMode === 'custom'
+          ? s.customAi1BaseUrl.trim()
+          : AI_PROVIDERS[s.aiProviderMode]?.baseUrl || '',
+    },
+    {
+      label: 'AI-2',
+      mode: s.ai2ProviderMode,
+      baseUrl:
+        s.ai2ProviderMode === 'custom'
+          ? s.customAi2BaseUrl.trim()
+          : AI_PROVIDERS[s.ai2ProviderMode]?.baseUrl || '',
+    },
+  ]
+
+  const details: string[] = []
+  for (const slot of slots) {
+    const host = hostOf(slot.baseUrl)
+    const provider = WEB_SEARCH_PROVIDERS.find((p) => p.hostRe.test(host))
+    if (provider) {
+      return {
+        supported: true,
+        reason: '',
+        slot: { label: slot.label, providerLabel: provider.label, baseUrl: slot.baseUrl },
+      }
+    }
+    const bad = WEB_SEARCH_UNSUPPORTED.find((p) => p.hostRe.test(host))
+    if (bad) details.push(`${slot.label} 是${bad.label}：${bad.reason}`)
+    else if (!host) details.push(`${slot.label} 没有配置端点`)
+    else details.push(`${slot.label}（${host}）不在已支持联网的 provider 列表内`)
+  }
+
+  return {
+    supported: false,
+    reason: `当前没有支持联网检索的槽位。${details.join('；')}。支持联网的 provider：${WEB_SEARCH_PROVIDERS.map((p) => p.label).join(' / ')}`,
+  }
 }
 
 function getBackendContext(): { token: string; owner: string; repoName: string } {
@@ -69,8 +172,9 @@ export async function callWebSearch(req: WebSearchRequest): Promise<WebSearchRes
     else req.signal.addEventListener('abort', onAbort, { once: true })
   }
 
-  // 联网比普通 chat 慢（先检索再写），预算给到 15 分钟
-  const maxAttempts = 300 // 3s × 300
+  // 与 chat / dual-engine 对齐：后端 job 上限 50min，前端轮询给到 60min，
+  // 免得后端还在检索、前端先报超时（旧值 15min 会把慢检索误判成失败）。
+  const maxAttempts = 1200 // 3s × 1200 = 60min
   try {
     for (let i = 0; i < maxAttempts; i++) {
       if (req.signal?.aborted) throw abortError()
@@ -93,7 +197,7 @@ export async function callWebSearch(req: WebSearchRequest): Promise<WebSearchRes
         // 文件还没 commit 出来，或 JSON 还没写全 → 继续等
       }
     }
-    throw new Error('联网检索超时（15 分钟未返回）')
+    throw new Error('联网检索超时（60 分钟未返回）')
   } finally {
     // 任务结束后不再响应 abort，免得 UI 清理时误伤下一次的 run
     req.signal?.removeEventListener('abort', onAbort)
