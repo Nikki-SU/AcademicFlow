@@ -486,6 +486,11 @@ export interface AIRequest {
   maxTokens?: number
   /** 推理模式：off = 关闭；不传 = 用模型默认 */
   thinking?: AIThinkingMode
+  /**
+   * 结果文件路径（可选覆盖）。调用方需要「页面刷新 / 组件卸载后还能接回这次任务」时，
+   * 由调用方先 `newChatOutputPath()` 生成并持久化，再传进来；不传则内部生成。
+   */
+  outputPath?: string
   signal?: AbortSignal
 }
 
@@ -541,6 +546,11 @@ export interface DualEngineRunParams {
    */
   deliverFiles?: boolean
   onProgress?: DualEngineProgressCallback
+  /**
+   * 结果文件路径（可选覆盖）。调用方需要「页面刷新 / 组件卸载后还能接回这次任务」时，
+   * 由调用方先 `newDualEngineOutputPath(taskType)` 生成并持久化，再传进来；不传则内部生成。
+   */
+  outputPath?: string
   /** 用户点「停止」时 abort：前端立刻不再轮询，并尽力取消后端 run */
   signal?: AbortSignal
 }

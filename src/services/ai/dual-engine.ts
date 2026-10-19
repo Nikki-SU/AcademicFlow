@@ -24,10 +24,14 @@ import { outputReserve, resolveContextWindow } from './modelWindow'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
 
-/** 后端结果文件的 output_path 模板 —— 临时文件，不需要用户管理 */
-function buildOutputPath(taskType: string): string {
+/**
+ * 后端结果文件的 output_path 模板 —— 临时文件，不需要用户管理。
+ * 对外导出：调用方要「切走 / 刷新后还能接回这次任务」时，先自己生成并持久化，
+ * 再通过 DualEngineRunParams.outputPath 传进来。
+ */
+export function newDualEngineOutputPath(taskType: string): string {
   const ts = Date.now()
-  return `temp/ai/dual_engine/${taskType}_${ts}.json`
+  return `temp/ai/dual_engine/${taskType}_${ts}_${Math.random().toString(36).slice(2, 8)}.json`
 }
 
 /** 把后端 dual_engine-runner 的 JSON 输出转成前端 DualEngineResult */
@@ -87,6 +91,24 @@ async function pollResultFile(
   throw new Error('双引擎后端任务超时（60 分钟未返回结果）')
 }
 
+/**
+ * 只轮询已有 output_path（不重复 dispatch）。
+ * 供「任务已经派发过、但界面被卸载 / 页面被刷新」的一方重新接上这次任务。
+ */
+export async function pollDualEngineResult(
+  outputPath: string,
+  onProgress?: DualEngineProgressCallback,
+  signal?: AbortSignal,
+): Promise<DualEngineResult> {
+  const { token, user } = useAuthStore.getState()
+  const repoName = useWorkspaceStore.getState().repo?.name
+  const owner = user?.login
+  if (!token || !owner || !repoName) {
+    throw new Error('未登录或私库未配置 — 无法触发后端 AI 服务')
+  }
+  return pollResultFile(outputPath, owner, repoName, token, onProgress, signal)
+}
+
 export async function runDualEngine(
   params: DualEngineRunParams,
 ): Promise<DualEngineResult> {
@@ -98,7 +120,7 @@ export async function runDualEngine(
     throw new Error('未登录或私库未配置 — 无法触发后端 AI 服务')
   }
 
-  const outputPath = buildOutputPath(params.taskType)
+  const outputPath = params.outputPath ?? newDualEngineOutputPath(params.taskType)
   const taskId = `dual_engine_${params.taskType}_${Date.now()}`
 
   // 构造给后端的 input_json

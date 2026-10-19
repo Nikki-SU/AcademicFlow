@@ -41,6 +41,11 @@ export interface WebSearchRequest {
   maxUses?: number
   /** 推理模式：不传 = 后端不发 thinking 参数，沿用模型默认 */
   thinking?: AIThinkingMode
+  /**
+   * 结果文件路径（可选覆盖）。调用方需要「页面刷新 / 组件卸载后还能接回这次任务」时，
+   * 由调用方先 `newWebSearchOutputPath()` 生成并持久化，再传进来；不传则内部生成。
+   */
+  outputPath?: string
   signal?: AbortSignal
 }
 
@@ -151,10 +156,56 @@ function getBackendContext(): { token: string; owner: string; repoName: string }
   return { token, owner, repoName }
 }
 
+/**
+ * 构造唯一的 output_path。
+ * 对外导出：调用方要「切走 / 刷新后还能接回这次任务」时，先自己生成并持久化，
+ * 再通过 WebSearchRequest.outputPath 传进来。
+ */
+export function newWebSearchOutputPath(): string {
+  return `temp/ai/web_search/search_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`
+}
+
+/**
+ * 只轮询已有 output_path（不重复 dispatch）。
+ * 供「任务已经派发过、但界面被卸载 / 页面被刷新」的一方重新接上这次任务。
+ */
+export async function pollWebSearchResult(
+  outputPath: string,
+  signal?: AbortSignal,
+): Promise<WebSearchResult> {
+  const { token, owner, repoName } = getBackendContext()
+
+  // 与 chat / dual-engine 对齐：后端 job 上限 50min，前端轮询给到 60min，
+  // 免得后端还在检索、前端先报超时（旧值 15min 会把慢检索误判成失败）。
+  const maxAttempts = 1200 // 3s × 1200 = 60min
+  for (let i = 0; i < maxAttempts; i++) {
+    if (signal?.aborted) throw abortError()
+    await new Promise((r) => setTimeout(r, 3000))
+    if (signal?.aborted) throw abortError()
+
+    try {
+      const raw = await readRepoTextFile(owner, repoName, outputPath, token)
+      if (!raw) continue
+      const parsed = JSON.parse(raw.content)
+      if (parsed.error) throw new Error(`后端联网检索失败: ${parsed.error}`)
+      // 后端是先写 output_path 再 commit，文件出现即写全；done 只是双重保险
+      if (!parsed.done) continue
+      return {
+        content: parsed.content || '',
+        sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+      }
+    } catch (e: any) {
+      if (e?.message?.includes('后端联网检索失败')) throw e
+      // 文件还没 commit 出来，或 JSON 还没写全 → 继续等
+    }
+  }
+  throw new Error('联网检索超时（60 分钟未返回）')
+}
+
 export async function callWebSearch(req: WebSearchRequest): Promise<WebSearchResult> {
   const { token, owner, repoName } = getBackendContext()
 
-  const outputPath = `temp/ai/web_search/search_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`
+  const outputPath = req.outputPath ?? newWebSearchOutputPath()
   const taskId = `web_search_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
   const inputJson: Record<string, unknown> = { user: req.user }
@@ -174,30 +225,8 @@ export async function callWebSearch(req: WebSearchRequest): Promise<WebSearchRes
 
   // 与 chat / dual-engine 对齐：后端 job 上限 50min，前端轮询给到 60min，
   // 免得后端还在检索、前端先报超时（旧值 15min 会把慢检索误判成失败）。
-  const maxAttempts = 1200 // 3s × 1200 = 60min
   try {
-    for (let i = 0; i < maxAttempts; i++) {
-      if (req.signal?.aborted) throw abortError()
-      await new Promise((r) => setTimeout(r, 3000))
-      if (req.signal?.aborted) throw abortError()
-
-      try {
-        const raw = await readRepoTextFile(owner, repoName, outputPath, token)
-        if (!raw) continue
-        const parsed = JSON.parse(raw.content)
-        if (parsed.error) throw new Error(`后端联网检索失败: ${parsed.error}`)
-        // 后端是先写 output_path 再 commit，文件出现即写全；done 只是双重保险
-        if (!parsed.done) continue
-        return {
-          content: parsed.content || '',
-          sources: Array.isArray(parsed.sources) ? parsed.sources : [],
-        }
-      } catch (e: any) {
-        if (e?.message?.includes('后端联网检索失败')) throw e
-        // 文件还没 commit 出来，或 JSON 还没写全 → 继续等
-      }
-    }
-    throw new Error('联网检索超时（60 分钟未返回）')
+    return await pollWebSearchResult(outputPath, req.signal)
   } finally {
     // 任务结束后不再响应 abort，免得 UI 清理时误伤下一次的 run
     req.signal?.removeEventListener('abort', onAbort)

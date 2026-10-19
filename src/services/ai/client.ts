@@ -54,8 +54,12 @@ export class AITimeoutError extends AIError {
   }
 }
 
-/** 构造唯一的 output_path */
-function buildOutputPath(): string {
+/**
+ * 构造唯一的 output_path。
+ * 对外导出：调用方要「切走 / 刷新后还能接回这次任务」时，先自己生成并持久化，
+ * 再通过 AIRequest.outputPath 传进来。
+ */
+export function newChatOutputPath(): string {
   return `temp/ai/chat/call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`
 }
 
@@ -106,10 +110,22 @@ function getBackendContext(): { token: string; owner: string; repoName: string }
   return { token, owner, repoName }
 }
 
+/**
+ * 只轮询已有 output_path（不重复 dispatch）。
+ * 供「任务已经派发过、但界面被卸载 / 页面被刷新」的一方重新接上这次任务。
+ */
+export async function pollChatResult(
+  outputPath: string,
+  signal?: AbortSignal,
+): Promise<AIResponse> {
+  const { token, owner, repoName } = getBackendContext()
+  return pollResult(outputPath, owner, repoName, token, signal)
+}
+
 export async function callAI(req: AIRequest): Promise<AIResponse> {
   const { token, owner, repoName } = getBackendContext()
 
-  const outputPath = buildOutputPath()
+  const outputPath = req.outputPath ?? newChatOutputPath()
   const taskId = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 
   // 把 messages + 可选参数传给后端 chat handler
