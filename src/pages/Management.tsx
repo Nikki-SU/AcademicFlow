@@ -113,7 +113,7 @@ import {
 } from '../services/librarySearch'
 import { listNotes, type DocRef } from '../services/readingDocData'
 import { loadAnnotations } from '../services/annotationData'
-import BookEditModal from '../components/BookEditModal'
+import BookEditModal, { type BookEditDraft } from '../components/BookEditModal'
 
 type SubTabId = 'library' | 'templates' | 'knowledge' | 'documents' | 'import-export'
 
@@ -823,6 +823,8 @@ export default function ManagementPage() {
   const [bookDetailTags, setBookDetailTags] = useState<string[]>([])
   /** 打开「编辑图书」弹窗的目标书名（null = 未打开；书名 = 目录名 = 主键） */
   const [editingBookId, setEditingBookId] = useState<string | null>(null)
+  /** 图书编辑弹窗的失败回填草稿：保存 / 改名没落库时把用户刚编的内容原样还回来 */
+  const [bookEditDraft, setBookEditDraft] = useState<BookEditDraft | null>(null)
   /** 图书列表强制刷新计数：改名 / 保存正文后自增触发重载 */
   const [booksReloadKey, setBooksReloadKey] = useState(0)
 
@@ -4514,13 +4516,22 @@ export default function ManagementPage() {
       {editingBookId && (
         <BookEditModal
           bookId={editingBookId}
-          onClose={() => setEditingBookId(null)}
+          initialDraft={bookEditDraft ?? undefined}
+          onClose={() => {
+            setEditingBookId(null)
+            setBookEditDraft(null)
+          }}
           onRenamed={() => {
             setEditingBookId(null)
             setShowBookDetail(null)
             setBooksReloadKey((k) => k + 1)
           }}
           onSaved={() => setBooksReloadKey((k) => k + 1)}
+          onSaveFailed={(draft) => {
+            // 落库失败：把弹窗连同草稿一起放回来，用户不必重打一遍
+            setBookEditDraft(draft)
+            setEditingBookId(draft.bookId)
+          }}
         />
       )}
 

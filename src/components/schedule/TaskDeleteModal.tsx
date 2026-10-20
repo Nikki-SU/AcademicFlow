@@ -6,7 +6,7 @@
  * - 两种模式（用户拍板）：detach 只删任务、材料留在库里；purge 额外删独占材料。
  * - 二次确认：逐字输入任务名才能点「确认删除」，防误删。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { Modal } from './Modal'
 import {
@@ -31,7 +31,8 @@ export function TaskDeleteModal({
   // 不预选：两种模式必须由用户主动选一种，避免默认值造成「以为删干净了 / 以为材料还在」的误解
   const [mode, setMode] = useState<ProjectDeleteMode | null>(null)
   const [typed, setTyped] = useState('')
-  const [working, setWorking] = useState(false)
+  /** 提交中的防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
+  const confirmingRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -56,16 +57,14 @@ export function TaskDeleteModal({
   const children = plan?.promotedChildren ?? []
   // 仅「连材料一起删」需要逐字输入任务名；「仅删任务」只需普通确认
   const needsTyping = mode === 'purge'
-  const canConfirm = mode !== null && !loading && !working && (!needsTyping || typed === expected)
+  const canConfirm = mode !== null && !loading && (!needsTyping || typed === expected)
 
-  const handleConfirm = async () => {
-    if (!canConfirm || mode === null) return
-    setWorking(true)
-    try {
-      await onConfirm(mode)
-    } finally {
-      setWorking(false)
-    }
+  const handleConfirm = () => {
+    if (!canConfirm || mode === null || confirmingRef.current) return
+    confirmingRef.current = true
+    // 点下即生效：父级在 apply 里同步缩列表并关掉本弹窗，写库在后台跑；
+    // 失败由父级 rollback 恢复列表并重开本弹窗
+    void onConfirm(mode)
   }
 
   return (
@@ -77,8 +76,7 @@ export function TaskDeleteModal({
         <>
           <button
             onClick={onClose}
-            disabled={working}
-            className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100 disabled:opacity-50"
+            className="rounded-control px-ui-gap py-2 text-ui-sm text-ink-600 transition hover:bg-ink-100"
           >
             取消
           </button>
@@ -87,7 +85,7 @@ export function TaskDeleteModal({
             disabled={!canConfirm}
             className="rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-40"
           >
-            {working ? '删除中…' : '确认删除'}
+            确认删除
           </button>
         </>
       }

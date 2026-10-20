@@ -168,6 +168,49 @@ export interface ImportItem {
   content: string
 }
 
+export interface ImportPlan {
+  /** 要写进仓库的正文文件（一次 batch 提交） */
+  ops: BatchFileOp[]
+  /** 索引表要新增的条目，顺序与 ops 一致 */
+  added: DocEntry[]
+}
+
+/**
+ * 导入规划（纯函数）：根据「已占用的目录名」算出这次要写的文件与索引条目。
+ *
+ * 单独抽出来的原因：导入要走乐观更新 —— 界面得在点击那一刻就知道
+ * 「会新增哪几个 document_id」，才能先把列表画出来；目录名去重规则必须只有一份，
+ * 界面自己再猜一遍就会和真正落库的结果对不上。
+ */
+export function planImport(items: ImportItem[], existingIds: Iterable<string>): ImportPlan {
+  const usable = items.filter((it) => it.content.trim())
+  const used = new Set(existingIds)
+  const ops: BatchFileOp[] = []
+  const added: DocEntry[] = []
+  const now = Date.now()
+
+  for (const it of usable) {
+    const base = documentSlug(it.title)
+    let id = base
+    let n = 2
+    while (used.has(id)) id = `${base}-${n++}`
+    used.add(id)
+    ops.push({
+      path: `${DOCS_DIR}/${id}/${DOC_CONTENT_FILE}`,
+      content: it.content.trim() + '\n',
+      encoding: 'utf-8',
+    })
+    added.push({
+      documentId: id,
+      title: it.title.trim() || id,
+      author: it.author?.trim() ?? '',
+      source: it.source?.trim() ?? '',
+      addedAt: now,
+    })
+  }
+  return { ops, added }
+}
+
 /**
  * 批量导入 markdown。
  *
@@ -183,30 +226,7 @@ export async function importMarkdownDocs(items: ImportItem[]): Promise<DocumentS
   if (!ctx) throw new Error('工作区未就绪，无法写入仓库')
 
   const existing = await loadDocuments()
-  const used = new Set(existing.map((e) => e.documentId))
-  const ops: BatchFileOp[] = []
-  const added: DocEntry[] = []
-  const now = Date.now()
-
-  for (const it of usable) {
-    const base = documentSlug(it.title)
-    let id = base
-    let n = 2
-    while (used.has(id)) id = `${base}-${n++}`
-    used.add(id)
-    ops.push({
-      path: `${DOCS_DIR}/${id}/content.md`,
-      content: it.content.trim() + '\n',
-      encoding: 'utf-8',
-    })
-    added.push({
-      documentId: id,
-      title: it.title.trim() || id,
-      author: it.author?.trim() ?? '',
-      source: it.source?.trim() ?? '',
-      addedAt: now,
-    })
-  }
+  const { ops, added } = planImport(usable, existing.map((e) => e.documentId))
 
   await writeFileBatch(ops, `Import ${ops.length} document(s)`, ctx.owner, ctx.repo, ctx.token)
   await saveDocuments([...added, ...existing])

@@ -215,7 +215,6 @@ export default function RecorderBall() {
   }, [pipWindow])
 
   const isRecording = status === 'recording'
-  const isBusy = status === 'stopping'
 
   // 录音中每秒走表
   useEffect(() => {
@@ -259,7 +258,6 @@ export default function RecorderBall() {
   }
 
   const handleRecordToggle = async () => {
-    if (isBusy) return
     if (isRecording) {
       // 停止录音 → 顺手收回悬浮窗，球回到页面（不再挂着大窗）
       setExpanded(false)
@@ -456,19 +454,16 @@ export default function RecorderBall() {
             <button
               type="button"
               onClick={handleRecordToggle}
-              disabled={isBusy}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-control px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition disabled:opacity-60 ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-control px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition ${
                 isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-seal-600 hover:bg-seal-700'
               }`}
             >
-              {isBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isRecording ? (
+              {isRecording ? (
                 <Square className="h-4 w-4" />
               ) : (
                 <Mic className="h-4 w-4" />
               )}
-              {isBusy ? '保存中…' : isRecording ? '停止并保存' : '开始录音'}
+              {isRecording ? '停止并保存' : '开始录音'}
             </button>
             <button
               type="button"
@@ -586,8 +581,7 @@ export default function RecorderBall() {
           type="button"
           onClick={toggleExpanded}
           title="采集：录音 / 拍照"
-          disabled={isBusy}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95 disabled:opacity-60"
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-seal-600 text-paper-50 shadow-lift transition hover:bg-seal-700 active:scale-95"
         >
           {expanded ? <ChevronDown className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
         </button>

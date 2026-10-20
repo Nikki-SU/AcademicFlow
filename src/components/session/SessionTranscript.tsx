@@ -71,7 +71,6 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
   const [now, setNow] = useState(Date.now())
 
   const isRecording = status === 'recording'
-  const isBusy = status === 'stopping'
   const isIdle = status === 'idle'
 
   // 阻止「刚加载完的 blocks」被当成用户编辑立刻回写
@@ -250,15 +249,14 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
                 {showRaw ? <EyeOff /> : <Eye />}
               </Button>
             )}
-            {isRecording || isBusy ? (
+            {isRecording ? (
               <Button
                 variant="primary"
                 size="sm"
                 onClick={stop}
-                disabled={isBusy}
-                icon={isBusy ? <Loader2 className="animate-spin" /> : <Square />}
+                icon={<Square />}
               >
-                {isBusy ? '保存中…' : '停止并保存'}
+                停止并保存
               </Button>
             ) : (
               <Button variant="primary" size="sm" onClick={handleStart} icon={<Mic />}>

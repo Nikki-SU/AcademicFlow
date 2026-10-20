@@ -66,8 +66,8 @@ import { runOptimistic, errText } from '../services/optimistic'
  * 「创建 = 编辑的空字段特例」，故只用一个状态、一个弹层。
  */
 type EditorState =
-  | { mode: 'create'; type: ProjectType | null; parentId: string | null }
-  | { mode: 'edit'; projectId: string }
+  | { mode: 'create'; type: ProjectType | null; parentId: string | null; draft?: TaskFormValue }
+  | { mode: 'edit'; projectId: string; draft?: TaskFormValue }
 
 /** 生成本地唯一 id（同伴随时间戳，避免同毫秒碰撞） */
 function genId(prefix: string): string {
@@ -82,7 +82,6 @@ export default function SchedulePage() {
   const [extraDays, setExtraDays] = useState<ExtraDay[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [calendar, setCalendar] = useState<SchoolCalendar>(EMPTY_CALENDAR)
-  const [savingCalendar, setSavingCalendar] = useState(false)
   const [holidays, setHolidays] = useState<HolidayMap>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [editor, setEditor] = useState<EditorState | null>(null)
@@ -225,21 +224,16 @@ export default function SchedulePage() {
     [extraDays, holidays, courses, clockTick],
   )
 
-  // 校历改一项即落库（课程表顶栏就地编辑，不另设保存按钮）
+  // 校历改一项即落库（课程表顶栏就地编辑，不另设保存按钮）：先落 UI，失败自动回滚
   const updateCalendar = async (patch: Partial<SchoolCalendar>) => {
     const prev = calendar
     const next = { ...calendar, ...patch }
-    setSavingCalendar(true)
-    try {
-      await runOptimistic({
-        apply: () => setCalendar(next),
-        commit: () => saveCalendar(next),
-        rollback: () => setCalendar(prev),
-        errorMessage: (err) => `保存校历失败：${errText(err)}`,
-      })
-    } finally {
-      setSavingCalendar(false)
-    }
+    await runOptimistic({
+      apply: () => setCalendar(next),
+      commit: () => saveCalendar(next),
+      rollback: () => setCalendar(prev),
+      errorMessage: (err) => `保存校历失败：${errText(err)}`,
+    })
   }
 
   // ---------- 课程 / 定时任务：时段 ----------
@@ -708,7 +702,6 @@ export default function SchedulePage() {
               ddls={ddlItems}
               examWeekStartMs={msOfDate(calendar.examWeekStart)}
               calendar={calendar}
-              savingCalendar={savingCalendar}
               onChangeCalendar={updateCalendar}
               highlightId={highlightDdlId}
               onHighlight={setHoverDdlId}
@@ -763,15 +756,21 @@ export default function SchedulePage() {
             project={editorProject}
             initialType={editor.mode === 'create' ? editor.type : null}
             initialParentId={editor.mode === 'create' ? editor.parentId : null}
+            initialDraft={editor.draft}
             parentOptions={editorParentOptions}
             onClose={() => setEditor(null)}
-            onSubmit={async (value) => {
-              const ok =
-                editor.mode === 'edit'
-                  ? await handleUpdateTask(editor.projectId, value)
-                  : await handleCreateTask(value)
-              // 乐观更新已即时反馈；仅成功才关弹窗，失败保留输入让用户重试
-              if (ok) setEditor(null)
+            onSubmit={(value) => {
+              // 点下按钮即关窗（乐观）：写库在后台，别拿灰按钮和转圈让用户等。
+              const snapshot = editor
+              setEditor(null)
+              void (async () => {
+                const ok =
+                  snapshot.mode === 'edit'
+                    ? await handleUpdateTask(snapshot.projectId, value)
+                    : await handleCreateTask(value)
+                // 失败：把弹窗连同用户刚填的内容一起放回来，可直接重试
+                if (!ok) setEditor({ ...snapshot, draft: value })
+              })()
             }}
           />
         </ErrorBoundary>

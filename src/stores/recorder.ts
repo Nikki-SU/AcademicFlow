@@ -84,6 +84,12 @@ let mediaStream: MediaStream | null = null
 let stopResolve: (() => void) | null = null
 /** 容器头（第一片里的 EBML/Tracks 或 ftyp+moov），拼到后续每片前面 */
 let initSegmentBytes: Uint8Array | null = null
+/**
+ * 收尾是否在跑：停止录音后界面立刻回到「未在录音」（不再有「保存中…」灰态），
+ * 但抽头 / 转写 / 落盘仍在后台进行；这段时间禁止开新一轮录音，否则
+ * 收尾链会把新录音的 mediaRecorder / mediaStream 一起清掉。
+ */
+let stoppingInFlight = false
 
 /** 每片时长（ms）：只切 dataavailable 事件，录音本身不中断 */
 const SEGMENT_MS = 10000
@@ -526,7 +532,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
 
   start: async (targetTaskId) => {
     const { status } = get()
-    if (status === 'recording' || status === 'stopping') return
+    if (status === 'recording' || stoppingInFlight) return
 
     const cfg = readAsrConfig()
     if (!cfg.apiKey) {
@@ -601,65 +607,72 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   stop: async () => {
     const { status } = get()
     if (status !== 'recording' && status !== 'stopping') return
-    set({ status: 'stopping' })
+    // 点下「停止并保存」就当场生效：录音立刻停、界面立刻回到「未在录音」，已转好的文字
+    // 继续留在转写面板；抽头 / 在途转写 / 落盘放到后台跑 —— 不拿「保存中…」让用户干等。
+    stoppingInFlight = true
+    set({ status: 'idle', startedAt: null })
 
-    // 停止 recorder：触发最后一次 dataavailable（头 + 尾段）与 onstop；等 onstop resolve
-    const recorder = mediaRecorder
-    if (recorder && recorder.state !== 'inactive') {
-      await new Promise<void>((resolve) => {
-        stopResolve = resolve
-        recorder.stop()
-      })
-    }
-
-    await prepChain // 等所有分片完成「抽头 + 派发」
-    await waitAllInFlight() // 等所有在途转写收尾（否则它们的文本会漏写）
-    await drainPending() // 给失败的片（本轮 + 历史）最后一次补转机会
-
-    // 停掉麦克风轨道，释放设备
-    mediaStream?.getTracks().forEach((t) => t.stop())
-    mediaRecorder = null
-    mediaStream = null
-    initSegmentBytes = null
-
-    // 解除防休眠保活
-    stopKeepAliveAudio()
-    releaseKeepAliveLock()
-    detachLifecycleGuards()
     try {
-      sessionStorage.removeItem(RECORDING_FLAG)
-    } catch {
-      // ignore
-    }
-
-    const { targetTaskId, sessionId, segments } = get()
-    if (targetTaskId && sessionId && segments.length > 0) {
-      try {
-        await saveTranscript(targetTaskId, sessionId, segments)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        toast.error(`转写保存失败：${msg}`, { duration: 8000 })
+      // 停止 recorder：触发最后一次 dataavailable（头 + 尾段）与 onstop；等 onstop resolve
+      const recorder = mediaRecorder
+      if (recorder && recorder.state !== 'inactive') {
+        await new Promise<void>((resolve) => {
+          stopResolve = resolve
+          recorder.stop()
+        })
       }
-    }
 
-    const remaining = await countPending()
-    if (remaining > 0) {
-      // 还有没转成的片：本地暂存着，关页面也不丢，给个明确的重试入口
-      set({
-        status: 'idle',
-        startedAt: null,
-        pendingCount: remaining,
-        error: `还有 ${remaining} 片未转写成功，点「重试未完成」再试（已存本地，关页面也不丢）`,
-      })
-      toast.error(`还有 ${remaining} 片未转写成功，点「重试未完成」再试`, { duration: 12000 })
-    } else {
-      get().clear()
+      await prepChain // 等所有分片完成「抽头 + 派发」
+      await waitAllInFlight() // 等所有在途转写收尾（否则它们的文本会漏写）
+      await drainPending() // 给失败的片（本轮 + 历史）最后一次补转机会
+
+      // 停掉麦克风轨道，释放设备
+      mediaStream?.getTracks().forEach((t) => t.stop())
+      mediaRecorder = null
+      mediaStream = null
+      initSegmentBytes = null
+
+      // 解除防休眠保活
+      stopKeepAliveAudio()
+      releaseKeepAliveLock()
+      detachLifecycleGuards()
+      try {
+        sessionStorage.removeItem(RECORDING_FLAG)
+      } catch {
+        // ignore
+      }
+
+      const { targetTaskId, sessionId, segments } = get()
+      if (targetTaskId && sessionId && segments.length > 0) {
+        try {
+          await saveTranscript(targetTaskId, sessionId, segments)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          toast.error(`转写保存失败：${msg}`, { duration: 8000 })
+        }
+      }
+
+      const remaining = await countPending()
+      if (remaining > 0) {
+        // 还有没转成的片：本地暂存着，关页面也不丢，给个明确的重试入口
+        set({
+          status: 'idle',
+          startedAt: null,
+          pendingCount: remaining,
+          error: `还有 ${remaining} 片未转写成功，点「重试未完成」再试（已存本地，关页面也不丢）`,
+        })
+        toast.error(`还有 ${remaining} 片未转写成功，点「重试未完成」再试`, { duration: 12000 })
+      } else {
+        get().clear()
+      }
+    } finally {
+      stoppingInFlight = false
     }
   },
 
   retryPending: async () => {
     const { status } = get()
-    if (status === 'recording' || status === 'stopping') return
+    if (status === 'recording' || status === 'stopping' || stoppingInFlight) return
     await drainPending()
     const remaining = await countPending()
     set({ pendingCount: remaining })

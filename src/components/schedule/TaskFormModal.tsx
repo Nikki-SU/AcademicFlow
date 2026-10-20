@@ -162,6 +162,7 @@ export function TaskFormModal({
   project,
   initialType,
   initialParentId,
+  initialDraft,
   parentOptions,
   onClose,
   onSubmit,
@@ -173,37 +174,46 @@ export function TaskFormModal({
   initialType: ProjectType | null
   /** 新建子任务时的父节点（继承其大类）；顶级任务为 null */
   initialParentId: string | null
+  /**
+   * 失败回滚用的回填值：落库失败后父级重新打开弹窗时把用户刚填的内容带回来，
+   * 免得「点了保存 → 失败 → 输入全丢」。
+   */
+  initialDraft?: TaskFormValue
   parentOptions: ParentOption[]
   onClose: () => void
-  /** 提交回调：返回 Promise，前端据此在保存期间禁用按钮并显示「保存中…」 */
-  onSubmit: (value: TaskFormValue) => Promise<void>
+  /** 提交回调：点下按钮即关闭弹窗（乐观），失败由父级把弹窗连同草稿一起放回来 */
+  onSubmit: (value: TaskFormValue) => void | Promise<void>
 }) {
-  const [name, setName] = useState(project?.title ?? '')
-  const [type, setType] = useState<ProjectType | ''>(project ? project.type : initialType ?? '')
-  const [parentId, setParentId] = useState(project ? project.parentId ?? '' : initialParentId ?? '')
-  const [start, setStart] = useState(msToLocal(project?.startAt ?? 0))
-  const [due, setDue] = useState(msToLocal(project?.dueAt ?? 0))
+  const [name, setName] = useState(initialDraft?.title ?? project?.title ?? '')
+  const [type, setType] = useState<ProjectType | ''>(
+    initialDraft?.type ?? (project ? project.type : initialType ?? ''),
+  )
+  const [parentId, setParentId] = useState(
+    initialDraft ? initialDraft.parentId ?? '' : project ? project.parentId ?? '' : initialParentId ?? '',
+  )
+  const [start, setStart] = useState(msToLocal(initialDraft?.startAt ?? project?.startAt ?? 0))
+  const [due, setDue] = useState(msToLocal(initialDraft?.dueAt ?? project?.dueAt ?? 0))
   // 截止默认展开（它是重点），开始默认折叠（一般是「当下」，没必要天天填）；
   // 编辑已有值时把对应的那一段展开，免得把已填的时间藏起来。
-  const [startOpen, setStartOpen] = useState(!!project?.startAt)
+  const [startOpen, setStartOpen] = useState(initialDraft ? !!initialDraft.startAt : !!project?.startAt)
   const [dueOpen, setDueOpen] = useState(true)
-  const [brief, setBrief] = useState('')
-  const [loadingBrief, setLoadingBrief] = useState(!!project)
-  // 保存中：禁用「创建 / 保存」按钮并显示「保存中…」，避免点了没反应像卡死
-  const [submitting, setSubmitting] = useState(false)
+  const [brief, setBrief] = useState(initialDraft?.brief ?? '')
+  const [loadingBrief, setLoadingBrief] = useState(!initialDraft && !!project)
+  /** 防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
+  const submittingRef = useRef(false)
   const [aiRunning, setAiRunning] = useState(false)
   const [aiStage, setAiStage] = useState('')
   const [aiResult, setAiResult] = useState<DualEngineResult | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   // 要求 / 注意事项：从 requirements.md 读入，随表单保存；AI 从材料提炼可追加。
-  const [notes, setNotes] = useState<TaskNote[]>([])
-  const [notesLoading, setNotesLoading] = useState(!!project)
+  const [notes, setNotes] = useState<TaskNote[]>(initialDraft?.notes ?? [])
+  const [notesLoading, setNotesLoading] = useState(!initialDraft && !!project)
   const [reqAiRunning, setReqAiRunning] = useState(false)
   const [reqAiStage, setReqAiStage] = useState('')
   const reqAbortRef = useRef<AbortController | null>(null)
   // 用户是否动过要求列表：没动就不写 requirements.md，免得每次编辑都造一个空文件
-  const notesTouchedRef = useRef(false)
+  const notesTouchedRef = useRef(initialDraft?.notes != null)
 
   // 附件：只在编辑已有任务时可管理（上传需要 projectId）
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
@@ -213,7 +223,8 @@ export function TaskFormModal({
 
   // 编辑已有任务：拉取它的详细描述；新建无需拉取
   useEffect(() => {
-    if (!project) return
+    // 失败回滚回填草稿时不重拉 —— 仓库里还是旧值，一拉就把用户刚填的内容盖掉
+    if (!project || initialDraft) return
     let cancelled = false
     setLoadingBrief(true)
     loadBrief(project.projectId)
@@ -234,7 +245,7 @@ export function TaskFormModal({
 
   // 编辑已有任务：拉取要求 / 附件（新建时都是空的）
   useEffect(() => {
-    if (!project) {
+    if (!project || initialDraft) {
       setNotesLoading(false)
       setAttLoading(false)
       return
@@ -282,7 +293,7 @@ export function TaskFormModal({
   const showType = mode === 'edit' ? true : !initialParentId
 
   const handleSubmit = async () => {
-    if (submitting) return
+    if (submittingRef.current) return
     const trimmed = name.trim()
     if (!trimmed) {
       toast.warning('请填写任务名称')
@@ -296,7 +307,7 @@ export function TaskFormModal({
     const cleanNotes = notes
       .map((n) => ({ ...n, text: n.text.trim() }))
       .filter((n) => n.text.length > 0)
-    setSubmitting(true)
+    submittingRef.current = true
     try {
       await onSubmit({
         title: trimmed,
@@ -307,10 +318,11 @@ export function TaskFormModal({
         brief,
         notes: notesTouchedRef.current ? cleanNotes : null,
       })
-      // 成功：由父级关闭弹窗（关闭本身就是成功反馈，不再弹 toast）
+      // 成功：父级在点下那一刻就关掉了弹窗（乐观），这里不再有收尾动作
     } catch {
-      // 失败：错误提示已由上层处理，这里保持输入、恢复按钮可点，让用户能重试
-      setSubmitting(false)
+      // 失败：错误提示与回滚都由上层处理
+    } finally {
+      submittingRef.current = false
     }
   }
 
@@ -498,11 +510,9 @@ export function TaskFormModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={submitting}
-            className="flex items-center gap-1.5 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-sm font-medium text-paper-50 transition hover:bg-seal-700"
           >
-            {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            {submitting ? '保存中…' : mode === 'create' ? '创建' : '保存'}
+            {mode === 'create' ? '创建' : '保存'}
           </button>
         </>
       }

@@ -12,12 +12,13 @@
  *
  * 阅读页（打开图书时）与管理页（图书库详情）两处都挂这个弹窗，保证口径唯一。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, Loader2, AlertTriangle, Save, Edit3, ListTree, Type } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadBookContent, saveBookContent } from '../services/textbookData'
 import { renameBook } from '../services/projectData'
 import { parseMarkdownHeadings, rewriteHeadingLevels } from '../services/outline'
+import { runOptimistic, errText } from '../services/optimistic'
 import VditorEditor from './VditorEditor'
 
 type TabId = 'rename' | 'outline' | 'content'
@@ -28,34 +29,51 @@ const TABS: { id: TabId; label: string; icon: typeof Type }[] = [
   { id: 'content', label: '正文', icon: Edit3 },
 ]
 
+/** 落库失败时回填的草稿：父级持有它，重新挂载弹窗时把用户刚编辑的内容还回来 */
+export interface BookEditDraft {
+  /** 失败时这本书的 id（失败即未改名，故仍是旧书名） */
+  bookId: string
+  tab: TabId
+  content: string
+  renameValue: string
+}
+
 export interface BookEditModalProps {
   /** 当前书名 = 目录名 = textbook_id */
   bookId: string
   /** 打开时默认停在哪个页签 */
   initialTab?: TabId
+  /** 失败回填草稿（有它就跳过重新拉正文，否则仓库旧值会盖掉用户刚编的内容） */
+  initialDraft?: BookEditDraft
   onClose: () => void
   /** 改名成功后回调（新书名 = 新 id），父级据此换选中项 */
   onRenamed?: (newId: string) => void
   /** 正文 / 大纲保存成功后回调（父级据此刷新列表或正文） */
   onSaved?: () => void
+  /** 落库失败时把草稿交回父级，由父级重新打开弹窗回填 */
+  onSaveFailed?: (draft: BookEditDraft) => void
 }
 
 export default function BookEditModal({
   bookId,
   initialTab = 'content',
+  initialDraft,
   onClose,
   onRenamed,
   onSaved,
+  onSaveFailed,
 }: BookEditModalProps) {
-  const [tab, setTab] = useState<TabId>(initialTab)
-  const [content, setContent] = useState('')
-  const [contentLoading, setContentLoading] = useState(true)
+  const [tab, setTab] = useState<TabId>(initialDraft?.tab ?? initialTab)
+  const [content, setContent] = useState(initialDraft?.content ?? '')
+  const [contentLoading, setContentLoading] = useState(!initialDraft)
   const [contentError, setContentError] = useState('')
-  const [renameValue, setRenameValue] = useState(bookId)
-  const [busy, setBusy] = useState(false)
+  const [renameValue, setRenameValue] = useState(initialDraft?.renameValue ?? bookId)
+  /** 防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
+  const savingRef = useRef(false)
 
   // 打开即拉最新正文（force 绕过缓存）：编辑必须基于仓库现状，不能基于旧缓存
   useEffect(() => {
+    if (initialDraft) return
     let cancelled = false
     setContentLoading(true)
     setContentError('')
@@ -72,7 +90,7 @@ export default function BookEditModal({
     return () => {
       cancelled = true
     }
-  }, [bookId])
+  }, [bookId, initialDraft])
 
   const headings = useMemo(() => parseMarkdownHeadings(content), [content])
 
@@ -86,19 +104,30 @@ export default function BookEditModal({
   }, [])
 
   const doSaveContent = async () => {
-    setBusy(true)
+    if (savingRef.current) return
+    savingRef.current = true
+    const draft: BookEditDraft = { bookId, tab, content, renameValue }
     try {
-      await saveBookContent(bookId, content)
-      toast.success('已保存到 content.md')
-      onSaved?.()
-    } catch (err) {
-      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+      await runOptimistic({
+        // 点下即生效：先关窗并给确认，写盘在后台跑，不让用户对着灰按钮等
+        apply: () => {
+          onClose()
+          toast.success('已保存到 content.md')
+        },
+        commit: async () => {
+          await saveBookContent(bookId, content)
+          onSaved?.()
+        },
+        rollback: () => onSaveFailed?.(draft),
+        errorMessage: (err) => `保存失败：${errText(err)}（内容已保留，可直接重试）`,
+      })
     } finally {
-      setBusy(false)
+      savingRef.current = false
     }
   }
 
   const doRename = async () => {
+    if (savingRef.current) return
     const next = renameValue.trim()
     if (!next) {
       toast.error('书名不能为空')
@@ -108,16 +137,26 @@ export default function BookEditModal({
       toast.info('书名没有变化')
       return
     }
-    setBusy(true)
+    savingRef.current = true
+    const draft: BookEditDraft = { bookId, tab: 'rename', content, renameValue: next }
     try {
-      const res = await renameBook(bookId, next)
-      toast.success(`已改名为「${res.id}」，同步搬迁 ${res.movedFiles} 个文件`)
-      onRenamed?.(res.id)
-      onClose()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      await runOptimistic({
+        // 点下即生效：关窗 + 确认；列表与选中项在物理改名完成后跟随新路径切换
+        // （新目录在改名完成前还不存在，提前切过去会把用户甩到一个读不到的路径上）
+        apply: () => {
+          onClose()
+          toast.success(`已改名为「${next}」`)
+        },
+        commit: async () => {
+          const res = await renameBook(bookId, next)
+          if (res.movedFiles > 0) toast.info(`已同步搬迁 ${res.movedFiles} 个文件`)
+          onRenamed?.(res.id)
+        },
+        rollback: () => onSaveFailed?.(draft),
+        errorMessage: (err) => `改名失败：${errText(err)}（书名已还原，可直接重试）`,
+      })
     } finally {
-      setBusy(false)
+      savingRef.current = false
     }
   }
 
@@ -243,8 +282,7 @@ export default function BookEditModal({
                 type="text"
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
-                disabled={busy}
-                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 disabled:opacity-50"
+                className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
               />
               <p className="mt-2 text-ui-xs text-ink-400 leading-relaxed">
                 书名就是图书目录名（也是主键）。改名会物理重命名目录，并同步索引表、任务归属、分类与各任务引用。
@@ -257,28 +295,26 @@ export default function BookEditModal({
         <div className="af-line-t flex items-center justify-end gap-2 p-5 shrink-0">
           <button
             onClick={onClose}
-            disabled={busy}
-            className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-50"
+            className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
           >
             取消
           </button>
           {tab === 'rename' ? (
             <button
               onClick={doRename}
-              disabled={busy}
-              className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-50"
+              className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition"
             >
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Type className="w-4 h-4" />}
+              <Type className="w-4 h-4" />
               改书名
             </button>
           ) : (
             <button
               onClick={doSaveContent}
-              disabled={busy || contentLoading || !!contentError}
+              disabled={contentLoading || !!contentError}
               className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-50"
             >
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {busy ? '保存中…' : '保存'}
+              <Save className="w-4 h-4" />
+              保存
             </button>
           )}
         </div>

@@ -25,7 +25,6 @@ import {
   AlertTriangle,
   Upload,
   Folder,
-  Loader2,
   Play,
   Pause,
   Square,
@@ -34,7 +33,7 @@ import {
 } from 'lucide-react'
 import { loadLiteratures, loadFulltext, loadAlignedMd, saveFulltext, saveAlignedMd, blocksToAiText, doiToSlug, type Literature } from '../services/literatureData'
 import { listBooks, loadBookContent, type BookSummary } from '../services/textbookData'
-import { listDocuments, loadDocumentContent, importMarkdownDocs, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
+import { listDocuments, loadDocumentContent, importMarkdownDocs, planImport, readMarkdownZip, titleFromFileName, type DocumentSummary, type ImportItem } from '../services/documentData'
 import {
   loadMaterialMeta,
   saveMaterialMeta,
@@ -94,7 +93,7 @@ import {
 } from '../services/librarySearch'
 import ReadingAskPanel, { type AskAnchor } from '../components/ReadingAskPanel'
 import ReadingNotesPanel from '../components/ReadingNotesPanel'
-import BookEditModal from '../components/BookEditModal'
+import BookEditModal, { type BookEditDraft } from '../components/BookEditModal'
 import { usePanelStack, StackHandle, STACK_SNAP_RATIOS } from '../components/ui/StackedPanels'
 import { PillTabs } from '../components/ui/Tabs'
 import { toast } from 'sonner'
@@ -593,9 +592,9 @@ export default function ReadingPage() {
   const [editUnits, setEditUnits] = useState<EditUnit[]>([])
   /** 编辑态兜底：这份文件一个块都没有（还没转出 {slug}.md，只有 MinerU 的 full.md）时，按整篇改 */
   const [editPlainDraft, setEditPlainDraft] = useState('')
-  /** 保存不同阶段的文案（写盘 / 清理旧文件），省得用户以为卡死了 */
-  const [articleSavingMsg, setArticleSavingMsg] = useState('')
-  const [articleSaving, setArticleSaving] = useState(false)
+  /** 编辑态的实时镜像：保存失败回滚时用它判断「用户是不是又进了编辑态」 */
+  const editModeRef = useRef(false)
+  useEffect(() => { editModeRef.current = editMode }, [editMode])
   /** 保存后的核对结论（块数变化 / 编号重排 / 哪些块丢了译文），可手动关掉 */
   const [editReport, setEditReport] = useState<string | null>(null)
   /**
@@ -625,6 +624,8 @@ export default function ReadingPage() {
   const [bookLoading, setBookLoading] = useState(false)
   /** 打开「编辑图书」弹窗的目标书名（null = 未打开）；同名 = 目录名 = 主键 */
   const [editingBookId, setEditingBookId] = useState<string | null>(null)
+  /** 图书编辑弹窗的失败回填草稿：保存 / 改名没落库时把用户刚编的内容原样还回来 */
+  const [bookEditDraft, setBookEditDraft] = useState<BookEditDraft | null>(null)
   /** 图书列表 + 正文的强制刷新计数：改名 / 保存正文后自增触发重载 */
   const [booksReloadKey, setBooksReloadKey] = useState(0)
 
@@ -705,7 +706,8 @@ export default function ReadingPage() {
   const [showImportDocModal, setShowImportDocModal] = useState(false)
   const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
   const [pasteDoc, setPasteDoc] = useState({ title: '', content: '' })
-  const [importing, setImporting] = useState(false)
+  /** 导入进行中的防重入闸门（只拦重复点击，不驱动任何灰态 / 转圈） */
+  const importingRef = useRef(false)
 
   // ── 从全局添加材料：把全局已有的文献 / 图书 / 文档归入当前任务（写 MaterialMeta，全站可见，非临时） ──
   const [showAddMaterialModal, setShowAddMaterialModal] = useState(false)
@@ -1025,17 +1027,6 @@ export default function ReadingPage() {
     }
   }, [])
 
-  // ── 从全局添加材料：把选中的全局材料归入当前任务（落盘 MaterialMeta，全站可见） ──
-  const persistMaterialMeta = async (next: MaterialMeta[]) => {
-    setMaterialMeta(next)
-    try {
-      await saveMaterialMeta(next)
-    } catch (err) {
-      console.error('[Reading] 保存材料元数据失败:', err)
-      toast.error('保存失败，请检查仓库权限')
-    }
-  }
-
   /** 全局材料里、尚未归入当前任务的那些（按类型各一份，弹层列表与确认落盘共用） */
   const globalPapers = papers.filter((p) => taskOf(materialMeta, 'paper', p.doi) !== currentProjectId)
   const globalBooks = books.filter((b) => taskOf(materialMeta, 'book', b.id) !== currentProjectId)
@@ -1100,34 +1091,74 @@ export default function ReadingPage() {
     })
   }
 
-  /** 三种导入方式的公共出口：写仓库 → 刷新列表 → 直接打开刚导入的那份 */
+  /** 三种导入方式的公共出口：点击那一刻就把列表 / 选中 / 弹窗全部落定，写仓库在后台跑 */
   const runImport = async (items: ImportItem[]) => {
-    if (importing) return
+    if (importingRef.current) return
     const usable = items.filter((it) => it.content.trim())
     if (usable.length === 0) {
       toast.error('没有可导入的内容')
       return
     }
-    setImporting(true)
+
+    // 乐观规划：目录名去重规则与真正落库共用 planImport，界面不会猜错 id
+    const planned = planImport(usable, documents.map((d) => d.id))
+    const plannedIds = planned.added.map((a) => a.documentId)
+    const prevDocs = documents
+    const prevMeta = materialMeta
+    const prevSelectedDoc = selectedDocumentId
+    const prevSelectedNote = selectedNote
+    const prevPasteDoc = pasteDoc
+    let optimisticMeta = prevMeta
+    if (currentProjectId) {
+      for (const id of plannedIds) optimisticMeta = setMeta(optimisticMeta, 'document', id, { taskId: currentProjectId })
+    }
+
+    importingRef.current = true
     try {
-      const added = await importMarkdownDocs(usable)
-      await refreshDocuments()
-      setShowImportDocModal(false)
-      setPasteDoc({ title: '', content: '' })
-      if (added[0]) {
-        setSelectedNote(null)
-        setSelectedDocumentId(added[0].id)
-      }
-      // 导入即归入当前任务：材料只要进了项目就不是临时的
-      if (currentProjectId && added.length > 0) {
-        let next = materialMeta
-        for (const a of added) next = setMeta(next, 'document', a.id, { taskId: currentProjectId })
-        await persistMaterialMeta(next)
-      }
-    } catch (err) {
-      toast.error(`导入失败：${err instanceof Error ? err.message : String(err)}`)
+      await runOptimistic({
+        apply: () => {
+          setDocuments((prev) => [
+            ...planned.added.map((a) => ({
+              id: a.documentId,
+              title: a.title,
+              author: a.author,
+              hasContent: true,
+            })),
+            ...prev,
+          ])
+          setMaterialMeta(optimisticMeta)
+          setShowImportDocModal(false)
+          setPasteDoc({ title: '', content: '' })
+          if (plannedIds[0]) {
+            setSelectedNote(null)
+            setSelectedDocumentId(plannedIds[0])
+          }
+        },
+        commit: async () => {
+          const added = await importMarkdownDocs(usable)
+          const actualIds = added.map((a) => a.id)
+          // 导入即归入当前任务：材料只要进了项目就不是临时的
+          if (currentProjectId && actualIds.length > 0) {
+            let next = prevMeta
+            for (const id of actualIds) next = setMeta(next, 'document', id, { taskId: currentProjectId })
+            await saveMaterialMeta(next)
+            setMaterialMeta(next)
+          }
+          await refreshDocuments()
+          if (actualIds[0]) setSelectedDocumentId(actualIds[0])
+        },
+        rollback: () => {
+          setDocuments(prevDocs)
+          setMaterialMeta(prevMeta)
+          setSelectedDocumentId(prevSelectedDoc)
+          setSelectedNote(prevSelectedNote)
+          setPasteDoc(prevPasteDoc)
+          setShowImportDocModal(true)
+        },
+        errorMessage: (err) => `导入失败：${errText(err)}`,
+      })
     } finally {
-      setImporting(false)
+      importingRef.current = false
     }
   }
 
@@ -1141,15 +1172,18 @@ export default function ReadingPage() {
     await runImport(items)
   }
 
-  /** 上传 zip 批量导入 */
+  /** 上传 zip 批量导入：选中文件即视为确认，弹窗立刻关，解包与写盘都在后台 */
   const handleImportZip = async (file: File | undefined) => {
     if (!file) return
+    setShowImportDocModal(false)
     try {
       const entries = await readMarkdownZip(file)
       await runImport(
         entries.map((e) => ({ title: titleFromFileName(e.name), source: file.name, content: e.content })),
       )
     } catch (err) {
+      // 解包失败时把弹窗放回来，用户可以直接重选一个包
+      setShowImportDocModal(true)
       toast.error(`解析 zip 失败：${err instanceof Error ? err.message : String(err)}`)
     }
   }
@@ -2229,7 +2263,6 @@ export default function ReadingPage() {
     setEditUnits(buildEditUnits(items))
     setEditPlainDraft(articleSourceMd)
     setEditReport(null)
-    setArticleSavingMsg('')
     setEditMode(true)
     setShowToolbar(false)
   }
@@ -2365,27 +2398,37 @@ export default function ReadingPage() {
       return
     }
 
-    setArticleSaving(true)
-    try {
-      setArticleSavingMsg('正在写入仓库…')
-      if (aligned_content.trim()) {
-        await saveAlignedMd(selectedPaperId, nextMd)
-        set_aligned_content(nextMd)
-      } else {
-        await saveFulltext(selectedPaperId, nextMd)
-        setPapers(prev => prev.map(p =>
-          p.id === selectedPaperId ? { ...p, markdownContent: nextMd } : p
-        ))
-      }
-      exitEditMode()
-      setEditReport(built ? built.report : '已保存（这份文件没有块结构，按整篇写入）。')
-    } catch (err) {
-      console.error('[Reading] 保存文献失败:', err)
-      toast.error(`保存失败：${errText(err)}。可以先别关编辑态，重试一次。`, { duration: 8000 })
-    } finally {
-      setArticleSaving(false)
-      setArticleSavingMsg('')
-    }
+    // 点下「保存」就当场生效：先退出编辑态、把结果落到界面，写盘交给后台；
+    // 真失败再回滚（连同草稿一起还回来），不许拿灰按钮和转圈让用户等。
+    const paperId = selectedPaperId
+    const useAligned = aligned_content.trim().length > 0
+    const prevAligned = aligned_content
+    const prevPapers = papers
+    const draft = { items: editItems, units: editUnits, plain: editPlainDraft }
+    const report = built ? built.report : '已保存（这份文件没有块结构，按整篇写入）。'
+
+    await runOptimistic({
+      apply: () => {
+        if (useAligned) set_aligned_content(nextMd)
+        else setPapers(prev => prev.map(p => p.id === paperId ? { ...p, markdownContent: nextMd } : p))
+        setEditReport(report)
+        exitEditMode()
+      },
+      commit: () => useAligned ? saveAlignedMd(paperId, nextMd) : saveFulltext(paperId, nextMd),
+      rollback: () => {
+        if (useAligned) set_aligned_content(prevAligned)
+        else setPapers(prevPapers)
+        setEditReport(null)
+        // 用户已经自己又点进编辑态的话，就别拿这份旧草稿盖掉他新开的内容
+        if (!editModeRef.current) {
+          setEditItems(draft.items)
+          setEditUnits(draft.units)
+          setEditPlainDraft(draft.plain)
+          setEditMode(true)
+        }
+      },
+      errorMessage: (err) => `保存文献失败：${errText(err)}（改动已还原，可直接重试）`,
+    })
   }
 
   /**
@@ -3916,12 +3959,21 @@ export default function ReadingPage() {
               {isBook && editingBookId && (
                 <BookEditModal
                   bookId={editingBookId}
-                  onClose={() => setEditingBookId(null)}
+                  initialDraft={bookEditDraft ?? undefined}
+                  onClose={() => {
+                    setEditingBookId(null)
+                    setBookEditDraft(null)
+                  }}
                   onRenamed={(newId) => {
                     setSelectedBookId(newId)
                     setBooksReloadKey((k) => k + 1)
                   }}
                   onSaved={() => setBooksReloadKey((k) => k + 1)}
+                  onSaveFailed={(draft) => {
+                    // 落库失败：把弹窗连同草稿一起放回来，用户不必重打一遍
+                    setBookEditDraft(draft)
+                    setEditingBookId(draft.bookId)
+                  }}
                 />
               )}
             </>
@@ -3994,16 +4046,14 @@ export default function ReadingPage() {
                     </span>
                     <button
                       onClick={saveArticle}
-                      disabled={articleSaving}
-                      className="px-2.5 py-1.5 text-ui-xs bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition disabled:opacity-50 flex items-center gap-1"
+                      className="px-2.5 py-1.5 text-ui-xs bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition flex items-center gap-1"
                     >
                       <Save className="w-3.5 h-3.5" />
-                      {articleSaving ? (articleSavingMsg || '保存中…') : '保存'}
+                      保存
                     </button>
                     <button
                       onClick={exitEditMode}
-                      disabled={articleSaving}
-                      className="px-2.5 py-1.5 text-ui-xs text-ink-600 hover:bg-ink-100 rounded-control-sm transition disabled:opacity-50"
+                      className="px-2.5 py-1.5 text-ui-xs text-ink-600 hover:bg-ink-100 rounded-control-sm transition"
                     >
                       取消
                     </button>
@@ -4636,7 +4686,7 @@ export default function ReadingPage() {
 
       {/* 导入其他文档：和管理页是同一套入口（.md 多选 / 粘贴 / zip），落到同一处 documents/ */}
       {showImportDocModal && (
-        <Modal title="导入文档" onClose={() => { if (!importing) setShowImportDocModal(false) }}>
+        <Modal title="导入文档" onClose={() => setShowImportDocModal(false)}>
           <div className="flex items-center gap-0.5 rounded-control bg-ink-100 p-0.5 mb-5 w-fit">
             {([
               { id: 'file', label: '上传 .md 文件' },
@@ -4646,8 +4696,7 @@ export default function ReadingPage() {
               <button
                 key={m.id}
                 onClick={() => setImportMode(m.id)}
-                disabled={importing}
-                className={`px-ui-gap py-1.5 rounded-control-sm text-ui-xs font-medium transition disabled:opacity-60 ${
+                className={`px-ui-gap py-1.5 rounded-control-sm text-ui-xs font-medium transition ${
                   importMode === m.id ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
                 }`}
               >
@@ -4657,16 +4706,10 @@ export default function ReadingPage() {
           </div>
 
           {importMode === 'file' && (
-            <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
-                importing
-                  ? 'opacity-60 pointer-events-none'
-                  : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
-              }`}
-            >
-              {importing ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" /> : <Upload className="w-10 h-10 text-ink-400" />}
+            <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer">
+              <Upload className="w-10 h-10 text-ink-400" />
               <p className="text-ui-sm text-ink-600 font-medium">
-                {importing ? '导入中...' : '点击选择 .md / .markdown / .txt 文件'}
+                点击选择 .md / .markdown / .txt 文件
               </p>
               <p className="text-ui-xs text-ink-400">支持多选，标题取文件名</p>
               <input
@@ -4674,7 +4717,6 @@ export default function ReadingPage() {
                 multiple
                 accept=".md,.markdown,.txt"
                 className="hidden"
-                disabled={importing}
                 onChange={(e) => { void handleImportFiles(e.target.files); e.target.value = '' }}
               />
             </label>
@@ -4689,7 +4731,6 @@ export default function ReadingPage() {
                   value={pasteDoc.title}
                   onChange={(e) => setPasteDoc({ ...pasteDoc, title: e.target.value })}
                   placeholder="文档标题"
-                  disabled={importing}
                   className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400"
                 />
               </div>
@@ -4700,7 +4741,6 @@ export default function ReadingPage() {
                   onChange={(e) => setPasteDoc({ ...pasteDoc, content: e.target.value })}
                   placeholder="在此粘贴 markdown 正文..."
                   rows={10}
-                  disabled={importing}
                   className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm font-mono focus:outline-none focus:border-seal-400 resize-y"
                 />
               </div>
@@ -4708,23 +4748,16 @@ export default function ReadingPage() {
           )}
 
           {importMode === 'zip' && (
-            <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
-                importing
-                  ? 'opacity-60 pointer-events-none'
-                  : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
-              }`}
-            >
-              {importing ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" /> : <Folder className="w-10 h-10 text-ink-400" />}
+            <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer">
+              <Folder className="w-10 h-10 text-ink-400" />
               <p className="text-ui-sm text-ink-600 font-medium">
-                {importing ? '导入中...' : '点击选择 .zip 压缩包'}
+                点击选择 .zip 压缩包
               </p>
               <p className="text-ui-xs text-ink-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
               <input
                 type="file"
                 accept=".zip"
                 className="hidden"
-                disabled={importing}
                 onChange={(e) => { void handleImportZip(e.target.files?.[0]); e.target.value = '' }}
               />
             </label>
@@ -4734,17 +4767,15 @@ export default function ReadingPage() {
             {importMode === 'paste' && (
               <button
                 onClick={handlePasteImport}
-                disabled={importing}
-                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition"
               >
-                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                {importing ? '导入中...' : '导入'}
+                <Upload className="w-4 h-4" />
+                导入
               </button>
             )}
             <button
-              onClick={() => { if (!importing) setShowImportDocModal(false) }}
-              disabled={importing}
-              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-60"
+              onClick={() => setShowImportDocModal(false)}
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>

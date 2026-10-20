@@ -146,7 +146,6 @@ export function CourseTable({
   ddls,
   examWeekStartMs,
   calendar,
-  savingCalendar,
   onChangeCalendar,
   highlightId,
   onHighlight,
@@ -169,8 +168,6 @@ export function CourseTable({
   examWeekStartMs: number
   /** 校历（开学日 / 期末周开始 / 学期结束）：课程表的一部分，就地可改 */
   calendar: SchoolCalendar
-  /** 校历正在保存（改一项即存） */
-  savingCalendar: boolean
   onChangeCalendar: (patch: Partial<SchoolCalendar>) => void
   /** 当前亮起的 DDL 任务 id（课表红线 / DDL 清单 / 任务栏联动） */
   highlightId: string | null
@@ -374,7 +371,6 @@ export function CourseTable({
                     />
                   </label>
                 ))}
-                {savingCalendar && <div className="pt-1 text-ui-2xs text-ink-400">保存中…</div>}
               </div>
             )}
           </div>
