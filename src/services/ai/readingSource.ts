@@ -18,7 +18,7 @@
  * 这一种等价形态，其余（缺字段 / 序号越界 / 非整数）一律报可读错误让用户重试，
  * 不静默降级成空。
  */
-import { callAI, pollChatResult } from './client'
+import { callAI } from './client'
 import { estimateTokens, outputReserve, resolveContextWindow } from './modelWindow'
 import type { AISlotConfig } from '../../types'
 

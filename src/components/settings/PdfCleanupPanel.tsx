@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { HardDrive, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { loadLiteratures, fetchLiteratureFiles, doiToSlug } from '../../services/literatureData'
 import { deleteRepoFiles } from '../../services/github'
+import { runOptimistic, errText } from '../../services/optimistic'
 import { useAuthStore } from '../../stores/auth'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -33,7 +34,6 @@ export default function PdfCleanupPanel() {
   const [loading, setLoading] = useState(false)
   const [groups, setGroups] = useState<PdfGroup[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(async () => {
     if (!owner || !repoName || !token) return
@@ -88,21 +88,31 @@ export default function PdfCleanupPanel() {
 
   const handleDelete = async () => {
     if (!owner || !repoName || !token) return
-    const paths = selectedGroups.flatMap((g) => g.files.map((f) => f.path))
+    const targets = selectedGroups
+    const paths = targets.flatMap((g) => g.files.map((f) => f.path))
     if (paths.length === 0) return
-    setDeleting(true)
-    try {
-      await deleteRepoFiles(
-        paths,
-        `chore: 清理已转换文献的 PDF（${selectedGroups.length} 篇 / ${paths.length} 个文件）`,
-        owner, repoName, token,
-      )
-      await load()
-    } catch (e) {
-      toast.error(`清理失败：${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setDeleting(false)
-    }
+    const prevGroups = groups
+    const prevSelected = selected
+    const targetDois = new Set(targets.map((g) => g.doi))
+    // 乐观：列表里立刻消失、选中态清空（不等删仓库），删除失败再整体还原
+    const ok = await runOptimistic({
+      apply: () => {
+        setGroups(prevGroups.filter((g) => !targetDois.has(g.doi)))
+        setSelected(new Set())
+      },
+      commit: () =>
+        deleteRepoFiles(
+          paths,
+          `chore: 清理已转换文献的 PDF（${targets.length} 篇 / ${paths.length} 个文件）`,
+          owner, repoName, token,
+        ),
+      rollback: () => {
+        setGroups(prevGroups)
+        setSelected(prevSelected)
+      },
+      errorMessage: (err) => `清理失败：${errText(err)}`,
+    })
+    if (ok) await load()
   }
 
   return (
@@ -115,7 +125,7 @@ export default function PdfCleanupPanel() {
         <button
           type="button"
           onClick={() => void load()}
-          disabled={loading || deleting}
+          disabled={loading}
           className="flex items-center gap-1 px-2 py-1 border border-ink-300 rounded-control-sm bg-paper-50 hover:bg-paper-100 disabled:text-ink-400"
         >
           {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
@@ -167,10 +177,10 @@ export default function PdfCleanupPanel() {
             <button
               type="button"
               onClick={handleDelete}
-              disabled={selectedGroups.length === 0 || deleting}
+              disabled={selectedGroups.length === 0}
               className="flex items-center gap-1 px-ui-gap py-1.5 text-ui-xs font-medium text-paper-50 bg-red-600 rounded-control-sm hover:bg-red-700 disabled:bg-ink-300 disabled:cursor-not-allowed"
             >
-              {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+              <Trash2 className="w-3 h-3" />
               清理选中 PDF
             </button>
           </div>

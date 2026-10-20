@@ -30,6 +30,11 @@
  *   ## AI · 2026-09-21 10:31 · pass
  *   内容
  * 有 `· pass|fail` 后缀 = 这条走了可信检索（双引擎审阅）。
+ *
+ * 注意：消息 / 在途状态一律放 `stores/readingAsk.ts`，本组件**不做**提问状态机。
+ * 右侧三个 tab 是互斥渲染的，切 tab 会把面板卸载；切到别的窗口再回来同理。
+ * 状态留在组件里就会「切回来不说话也不显示等待」。现在的口径是：提问归 store，
+ * 卸载不打断，重挂载原样恢复「在跑 + 已等多久 + 当前阶段」。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -44,49 +49,20 @@ import {
   Square,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { callWebSearch, resolveWebSearchSupport, type WebSearchSource } from '../services/ai/web-search'
-import { callAI } from '../services/ai/client'
-import { runDualEngine } from '../services/ai/dual-engine'
-import { buildReadingSourceMaterial } from '../services/ai/readingSource'
-import { historyTokenBudget, resolveContextWindow } from '../services/ai/modelWindow'
-import { isAbortError } from '../services/ai/abort'
+import type { DocRef } from '../services/readingDocData'
+import { resolveWebSearchSupport } from '../services/ai/web-search'
 import { useSettingsStore } from '../stores/settings'
-import { loadReadingChat, saveReadingChat, type DocRef } from '../services/readingDocData'
-import { runOptimistic, errText } from '../services/optimistic'
 import { renderMarkdownToHtml } from '../services/markdown-renderer'
-import {
-  DELIVER_FILES_PROMPT,
-  deliverFilesToTask,
-  parseDeliveredFileBlocks,
-  type DeliveredFileChip,
-} from '../services/ai/deliveredFiles'
-import { loadMaterialMeta, taskOf } from '../services/materialMeta'
 import { DeliveredFilesCard } from './DeliveredFilesCard'
+import {
+  flushSave,
+  isFailedMessage,
+  splitUserContent,
+  useReadingAskStore,
+  type AskAnchor,
+} from '../stores/readingAsk'
 
-export interface ReadingChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  createdAt: number
-  /** 有值 = 走了可信检索（双引擎），值是 AI-2 的审阅结论 */
-  reviewStatus?: 'pass' | 'fail'
-  /**
-   * 本条回答交付的文件（已注册为全局「其他文档」）。
-   * 只作界面「交付回执」，不写进对话 md —— 文件本身已永久存进文档库，不需要在
-   * 聊天记录里再存一份正文（否则 md 会翻倍膨胀）。
-   */
-  deliveredFiles?: DeliveredFileChip[]
-  /** 本条是失败提示（不进多轮上下文；界面给「重试」入口） */
-  failed?: boolean
-}
-
-/** 一条带引文的提问 → 在正文边上画一个「原点」 */
-export interface AskAnchor {
-  /** 对应消息 id，点原点时用来跳转定位 */
-  id: string
-  question: string
-  quote: string
-}
+export type { AskAnchor, ReadingChatMessage } from '../stores/readingAsk'
 
 interface Props {
   docRef: DocRef | null
@@ -103,117 +79,10 @@ interface Props {
   onJumped?: () => void
 }
 
-/** 拆出用户消息里的「问题」与「引文」（引文形如 "\n\n> 选中文字"） */
-function splitUserContent(content: string): { question: string; quote: string } {
-  const at = content.indexOf('\n\n> ')
-  if (at < 0) return { question: content, quote: '' }
-  return { question: content.slice(0, at), quote: content.slice(at + 5).trim() }
-}
-
-/** 失败提示：旧对话从 md 读回时没有 failed 标记，用固定前缀认出来 */
-function isFailedMessage(m: ReadingChatMessage): boolean {
-  return m.role === 'assistant' && (m.failed === true || m.content.startsWith('⚠️ 提问失败'))
-}
-
-/** 失败 / 已停止的提示不进多轮上下文，免得模型把错误文本当历史 */
-function isNoiseMessage(m: ReadingChatMessage): boolean {
-  return isFailedMessage(m) || (m.role === 'assistant' && m.content.trim() === '_（已停止）_')
-}
-
-/** 联网检索用的系统提示（可信路径与自由路径共用） */
-const SEARCH_SYSTEM =
-  '你是学术阅读助手。用户在读一篇文献或一本书，会就其中某个词或某段文字提问。' +
-  '先联网检索再回答，说明该概念在学术界的通行含义、学科背景和典型用法。' +
-  '引用检索到的说法要给出处；不确定的地方明确说不确定，不要编造文献、作者或出处。用中文回答。'
-
-/** 纯模型问答的系统提示（不联网、不喂原文，只靠模型自身知识回答） */
-const PLAIN_SYSTEM =
-  '你是学术阅读助手。用户在读一篇文献或一本书，会就其中某个词或某段文字提问。' +
-  '用你自己的知识回答，说得准确、简洁。' +
-  '不确定的地方明确说不确定，不要编造文献、作者或出处。用中文回答。'
-
-/**
- * 注入「依据」的检索来源条数上限。
- *
- * 注意：检索正文**不截断** —— 双引擎的 AI-2 是靠 `sourceMaterial.includes(span)`
- * 做字面引证核对的，正文一旦从中间截断，AI-2 引用的片段就会跨过断点、匹配不上，
- * 于是明明判定 supported 也被算成核验失败（实测踩过）。控制体量要靠 AI-2 的
- * 输出预算（后端已从 16000 提到 32000），不是靠截断依据。
- */
-const SEARCH_MATERIAL_SOURCES = 8
-
-function formatMinute(ts: number): string {
-  const d = new Date(ts)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
-function messagesToMd(title: string, messages: ReadingChatMessage[]): string {
-  const body = messages
-    .map((m) => {
-      const who = m.role === 'user' ? '用户' : 'AI'
-      const status = m.role === 'assistant' && m.reviewStatus ? ` · ${m.reviewStatus}` : ''
-      return `## ${who} · ${formatMinute(m.createdAt)}${status}\n${m.content.trim()}`
-    })
-    .join('\n\n')
-  return `# 问 AI · ${title}\n\n${body}${body ? '\n' : ''}`
-}
-
-function mdToMessages(md: string): ReadingChatMessage[] {
-  const out: ReadingChatMessage[] = []
-  let cur: { role: 'user' | 'assistant'; status?: 'pass' | 'fail'; time: number; buf: string[] } | null = null
-
-  const flush = () => {
-    if (!cur) return
-    const content = cur.buf.join('\n').trim()
-    if (content) {
-      out.push({
-        id: `${cur.time}_${out.length}`,
-        createdAt: cur.time,
-        role: cur.role,
-        content,
-        reviewStatus: cur.status,
-      })
-    }
-    cur = null
-  }
-
-  for (const line of md.split('\n')) {
-    const m = /^##\s+(用户|AI)\s*·\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?:\s*·\s*(pass|fail))?\s*$/.exec(line)
-    if (m) {
-      flush()
-      const parsed = Date.parse(m[2].replace(' ', 'T') + ':00')
-      cur = {
-        role: m[1] === '用户' ? 'user' : 'assistant',
-        status: m[3] as 'pass' | 'fail' | undefined,
-        time: Number.isNaN(parsed) ? Date.now() : parsed,
-        buf: [],
-      }
-      continue
-    }
-    if (cur) cur.buf.push(line)
-  }
-  flush()
-  return out
-}
-
-/** 来源列表最多展示几条（DeepSeek 一次检索能返回十几条，全列出来会淹掉答案本身） */
-const MAX_SOURCES = 8
-
-/**
- * 联网检索的来源以 Markdown 链接追加到答案末尾。
- * 直接拼进 content 而不是单独存字段 —— 这样对话落盘成 md 之后再读回来，
- * 来源跟着正文一起回来，不需要额外解析。
- */
-function appendSources(content: string, sources: WebSearchSource[]): string {
-  if (sources.length === 0) return content
-  const clean = (s: string) => s.replace(/[\[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
-  const items = sources
-    .slice(0, MAX_SOURCES)
-    .map((s, i) => `${i + 1}. [${clean(s.title) || s.url}](${s.url})`)
-  const more =
-    sources.length > MAX_SOURCES ? `\n\n（另有 ${sources.length - MAX_SOURCES} 条来源未列出）` : ''
-  return `${content}\n\n---\n\n**参考来源**\n\n${items.join('\n')}${more}`
+/** 秒数 → 「12s」/「3m05s」：等待时长要一直看得见，用户才知道后端还在跑 */
+function formatWaited(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  return `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, '0')}s`
 }
 
 export default function ReadingAskPanel({
@@ -225,20 +94,22 @@ export default function ReadingAskPanel({
   jumpToMessageId,
   onJumped,
 }: Props) {
-  const [messages, setMessages] = useState<ReadingChatMessage[]>([])
   const [input, setInput] = useState('')
   const [trusted, setTrusted] = useState(true)
   const [web, setWeb] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [stage, setStage] = useState('')
-  const [loaded, setLoaded] = useState(false)
-  const endRef = useRef<HTMLDivElement>(null)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const skipSaveRef = useRef(false)
-  /** 当前提问的取消句柄：点「停止」就 abort，前端立刻不再收后端输出 */
-  const abortRef = useRef<AbortController | null>(null)
-  /** 本次回答已经等了多少秒（长任务给用户「还在跑」的确定感） */
-  const [elapsed, setElapsed] = useState(0)
+  /** 只用来驱动「已等待 Ns」每秒重算，不参与业务 */
+  const [, tick] = useState(0)
+
+  const messages = useReadingAskStore((s) => s.messages)
+  const loaded = useReadingAskStore((s) => s.loaded)
+  const busy = useReadingAskStore((s) => s.busy)
+  const stage = useReadingAskStore((s) => s.stage)
+  const startedAt = useReadingAskStore((s) => s.startedAt)
+  const loadChat = useReadingAskStore((s) => s.load)
+  const sendAsk = useReadingAskStore((s) => s.send)
+  const retryAsk = useReadingAskStore((s) => s.retry)
+  const stopAsk = useReadingAskStore((s) => s.stop)
+  const clearAsk = useReadingAskStore((s) => s.clear)
 
   // 联网能力跟设置里的 provider 走：切到不支持联网的 provider 时开关自动关掉并置灰。
   const aiProviderMode = useSettingsStore((s) => s.aiProviderMode)
@@ -254,65 +125,26 @@ export default function ReadingAskPanel({
     if (!webSupport.supported) setWeb(false)
   }, [webSupport.supported])
 
+  const docKey = docRef ? `${docRef.kind}:${docRef.id}` : ''
+
+  // ── 切换对象 / 重新挂载：把 store 里这一篇的运行态投影过来（在途的继续在途） ──
   useEffect(() => {
-    if (!busy) {
-      setElapsed(0)
-      return
-    }
-    const startedAt = Date.now()
-    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+    loadChat(docRef)
+    // docKey 已经唯一标识对象，docRef 是每渲染新建的对象，不能进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docKey, loadChat])
+
+  // ── 卸载（切 tab / 切换窗口 / 离开阅读页）：把没落盘的最后一条立刻写掉 ──
+  useEffect(() => flushSave, [])
+
+  // ── 在途时每秒重算等待时长 ──
+  useEffect(() => {
+    if (!busy) return
+    const timer = setInterval(() => tick((n) => n + 1), 1000)
     return () => clearInterval(timer)
   }, [busy])
 
-  const docKey = docRef ? `${docRef.kind}:${docRef.id}` : ''
-
-  // ── 切换对象：换一个大对话 ──
-  useEffect(() => {
-    if (!docRef) {
-      skipSaveRef.current = true
-      setMessages([])
-      setLoaded(false)
-      return
-    }
-    let cancelled = false
-    setLoaded(false)
-    skipSaveRef.current = true
-    loadReadingChat(docRef)
-      .then((md) => {
-        if (cancelled) return
-        setMessages(mdToMessages(md))
-      })
-      .catch((err) => {
-        console.error('[ReadingAsk] 加载对话失败:', err)
-        if (!cancelled) setMessages([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true)
-      })
-    return () => { cancelled = true }
-    // docKey 已经唯一标识对象，docRef 是每渲染新建的对象，不能进依赖
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docKey])
-
-  // ── 对话变化 → 防抖落盘 ──
-  useEffect(() => {
-    if (!docRef || !loaded) return
-    if (skipSaveRef.current) {
-      skipSaveRef.current = false
-      return
-    }
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      saveReadingChat(docRef, messagesToMd(docTitle, messages)).catch((err) =>
-        console.error('[ReadingAsk] 保存对话失败:', err),
-      )
-    }, 800)
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, loaded, docKey])
-
+  const endRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, busy])
@@ -340,327 +172,30 @@ export default function ReadingAskPanel({
   }, [jumpToMessageId, loaded, onJumped])
 
   const send = useCallback(
-    async (
-      question: string,
-      useTrusted: boolean,
-      useWeb: boolean,
-      focusText: string,
-      historySource?: ReadingChatMessage[],
-    ) => {
-      const q = question.trim()
-      if (!q || busy || !docRef) return
-
-      // 联网开着但当前 provider 没有原生联网能力：直接说清原因，不假装检索
-      if (useWeb && !webSupport.supported) {
-        toast.error(webSupport.reason)
-        return
-      }
-
-      // 当前端实际使用的槽位配置（可信检索需要 ai1 + ai2，自由问答只需 ai1）
-      const { ai1, ai2 } = useSettingsStore.getState().getDualEngineConfig()
-
-      // 后端按 provider 能力自动挑联网槽位；推理模式沿用 AI-1 位设置。
-      // '' 表示不干预 → 传 undefined，后端就不发 thinking（保持模型默认）。
-      const webSearchThinking = useSettingsStore.getState().thinkingAi1 || undefined
-
-      // 多轮上下文：保留最近 6 条，并按模型窗口派生的预算裁剪。
-      // 注意：这是「对话记录」的预算，与图书正文无关 —— 图书正文不再截断（见 readingSource）。
-      // 失败/已停止的提示不进上下文；重试时传 historySource 以排除被撤掉的那一轮。
-      const rawHistory = (historySource ?? messages)
-        .filter((m) => !isNoiseMessage(m))
-        .slice(-6)
-        .map((m) => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
-        .join('\n')
-      const historyBudget = historyTokenBudget(
-        Math.min(resolveContextWindow(ai1.model), resolveContextWindow(ai2.model)),
-      )
-      const historyContext = historyBudget > 0 ? rawHistory.slice(-historyBudget) : ''
-
-      const now = Date.now()
-      const userMsg: ReadingChatMessage = {
-        id: `u_${now}`,
-        role: 'user',
-        content: focusText.trim() ? `${q}\n\n> ${focusText.trim()}` : q,
-        createdAt: now,
-      }
-      setMessages((prev) => [...prev, userMsg])
+    (question: string, useTrusted: boolean, useWeb: boolean, focusText: string) => {
+      if (busy || !docRef) return
+      if (!question.trim()) return
+      sendAsk({
+        ref: docRef,
+        docTitle,
+        docMarkdown,
+        question,
+        focusText,
+        trusted: useTrusted,
+        web: useWeb,
+      })
       setInput('')
-      setBusy(true)
-      setStage(useWeb ? '联网检索中…' : 'AI-1 生成中…')
-
-      const controller = new AbortController()
-      abortRef.current = controller
-      const signal = controller.signal
-
-      // 交付文件要归到「这篇材料所属的任务」下面 —— 直接查 materials/meta.csv 的归属，
-      // 不额外加 prop、也不依赖宿主页面传参。查不到（或读取失败）就只做全局「其他文档」。
-      let ownerTaskId = ''
-      try {
-        ownerTaskId = taskOf(await loadMaterialMeta(), docRef.kind, docRef.id)
-      } catch (err) {
-        console.warn('[ReadingAsk] 读取材料归属失败，交付文件将不带任务归属:', err)
-      }
-
-      try {
-        if (useTrusted) {
-          // 源材料构造：整本塞得下就送全文，否则走「目录 → AI 选章 → 送选中章节正文」两阶段。
-          // 不再硬编码截断原文 —— 送不送得下、截不截，由模型真实窗口决定（见 modelWindow / readingSource）。
-          const src = await buildReadingSourceMaterial({
-            docMarkdown,
-            focusText,
-            question: q,
-            historyContext,
-            ai1,
-            ai2,
-            signal,
-            onStage: setStage,
-          })
-          const docMaterial = src.material
-          if (!docMaterial.trim()) {
-            throw new Error('这篇文章还没有正文，可信检索没有可锚定的原文')
-          }
-
-          // 联网开关打开时：先联网检索一轮，把结果并进「依据」再交给双引擎。
-          // 这样 AI-2 判的是「原文或检索结果有没有支持」，双引擎的判定语义没变，只是依据变宽了。
-          let webMaterial = ''
-          let webSources: WebSearchSource[] = []
-          if (useWeb) {
-            setStage('联网检索中…')
-            try {
-              const search = await callWebSearch({
-                system: SEARCH_SYSTEM,
-                user: [
-                  docTitle ? `【正在读】${docTitle}` : '',
-                  focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
-                  `【问题】\n${q}`,
-                ].filter(Boolean).join('\n\n'),
-                maxUses: 3,
-                thinking: webSearchThinking,
-                signal,
-              })
-              webSources = search.sources
-              if (search.content.trim()) {
-                webMaterial = [
-                  '【联网检索结果（与正文同为可信依据）】',
-                  search.content.trim(),
-                  webSources.length
-                    ? `【检索来源】\n${webSources.slice(0, SEARCH_MATERIAL_SOURCES).map((s, i) => `${i + 1}. ${s.title || s.url}`).join('\n')}`
-                    : '',
-                ].filter(Boolean).join('\n\n')
-              }
-            } catch (err) {
-              // 用户点了「停止」不是检索失败，别吞掉它去跑下一步
-              if (isAbortError(err)) throw err
-              // 联网开关是用户明确打开的：检索失败就如实报错并给重试入口，
-              // 不静默降级成「只依据正文」—— 那会让用户以为答案用过联网。
-              console.warn('[ReadingAsk] 可信检索的联网检索失败:', err)
-              throw new Error(
-                `联网检索失败：${errText(err)}。可关闭「联网」只依据正文重试，或点「重试」再试一次。`,
-              )
-            }
-          }
-
-          const sourceMaterial = [docMaterial, webMaterial].filter(Boolean).join('\n\n')
-
-          const instruction = [
-            historyContext ? `【此前的对话】\n${historyContext}` : '',
-            `【当前问题】\n${q}`,
-            focusText.trim() ? `【需要解释的文字】\n${focusText.trim()}` : '',
-          ].filter(Boolean).join('\n\n')
-
-          setStage(
-            src.mode === 'chapters' && src.pickedTitles.length
-              ? `已依据章节：${src.pickedTitles.join('、')}，AI-1 生成中…`
-              : 'AI-1 生成中…',
-          )
-          const result = await runDualEngine({
-            taskType: 'faithfulness_check',
-            sourceMaterial,
-            ai1Instruction: instruction,
-            ai1,
-            ai2,
-            maxAttempts: 3,
-            signal,
-            // 允许 AI 把成篇成果作为独立文件交付 —— runner 会在 AI-2 核查前剥离
-            // @@FILE@@ 块并回传 deliveredFiles，避免被误判成「编造内容」删除。
-            deliverFiles: true,
-            onProgress: (ev) => {
-              if (ev.stage === 'ai2_running' || ev.stage === 'ai2_self_correct_running') {
-                setStage(`AI-2 审阅中（第 ${ev.attempt}/${ev.maxAttempts} 轮）…`)
-              } else if (ev.stage === 'ai1_running') {
-                setStage(`AI-1 生成中（第 ${ev.attempt}/${ev.maxAttempts} 轮）…`)
-              }
-            },
-          })
-
-          // 交付文件已由后端剥离并回传，这里落库为全局「其他文档」+ 归入本任务。
-          // 落库失败不吞回答本身：给出提示，正文照常展示。
-          let deliveredChips: DeliveredFileChip[] = []
-          try {
-            deliveredChips = await deliverFilesToTask(result.deliveredFiles, ownerTaskId)
-          } catch (err) {
-            console.warn('[ReadingAsk] 交付文件登记失败:', err)
-            toast.warning('回答已生成，但交付文件登记失败')
-          }
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `a_${Date.now()}`,
-              role: 'assistant',
-              content: appendSources(result.ai1Output || '（AI 没有返回内容）', webSources),
-              createdAt: Date.now(),
-              reviewStatus: result.finalPassed ? 'pass' : 'fail',
-              deliveredFiles: deliveredChips,
-            },
-          ])
-        } else if (useWeb) {
-          // 联网自由问答：后端按 provider 能力自动挑一个支持原生 web_search 的槽位；
-          // 不喂原文，凭据只从 Secrets 取（前端不传本地 Key）。
-          const sys = SEARCH_SYSTEM
-          const userContent = [
-            historyContext ? `【此前的对话】\n${historyContext}` : '',
-            `【正在读】${docTitle}`,
-            focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
-            `【问题】\n${q}`,
-            DELIVER_FILES_PROMPT,
-          ].filter(Boolean).join('\n\n')
-
-          const resp = await callWebSearch({
-            system: sys,
-            user: userContent,
-            thinking: webSearchThinking,
-            signal,
-          })
-
-          // 联网问答链路是无状态直连，没有后端落库 —— 由前端从回复里解析 @@FILE@@ 块，
-          // 剥离后的正文才是展示内容，交付文件落库为全局「其他文档」+ 归入本任务。
-          const parsed = parseDeliveredFileBlocks(resp.content || '')
-          let deliveredChips: DeliveredFileChip[] = []
-          if (parsed.files.length > 0) {
-            try {
-              deliveredChips = await deliverFilesToTask(parsed.files, ownerTaskId)
-            } catch (err) {
-              console.warn('[ReadingAsk] 交付文件登记失败:', err)
-              toast.warning('回答已生成，但交付文件登记失败')
-            }
-          }
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `a_${Date.now()}`,
-              role: 'assistant',
-              content: appendSources(parsed.content || '（AI 没有返回内容）', resp.sources),
-              createdAt: Date.now(),
-              deliveredFiles: deliveredChips,
-            },
-          ])
-        } else {
-          // 纯模型问答：不喂原文、不联网，直接走 chat handler（AI-1 槽位），让模型用
-          // 自身知识回答。仍允许交付文件 —— 前端解析 @@FILE@@ 块后落库为「其他文档」。
-          const userContent = [
-            historyContext ? `【此前的对话】\n${historyContext}` : '',
-            `【正在读】${docTitle}`,
-            focusText.trim() ? `【相关文字】\n${focusText.trim()}` : '',
-            `【问题】\n${q}`,
-            DELIVER_FILES_PROMPT,
-          ].filter(Boolean).join('\n\n')
-
-          setStage('AI-1 生成中…')
-          const resp = await callAI({
-            messages: [
-              { role: 'system', content: PLAIN_SYSTEM },
-              { role: 'user', content: userContent },
-            ],
-            thinking: ai1.thinking,
-            signal,
-          })
-
-          const parsed = parseDeliveredFileBlocks(resp.content || '')
-          let deliveredChips: DeliveredFileChip[] = []
-          if (parsed.files.length > 0) {
-            try {
-              deliveredChips = await deliverFilesToTask(parsed.files, ownerTaskId)
-            } catch (err) {
-              console.warn('[ReadingAsk] 交付文件登记失败:', err)
-              toast.warning('回答已生成，但交付文件登记失败')
-            }
-          }
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `a_${Date.now()}`,
-              role: 'assistant',
-              content: parsed.content || '（AI 没有返回内容）',
-              createdAt: Date.now(),
-              deliveredFiles: deliveredChips,
-            },
-          ])
-        }
-      } catch (err: any) {
-        if (isAbortError(err)) {
-          // 用户主动停止：不是错误，给一条简短记录即可
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `a_${Date.now()}`,
-              role: 'assistant',
-              content: '_（已停止）_',
-              createdAt: Date.now(),
-            },
-          ])
-        } else {
-          const msg = err?.message || String(err)
-          console.error('[ReadingAsk] 提问失败:', err)
-          toast.error(`提问失败：${msg}`)
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `a_${Date.now()}`,
-              role: 'assistant',
-              content: `⚠️ 提问失败：${msg}`,
-              createdAt: Date.now(),
-              failed: true,
-            },
-          ])
-        }
-      } finally {
-        if (abortRef.current === controller) abortRef.current = null
-        setBusy(false)
-        setStage('')
-      }
     },
-    [busy, docRef, docMarkdown, docTitle, messages, webSupport],
+    [busy, docRef, docTitle, docMarkdown, sendAsk],
   )
-
-  /** 停止本次提问：前端立刻不再接收后端输出，并让后端也停下（省额度） */
-  const stop = useCallback(() => {
-    abortRef.current?.abort()
-    setStage('正在停止…')
-  }, [])
 
   /** 失败消息重试：撤掉失败那一轮（含它的用户提问），按当前开关重新发一次 */
   const retryFailed = useCallback(
-    (failedMsg: ReadingChatMessage) => {
-      if (busy) return
-      const idx = messages.findIndex((m) => m.id === failedMsg.id)
-      if (idx < 0) return
-      let userIdx = -1
-      for (let i = idx - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') {
-          userIdx = i
-          break
-        }
-      }
-      if (userIdx < 0) return
-      const { question, quote } = splitUserContent(messages[userIdx].content)
-      const rest = messages.filter((_, i) => i !== idx && i !== userIdx)
-      setMessages(rest)
-      void send(question, trusted, web, quote, rest)
+    (messageId: string) => {
+      if (busy || !docRef) return
+      retryAsk({ ref: docRef, docTitle, docMarkdown, messageId, trusted, web })
     },
-    [busy, messages, send, trusted, web],
+    [busy, docRef, docTitle, docMarkdown, retryAsk, trusted, web],
   )
 
   /** 预设问法 1：查这个词的学术含义 —— 需要外部知识，开联网、关可信检索 */
@@ -676,7 +211,7 @@ export default function ReadingAskPanel({
     }
     setTrusted(false)
     setWeb(true)
-    void send(`「${word}」在学术界通常指什么？请说明它的学科背景、常见用法与代表性含义。`, false, true, '')
+    send(`「${word}」在学术界通常指什么？请说明它的学科背景、常见用法与代表性含义。`, false, true, '')
   }
 
   /** 预设问法 2：结合本文解释这段文字 —— 必须锚定原文，开可信检索、关联网 */
@@ -688,18 +223,13 @@ export default function ReadingAskPanel({
     }
     setTrusted(true)
     setWeb(false)
-    void send('请结合本文上下文解释这段文字的意思，不要引入原文没有的说法。', true, false, text)
+    send('请结合本文上下文解释这段文字的意思，不要引入原文没有的说法。', true, false, text)
   }
 
   const clearChat = () => {
+    if (!docRef) return
     if (!confirm('确定清空这篇的 AI 对话记录吗？')) return
-    const prevMessages = messages
-    void runOptimistic({
-      apply: () => setMessages([]),
-      commit: () => (docRef ? saveReadingChat(docRef, messagesToMd(docTitle, [])) : Promise.resolve()),
-      rollback: () => setMessages(prevMessages),
-      errorMessage: (err) => `清空对话失败：${errText(err)}`,
-    })
+    clearAsk(docRef, docTitle)
   }
 
   if (!docRef) {
@@ -712,6 +242,8 @@ export default function ReadingAskPanel({
       </div>
     )
   }
+
+  const waited = busy && startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -825,7 +357,7 @@ export default function ReadingAskPanel({
                 )}
                 {m.role === 'assistant' && isFailedMessage(m) && (
                   <button
-                    onClick={() => retryFailed(m)}
+                    onClick={() => retryFailed(m.id)}
                     disabled={busy}
                     className="mt-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-control-sm border border-red-200 text-red-600 hover:bg-red-100 transition disabled:opacity-40"
                     title="撤掉这一轮，按当前开关重新提问一次"
@@ -840,13 +372,11 @@ export default function ReadingAskPanel({
         )}
         {busy && (
           <div className="flex items-center gap-2 text-ui-xs text-ink-400">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span className="flex-1 min-w-0 truncate">
-              {stage || '处理中…'}
-              {elapsed > 0 && <span className="ml-1 text-ink-300">已等待 {elapsed}s</span>}
-            </span>
+            <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+            <span className="flex-1 min-w-0 truncate">{stage || '处理中…'}</span>
+            <span className="flex-shrink-0 tabular-nums">已等待 {formatWaited(waited)}</span>
             <button
-              onClick={stop}
+              onClick={stopAsk}
               className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-control-sm border border-ink-200 text-ink-500 hover:border-red-300 hover:text-red-600 transition flex-shrink-0"
               title="停止：不再接收本次回答，并让后端也停下"
             >
@@ -895,7 +425,7 @@ export default function ReadingAskPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                void send(input, trusted, web, selectedText)
+                send(input, trusted, web, selectedText)
               }
             }}
             rows={2}
@@ -903,7 +433,7 @@ export default function ReadingAskPanel({
             className="flex-1 px-2 py-1.5 text-ui-xs border border-ink-200 rounded-control-sm resize-none focus:outline-none focus:border-seal-400"
           />
           <button
-            onClick={() => void send(input, trusted, web, selectedText)}
+            onClick={() => send(input, trusted, web, selectedText)}
             disabled={busy || !input.trim()}
             className="p-2 bg-seal-600 text-paper-50 rounded-control-sm hover:bg-seal-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
             title="发送"

@@ -939,8 +939,6 @@ export default function WritingPage() {
 
   const [templates, setTemplates] = useState<JournalTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
-  // 「保存回模板」进行中：禁用按钮并显示「保存中…」
-  const [savingLatexTemplate, setSavingLatexTemplate] = useState(false)
   // ── LaTeX 工作区：代码板（上半） + 编译器（下半） ──
   /** 代码板里的完整 LaTeX 源码：可手改，也可由正文 / 期刊模板生成 */
   const [latexCode, setLatexCode] = useState('')
@@ -2785,21 +2783,23 @@ export default function WritingPage() {
       toast.error('代码板为空，没有可保存的内容')
       return
     }
-    if (savingLatexTemplate) return
-    setSavingLatexTemplate(true)
-    try {
-      await updateTemplate(currentTemplate.id, { template_tex: latexCode })
-      const now = Date.now()
-      setTemplates((prev) =>
-        prev.map((t) =>
-          t.id === currentTemplate.id ? { ...t, template_tex: latexCode, updated_at: now } : t,
-        ),
-      )
-    } catch (err) {
-      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setSavingLatexTemplate(false)
-    }
+    const target = currentTemplate
+    const prevTemplates = templates
+    const content = latexCode
+    const now = Date.now()
+    // 乐观：模板列表立刻显示新内容与新更新时间（不等写仓库），失败再整体还原
+    await runOptimistic({
+      apply: () => {
+        setTemplates((prev) =>
+          prev.map((t) =>
+            t.id === target.id ? { ...t, template_tex: content, updated_at: now } : t,
+          ),
+        )
+      },
+      commit: () => updateTemplate(target.id, { template_tex: content }),
+      rollback: () => setTemplates(prevTemplates),
+      errorMessage: (err) => `保存失败：${errText(err)}`,
+    })
   }
 
   /**
@@ -5030,15 +5030,11 @@ export default function WritingPage() {
                   </button>
                   <button
                     onClick={saveLatexToTemplate}
-                    disabled={!currentTemplate || !latexCode.trim() || savingLatexTemplate}
+                    disabled={!currentTemplate || !latexCode.trim()}
                     className="flex-1 py-2 bg-paper-50 border border-ink-200 text-ink-700 rounded-control text-ui-xs font-medium hover:bg-paper-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                   >
-                    {savingLatexTemplate ? (
-                      <Loader2 className="h-ui-icon-sm w-ui-icon-sm animate-spin" />
-                    ) : (
-                      <Save className="h-ui-icon-sm w-ui-icon-sm" />
-                    )}
-                    {savingLatexTemplate ? '保存中…' : '保存回模板'}
+                    <Save className="h-ui-icon-sm w-ui-icon-sm" />
+                    保存回模板
                   </button>
                 </div>
 
