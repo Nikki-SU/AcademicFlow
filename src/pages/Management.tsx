@@ -834,13 +834,9 @@ export default function ManagementPage() {
   /** 导入弹窗的三种方式：上传 .md / 粘贴文本 / 上传 zip */
   const [importMode, setImportMode] = useState<'file' | 'paste' | 'zip'>('file')
   const [pasteDoc, setPasteDoc] = useState({ title: '', content: '' })
-  const [importing, setImporting] = useState(false)
+  const importingRef = useRef(false)
   const [editingDocument, setEditingDocument] = useState<DocumentSummary | null>(null)
   const [editDocForm, setEditDocForm] = useState({ title: '', author: '', taskId: '', tags: [] as string[] })
-  const [savingDocument, setSavingDocument] = useState(false)
-  // 文献 / 模板保存中：禁用对应按钮并显示「保存中…」
-  const [savingPaper, setSavingPaper] = useState(false)
-  const [savingTemplate, setSavingTemplate] = useState(false)
 
   // 后台任务状态
   const taskQueue = useTaskQueueStore()
@@ -1483,7 +1479,6 @@ export default function ManagementPage() {
   }, [doiQuickInput, papers, activeTaskId, materialMeta])
 
   const handleAddPaper = async () => {
-    if (savingPaper) return
     if (!newPaper.title.trim()) {
       toast.warning('请先填写文献标题')
       return
@@ -1506,6 +1501,7 @@ export default function ManagementPage() {
 
     const prevPapers = papers
     const prevMeta = materialMeta
+    const prevForm = newPaper
     const paper: Paper = {
       id: doi,
       title: newPaper.title.trim(),
@@ -1531,20 +1527,25 @@ export default function ManagementPage() {
       coFirstAuthor: '',
     }
     const updated = [paper, ...papers]
-    setPapers(updated)
-    setSavingPaper(true)
-    try {
-      await savePapers(updated)
-      await persistMeta(setMeta(prevMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
-      setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: '', tags: [] })
-      setShowAddPaperModal(false)
-    } catch (err) {
-      setPapers(prevPapers)
-      setMaterialMeta(prevMeta)
-      toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
-    } finally {
-      setSavingPaper(false)
-    }
+    // 乐观：文献立刻进列表、弹窗立刻关（不等写仓库），失败再回滚并带着原表单重开
+    await runOptimistic({
+      apply: () => {
+        setPapers(updated)
+        setNewPaper({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto', taskId: '', tags: [] })
+        setShowAddPaperModal(false)
+      },
+      commit: async () => {
+        await savePapers(updated)
+        await persistMeta(setMeta(prevMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
+      },
+      rollback: () => {
+        setPapers(prevPapers)
+        setMaterialMeta(prevMeta)
+        setNewPaper(prevForm)
+        setShowAddPaperModal(true)
+      },
+      errorMessage: (err) => `保存失败：${errText(err)}`,
+    })
   }
 
   /** 递归列出 GitHub 仓库目录下所有文件（用 Contents API），404 返回空数组 */
@@ -1845,39 +1846,40 @@ export default function ManagementPage() {
   }, [showEditPaperModal, editingPaper?.doi])
 
   const handleSavePaper = async () => {
-    if (!editingPaper || savingPaper) return
-    setSavingPaper(true)
-    try {
-      // 词根词缀先写：整表重写，失败就别把弹窗关掉（用户还能重试）
-      if (paperWords && paperWordsDirty) {
-        try {
-          await saveWords(paperWords)
-        } catch (err) {
-          toast.error(`词根词缀保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
-          return
-        }
-      }
-      const prevPapers = papers
-      const prevMeta = materialMeta
-      const updated = papers.map((p) => (p.id === editingPaper.id ? editingPaper : p))
-      setPapers(updated)
-      try {
-        await savePapers(updated)
-        if (editingPaper.doi) {
-          await persistMeta(setMeta(prevMeta, 'paper', editingPaper.doi, { taskId: editingPaper.taskId, tags: editingPaper.tags }))
-        }
+    if (!editingPaper) return
+    const target = editingPaper
+    const prevPapers = papers
+    const prevMeta = materialMeta
+    const prevWords = paperWords
+    const prevWordsDirty = paperWordsDirty
+    const updated = papers.map((p) => (p.id === target.id ? target : p))
+    // 乐观：列表立刻更新、弹窗立刻关（不等写仓库），失败再整体回滚并重开弹窗
+    await runOptimistic({
+      apply: () => {
+        setPapers(updated)
         setShowEditPaperModal(false)
         setEditingPaper(null)
         setPaperWords(null)
         setPaperWordsDirty(false)
-      } catch (err) {
+      },
+      commit: async () => {
+        // 词根词缀整表重写，和主数据同一条提交链：任一失败都整体回滚
+        if (prevWords && prevWordsDirty) await saveWords(prevWords)
+        await savePapers(updated)
+        if (target.doi) {
+          await persistMeta(setMeta(prevMeta, 'paper', target.doi, { taskId: target.taskId, tags: target.tags }))
+        }
+      },
+      rollback: () => {
         setPapers(prevPapers)
         setMaterialMeta(prevMeta)
-        toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`, { duration: 5000 })
-      }
-    } finally {
-      setSavingPaper(false)
-    }
+        setPaperWords(prevWords)
+        setPaperWordsDirty(prevWordsDirty)
+        setEditingPaper(target)
+        setShowEditPaperModal(true)
+      },
+      errorMessage: (err) => `保存失败：${errText(err)}`,
+    })
   }
 
   const handleBatchDelete = async () => {
@@ -2147,12 +2149,11 @@ export default function ManagementPage() {
   }
 
   const handleSaveTemplate = async () => {
-    if (!editingTemplate || savingTemplate) return
+    if (!editingTemplate) return
     if (!newTemplate.name.trim()) {
       toast.error('请填写期刊名')
       return
     }
-    setSavingTemplate(true)
     const editing = editingTemplate
     const prevTemplates = templates
     // 存的是表单里的值（newTemplate），不是打开时的旧值 —— 否则用户在弹窗里改的全丢了
@@ -2165,34 +2166,30 @@ export default function ManagementPage() {
       guidelinesContent: newTemplate.guidelines.trim(),
       formatSummary: newTemplate.formatSummary.trim(),
     }
-    try {
-      // 乐观：先改本地列表 + 关弹窗，落库失败再回滚并重新打开弹窗
-      const ok = await runOptimistic({
-        apply: () => {
-          setTemplates((prev) => prev.map((t) => (t.id === editing.id ? updatedItem : t)))
-          setShowTemplateModal(false)
-          setEditingTemplate(null)
-        },
-        commit: () => updateTemplate(editing.id, {
-          name: newTemplate.name.trim(),
-          issn: newTemplate.issn.trim() || undefined,
-          publisher: newTemplate.publisher.trim() || undefined,
-          guidelines_content: newTemplate.guidelines.trim() || undefined,
-          notes: newTemplate.formatSummary.trim() || undefined,
-        }),
-        rollback: () => {
-          setTemplates(prevTemplates)
-          setEditingTemplate(editing)
-          setShowTemplateModal(true)
-        },
-        errorMessage: (err) => `保存模板失败: ${errText(err)}`,
-      })
-      if (ok) {
-        try { setTemplates((await getAllTemplates()).map(toTemplateItem)) }
-        catch (err) { console.warn('[handleSaveTemplate] 刷新列表失败:', err) }
-      }
-    } finally {
-      setSavingTemplate(false)
+    // 乐观：先改本地列表 + 关弹窗，落库失败再回滚并重新打开弹窗
+    const ok = await runOptimistic({
+      apply: () => {
+        setTemplates((prev) => prev.map((t) => (t.id === editing.id ? updatedItem : t)))
+        setShowTemplateModal(false)
+        setEditingTemplate(null)
+      },
+      commit: () => updateTemplate(editing.id, {
+        name: newTemplate.name.trim(),
+        issn: newTemplate.issn.trim() || undefined,
+        publisher: newTemplate.publisher.trim() || undefined,
+        guidelines_content: newTemplate.guidelines.trim() || undefined,
+        notes: newTemplate.formatSummary.trim() || undefined,
+      }),
+      rollback: () => {
+        setTemplates(prevTemplates)
+        setEditingTemplate(editing)
+        setShowTemplateModal(true)
+      },
+      errorMessage: (err) => `保存模板失败: ${errText(err)}`,
+    })
+    if (ok) {
+      try { setTemplates((await getAllTemplates()).map(toTemplateItem)) }
+      catch (err) { console.warn('[handleSaveTemplate] 刷新列表失败:', err) }
     }
   }
 
@@ -2405,13 +2402,13 @@ export default function ManagementPage() {
 
   /** 三种导入方式的公共出口：统一写仓库 → 提示 → 刷新 → 关弹窗 */
   const runImport = async (items: ImportItem[]) => {
-    if (importing) return
+    if (importingRef.current) return
     const usable = items.filter((it) => it.content.trim())
     if (usable.length === 0) {
       toast.error('没有可导入的内容')
       return
     }
-    setImporting(true)
+    importingRef.current = true
     const wasModalOpen = showImportDocModal
     const prevPaste = pasteDoc
     try {
@@ -2431,7 +2428,7 @@ export default function ManagementPage() {
       })
       if (ok) await refreshDocuments()
     } finally {
-      setImporting(false)
+      importingRef.current = false
     }
   }
 
@@ -2483,41 +2480,36 @@ export default function ManagementPage() {
       toast.error('标题不能为空')
       return
     }
-    setSavingDocument(true)
     const editing = editingDocument
     const prevDocs = documents
     const prevMeta = materialMeta
     const nextTitle = editDocForm.title.trim()
     const nextAuthor = editDocForm.author.trim()
     const nextMeta = setMeta(prevMeta, 'document', editing.id, { taskId: editDocForm.taskId, tags: editDocForm.tags })
-    try {
-      // 乐观：先改列表标题/作者 + 关弹窗 + 落元数据到本地，主数据落库失败再整体回滚
-      const ok = await runOptimistic({
-        apply: () => {
-          setDocuments((prev) => prev.map((d) => (d.id === editing.id ? { ...d, title: nextTitle, author: nextAuthor } : d)))
-          setMaterialMeta(nextMeta)
-          setEditingDocument(null)
-        },
-        commit: () => updateDocumentEntry(editing.id, { title: nextTitle, author: nextAuthor }),
-        rollback: () => {
-          setDocuments(prevDocs)
-          setMaterialMeta(prevMeta)
-          setEditingDocument(editing)
-        },
-        errorMessage: (err) => `保存失败：${errText(err)}`,
-      })
-      if (!ok) return
-      // 标题/作者是主数据，元数据（任务/标签）落盘失败不回滚主数据：仅告警 + 回滚元数据
-      try {
-        await persistMeta(nextMeta)
-      } catch (metaErr) {
+    // 乐观：先改列表标题/作者 + 关弹窗 + 落元数据到本地，主数据落库失败再整体回滚
+    const ok = await runOptimistic({
+      apply: () => {
+        setDocuments((prev) => prev.map((d) => (d.id === editing.id ? { ...d, title: nextTitle, author: nextAuthor } : d)))
+        setMaterialMeta(nextMeta)
+        setEditingDocument(null)
+      },
+      commit: () => updateDocumentEntry(editing.id, { title: nextTitle, author: nextAuthor }),
+      rollback: () => {
+        setDocuments(prevDocs)
         setMaterialMeta(prevMeta)
-        toast.warning(`标题已保存，但任务/标签保存失败：${errText(metaErr)}`, { duration: 6000 })
-      }
-      await refreshDocuments()
-    } finally {
-      setSavingDocument(false)
+        setEditingDocument(editing)
+      },
+      errorMessage: (err) => `保存失败：${errText(err)}`,
+    })
+    if (!ok) return
+    // 标题/作者是主数据，元数据（任务/标签）落盘失败不回滚主数据：仅告警 + 回滚元数据
+    try {
+      await persistMeta(nextMeta)
+    } catch (metaErr) {
+      setMaterialMeta(prevMeta)
+      toast.warning(`标题已保存，但任务/标签保存失败：${errText(metaErr)}`, { duration: 6000 })
     }
+    await refreshDocuments()
   }
 
   const handleDeleteDocument = async (doc: DocumentSummary) => {
@@ -3913,11 +3905,10 @@ export default function ManagementPage() {
             </button>
             <button
               onClick={handleAddPaper}
-              disabled={savingPaper}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-60"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
             >
-              {savingPaper ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              {savingPaper ? '添加中…' : '添加'}
+              <Plus className="w-4 h-4" />
+              添加
             </button>
           </div>
         </Modal>
@@ -4240,11 +4231,10 @@ export default function ManagementPage() {
             </button>
             <button
               onClick={handleSavePaper}
-              disabled={savingPaper}
-              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-60"
+              className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition"
             >
-              {savingPaper ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {savingPaper ? '保存中…' : '保存'}
+              <CheckCircle2 className="w-4 h-4" />
+              保存
             </button>
           </div>
         </Modal>
@@ -4379,11 +4369,10 @@ export default function ManagementPage() {
             </button>
             <button
               onClick={editingTemplate ? handleSaveTemplate : handleAddTemplate}
-              disabled={savingTemplate}
               className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-60"
             >
-              {savingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              {savingTemplate ? (editingTemplate ? '保存中…' : '创建中…') : (editingTemplate ? '保存修改' : '创建模板')}
+              <Plus className="w-4 h-4" />
+              {editingTemplate ? '保存修改' : '创建模板'}
             </button>
           </div>
         </Modal>
@@ -4534,7 +4523,7 @@ export default function ManagementPage() {
       {showImportDocModal && (
         <Modal
           title="导入文档"
-          onClose={() => { if (!importing) setShowImportDocModal(false) }}
+          onClose={() => setShowImportDocModal(false)}
           width="max-w-2xl"
         >
           <div className="flex items-center gap-1 p-1 bg-ink-100 rounded-control mb-5 w-fit">
@@ -4546,8 +4535,7 @@ export default function ManagementPage() {
               <button
                 key={m.id}
                 onClick={() => setImportMode(m.id)}
-                disabled={importing}
-                className={`px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition disabled:opacity-60 ${
+                className={`px-ui-gap py-1.5 rounded-control-sm text-ui-sm font-medium transition ${
                   importMode === m.id ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
                 }`}
               >
@@ -4558,21 +4546,16 @@ export default function ManagementPage() {
 
           {importMode === 'file' && (
             <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
-                importing ? 'opacity-60 pointer-events-none' : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
-              }`}
+              className="flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer"
             >
-              {importing
-                ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" />
-                : <Upload className="w-10 h-10 text-ink-400" />}
-              <p className="text-ui-sm text-ink-600 font-medium">{importing ? '导入中...' : '点击选择 .md / .markdown / .txt 文件'}</p>
+              <Upload className="w-10 h-10 text-ink-400" />
+              <p className="text-ui-sm text-ink-600 font-medium">点击选择 .md / .markdown / .txt 文件</p>
               <p className="text-ui-xs text-ink-400">支持多选，标题取文件名</p>
               <input
                 type="file"
                 multiple
                 accept=".md,.markdown,.txt"
                 className="hidden"
-                disabled={importing}
                 onChange={(e) => { void handleImportFiles(e.target.files); e.target.value = '' }}
               />
             </label>
@@ -4587,7 +4570,6 @@ export default function ManagementPage() {
                   value={pasteDoc.title}
                   onChange={(e) => setPasteDoc({ ...pasteDoc, title: e.target.value })}
                   placeholder="文档标题"
-                  disabled={importing}
                   className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                 />
               </div>
@@ -4598,7 +4580,6 @@ export default function ManagementPage() {
                   onChange={(e) => setPasteDoc({ ...pasteDoc, content: e.target.value })}
                   placeholder="在此粘贴 markdown 正文..."
                   rows={10}
-                  disabled={importing}
                   className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm font-mono focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100 resize-y"
                 />
               </div>
@@ -4607,20 +4588,15 @@ export default function ManagementPage() {
 
           {importMode === 'zip' && (
             <label
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition ${
-                importing ? 'opacity-60 pointer-events-none' : 'border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer'
-              }`}
+              className="flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-card p-8 text-center transition border-ink-200 bg-paper-100 hover:border-seal-200 hover:bg-seal-50/30 cursor-pointer"
             >
-              {importing
-                ? <Loader2 className="w-10 h-10 text-seal-500 animate-spin" />
-                : <Folder className="w-10 h-10 text-ink-400" />}
-              <p className="text-ui-sm text-ink-600 font-medium">{importing ? '导入中...' : '点击选择 .zip 压缩包'}</p>
+              <Folder className="w-10 h-10 text-ink-400" />
+              <p className="text-ui-sm text-ink-600 font-medium">点击选择 .zip 压缩包</p>
               <p className="text-ui-xs text-ink-400">自动解出包内所有 .md / .markdown / .txt 条目</p>
               <input
                 type="file"
                 accept=".zip"
                 className="hidden"
-                disabled={importing}
                 onChange={(e) => { void handleImportZip(e.target.files?.[0]); e.target.value = '' }}
               />
             </label>
@@ -4630,17 +4606,15 @@ export default function ManagementPage() {
             {importMode === 'paste' && (
               <button
                 onClick={handlePasteImport}
-                disabled={importing}
-                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition"
               >
-                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                {importing ? '导入中...' : '导入'}
+                <Upload className="w-4 h-4" />
+                导入
               </button>
             )}
             <button
-              onClick={() => { if (!importing) setShowImportDocModal(false) }}
-              disabled={importing}
-              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-60"
+              onClick={() => setShowImportDocModal(false)}
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
@@ -4650,7 +4624,7 @@ export default function ManagementPage() {
 
       {/* 编辑其他文档弹窗 */}
       {editingDocument && (
-        <Modal title="编辑文档" onClose={() => { if (!savingDocument) setEditingDocument(null) }}>
+        <Modal title="编辑文档" onClose={() => setEditingDocument(null)}>
           <div className="space-y-4">
             <div>
               <label className="block text-ui-sm font-medium text-ink-700 mb-1.5">标题 *</label>
@@ -4683,19 +4657,18 @@ export default function ManagementPage() {
           </div>
           <div className="af-line-t flex items-center justify-end gap-2 mt-6 pt-4">
             <button
-              onClick={() => { if (!savingDocument) setEditingDocument(null) }}
-              disabled={savingDocument}
-              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-60"
+              onClick={() => setEditingDocument(null)}
+              className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition"
             >
               取消
             </button>
             <button
               onClick={handleSaveDocument}
-              disabled={savingDocument || !editDocForm.title.trim()}
+              disabled={!editDocForm.title.trim()}
               className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-gradient-to-r from-seal-600 to-seal-700 hover:from-seal-700 hover:to-seal-800 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {savingDocument ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {savingDocument ? '保存中…' : '保存'}
+              <CheckCircle2 className="w-4 h-4" />
+              保存
             </button>
           </div>
         </Modal>

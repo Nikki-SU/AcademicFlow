@@ -717,7 +717,6 @@ export default function ReadingPage() {
   const [addMaterialTab, setAddMaterialTab] = useState<DocType>('paper')
   const [addMaterialSearch, setAddMaterialSearch] = useState('')
   const [addMaterialSelected, setAddMaterialSelected] = useState<Set<string>>(new Set())
-  const [addMaterialSaving, setAddMaterialSaving] = useState(false)
 
   const readerRef = useRef<HTMLDivElement>(null)
   const annotationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1075,23 +1074,33 @@ export default function ReadingPage() {
 
   const confirmAddMaterial = async () => {
     if (!currentProjectId || addMaterialSelected.size === 0) return
-    setAddMaterialSaving(true)
-    try {
-      let next = materialMeta
-      for (const p of globalPapers) {
-        if (addMaterialSelected.has(metaKey('paper', p.doi))) next = setMeta(next, 'paper', p.doi, { taskId: currentProjectId })
-      }
-      for (const b of globalBooks) {
-        if (addMaterialSelected.has(metaKey('book', b.id))) next = setMeta(next, 'book', b.id, { taskId: currentProjectId })
-      }
-      for (const d of globalDocuments) {
-        if (addMaterialSelected.has(metaKey('document', d.id))) next = setMeta(next, 'document', d.id, { taskId: currentProjectId })
-      }
-      await persistMaterialMeta(next)
-      setShowAddMaterialModal(false)
-    } finally {
-      setAddMaterialSaving(false)
+    let next = materialMeta
+    for (const p of globalPapers) {
+      if (addMaterialSelected.has(metaKey('paper', p.doi))) next = setMeta(next, 'paper', p.doi, { taskId: currentProjectId })
     }
+    for (const b of globalBooks) {
+      if (addMaterialSelected.has(metaKey('book', b.id))) next = setMeta(next, 'book', b.id, { taskId: currentProjectId })
+    }
+    for (const d of globalDocuments) {
+      if (addMaterialSelected.has(metaKey('document', d.id))) next = setMeta(next, 'document', d.id, { taskId: currentProjectId })
+    }
+    const prevMeta = materialMeta
+    const prevSelected = addMaterialSelected
+    // 乐观：材料立刻归入本任务并关弹窗，写仓库失败再回滚重开（ADJ-142）
+    await runOptimistic({
+      apply: () => {
+        setMaterialMeta(next)
+        setShowAddMaterialModal(false)
+        setAddMaterialSelected(new Set())
+      },
+      commit: () => saveMaterialMeta(next),
+      rollback: () => {
+        setMaterialMeta(prevMeta)
+        setAddMaterialSelected(prevSelected)
+        setShowAddMaterialModal(true)
+      },
+      errorMessage: (err) => `添加材料失败：${errText(err)}`,
+    })
   }
 
   /** 三种导入方式的公共出口：写仓库 → 刷新列表 → 直接打开刚导入的那份 */
@@ -2335,7 +2344,7 @@ export default function ReadingPage() {
       setEditReport(built ? built.report : '已保存（这份文件没有块结构，按整篇写入）。')
     } catch (err) {
       console.error('[Reading] 保存文献失败:', err)
-      alert(`保存失败：${(err as any)?.message || err}\n\n可以先别关编辑态，重试一次。`)
+      toast.error(`保存失败：${errText(err)}。可以先别关编辑态，重试一次。`, { duration: 8000 })
     } finally {
       setArticleSaving(false)
       setArticleSavingMsg('')
@@ -4406,7 +4415,7 @@ export default function ReadingPage() {
 
       {/* 从全局添加材料：把全局已有材料归入当前任务 */}
       {showAddMaterialModal && (
-        <Modal title="从全局添加材料" onClose={() => { if (!addMaterialSaving) setShowAddMaterialModal(false) }}>
+        <Modal title="从全局添加材料" onClose={() => setShowAddMaterialModal(false)}>
           <p className="text-ui-xs text-ink-400 mb-3">选中的材料会归入当前任务，之后在各处都看得到（不是临时引用）。</p>
           <div className="flex items-center gap-0.5 rounded-control bg-ink-100 p-0.5 mb-3 w-fit">
             {([
@@ -4417,7 +4426,6 @@ export default function ReadingPage() {
               <button
                 key={type}
                 onClick={() => setAddMaterialTab(type)}
-                disabled={addMaterialSaving}
                 className={`px-ui-gap py-1.5 rounded-control-sm text-ui-xs font-medium transition disabled:opacity-60 ${
                   addMaterialTab === type ? 'bg-paper-50 text-seal-600 shadow-sm' : 'text-ink-500 hover:text-ink-700'
                 }`}
@@ -4433,7 +4441,6 @@ export default function ReadingPage() {
               value={addMaterialSearch}
               onChange={(e) => setAddMaterialSearch(e.target.value)}
               placeholder="搜索标题…"
-              disabled={addMaterialSaving}
               className="w-full pl-7 pr-2 py-1.5 text-ui-xs border border-ink-200 rounded-control-sm focus:outline-none focus:border-seal-400"
             />
           </div>
@@ -4483,7 +4490,6 @@ export default function ReadingPage() {
                   <button
                     key={`${it.type}:${it.id}`}
                     onClick={() => toggleAddMaterial(it.type, it.id)}
-                    disabled={addMaterialSaving}
                     className={`w-full flex items-start gap-2 rounded-control-sm px-2 py-1.5 text-left transition disabled:opacity-60 ${
                       selected ? 'bg-seal-50' : 'hover:bg-paper-100'
                     }`}
@@ -4508,19 +4514,18 @@ export default function ReadingPage() {
             <span className="text-ui-xs text-ink-400">已选 {addMaterialSelected.size} 项</span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => { if (!addMaterialSaving) setShowAddMaterialModal(false) }}
-                disabled={addMaterialSaving}
+                onClick={() => setShowAddMaterialModal(false)}
                 className="px-ui-gap py-2 text-ui-sm text-ink-600 hover:bg-ink-100 rounded-control transition disabled:opacity-60"
               >
                 取消
               </button>
               <button
                 onClick={() => void confirmAddMaterial()}
-                disabled={addMaterialSaving || addMaterialSelected.size === 0}
+                disabled={addMaterialSelected.size === 0}
                 className="flex items-center gap-2 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {addMaterialSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                {addMaterialSaving ? '添加中…' : '添加'}
+                <Plus className="w-4 h-4" />
+                添加
               </button>
             </div>
           </div>

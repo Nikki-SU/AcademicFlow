@@ -12,6 +12,7 @@ import { Mic, Square, Loader2, Sparkles, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRecorderStore } from '../../stores/recorder'
 import { useSettingsStore } from '../../stores/settings'
+import { runOptimistic, errText } from '../../services/optimistic'
 import {
   loadLatestTranscript,
   extractTranscriptText,
@@ -67,8 +68,6 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
   const [showRaw, setShowRaw] = useState(false)
   const [editingRaw, setEditingRaw] = useState(false)
   const [rawDraft, setRawDraft] = useState('')
-  // 原始转写保存中：禁用「保存」并显示「保存中…」
-  const [savingRaw, setSavingRaw] = useState(false)
   const [now, setNow] = useState(Date.now())
 
   const isRecording = status === 'recording'
@@ -185,21 +184,27 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
     setEditingRaw(true)
   }
 
-  /** 保存编辑后的原始转写；成功即退出编辑态并刷新本地状态 */
+  /** 保存编辑后的原始转写；乐观：立刻退出编辑态并换成本地新内容，写失败再回滚重进编辑态 */
   const saveRawEdit = async () => {
-    if (!taskId || !sessionId || savingRaw) return
-    setSavingRaw(true)
-    try {
-      await saveTranscriptRaw(taskId, sessionId, rawDraft)
-      setEditingRaw(false)
-      setLastContent(rawDraft)
-      setLastText(extractTranscriptText(rawDraft))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`转写保存失败：${msg}`, { duration: 8000 })
-    } finally {
-      setSavingRaw(false)
-    }
+    if (!taskId || !sessionId) return
+    const prevContent = lastContent
+    const prevText = lastText
+    const draft = rawDraft
+    await runOptimistic({
+      apply: () => {
+        setEditingRaw(false)
+        setLastContent(draft)
+        setLastText(extractTranscriptText(draft))
+      },
+      commit: () => saveTranscriptRaw(taskId, sessionId, draft),
+      rollback: () => {
+        setLastContent(prevContent)
+        setLastText(prevText)
+        setRawDraft(draft)
+        setEditingRaw(true)
+      },
+      errorMessage: (err) => `转写保存失败：${errText(err)}`,
+    })
   }
 
   /** 取消编辑：丢弃草稿回到只读 */
@@ -310,10 +315,8 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
                     variant="primary"
                     size="sm"
                     onClick={() => void saveRawEdit()}
-                    disabled={savingRaw}
-                    icon={savingRaw ? <Loader2 className="animate-spin" /> : undefined}
                   >
-                    {savingRaw ? '保存中…' : '保存'}
+                    保存
                   </Button>
                 </div>
               </div>
@@ -356,10 +359,8 @@ export default function SessionTranscript({ taskId }: { taskId: string | null })
                   variant="primary"
                   size="sm"
                   onClick={() => void saveRawEdit()}
-                  disabled={savingRaw}
-                  icon={savingRaw ? <Loader2 className="animate-spin" /> : undefined}
                 >
-                  {savingRaw ? '保存中…' : '保存'}
+                  保存
                 </Button>
               </div>
             </div>

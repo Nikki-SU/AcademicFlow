@@ -3016,7 +3016,7 @@ export default function TrackingPage() {
                     ) : (
                       <Sparkles className="w-4 h-4" />
                     )}
-                    智能匹配
+                    {isResolvingJournal ? '匹配中…' : '智能匹配'}
                   </button>
                 </div>
                 <p className="mt-1.5 text-ui-xs text-ink-400">
