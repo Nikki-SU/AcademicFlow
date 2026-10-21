@@ -4,13 +4,34 @@
 > 前端通过 Contents API 把 base64 嵌在 `src/constants/skeleton.ts` 里的副本「安装」进去。
 > 本文档记三件事：**现在两边是否一致**、**改后端必须遵守什么**、**还剩什么没做**。
 >
-> 最后更新：2026-10-19
+> 最后更新：2026-10-21
 
 ---
 
 ## 0. 当前状态（2026-09-28 已推私库，10/10 逐字节一致）
 
 **前端嵌入副本与私库 `main` 线上版本逐字节一致。** 13 个文件（10 个 base64 + 3 个 `?raw`）实测通过。
+
+> ⚠️ **2026-10-21 待生效（backend 21→22，走 ADJ-126 自动同步）**：`paper_convert.mjs` 的 **Tag 阶段
+> （AI-1 打标）对齐 Clean 阶段口径 —— 图片零丢失**（ADJ-164）。修
+> `Studer-The Persistent Radical Effect in Organic Synthesis.pdf` 反复失败于
+> 「② 标注 · AI-1 打标（插段标记）/ Tag 阶段 chunk 6/10 丢了 1 张图（图不可以丢）」。
+> 根因：Clean 阶段早已是「重跑坏块 → 按原文行确定性回填 → 终检，绝不中止整篇」（backend 7→8），
+> Tag 阶段仍是「一遍 + 一次重试 → 仍丢就 `throw`」，每次重跑停在同一处；且 `TAG_PROMPT` 原第 7 条
+> 只写「封面 / 广告的**说明文字**按正文处理」易被模型外推成「图也能删」；`imagePaths`（`[^)\s]+`）
+> 与 `PROTECTED_SPANS`（`[^)\n]*`）容不下含空格 / 括号的路径 → 路径被截断、保护区间只盖半截。
+> 改动：① `TAG_PROMPT` 第 2 条改「【图片零丢失，最高优先级】」+ 新增第 8 条输出前自查；
+> ② `RETRY_TAG_PROMPT` 第 4 条明写「上一遍漏了图片」；③ 新增 `scanImages(s)` 括号配平扫描器，
+> `imagePaths` 改为其派生集合；④ `PROTECTED_SPANS` 图片正则容一层嵌套括号；⑤ 新增
+> `backfillLostImages(out, chunk)`（兜底值 = 源分块里那段图片语法的**逐字切片**，包成 `图·0·0` 交
+> `renumber` 重排）；⑥ `tagCleanMd` 改为「回填 → 复检 → 仍缺才 throw」；`enumerateBlocks`／
+> `assembleBlocks` 两道终检保留。**不采用**：调大 `TAG_CHUNK`／加重试次数／降级 `console.warn`
+> —— 都是用容错遮约束。本地已重新嵌进 `skeleton.ts`（`PAPER_CONVERT_MJS_B64` 解码 **139141 B**、
+> sha256 `89159cb06f1fec5966344581b7f90bf9fae7d87968c3e776a019327ce3f099e6`），decode → re-encode
+> 往返校验逐字一致、`node --check` OK、18 条注入单测全过；私库尚未手动推 —— **无需手动推**：
+> `APP_VERSION.backend` 已 +1（21→22），用户下次进入应用时 `pipelineAutoSync` 会比对私库
+> `settings/backend-version.csv` 并自动重写（ADJ-126，零操作）。自动同步发生前私库线上仍是旧版
+> （Tag 丢图直接 `throw`），对不丢图的文献行为等价。
 
 > ⚠️ **2026-10-19 待生效（backend 19→20，走 ADJ-126 自动同步）**：`paper_convert.mjs` 的 AI-1
 > clean / tag 分块由「定长 `slice(i, i+20000)`」改为「**结构安全边界切块**」：新增
