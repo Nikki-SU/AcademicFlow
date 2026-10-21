@@ -18,7 +18,7 @@
 import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
-import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
+import { useTaskQueueStore, STAGE_META, failedPatch } from '../stores/taskQueue'
 import { writeFileBatch, type BatchFileOp } from './github'
 import { dispatchDocConvert, getLatestRun } from './workflowClient'
 
@@ -138,13 +138,8 @@ export async function enqueueDocConvert(
     const msg = `触发后端 pipeline 失败：${err?.message || String(err)}。请检查私库是否已安装 doc_convert workflow。`
     toast.error(msg)
     try {
-      await useTaskQueueStore.getState().update_task(taskId, {
-        status: 'failed',
-        stage: 'failed',
-        node_index: STAGE_META.failed.node,
-        message: `触发后端失败：${msg}`,
-        error: msg,
-      })
+      // 后端一个 stage 都没跑过，真实阶段就是 queued（节点 0 转换）
+      await useTaskQueueStore.getState().update_task(taskId, failedPatch('queued', 0, `触发后端失败：${msg}`, msg))
     } catch {}
     return { ok: false, error: msg, task_id: taskId }
   }

@@ -23,7 +23,7 @@
 import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
-import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
+import { useTaskQueueStore, STAGE_META, failedPatch } from '../stores/taskQueue'
 import { writeFileBatch, type BatchFileOp } from './github'
 import { dispatchNoteConvert, getLatestRun } from './workflowClient'
 import { docBasePath, attachmentsDir, type DocRef } from './readingDocData'
@@ -211,13 +211,8 @@ export async function enqueueNoteConvertBatch(
       results[v.idx].error = msg
       results[v.idx].task_id = v.taskId
       try {
-        await useTaskQueueStore.getState().update_task(v.taskId, {
-          status: 'failed',
-          stage: 'failed',
-          node_index: STAGE_META.failed.node,
-          message: `触发后端失败：${msg}`,
-          error: msg,
-        })
+        // 后端一个 stage 都没跑过，真实阶段就是 queued（节点 0 转换）
+        await useTaskQueueStore.getState().update_task(v.taskId, failedPatch('queued', 0, `触发后端失败：${msg}`, msg))
       } catch { /* 不阻塞 */ }
     }
     return { ok: false, results, error: msg }

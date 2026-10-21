@@ -110,6 +110,38 @@ export interface BackgroundTask {
 
 export type TaskExecutor = (task: BackgroundTask, signal: AbortSignal) => Promise<void>
 
+/**
+ * 失败补丁：进入 failed 终态时，把「失败前真实所在的 stage / 节点」冻结进 metadata。
+ * -------------------------------------------------
+ * stage 只能有一个值，进终态就必然是 'failed'——但这样面板只知道「失败了」，
+ * 不知道失败在哪一步，四节点条也只能按 failed.node（= 3）恒点红「提词」。
+ * 所以在覆写 stage 之前，先把真实阶段留下来：
+ *   metadata.failed_stage  失败前所在的 stage（面板显示「失败于 AI-2 逐段翻译」）
+ *   metadata.failed_node   失败前所在的 UI 节点（四节点条点红真正的那一个）
+ *   metadata.failed_at     失败发生时间
+ */
+export function failedPatch(
+  prev_stage: PipelineStage | undefined,
+  prev_node: 0 | 1 | 2 | 3 | undefined,
+  message: string,
+  error: string,
+): Partial<BackgroundTask> {
+  // 已经在终态上再失败一次时不重复记录（正常重试会先把 stage 写回 queued）
+  const stage = prev_stage && prev_stage !== 'failed' && prev_stage !== 'aborted' ? prev_stage : undefined
+  const node = prev_node ?? (stage ? STAGE_META[stage].node : undefined)
+  return {
+    status: 'failed',
+    stage: 'failed',
+    // 保真：有真实节点就点红那一个；彻底没有信息才退回失败节点
+    node_index: node ?? STAGE_META.failed.node,
+    message,
+    error,
+    metadata: stage
+      ? { failed_stage: stage, failed_node: node ?? STAGE_META.failed.node, failed_at: Date.now() }
+      : undefined,
+  }
+}
+
 // ============================================================
 // CSV 配置
 // ============================================================
@@ -265,11 +297,7 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
             // PDF 路径也没了，真的没法续跑
             return {
               ...t,
-              status: 'failed' as TaskStatus,
-              stage: 'failed' as PipelineStage,
-              node_index: STAGE_META.failed.node,
-              message: 'PDF 文件丢失，请重新上传',
-              error: 'PDF 文件丢失（GitHub 路径不存在）',
+              ...failedPatch(t.stage, t.node_index, 'PDF 文件丢失，请重新上传', 'PDF 文件丢失（GitHub 路径不存在）'),
               updated_at: now,
             }
           }
@@ -468,10 +496,11 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
       await get().update_task(id, { message: '正在中止...' })
     } else if (task.status === 'pending') {
       // pending 状态：直接标记 aborted
+      // node_index 保留当前值（不写 aborted.node），让四节点条指在真实停下的位置
       await get().update_task(id, {
         status: 'aborted',
         stage: 'aborted',
-        node_index: STAGE_META.aborted.node,
+        node_index: task.node_index,
         message: '已取消',
       })
     }
@@ -528,23 +557,22 @@ export const useTaskQueueStore = create<TaskQueueStore>((set, get) => ({
       const isAbort = err instanceof Error && err.name === 'AbortError'
       const controllers = new Map(get()._abort_controllers)
       controllers.delete(taskId)
+      // 覆写 stage 之前先取回此刻的真实阶段 —— 这就是「卡在哪一步」的唯一正确答案
+      const current = get().tasks.find((t) => t.id === taskId)
 
       if (isAbort) {
         await get().update_task(taskId, {
           status: 'aborted',
           stage: 'aborted',
-          node_index: STAGE_META.aborted.node,
+          node_index: current?.node_index ?? next.node_index,
           message: '已中止',
         })
       } else {
         const msg = err instanceof Error ? err.message : String(err)
-        await get().update_task(taskId, {
-          status: 'failed',
-          stage: 'failed',
-          node_index: STAGE_META.failed.node,
-          message: `执行失败: ${msg}`,
-          error: msg,
-        })
+        await get().update_task(
+          taskId,
+          failedPatch(current?.stage ?? next.stage, current?.node_index ?? next.node_index, `执行失败: ${msg}`, msg),
+        )
       }
       set({ _abort_controllers: controllers })
     } finally {

@@ -48,7 +48,7 @@ import {
 import { noteHasContent } from '../services/readingDocData'
 import { enqueuePaperMineruConvert } from '../services/paperPipeline'
 import { enqueueBookMineruConvert } from '../services/bookPipeline'
-import { useTaskQueueStore, STAGE_META, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
+import { useTaskQueueStore, STAGE_META, failedPatch, type PipelineStage, type BackgroundTask } from '../stores/taskQueue'
 import BackendMonitorPanel from '../components/BackendMonitorPanel'
 import {
   createTemplate,
@@ -1066,19 +1066,20 @@ export default function ManagementPage() {
               patch.node_index = STAGE_META.done.node
               patch.progress = 100
               patch.message = '转换完成'
+              await tq.update_task(task.id, patch)
             } else if (prog.stage === 'failed') {
-              patch.status = 'failed'
-              patch.stage = 'failed'
-              patch.node_index = STAGE_META.failed.node
+              // 后端只说「失败了」，真实阶段是 task 此刻的 stage（覆写前拿到）
               // 后端会存档每个阶段的中间产物：重试只跑后面的部分，这里明确告诉用户从哪继续
               const resumeHint = prog.resume_from ? `，重试将从「${prog.resume_from}」继续（前面的产物已存档）` : ''
-              patch.message = prog.error ? `失败：${prog.error}${resumeHint}` : `转换失败${resumeHint}`
-              patch.error = prog.error || '后端返回 failed'
+              const message = prog.error ? `失败：${prog.error}${resumeHint}` : `转换失败${resumeHint}`
+              await tq.update_task(
+                task.id,
+                failedPatch(task.stage, task.node_index, message, prog.error || '后端返回 failed'),
+              )
             } else {
               if (task.status === 'pending') patch.status = 'running'
+              await tq.update_task(task.id, patch)
             }
-
-            await tq.update_task(task.id, patch)
           } else {
             // 没有 progress.json（还没被写出来）→ 用 GitHub Actions run 状态兜底
             const runId = typeof meta?.id === 'number' ? meta.id : null
@@ -1183,14 +1184,15 @@ export default function ManagementPage() {
                   updated_at: Date.now(),
                 })
               } else {
-                await tq.update_task(task.id, {
-                  status: 'failed',
-                  stage: 'failed',
-                  node_index: STAGE_META.failed.node,
-                  message: `Runner ${run.conclusion}（#${run.id}）— 点 Actions 日志排查`,
-                  error: `runner ${run.conclusion}`,
-                  updated_at: Date.now(),
-                })
+                await tq.update_task(
+                  task.id,
+                  failedPatch(
+                    task.stage,
+                    task.node_index,
+                    `Runner ${run.conclusion}（#${run.id}）— 点 Actions 日志排查`,
+                    `runner ${run.conclusion}`,
+                  ),
+                )
               }
             }
             // run.status 是 failure/cancelled → 也当失败处理
@@ -1829,14 +1831,10 @@ export default function ManagementPage() {
       })()
     } catch (err: any) {
       // dispatch 失败 → 标记 taskQueue 任务为 failed
+      // 这一步失败时后端还没开跑，真实阶段就是刚注册的 queued（节点 0 转换）
+      const msg = err?.message || String(err)
       try {
-        await taskQueue.update_task(taskId, {
-          status: 'failed',
-          stage: 'failed',
-          node_index: STAGE_META.failed.node,
-          message: `触发后端失败：${err?.message || String(err)}`,
-          error: err?.message || String(err),
-        })
+        await taskQueue.update_task(taskId, failedPatch('queued', 0, `触发后端失败：${msg}`, msg))
       } catch {}
       setPapers((prev) => prev.map((p) => (p.id === paper.id ? { ...p, mdStatus: 'failed' as const } : p)))
       toast.error(`触发后端失败：${err?.message || String(err)}`)

@@ -14,7 +14,7 @@
 import { toast } from 'sonner'
 import { useAuthStore } from '../stores/auth'
 import { useWorkspaceStore } from '../stores/workspace'
-import { useTaskQueueStore, STAGE_META } from '../stores/taskQueue'
+import { useTaskQueueStore, STAGE_META, failedPatch } from '../stores/taskQueue'
 import { doiToSlug } from './literatureData'
 import { writeFileBatch, type BatchFileOp } from './github'
 import { dispatchPaperConvert, dispatchPaperConvertBatch, getLatestRun } from './workflowClient'
@@ -156,14 +156,9 @@ export async function enqueuePaperMineruConvert(
     const msg = `触发后端 pipeline 失败：${err?.message || String(err)}。请检查 GitHub Actions 是否启用。`
     toast.error(msg)
     // 任务已在 taskQueue 里注册了，但后端没触发 —— 标记 failed 让用户看到
+    // 此时后端一个 stage 都没跑过，真实阶段就是 queued（节点 0 转换）
     try {
-      await useTaskQueueStore.getState().update_task(taskId, {
-        status: 'failed',
-        stage: 'failed',
-        node_index: STAGE_META.failed.node,
-        message: `触发后端失败：${msg}`,
-        error: msg,
-      })
+      await useTaskQueueStore.getState().update_task(taskId, failedPatch('queued', 0, `触发后端失败：${msg}`, msg))
     } catch {}
     return { ok: false, error: msg, task_id: taskId }
   }
@@ -344,13 +339,7 @@ export async function enqueuePaperMineruConvertBatch(
       results[v.idx].error = msg
       results[v.idx].task_id = v.taskId
       try {
-        await useTaskQueueStore.getState().update_task(v.taskId, {
-          status: 'failed',
-          stage: 'failed',
-          node_index: STAGE_META.failed.node,
-          message: `触发后端失败：${msg}`,
-          error: msg,
-        })
+        await useTaskQueueStore.getState().update_task(v.taskId, failedPatch('queued', 0, `触发后端失败：${msg}`, msg))
       } catch {}
     }
     return { ok: false, results, error: msg }
