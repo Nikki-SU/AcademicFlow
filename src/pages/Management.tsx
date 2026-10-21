@@ -776,13 +776,15 @@ export default function ManagementPage() {
   const [paperWordsDirty, setPaperWordsDirty] = useState(false)
   const [papers, setPapers] = useState<Paper[]>([])
   const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto' as 'auto' | '1' | '2', taskId: '', tags: [] as string[] })
-  const [doiFetching, setDoiFetching] = useState(false)
   const [doiFetchError, setDoiFetchError] = useState<string | null>(null)
   const [doiQuickInput, setDoiQuickInput] = useState('')
-  const [isAddingByDoi, setIsAddingByDoi] = useState(false)
+  /** 纯防重入闸门：只拦连点 / 重复回车，不驱动任何灰态（ADJ-159） */
+  const addingDoiRef = useRef(false)
+  const doiFetchingRef = useRef(false)
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
-  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
+  /** 正在删除的文献 id：只作防重入与重拉过滤，不驱动任何 UI（ADJ-159） */
+  const deletingIdsRef = useRef<Set<string>>(new Set())
   /** 期刊缩写本地覆盖表（全名 → 缩写） */
   const [journalAbbrevMap, setJournalAbbrevMap] = useState<Record<string, string>>({})
   // ── 统一分类体系：分类 = 归属任务（Project），标签 = 自由标注（MaterialMeta） ──
@@ -871,7 +873,7 @@ export default function ManagementPage() {
               taskId: taskOf(meta, 'paper', p.doi),
               tags: tagsOf(meta, 'paper', p.doi),
             }))
-            .filter((p) => !deletingIds.has(p.id)),
+            .filter((p) => !deletingIdsRef.current.has(p.id)),
         )
         setBooks(
           tbs.map((tb) => ({
@@ -1361,8 +1363,11 @@ export default function ManagementPage() {
   const handleFetchFromDoi = async (doi: string) => {
     const trimmed = doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')
     if (!trimmed) return
-    setDoiFetching(true)
+    if (doiFetchingRef.current) return
+    doiFetchingRef.current = true
     setDoiFetchError(null)
+    // 结果不可预演（标题 / 作者要等 Crossref 回来）：点下先给即时确认，不灰态、不转圈
+    toast.info('正在从 Crossref 获取元数据…')
     try {
       const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(trimmed)}`, {
         headers: { 'User-Agent': 'AcademicFlow/1.0 (https://academicflow.dev)' },
@@ -1406,12 +1411,13 @@ export default function ManagementPage() {
       setDoiFetchError(msg)
       toast.error(`Crossref 获取失败：${msg}`)
     } finally {
-      setDoiFetching(false)
+      doiFetchingRef.current = false
     }
   }
 
   /** 工具栏 DOI 快捷入库 — 输入 DOI → Crossref 查元数据 → 直接入库 */
   const handleAddByDoi = useCallback(async () => {
+    if (addingDoiRef.current) return
     const normalized = normalizeDoi(doiQuickInput)
     if (!normalized.valid || !normalized.doi) {
       toast.error('请输入有效的 DOI 或 DOI 链接（如 10.1000/sample.00000001）')
@@ -1428,9 +1434,13 @@ export default function ManagementPage() {
       return
     }
 
-    setIsAddingByDoi(true)
+    addingDoiRef.current = true
     const prevPapers = papers
     const prevMeta = materialMeta
+    const prevInput = doiQuickInput
+    // 结果不可预演（标题 / 作者 / 期刊要等 Crossref 回来）：点下先给即时确认，
+    // 不灰态、不转圈、不造假数据占位；失败由下面的 catch 报可读错误并回滚
+    toast.info('正在按 DOI 入库…')
     try {
       const { entries, failed } = await getCitationEntries([doi])
       if (failed.includes(doi) || entries.length === 0) {
@@ -1467,18 +1477,28 @@ export default function ManagementPage() {
         coFirstAuthor: '',
       }
       const updated = [paper, ...papers]
-      setPapers(updated)
-      await savePapers(updated)
-      await persistMeta(setMeta(prevMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
-      setDoiQuickInput('')
+      // 元数据到手后：文献立刻进列表、清空输入（不等写仓库），落库失败再回滚
+      await runOptimistic({
+        apply: () => {
+          setPapers(updated)
+          setDoiQuickInput('')
+        },
+        commit: async () => {
+          await savePapers(updated)
+          await persistMeta(setMeta(prevMeta, 'paper', doi, { taskId: paper.taskId, tags: paper.tags }))
+        },
+        rollback: () => {
+          setPapers(prevPapers)
+          setMaterialMeta(prevMeta)
+          setDoiQuickInput(prevInput)
+        },
+        errorMessage: (err) => `DOI 入库失败：${errText(err)}`,
+      })
     } catch (err) {
-      // 入库失败：回滚乐观 UI（文献列表 + 元数据），并报可读错误
-      setPapers(prevPapers)
-      setMaterialMeta(prevMeta)
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`DOI 入库失败：${msg}`)
+      // Crossref 查询本身失败：界面没变过，只需报可读错误
+      toast.error(`DOI 入库失败：${errText(err)}`)
     } finally {
-      setIsAddingByDoi(false)
+      addingDoiRef.current = false
     }
   }, [doiQuickInput, papers, activeTaskId, materialMeta])
 
@@ -1590,8 +1610,8 @@ export default function ManagementPage() {
     )
     if (!confirmed) return
 
-    // ═══ 防重复点击：正在删就跳过 ═══
-    if (deletingIds.has(id)) return
+    // ═══ 防重复点击：正在删就跳过（ref 不驱动 UI，只拦连点）═══
+    if (deletingIdsRef.current.has(id)) return
 
     const paperDoi = paper.doi ?? ''
     const ctx = getRepoContextForDelete()
@@ -1601,7 +1621,7 @@ export default function ManagementPage() {
     // ═══ 乐观：立即从 UI 移除 + 打删除标记（即时反馈），CSV 落库失败再回滚 ═══
     const ok = await runOptimistic({
       apply: () => {
-        setDeletingIds((prev) => new Set(prev).add(id))
+        deletingIdsRef.current.add(id)
         setPapers(updated)
         invalidateCache('literatures/literatures.csv')
       },
@@ -1611,8 +1631,8 @@ export default function ManagementPage() {
     })
 
     if (!ok) {
-      // CSV 未更新：撤销删除标记，让用户看到失败
-      setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+      // CSV 未更新：撤销删除标记
+      deletingIdsRef.current.delete(id)
       return
     }
 
@@ -1674,8 +1694,8 @@ export default function ManagementPage() {
       console.error('[handleDeletePaper] 收尾清理异常:', e)
       toast.warning(`文献已删除，但收尾清理出现异常：${errText(e)}`, { duration: 6000 })
     } finally {
-      // ═══ 无论成功失败，清除 deletingIds 标记 ═══
-      setDeletingIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+      // ═══ 无论成功失败，清除删除标记 ═══
+      deletingIdsRef.current.delete(id)
     }
   }
 
@@ -1895,14 +1915,14 @@ export default function ManagementPage() {
     const prevBatchMode = batchMode
 
     // ═══ 防重复点击 + 标记所有要删的 ═══
-    const idsToDelete = papersToDelete.map((p) => p.id).filter((id) => !deletingIds.has(id))
+    const idsToDelete = papersToDelete.map((p) => p.id).filter((id) => !deletingIdsRef.current.has(id))
     if (idsToDelete.length === 0) return
 
     // ═══ 乐观：立即从 UI 移除 + 打删除标记 + 清选择（即时反馈），CSV 落库失败再回滚 ═══
     const updated = prevPapers.filter((p) => !selectedPapers.has(p.id))
     const ok = await runOptimistic({
       apply: () => {
-        setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.add(id)); return s })
+        idsToDelete.forEach((id) => deletingIdsRef.current.add(id))
         setPapers(updated)
         invalidateCache('literatures/literatures.csv')
         setSelectedPapers(new Set())
@@ -1913,7 +1933,7 @@ export default function ManagementPage() {
         setPapers(prevPapers)
         setSelectedPapers(prevSelected)
         setBatchMode(prevBatchMode)
-        setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.delete(id)); return s })
+        idsToDelete.forEach((id) => deletingIdsRef.current.delete(id))
       },
       errorMessage: (err) => `批量删除失败：无法保存 CSV — ${errText(err)}`,
     })
@@ -2001,7 +2021,7 @@ export default function ManagementPage() {
       console.error('[handleBatchDelete] 收尾清理异常:', e)
       toast.warning(`文献已删除，但收尾清理出现异常：${errText(e)}`, { duration: 6000 })
     } finally {
-      setDeletingIds((prev) => { const s = new Set(prev); idsToDelete.forEach((id) => s.delete(id)); return s })
+      idsToDelete.forEach((id) => deletingIdsRef.current.delete(id))
     }
   }
 
@@ -2672,16 +2692,16 @@ export default function ManagementPage() {
                   type="text"
                   value={doiQuickInput}
                   onChange={(e) => setDoiQuickInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !isAddingByDoi && handleAddByDoi()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddByDoi()}
                   placeholder="链接入库…"
                   className="min-w-0 flex-1 px-2 py-2 text-ui-sm bg-transparent focus:outline-none"
                 />
                 <button
                   onClick={handleAddByDoi}
-                  disabled={isAddingByDoi || !doiQuickInput.trim()}
+                  disabled={!doiQuickInput.trim()}
                   className="flex items-center gap-1 px-2.5 py-2 text-ui-xs font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  {isAddingByDoi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <Sparkles className="w-3.5 h-3.5" />
                   入库
                 </button>
               </div>
@@ -3343,26 +3363,13 @@ export default function ManagementPage() {
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            disabled={deletingIds.has(paper.id)}
                             onClick={(e) => {
                               e.stopPropagation()
                               handleDeletePaper(paper.id)
                             }}
-                            className={`p-1.5 rounded-control-sm transition ${
-                              deletingIds.has(paper.id)
-                                ? 'text-red-500 bg-red-50 cursor-not-allowed'
-                                : 'text-ink-400 hover:text-red-600 hover:bg-red-50'
-                            }`}
+                            className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded-control-sm transition"
                           >
-                            {deletingIds.has(paper.id) ? (
-                              <span className="inline-flex items-center gap-0.5">
-                                <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                <span className="w-1 h-1 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                              </span>
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -3730,26 +3737,17 @@ export default function ManagementPage() {
                   type="text"
                   value={newPaper.doi}
                   onChange={(e) => { setNewPaper({ ...newPaper, doi: e.target.value }); setDoiFetchError(null) }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !doiFetching) handleFetchFromDoi(newPaper.doi) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleFetchFromDoi(newPaper.doi) }}
                   placeholder="粘贴 DOI，例如 10.1038/s41586-024-07500-3 或 https://doi.org/..."
                   className="flex-1 px-ui-gap py-2 border border-seal-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-500 focus:ring-2 focus:ring-seal-100 bg-paper-50"
                 />
                 <button
                   onClick={() => handleFetchFromDoi(newPaper.doi)}
-                  disabled={doiFetching || !newPaper.doi.trim()}
+                  disabled={!newPaper.doi.trim()}
                   className="px-ui-gap py-2 text-ui-sm font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:bg-ink-400 disabled:cursor-not-allowed rounded-control transition flex items-center gap-1.5 whitespace-nowrap"
                 >
-                  {doiFetching ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      获取中…
-                    </>
-                  ) : (
-                    <>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      自动填充
-                    </>
-                  )}
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  自动填充
                 </button>
               </div>
               {doiFetchError && (

@@ -259,7 +259,14 @@ export default function ConnectivityPanel() {
   const [stLatex, setStLatex] = useState<string | null>(null)
   const [stError, setStError] = useState<string | null>(null)
 
-  const [allTesting, setAllTesting] = useState(false)
+  // ═══ 防重入闸门：只拦连点，不驱动任何灰态（ADJ-159）═══
+  // 测试进度由 StepTimeline + 区块角标「测试中」这些页面内进度表达，
+  // 按钮本身不灰、不转圈、不改文案 —— 灰按钮只会让软件显得慢。
+  const ghTestingRef = useRef(false)
+  const aiTestingRef = useRef(false)
+  const mineruTestingRef = useRef(false)
+  const stTestingRef = useRef(false)
+  const allTestingRef = useRef(false)
 
   const mineruToken = store.mineruToken
   const simpletexToken = store.simpletexToken
@@ -267,7 +274,10 @@ export default function ConnectivityPanel() {
 
   // ═══════ GitHub 测试 ═══════
   const runGitHubTest = useCallback(async () => {
+    if (ghTestingRef.current) { toast.info('GitHub 连通性测试正在进行中…'); return }
+    ghTestingRef.current = true
     setGhTesting(true)
+    if (!allTestingRef.current) toast.info('正在测试 GitHub API 连通性…')
     setGhSteps(GITHUB_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
     try {
       // 带 token 时真测 /user 的 Header + Query 认证, 不带 token 时测网络层
@@ -292,6 +302,7 @@ export default function ConnectivityPanel() {
       toast.error(`GitHub 测试失败:${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setGhTesting(false)
+      ghTestingRef.current = false
     }
   }, [ghToken])
 
@@ -359,7 +370,10 @@ export default function ConnectivityPanel() {
   // ═══════ AI Runner 端到端测试 ═══════
   const runAITest = useCallback(async () => {
     if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
+    if (aiTestingRef.current) { toast.info('AI Provider 测试正在进行中…'); return }
+    aiTestingRef.current = true
     setAiTesting(true)
+    if (!allTestingRef.current) toast.info('正在跑 AI Provider 端到端测试（要等 Runner 起来）…')
     setAiResult(null)
     // reset steps
     setAiSteps(RUNNER_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
@@ -386,6 +400,7 @@ export default function ConnectivityPanel() {
       toast.error(`AI 测试异常:${reason}`)
     } finally {
       setAiTesting(false)
+      aiTestingRef.current = false
     }
   }, [owner, repo, ghToken, ensureAllSecrets])
 
@@ -393,7 +408,10 @@ export default function ConnectivityPanel() {
   const runMineruE2ETest = useCallback(async () => {
     if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
     if (!mineruToken.trim()) { toast.warning('请先填写 MinerU API Token'); return }
+    if (mineruTestingRef.current) { toast.info('MinerU 测试正在进行中…'); return }
+    mineruTestingRef.current = true
     setMineruTesting(true)
+    if (!allTestingRef.current) toast.info('正在跑 MinerU 端到端测试（要等 Runner 起来）…')
     setMineruResult(null)
     setMineruSteps(RUNNER_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
     try {
@@ -419,6 +437,7 @@ export default function ConnectivityPanel() {
       toast.error(`MinerU 测试异常:${reason}`)
     } finally {
       setMineruTesting(false)
+      mineruTestingRef.current = false
     }
   }, [owner, repo, ghToken, mineruToken, ensureAllSecrets])
 
@@ -429,7 +448,10 @@ export default function ConnectivityPanel() {
     if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
     // 不强制本机填了令牌：私库 Secrets 里可能存着 SIMPLETEX_TOKEN（换设备/清过浏览器），
     // 真两处都没有时，recognizeFormulaImage 会当场给出人话。
+    if (stTestingRef.current) { toast.info('SimpleTex 测试正在进行中…'); return }
+    stTestingRef.current = true
     setStTesting(true)
+    if (!allTestingRef.current) toast.info('正在跑 SimpleTex 公式识图端到端测试…')
     setStLatex(null)
     setStError(null)
     setStSteps(SIMPLETEX_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
@@ -463,20 +485,23 @@ export default function ConnectivityPanel() {
       toast.error(`SimpleTex 端到端失败：${msg}`)
     } finally {
       setStTesting(false)
+      stTestingRef.current = false
     }
   }, [owner, repo, ghToken, simpletexToken])
 
   // ═══════ 全部测试 ═══════
   const runAll = useCallback(async () => {
     if (!isInitialized) { toast.warning('等待初始化...'); return }
-    setAllTesting(true)
+    if (allTestingRef.current) { toast.info('全部测试正在进行中…'); return }
+    allTestingRef.current = true
+    toast.info('正在依次测试四项连通性（每项进度见下方各区块）…')
     try {
       await runGitHubTest()
       await runAITest()
       await runMineruE2ETest()
       await runSimpleTexTest()
     } finally {
-      setAllTesting(false)
+      allTestingRef.current = false
     }
   }, [isInitialized, runGitHubTest, runAITest, runMineruE2ETest, runSimpleTexTest])
 
@@ -509,12 +534,12 @@ export default function ConnectivityPanel() {
         <button
           type="button"
           onClick={runAll}
-          disabled={allTesting || !isInitialized}
+          disabled={!isInitialized}
           className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm font-medium border border-seal-400 bg-seal-50 text-seal-700 rounded-control-sm
                      hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
         >
-          {allTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-          {allTesting ? '全部测试中...' : '🔌 全部测试'}
+          <Zap className="w-4 h-4" />
+          🔌 全部测试
         </button>
         <span className="text-ui-xs text-ink-500">
           {greenCount} / 4 通过 · dispatch 目标:{owner}/{repo}
@@ -529,9 +554,8 @@ export default function ConnectivityPanel() {
         tone={ghReport
           ? (ghReport.flowOk ? (ghReport.allOk ? 'ok' : 'warn') : 'err')
           : ghTesting ? 'running' : 'idle'}
-        buttonLabel={ghTesting ? '测试中...' : '单独测试'}
+        buttonLabel="单独测试"
         onButton={runGitHubTest}
-        buttonDisabled={ghTesting}
       >
         <StepTimeline steps={ghSteps} />
         {ghReport && <GitHubReportDetail report={ghReport} />}
@@ -543,9 +567,9 @@ export default function ConnectivityPanel() {
         title={`AI Provider (${store.aiProviderMode === 'custom' ? '自定义端点' : '预置'})`}
         subtitle="sync secrets → GitHub Actions Runner 真调 chat/completions"
         tone={runnerTone(aiTesting, aiResult)}
-        buttonLabel={aiTesting ? '测试中...' : '端到端测试'}
+        buttonLabel="端到端测试"
         onButton={runAITest}
-        buttonDisabled={aiTesting || !owner || !repo}
+        buttonDisabled={!owner || !repo}
       >
         <StepTimeline steps={aiSteps} />
         <RunnerResultView result={aiResult} />
@@ -557,9 +581,9 @@ export default function ConnectivityPanel() {
         title="MinerU (PDF 转换)"
         subtitle="sync secrets → GitHub Actions Runner 真调 mineru.net"
         tone={runnerTone(mineruTesting, mineruResult)}
-        buttonLabel={mineruTesting ? '测试中...' : '端到端测试'}
+        buttonLabel="端到端测试"
         onButton={runMineruE2ETest}
-        buttonDisabled={mineruTesting || !owner || !repo || !mineruToken.trim()}
+        buttonDisabled={!owner || !repo || !mineruToken.trim()}
       >
         <StepTimeline steps={mineruSteps} />
         <RunnerResultView result={mineruResult} />
@@ -571,9 +595,9 @@ export default function ConnectivityPanel() {
         title="SimpleTex (公式识图)"
         subtitle="用内置公式样张走完整链路，真调 SimpleTex 并回吐 LaTeX（本机没填令牌时用私库 Secrets 兜底）"
         tone={stTesting ? 'running' : stLatex ? 'ok' : stError ? 'err' : 'idle'}
-        buttonLabel={stTesting ? '测试中...' : '端到端测试'}
+        buttonLabel="端到端测试"
         onButton={runSimpleTexTest}
-        buttonDisabled={stTesting || !owner || !repo}
+        buttonDisabled={!owner || !repo}
       >
         <div className="flex items-start gap-3">
           <img

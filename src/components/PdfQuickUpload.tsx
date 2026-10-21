@@ -89,8 +89,9 @@ export function PdfQuickUploadModal(props: {
   const [pendingPdf, setPendingPdf] = useState<File | null>(null)
   const [doi, setDoi] = useState('')
   const [title, setTitle] = useState('')
-  const [autoResolving, setAutoResolving] = useState(false)
-  // 入库并上传中：禁用按钮并显示「上传中…」
+  /** 纯防重入闸门：只拦连点，不驱动任何灰态（ADJ-159） */
+  const autoResolvingRef = useRef(false)
+  // 入库并上传中：上传进度，属允许的进度态
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -107,9 +108,12 @@ export function PdfQuickUploadModal(props: {
   }
 
   const tryAutoFill = async () => {
+    if (autoResolvingRef.current) return
     const normalized = normalizeDoi(doi)
     if (!normalized.valid || !normalized.doi) { toast.error('请先输入 DOI'); return }
-    setAutoResolving(true)
+    autoResolvingRef.current = true
+    // 结果不可预演（标题要等 Crossref 回来）：点下先给即时确认，不灰态、不转圈
+    toast.info('正在从 Crossref 解析标题…')
     try {
       const { entries, failed } = await getCitationEntries([normalized.doi])
       if (failed.length === 0 && entries[0]) {
@@ -118,7 +122,7 @@ export function PdfQuickUploadModal(props: {
         toast.warning('DOI 解析失败，请手动填写')
       }
     } catch { toast.warning('DOI 解析出错') }
-    finally { setAutoResolving(false) }
+    finally { autoResolvingRef.current = false }
   }
 
   const handleConfirm = async () => {
@@ -201,10 +205,10 @@ export function PdfQuickUploadModal(props: {
                 />
                 <button
                   onClick={tryAutoFill}
-                  disabled={!doi.trim() || autoResolving}
+                  disabled={!doi.trim()}
                   className="px-ui-gap py-2 text-ui-xs text-seal-600 bg-seal-50 hover:bg-seal-100 disabled:opacity-50 rounded-control transition whitespace-nowrap"
                 >
-                  {autoResolving ? '解析...' : '自动获取'}
+                  自动获取
                 </button>
               </div>
             </div>
