@@ -277,7 +277,7 @@ export default function ConnectivityPanel() {
 
   // ═══════ GitHub 测试 ═══════
   const runGitHubTest = useCallback(async () => {
-    if (ghTestingRef.current) { toast.info('GitHub 连通性测试正在进行中…'); return }
+    if (ghTestingRef.current) return
     ghTestingRef.current = true
     setGhTesting(true)
     setGhSteps(GITHUB_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
@@ -372,7 +372,7 @@ export default function ConnectivityPanel() {
   // ═══════ AI Runner 端到端测试 ═══════
   const runAITest = useCallback(async () => {
     if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
-    if (aiTestingRef.current) { toast.info('AI Provider 测试正在进行中…'); return }
+    if (aiTestingRef.current) return
     aiTestingRef.current = true
     setAiTesting(true)
     setAiResult(null)
@@ -409,7 +409,7 @@ export default function ConnectivityPanel() {
   const runMineruE2ETest = useCallback(async () => {
     if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
     if (!mineruToken.trim()) { toast.warning('请先填写 MinerU API Token'); return }
-    if (mineruTestingRef.current) { toast.info('MinerU 测试正在进行中…'); return }
+    if (mineruTestingRef.current) return
     mineruTestingRef.current = true
     setMineruTesting(true)
     setMineruResult(null)
@@ -448,7 +448,7 @@ export default function ConnectivityPanel() {
     if (!owner || !repo || !ghToken) { toast.error('未登录或私库未配置'); return }
     // 不强制本机填了令牌：私库 Secrets 里可能存着 SIMPLETEX_TOKEN（换设备/清过浏览器），
     // 真两处都没有时，recognizeFormulaImage 会当场给出人话。
-    if (stTestingRef.current) { toast.info('SimpleTex 测试正在进行中…'); return }
+    if (stTestingRef.current) return
     stTestingRef.current = true
     setStTesting(true)
     setStLatex(null)
@@ -491,7 +491,7 @@ export default function ConnectivityPanel() {
   // ═══════ 全部测试 ═══════
   const runAll = useCallback(async () => {
     if (!isInitialized) { toast.warning('等待初始化...'); return }
-    if (allTestingRef.current) { toast.info('全部测试正在进行中…'); return }
+    if (allTestingRef.current) return
     allTestingRef.current = true
     setAllTesting(true)
     try {
@@ -534,12 +534,14 @@ export default function ConnectivityPanel() {
         <button
           type="button"
           onClick={runAll}
-          disabled={!isInitialized}
+          disabled={!isInitialized || allTesting}
+          title={allTesting ? '全部测试进行中，跑完会自动出结果' : undefined}
           className={`flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm font-medium border rounded-control-sm transition
-                     disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200
                      ${allTesting
-                       ? 'bg-seal-700 text-paper-50 border-seal-700'
-                       : 'border-seal-400 bg-seal-50 text-seal-700 hover:bg-seal-100'}`}
+                       ? 'bg-seal-700 text-paper-50 border-seal-700 cursor-not-allowed'
+                       : !isInitialized
+                         ? 'bg-paper-100 text-ink-300 border-ink-200 cursor-not-allowed'
+                         : 'border-seal-400 bg-seal-50 text-seal-700 hover:bg-seal-100'}`}
         >
           <Zap className="w-4 h-4" />
           🔌 全部测试
@@ -559,7 +561,7 @@ export default function ConnectivityPanel() {
           : ghTesting ? 'running' : 'idle'}
         buttonLabel="单独测试"
         onButton={runGitHubTest}
-        buttonBusy={ghTesting}
+        buttonBusy={allTesting || ghTesting}
       >
         <StepTimeline steps={ghSteps} />
         {ghReport && <GitHubReportDetail report={ghReport} />}
@@ -574,7 +576,7 @@ export default function ConnectivityPanel() {
         buttonLabel="端到端测试"
         onButton={runAITest}
         buttonDisabled={!owner || !repo}
-        buttonBusy={aiTesting}
+        buttonBusy={allTesting || aiTesting}
       >
         <StepTimeline steps={aiSteps} />
         <RunnerResultView result={aiResult} />
@@ -589,7 +591,7 @@ export default function ConnectivityPanel() {
         buttonLabel="端到端测试"
         onButton={runMineruE2ETest}
         buttonDisabled={!owner || !repo || !mineruToken.trim()}
-        buttonBusy={mineruTesting}
+        buttonBusy={allTesting || mineruTesting}
       >
         <StepTimeline steps={mineruSteps} />
         <RunnerResultView result={mineruResult} />
@@ -604,7 +606,7 @@ export default function ConnectivityPanel() {
         buttonLabel="端到端测试"
         onButton={runSimpleTexTest}
         buttonDisabled={!owner || !repo}
-        buttonBusy={stTesting}
+        buttonBusy={allTesting || stTesting}
       >
         <div className="flex items-start gap-3">
           <img
@@ -654,7 +656,7 @@ function TestBlock(props: {
   buttonLabel: string
   onButton: () => void
   buttonDisabled?: boolean
-  /** 在跑：只换按钮颜色（点下即有回执），不禁用、不转圈、不改文案（ADJ-161） */
+  /** 在跑：换深色回执 + 同时点不动（进行中的重复点击在结构上不可能成功，ADJ-162） */
   buttonBusy?: boolean
   children?: React.ReactNode
 }) {
@@ -691,12 +693,14 @@ function TestBlock(props: {
         <button
           type="button"
           onClick={props.onButton}
-          disabled={props.buttonDisabled}
+          disabled={!!props.buttonDisabled || !!props.buttonBusy}
+          title={props.buttonBusy ? '测试进行中，跑完会自动出结果' : undefined}
           className={`flex items-center gap-1 px-2 py-0.5 text-ui-xs rounded-control-sm border transition
-                     disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200
                      ${props.buttonBusy
-                       ? 'bg-seal-600 text-paper-50 border-seal-600'
-                       : 'border-seal-300 bg-seal-50 text-seal-700 hover:bg-seal-100'}`}
+                       ? 'bg-seal-700 text-paper-50 border-seal-700 cursor-not-allowed'
+                       : props.buttonDisabled
+                         ? 'bg-paper-100 text-ink-300 border-ink-200 cursor-not-allowed'
+                         : 'border-seal-300 bg-seal-50 text-seal-700 hover:bg-seal-100'}`}
         >
           {props.buttonLabel}
         </button>

@@ -14,7 +14,6 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, Loader2, AlertTriangle, Save, Edit3, ListTree, Type } from 'lucide-react'
-import { toast } from 'sonner'
 import { loadBookContent, saveBookContent } from '../services/textbookData'
 import { renameBook } from '../services/projectData'
 import { parseMarkdownHeadings, rewriteHeadingLevels } from '../services/outline'
@@ -128,14 +127,7 @@ export default function BookEditModal({
   const doRename = async () => {
     if (savingRef.current) return
     const next = renameValue.trim()
-    if (!next) {
-      toast.error('书名不能为空')
-      return
-    }
-    if (next === bookId) {
-      toast.info('书名没有变化')
-      return
-    }
+    if (!next || next === bookId) return
     savingRef.current = true
     const draft: BookEditDraft = { bookId, tab: 'rename', content, renameValue: next }
     try {
@@ -156,6 +148,12 @@ export default function BookEditModal({
       savingRef.current = false
     }
   }
+
+  const renameHint = !renameValue.trim()
+    ? '书名不能为空'
+    : renameValue.trim() === bookId
+      ? '与当前书名一致，无需改名'
+      : ''
 
   const loadingNode = (
     <div className="flex-1 flex items-center justify-center gap-2 py-10 text-ui-xs text-ink-400">
@@ -284,6 +282,9 @@ export default function BookEditModal({
               <p className="mt-2 text-ui-xs text-ink-400 leading-relaxed">
                 书名就是图书目录名（也是主键）。改名会物理重命名目录，并同步索引表、任务归属、分类与各任务引用。
               </p>
+              {renameHint && (
+                <p className="mt-1.5 text-ui-xs text-ink-400">{renameHint}</p>
+              )}
             </div>
           )}
         </div>
@@ -299,7 +300,9 @@ export default function BookEditModal({
           {tab === 'rename' ? (
             <button
               onClick={doRename}
-              className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition"
+              disabled={!!renameHint}
+              title={renameHint || undefined}
+              className="flex items-center gap-1.5 px-ui-gap py-2 text-ui-sm text-paper-50 bg-seal-600 hover:bg-seal-700 rounded-control transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-seal-600"
             >
               <Type className="w-4 h-4" />
               改书名

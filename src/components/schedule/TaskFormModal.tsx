@@ -211,6 +211,8 @@ export function TaskFormModal({
   const [notesLoading, setNotesLoading] = useState(!initialDraft && !!project)
   const [reqAiRunning, setReqAiRunning] = useState(false)
   const [reqAiStage, setReqAiStage] = useState('')
+  /** 提炼跑完但没有可入列表的结论时，常驻显示在按钮下方（不随 finally 被清掉） */
+  const [reqAiNotice, setReqAiNotice] = useState('')
   const reqAbortRef = useRef<AbortController | null>(null)
   // 用户是否动过要求列表：没动就不写 requirements.md，免得每次编辑都造一个空文件
   const notesTouchedRef = useRef(initialDraft?.notes != null)
@@ -402,6 +404,7 @@ export function TaskFormModal({
     reqAbortRef.current = controller
     setReqAiRunning(true)
     setReqAiStage('正在读取任务材料…')
+    setReqAiNotice('')
     try {
       // 编辑已有任务：读详细描述（用当前草稿，避免读到旧 brief）+ 文本附件；新建：只有草稿
       const material = project
@@ -410,7 +413,8 @@ export function TaskFormModal({
           ? `【详细描述】\n${brief.trim()}`
           : ''
       if (!material.trim()) {
-        toast.warning('没有可提炼的材料，请先填写详细描述或添加文本附件')
+        // 按钮已在「无描述且无附件」时置灰，走到这里只剩「附件都不是可读文本」的情况
+        toast.warning('附件里没有可读文本（支持 .txt / .md / .tex 等），请补充详细描述')
         return
       }
       setReqAiStage('已提交 AI 任务，等待后端…')
@@ -429,7 +433,10 @@ export function TaskFormModal({
         },
       })
       if (extracted.length === 0) {
-        toast.info('AI 没有从材料里提炼出要求')
+        // 不是失败，是「材料里确实没有可提炼的要求」——结果写进按钮下方常驻提示
+        setReqAiNotice(
+          'AI 没从这份材料里读出可执行的要求。材料若只是背景描述，可在「详细描述」里补上字数 / 格式 / 必读文献等具体要求后再提炼。',
+        )
         return
       }
       setNotes((prev) => {
@@ -449,6 +456,9 @@ export function TaskFormModal({
       reqAbortRef.current = null
     }
   }
+
+  /** 提炼的材料来源：详细描述草稿，或任务已有的文本附件；两者皆无时按钮点不动 */
+  const canExtract = !!brief.trim() || attachments.length > 0
 
   // ---------- 附件（即时上传 / 删除）----------
   const handleAddFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -614,8 +624,9 @@ export function TaskFormModal({
               <button
                 type="button"
                 onClick={handleExtractNotes}
-                disabled={reqAiRunning || aiRunning || loadingBrief}
-                className="inline-flex items-center gap-1.5 rounded-control border border-seal-200 bg-seal-50 px-2.5 py-1.5 text-ui-xs text-seal-700 transition hover:bg-seal-100 disabled:opacity-50"
+                disabled={reqAiRunning || aiRunning || loadingBrief || attLoading || !canExtract}
+                title={canExtract ? undefined : '先填写详细描述或添加文本附件'}
+                className="inline-flex items-center gap-1.5 rounded-control border border-seal-200 bg-seal-50 px-2.5 py-1.5 text-ui-xs text-seal-700 transition hover:bg-seal-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-seal-50"
               >
                 {reqAiRunning ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -637,6 +648,9 @@ export function TaskFormModal({
             </div>
           </div>
           {reqAiRunning && <p className="mb-1.5 text-ui-xs text-ink-500">{reqAiStage}</p>}
+          {!reqAiRunning && reqAiNotice && (
+            <p className="mb-1.5 text-ui-xs text-amber-700">{reqAiNotice}</p>
+          )}
           <p className="mb-2 text-ui-xs text-ink-400">
             蓝点 = 要求，红点 = 注意事项；点圆点可切换类型。
           </p>

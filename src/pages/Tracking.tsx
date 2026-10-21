@@ -42,7 +42,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { normalizeDoi, getCitationEntries, formatAuthorsForLibrary } from '../services/citation'
+import { normalizeDoi, getCitationEntries, formatAuthorsForLibrary, isSameDoi } from '../services/citation'
 import { DoiLink } from '../components/DoiLink'
 import { readCsvFile, writeCsvFile } from '../services/userData'
 import {
@@ -64,7 +64,7 @@ import {
   pendingCandidates,
   type TrackingCandidate,
 } from '../services/trackingData'
-import { dispatchDailyTracking, waitForDailyTracking, syncTrackingCron } from '../services/workflowClient'
+import { dispatchDailyTracking, waitForDailyTracking, getLatestDailyTrackingRun, syncTrackingCron } from '../services/workflowClient'
 import { resolveJournals, findJournalRss, type JournalCandidate } from '../services/journalResolve'
 import {
   parseExpression,
@@ -268,6 +268,13 @@ export default function TrackingPage() {
   const [trackRun, setTrackRun] = useState<{ groups: number; journals: number; found: number } | null>(null)
   /** 追踪候选（tracking/inbox.csv）：含「待裁决」与「已忽略」两类，页面只显示待裁决 */
   const [inbox, setInbox] = useState<TrackingCandidate[]>([])
+  /**
+   * 后端尚未跑完的追踪 run 的创建时间（null = 后端没在跑）。
+   * 唯一真源是 GitHub Actions 的 run 状态——本页不落任何本地存储（见下方 SPEC §0/§2.3 约束）。
+   * 有值 → 「立即追踪」按钮点不动（这次 run 还没结束，再点只会重复派发同一份检索，
+   * 结果不会更早出来），状态行如实写「后端仍在跑」，跑完自动把候选刷出来。
+   */
+  const [trackingRunSince, setTrackingRunSince] = useState<string | null>(null)
 
   // ---------- 定时追踪计划 ----------
   /** 定时追踪计划（tracking/plans.csv）：一个计划 = 时间规则 + 多个期刊（组内 OR）+ 一个关键词表达式 */
@@ -461,6 +468,70 @@ export default function TrackingPage() {
     }
   }, [repo])
 
+  // 进页面先对齐一次后端的真实状态：最新一次追踪 run 若还没跑完，就接着盯它
+  // （可能是上次在别的设备 / 别的标签页发起的）——不靠本机存过什么，换设备也真实。
+  useEffect(() => {
+    if (!repo) return
+    const { token, user } = useAuthStore.getState()
+    if (!token || !user) return
+    let cancelled = false
+    getLatestDailyTrackingRun(user.login, repo.name, token)
+      .then((run) => {
+        if (cancelled || !run) return
+        if (run.status !== 'completed') setTrackingRunSince(run.created_at)
+      })
+      .catch((err) => {
+        // 只是探状态失败：不影响本页其余功能，按钮照常可点，点了会重新派发并自己等
+        console.warn('[Tracking] 查询追踪运行状态失败:', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [repo])
+
+  /**
+   * 后端跑着的时候每 15s 探一次 run 状态（12s 是 waitForDailyTracking 的轮询上限，
+   * 这里取同量级、更稀一点，省 API 配额）：一结束就把候选刷出来并解除「后端仍在跑」。
+   * 不需要用户刷新页面，也不需要弹 toast 通知。
+   */
+  useEffect(() => {
+    if (!trackingRunSince || !repo) return
+    const { token, user } = useAuthStore.getState()
+    if (!token || !user) {
+      setTrackingRunSince(null)
+      return
+    }
+    let cancelled = false
+    let timer = 0
+    const tick = async () => {
+      let running: boolean
+      try {
+        const run = await getLatestDailyTrackingRun(user.login, repo.name, token)
+        running = !!run && run.status !== 'completed'
+      } catch {
+        // 探测失败不能谎报「跑完了」，下一轮继续探
+        running = true
+      }
+      if (cancelled) return
+      if (running) {
+        timer = window.setTimeout(tick, 15000)
+        return
+      }
+      try {
+        const rows = await loadTrackingInbox(true)
+        if (!cancelled) setInbox(rows)
+      } catch (err) {
+        console.warn('[Tracking] 追踪结束后刷新候选失败:', err)
+      }
+      if (!cancelled) setTrackingRunSince(null)
+    }
+    timer = window.setTimeout(tick, 15000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [trackingRunSince, repo])
+
   // 关键词组变化时防抖保存到 GitHub（乐观：本地先改，失败回滚到上次保存成功的快照）
   const keywordGroupsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keywordGroupsSaveRevRef = useRef(0)
@@ -589,22 +660,26 @@ export default function TrackingPage() {
   // 快速入库
   // ============================================================
 
-  // 写入文献库（literatures/literatures.csv），按 DOI 去重
+  // 写入文献库（literatures/literatures.csv），按 DOI 去重（大小写不敏感，与全库同一口径）
   const addLiteratureToLibrary = async (lit: Literature): Promise<'added' | 'exists'> => {
     const lits = await loadLiteratures()
-    if (lits.some((l) => l.doi === lit.doi)) {
+    if (lits.some((l) => isSameDoi(l.doi, lit.doi))) {
       return 'exists'
     }
     await saveLiteratures([...lits, lit])
     return 'added'
   }
 
-  const toastAdded = (title: string, status: 'added' | 'exists') => {
-    if (status !== 'exists') return
-    const short = title.slice(0, 40)
-    const suffix = title.length > 40 ? '...' : ''
-    toast.message(`已在库中：${short}${suffix}`)
-  }
+  /**
+   * DOI 入库的前置判定：输入已经是一个合法 DOI、而且库里已有同一篇（DOI 大小写不敏感）
+   * → 入库这件事不可能再有变化，按钮直接点不动并就地说明原因，不靠点了再弹告知。
+   */
+  const doiAlreadyInLibrary = useMemo(() => {
+    const r = normalizeDoi(doiInput)
+    if (!r.valid || !r.doi) return false
+    const doi = r.doi
+    return literatures.some((l) => isSameDoi(l.doi, doi))
+  }, [doiInput, literatures])
 
   const handleAddByDoi = async () => {
     if (addingDoiRef.current) return
@@ -648,7 +723,6 @@ export default function TrackingPage() {
       }
       const status = await addLiteratureToLibrary(newLit)
       if (status === 'added') setLiteratures((prev) => [...prev, newLit])
-      toastAdded(meta.title, status)
       setDoiInput('')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -976,8 +1050,7 @@ export default function TrackingPage() {
     setSelectedJournalIds((prev) => prev.filter((x) => x !== id))
     // 级联清理悬空引用：期刊删了，各追踪计划的 journalIds 就不该再列着它。
     // 只对「确实还引用它」的计划写入（无变化则不动，避免无谓的防抖保存）。
-    const affected = plans.filter((p) => p.journalIds.includes(id))
-    if (affected.length > 0) {
+    if (plans.some((p) => p.journalIds.includes(id))) {
       setPlans((prev) =>
         prev.map((p) =>
           p.journalIds.includes(id)
@@ -1224,17 +1297,21 @@ export default function TrackingPage() {
       await dispatchDailyTracking(user.login, repo.name, token)
 
       const result = await waitForDailyTracking(user.login, repo.name, token, sinceIso)
-      if (result === 'failure') {
-        toast.error('追踪任务失败，请到 Actions 查看日志')
-      } else if (result === 'timeout') {
-        toast.message('后端仍在运行，稍后会自动出现在候选里')
-      }
 
       const rows = await loadTrackingInbox(true)
       setInbox(rows)
       const pending = pendingCandidates(rows)
       const found = pending.filter((r) => !beforeDois.has(r.doi)).length
       setTrackRun({ groups: enabledGroups.length, journals: enabledJournals.length, found })
+
+      if (result === 'failure') {
+        toast.error('追踪任务失败，请到 Actions 查看日志')
+      } else if (result === 'timeout') {
+        // 120s 窗口没等到结束 ≠ 失败：回查 Actions 的真实 run 状态接着盯。
+        // 还在跑 → 按钮点不动 + 状态行写「后端仍在跑」，跑完自动把候选刷出来。
+        const run = await getLatestDailyTrackingRun(user.login, repo.name, token).catch(() => null)
+        if (run && run.status !== 'completed') setTrackingRunSince(run.created_at)
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`追踪失败：${msg}`)
@@ -1268,14 +1345,19 @@ export default function TrackingPage() {
       await dispatchDailyTracking(user.login, repo.name, token, plan.planId)
 
       const result = await waitForDailyTracking(user.login, repo.name, token, sinceIso)
+
+      // 试跑的产物就是「待入库」候选：跑完读一次，新候选自己会出现在中栏，
+      // 成功不需要再弹一句「试跑完成」（列表就是结果）。
+      const rows = await loadTrackingInbox(true)
+      setInbox(rows)
+
       if (result === 'failure') {
         toast.error(`计划「${plan.planName}」试跑失败，请到 Actions 查看日志`)
       } else if (result === 'timeout') {
-        toast.message('试跑仍在运行，稍后会自动出现在候选里')
+        // 同上：不把「未确认」当结论，交给 Actions 真源继续盯
+        const run = await getLatestDailyTrackingRun(user.login, repo.name, token).catch(() => null)
+        if (run && run.status !== 'completed') setTrackingRunSince(run.created_at)
       }
-
-      const rows = await loadTrackingInbox(true)
-      setInbox(rows)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`试跑失败：${msg}`)
@@ -1310,27 +1392,24 @@ export default function TrackingPage() {
   })
 
   const handleIngestCandidate = async (c: TrackingCandidate) => {
-    if (!c.doi) {
-      toast.error('该候选缺少 DOI，无法入库')
-      return
-    }
+    // 无 DOI 的候选在卡片上已把「入库」按钮置灰（见渲染处），这里只防御越界调用
+    if (!c.doi) return
     const newLit = candidateToLiterature(c)
     const prevLiteratures = literatures
     const prevInbox = inbox
     const prevSelected = selectedCandidateDois
-    const existsLocally = literatures.some((l) => l.doi === c.doi)
+    const existsLocally = literatures.some((l) => isSameDoi(l.doi, c.doi))
     // 入库后从候选里移除：它已经在 literatures.csv，后续靠 DOI 去重
     const nextInbox = inbox.filter((r) => r.doi !== c.doi)
     const nextSelected = selectedCandidateDois.filter((d) => d !== c.doi)
-    let status: 'added' | 'exists' = existsLocally ? 'exists' : 'added'
-    const ok = await runOptimistic({
+    await runOptimistic({
       apply: () => {
         if (!existsLocally) setLiteratures((prev) => [...prev, newLit])
         setInbox(nextInbox)
         setSelectedCandidateDois(nextSelected)
       },
       commit: async () => {
-        status = await addLiteratureToLibrary(newLit)
+        await addLiteratureToLibrary(newLit)
         await saveTrackingInbox(nextInbox)
       },
       rollback: () => {
@@ -1340,7 +1419,6 @@ export default function TrackingPage() {
       },
       errorMessage: (err) => `入库失败：${errText(err)}`,
     })
-    if (ok) toastAdded(c.title, status)
   }
 
   const handleDismissCandidate = async (c: TrackingCandidate) => {
@@ -1366,6 +1444,7 @@ export default function TrackingPage() {
   }
 
   const toggleCandidateSelect = (doi: string) => {
+    if (!doi) return
     setSelectedCandidateDois((prev) =>
       prev.includes(doi) ? prev.filter((d) => d !== doi) : [...prev, doi],
     )
@@ -1380,8 +1459,7 @@ export default function TrackingPage() {
     const prevSelected = selectedCandidateDois
     const selected = new Set(targets.map((c) => c.doi))
     const nextInbox = inbox.filter((r) => !selected.has(r.doi))
-    const existing = new Set(literatures.map((l) => l.doi))
-    const newLits = targets.filter((c) => !existing.has(c.doi)).map(candidateToLiterature)
+    const newLits = targets.filter((c) => !literatures.some((l) => isSameDoi(l.doi, c.doi))).map(candidateToLiterature)
     await runOptimistic({
       apply: () => {
         if (newLits.length > 0) setLiteratures((prev) => [...prev, ...newLits])
@@ -1831,7 +1909,9 @@ export default function TrackingPage() {
               {/* 立即追踪单独一行 */}
               <button
                 onClick={handleTrackNow}
-                className={`flex w-full items-center justify-center gap-2 rounded-control px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition ${tracking ? 'bg-seal-800' : 'bg-seal-600 hover:bg-seal-700'}`}
+                disabled={tracking || !!trackingRunSince}
+                title={trackingRunSince ? '后端仍在运行，跑完会自动出现在「待入库」' : undefined}
+                className={`flex w-full items-center justify-center gap-2 rounded-control px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition disabled:cursor-not-allowed ${tracking || trackingRunSince ? 'bg-seal-800' : 'bg-seal-600 hover:bg-seal-700'}`}
               >
                 <Play className="h-4 w-4" />
                 立即追踪
@@ -1840,9 +1920,11 @@ export default function TrackingPage() {
               <p className="text-ui-2xs leading-relaxed text-ink-500">
                 {tracking
                   ? '正在追踪…跑完候选会直接出现在下方，失败才会弹提示'
-                  : trackRun
-                    ? `上次追踪：${trackRun.journals} 个期刊 · ${trackRun.groups} 个关键词组，命中 ${trackRun.found} 篇新文献`
-                    : '尚未发起追踪'}
+                  : trackingRunSince
+                    ? '后端仍在跑，跑完会自动出现在「待入库」…'
+                    : trackRun
+                      ? `上次追踪：${trackRun.journals} 个期刊 · ${trackRun.groups} 个关键词组，命中 ${trackRun.found} 篇新文献`
+                      : '尚未发起追踪'}
               </p>
             </div>
           </div>
@@ -1867,13 +1949,16 @@ export default function TrackingPage() {
                 />
                 <button
                   onClick={handleAddByDoi}
-                  disabled={!doiInput.trim()}
-                  title="入库"
-                  className={`flex shrink-0 items-center justify-center rounded-control px-2.5 py-2 text-paper-50 transition disabled:opacity-50 ${addingDoi ? 'bg-seal-800' : 'bg-seal-600 hover:bg-seal-700'}`}
+                  disabled={addingDoi || !doiInput.trim() || doiAlreadyInLibrary}
+                  title={doiAlreadyInLibrary ? '该 DOI 已在文献库中' : '入库'}
+                  className={`flex shrink-0 items-center justify-center rounded-control px-2.5 py-2 text-paper-50 transition disabled:cursor-not-allowed ${addingDoi ? 'bg-seal-800' : 'bg-seal-600 hover:bg-seal-700'} ${!addingDoi && (doiAlreadyInLibrary || !doiInput.trim()) ? 'opacity-50' : ''}`}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </button>
               </div>
+              {doiAlreadyInLibrary && (
+                <p className="mt-1.5 text-ui-2xs text-ink-400">该 DOI 已在文献库中，无需重复入库</p>
+              )}
             </div>
           </div>
 
@@ -2028,7 +2113,8 @@ export default function TrackingPage() {
                         type="checkbox"
                         checked={selectedCandidateDois.includes(paper.doi)}
                         onChange={() => toggleCandidateSelect(paper.doi)}
-                        className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 accent-seal-600"
+                        disabled={!paper.doi}
+                        className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 accent-seal-600 disabled:cursor-not-allowed disabled:opacity-40"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
@@ -2071,8 +2157,10 @@ export default function TrackingPage() {
                         )}
 
                         <div className="mt-2.5 flex items-center justify-end gap-2">
-                          {paper.doi && (
+                          {paper.doi ? (
                             <DoiLink doi={paper.doi} mode="label" showIcon className="mr-auto inline-flex items-center gap-0.5 text-ui-2xs" />
+                          ) : (
+                            <span className="mr-auto text-ui-2xs text-ink-400">缺 DOI，无法入库</span>
                           )}
                           <button
                             onClick={() => handleDismissCandidate(paper)}
@@ -2084,7 +2172,9 @@ export default function TrackingPage() {
                           </button>
                           <button
                             onClick={() => handleIngestCandidate(paper)}
-                            className="flex items-center gap-1.5 rounded-control bg-seal-600 px-2.5 py-1.5 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
+                            disabled={!paper.doi}
+                            title={paper.doi ? '入库' : '缺 DOI，无法入库'}
+                            className="flex items-center gap-1.5 rounded-control bg-seal-600 px-2.5 py-1.5 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-seal-600"
                           >
                             <Plus className="h-3.5 w-3.5" />
                             入库

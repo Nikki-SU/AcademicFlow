@@ -1055,6 +1055,8 @@ export default function WritingPage() {
   const [onlineQuery, setOnlineQuery] = useState('')
   const [onlineResults, setOnlineResults] = useState<OnlineSearchResult[]>([])
   const [isSearchingOnline, setIsSearchingOnline] = useState(false)
+  /** 当前关键词是否已经搜过（空结果在列表面板里如实说明，不再弹 toast） */
+  const [hasSearchedOnline, setHasSearchedOnline] = useState(false)
   /** 在线检索结果的中文小结（DOI → 一句话），由「AI 中文小结」按钮按需生成 */
   const [onlineSummaries, setOnlineSummaries] = useState<Record<string, string>>({})
   const [isSummarizingOnline, setIsSummarizingOnline] = useState(false)
@@ -2387,7 +2389,7 @@ export default function WritingPage() {
       const results = await searchCrossref(q, 12)
       setOnlineResults(results)
       setOnlineSummaries({})
-      if (results.length === 0) toast.info('没有检索到结果，换个关键词试试')
+      setHasSearchedOnline(true)
       // Crossref 只有一半左右记录带摘要，缺的走 OpenAlex 补一次（失败就不补，不影响检索）
       const withAbstracts = await enrichWithAbstracts(results)
       setOnlineResults(withAbstracts)
@@ -2966,13 +2968,8 @@ export default function WritingPage() {
       )
       // 三态：审出问题 ≠ 没审成。把「截断导致没审成」说成「复核未通过」是纯误报，
       // 会把用户吓得以为模板有问题 —— 所以这里分开说。
-      if (review?.status && review.status !== 'ok') {
-        toast.info(
-          `AI-2 复核「${info.name}」这次没跑完（${review.status === 'truncated' ? '输出被截断' : '无输出'}）。` +
-            '这不代表模板有问题，详情已列在左侧「模板复核」面板里。',
-          { duration: 10000 },
-        )
-      } else if (review && review.passed === false) {
+      // 「没跑完」不算问题，已由左侧「模板复核」面板如实写明，不再额外弹告知。
+      if (review && review.passed === false) {
         toast.warning(
           `AI-2 复核「${info.name}」发现了问题，详情已列在左侧「模板复核」面板里。`,
           { duration: 10000 },
@@ -3218,10 +3215,9 @@ export default function WritingPage() {
         const names = missing.join('、')
         if (activeProjectId) {
           setCompileError(buildMissingPackageHint(missing, true) + raw)
-          setCompileStatus('')
           setIsCompiling(false)
-          toast.info(`前端运行时缺 ${names}，自动改用「正式编译（后端）」…`, { duration: 6000 })
-          await compileInCloud()
+          // 原因写进编译状态行（就地可见、不会被一句 toast 一闪而过），不再弹告知
+          await compileInCloud(`前端运行时缺 ${names}，自动改用「正式编译（后端）」…`)
           return
         }
         setCompileError(buildMissingPackageHint(missing, false) + raw)
@@ -3248,7 +3244,7 @@ export default function WritingPage() {
    * 正式编译（后端）：把源文件提交进私库，叫起 GitHub Actions 跑官方 TeX Live 镜像。
    * 与浏览器内 WASM 编译并列 —— 那边快但宏包/版本被运行时钉死，这边慢但什么包都能用。
    */
-  const compileInCloud = async () => {
+  const compileInCloud = async (notice?: string) => {
     if (!latexCode.trim()) {
       toast.error('代码板为空，先生成或粘贴 LaTeX 源码')
       return
@@ -3260,7 +3256,7 @@ export default function WritingPage() {
     setIsCloudCompiling(true)
     setCompileError('')
     setCloudRunUrl('')
-    setCompileStatus('正在准备正式编译（后端）...')
+    setCompileStatus(notice || '正在准备正式编译（后端）...')
     try {
       // 期刊模板自带资源同样要挂（见 collectTemplateAssets 注释）——
       // 云端是把文件提交进私库、以 main.tex 所在目录为工作目录跑 latexmk，
@@ -5325,7 +5321,7 @@ export default function WritingPage() {
                     </button>
                   )}
                   <button
-                    onClick={compileInCloud}
+                    onClick={() => void compileInCloud()}
                     disabled={isCloudCompiling || isCompiling}
                     className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-ui-xs text-seal-700 bg-seal-50 border border-seal-200 rounded-control-sm hover:bg-seal-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     title="正式编译"
@@ -5541,9 +5537,14 @@ export default function WritingPage() {
                 <input
                   type="text"
                   value={citationSource === 'local' ? citationSearch : onlineQuery}
-                  onChange={(e) =>
-                    citationSource === 'local' ? setCitationSearch(e.target.value) : setOnlineQuery(e.target.value)
-                  }
+                  onChange={(e) => {
+                    if (citationSource === 'local') {
+                      setCitationSearch(e.target.value)
+                    } else {
+                      setOnlineQuery(e.target.value)
+                      setHasSearchedOnline(false)
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && citationSource === 'online') handleOnlineSearch()
                   }}
@@ -5594,7 +5595,11 @@ export default function WritingPage() {
                 <>
                   {onlineResults.length === 0 && (
                     <div className="text-center py-8 text-ui-sm text-ink-400">
-                      {isSearchingOnline ? '检索中…' : '输入关键词后点「检索」，结果可一键导入引用列表'}
+                      {isSearchingOnline
+                        ? '检索中…'
+                        : hasSearchedOnline
+                          ? 'Crossref 没有命中这条关键词，换个说法或改用英文再试'
+                          : '输入关键词后点「检索」，结果可一键导入引用列表'}
                     </div>
                   )}
                   {onlineResults.map((result) => {

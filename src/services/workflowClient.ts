@@ -313,15 +313,56 @@ export async function dispatchDailyTracking(
   }
 }
 
+/** 一次 workflow_dispatch 触发的追踪 run 的关键字段（GitHub Actions API 的子集） */
+export interface DailyTrackingRun {
+  /** queued / in_progress / completed … */
+  status: string
+  /** success / failure / cancelled …（未结束时为 null） */
+  conclusion: string | null
+  created_at: string
+  html_url?: string
+}
+
+/** 列出本私库最近几次「立即追踪 / 试跑」触发的 run（GitHub 按创建时间倒序返回） */
+async function listDailyTrackingRuns(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<DailyTrackingRun[]> {
+  const res = await githubFetch(
+    `/repos/${owner}/${repo}/actions/workflows/${DAILY_TRACKING_WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=5`,
+    token,
+  )
+  if (!res.ok) throw new Error(`查询追踪运行状态失败：HTTP ${res.status}`)
+  const data = (await res.json()) as { workflow_runs?: DailyTrackingRun[] }
+  return data.workflow_runs ?? []
+}
+
+/**
+ * 读「最近一次追踪 run」的真实状态。
+ *
+ * 后端是否还在跑，唯一可信来源就是 Actions 的 run 列表 —— 本机不存任何东西。
+ * 页面据此决定「立即追踪」按钮是否可点、状态行写什么；返回 null 表示从没跑过。
+ */
+export async function getLatestDailyTrackingRun(
+  owner: string,
+  repo: string,
+  token: string,
+): Promise<DailyTrackingRun | null> {
+  const runs = await listDailyTrackingRuns(owner, repo, token)
+  return runs[0] ?? null
+}
+
 /**
  * 等刚刚触发的追踪 run 跑完（尽力而为）。
  * 追踪是"跑完才写候选"，所以前端触发后要等它结束再去读 inbox.csv，否则读到的是旧数据。
- * 超时不报错 —— 后端可能只是慢，前端提示"稍后自动刷新"即可。
+ * 返回 'timeout' 只表示「这 120s 窗口内没等到结束」，不代表失败 ——
+ * 调用方应回查 Actions 的真实 run 状态继续盯（见 getLatestDailyTrackingRun），
+ * 而不是把"未确认"当结论讲给用户。
  *
  * 频率控制（省 API 配额，控制频率）：退避轮询 —— 开局密、随后稀，
  *   - 秒级就能跑完的小任务，2s 内即命中，比原来"先盲等 4s"更快；
  *   - 慢任务把总请求数从固定 4s×120s ≈ 30 次压到约 12 次。
- * 只查本 workflow 的 run（URL 已按文件过滤），per_page=5 足够覆盖刚触发的这一条。
  */
 export async function waitForDailyTracking(
   owner: string,
@@ -336,14 +377,8 @@ export async function waitForDailyTracking(
     await new Promise((r) => setTimeout(r, delay))
     delay = Math.min(Math.round(delay * 1.5), 12000)
     try {
-      const res = await githubFetch(
-        `/repos/${owner}/${repo}/actions/workflows/${DAILY_TRACKING_WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=5`,
-        token,
-      )
-      if (!res.ok) continue
-      interface _Run { status: string; conclusion: string | null; created_at: string }
-      const data = (await res.json()) as { workflow_runs?: _Run[] }
-      const mine = (data.workflow_runs ?? []).find((r) => r.created_at > sinceIso)
+      const runs = await listDailyTrackingRuns(owner, repo, token)
+      const mine = runs.find((r) => r.created_at > sinceIso)
       if (mine && mine.status === 'completed') {
         return mine.conclusion === 'success' ? 'success' : 'failure'
       }

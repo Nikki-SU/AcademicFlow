@@ -205,6 +205,8 @@ export default function FormulaSidebar({
   const [dragOver, setDragOver] = useState(false)
   /** 给粘贴监听用的「是否正在识别」—— 用 ref 是为了不让监听因为 loading 变化反复重挂 */
   const ocrLoadingRef = useRef(false)
+  /** 识别进行中又来了新图（粘贴 / 拖拽）→ 记为待识别，当前这张跑完立刻接着识别它 */
+  const pendingOcrRef = useRef<File | Blob | null>(null)
   /** dragenter/dragleave 的进出台阶（见 handleDragLeave） */
   const dragDepthRef = useRef(0)
   const [ocrModel, setOcrModel] = useState<SimpleTexModel>('standard')
@@ -262,7 +264,7 @@ export default function FormulaSidebar({
   /** 识图：文件选择框 / 截图 Ctrl+V / 拖拽 三条路都走这里 */
   const runOcr = async (file: File | Blob) => {
     if (ocrLoadingRef.current) {
-      toast.message('上一张还在识别…')
+      pendingOcrRef.current = file
       return
     }
     ocrLoadingRef.current = true
@@ -276,6 +278,9 @@ export default function FormulaSidebar({
     } finally {
       ocrLoadingRef.current = false
       setOcrLoading(false)
+      const next = pendingOcrRef.current
+      pendingOcrRef.current = null
+      if (next) void runOcr(next)
     }
   }
 
@@ -336,18 +341,31 @@ export default function FormulaSidebar({
     void runOcr(img)
   }
 
+  /**
+   * 收藏 / 取消收藏：星标即刻变（乐观更新），落库失败才回滚 + 报错。
+   * 星标状态本身就是反馈，成功一律静默。
+   */
   const handleFavoriteToggle = async (latex: string, display: 'inline' | 'block') => {
-    const existing = favorites.find((f) => f.latex.trim() === latex.trim())
-    try {
-      if (existing) {
+    const key = latex.trim()
+    const existing = favorites.find((f) => f.latex.trim() === key)
+    const snapshot = favorites
+    if (existing) {
+      setFavorites((prev) => prev.filter((f) => f.id !== existing.id))
+      try {
         await removeFormulaFavorite(existing.id)
-        setFavorites((prev) => prev.filter((f) => f.id !== existing.id))
-      } else {
-        const ok = await addFormulaFavorite(latex, display)
-        setFavorites(await loadFormulaFavorites(true))
-        if (!ok) toast.info('这条公式已经在收藏里了')
+      } catch (err) {
+        setFavorites(snapshot)
+        toast.error(`取消收藏失败：${err instanceof Error ? err.message : String(err)}`)
       }
+      return
+    }
+    const tempId = `tmp-${Date.now()}`
+    setFavorites((prev) => [...prev, { id: tempId, latex, display, note: '', createdAt: Date.now() }])
+    try {
+      await addFormulaFavorite(latex, display)
+      setFavorites(await loadFormulaFavorites(true))
     } catch (err) {
+      setFavorites(snapshot)
       toast.error(`收藏失败：${err instanceof Error ? err.message : String(err)}`)
     }
   }
