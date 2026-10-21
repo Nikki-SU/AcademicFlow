@@ -89,8 +89,10 @@ export function PdfQuickUploadModal(props: {
   const [pendingPdf, setPendingPdf] = useState<File | null>(null)
   const [doi, setDoi] = useState('')
   const [title, setTitle] = useState('')
-  /** 纯防重入闸门：只拦连点，不驱动任何灰态（ADJ-159） */
+  /** 防重入闸门：只拦连点，不驱动任何灰态 */
   const autoResolvingRef = useRef(false)
+  /** 在跑标记：只驱动按钮颜色回执（点下即有反馈），不禁用、不转圈（ADJ-161） */
+  const [autoResolving, setAutoResolving] = useState(false)
   // 入库并上传中：上传进度，属允许的进度态
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -112,8 +114,9 @@ export function PdfQuickUploadModal(props: {
     const normalized = normalizeDoi(doi)
     if (!normalized.valid || !normalized.doi) { toast.error('请先输入 DOI'); return }
     autoResolvingRef.current = true
-    // 结果不可预演（标题要等 Crossref 回来）：点下先给即时确认，不灰态、不转圈
-    toast.info('正在从 Crossref 解析标题…')
+    setAutoResolving(true)
+    // 结果不可预演（标题要等 Crossref 回来）：点下由按钮换色给回执，
+    // 成功不弹任何提示（标题直接填进输入框），只有失败才 toast
     try {
       const { entries, failed } = await getCitationEntries([normalized.doi])
       if (failed.length === 0 && entries[0]) {
@@ -122,7 +125,10 @@ export function PdfQuickUploadModal(props: {
         toast.warning('DOI 解析失败，请手动填写')
       }
     } catch { toast.warning('DOI 解析出错') }
-    finally { autoResolvingRef.current = false }
+    finally {
+      setAutoResolving(false)
+      autoResolvingRef.current = false
+    }
   }
 
   const handleConfirm = async () => {
@@ -206,7 +212,11 @@ export function PdfQuickUploadModal(props: {
                 <button
                   onClick={tryAutoFill}
                   disabled={!doi.trim()}
-                  className="px-ui-gap py-2 text-ui-xs text-seal-600 bg-seal-50 hover:bg-seal-100 disabled:opacity-50 rounded-control transition whitespace-nowrap"
+                  className={`px-ui-gap py-2 text-ui-xs rounded-control transition whitespace-nowrap
+                             disabled:opacity-50
+                             ${autoResolving
+                               ? 'bg-seal-600 text-paper-50'
+                               : 'text-seal-600 bg-seal-50 hover:bg-seal-100'}`}
                 >
                   自动获取
                 </button>

@@ -259,9 +259,12 @@ export default function ConnectivityPanel() {
   const [stLatex, setStLatex] = useState<string | null>(null)
   const [stError, setStError] = useState<string | null>(null)
 
-  // ═══ 防重入闸门：只拦连点，不驱动任何灰态（ADJ-159）═══
-  // 测试进度由 StepTimeline + 区块角标「测试中」这些页面内进度表达，
-  // 按钮本身不灰、不转圈、不改文案 —— 灰按钮只会让软件显得慢。
+  /** 全部测试按钮的在跑标记：只驱动按钮颜色（ADJ-161：按钮必须有反馈） */
+  const [allTesting, setAllTesting] = useState(false)
+
+  // ═══ 防重入闸门：只拦连点，不驱动任何灰态（ADJ-159 / ADJ-161）═══
+  // 按钮在跑时换一个明显不同的颜色（回执），但**始终可点**、不转圈、不改文案；
+  // 进度由 StepTimeline + 区块角标「测试中」这些页面内表达承担。
   const ghTestingRef = useRef(false)
   const aiTestingRef = useRef(false)
   const mineruTestingRef = useRef(false)
@@ -277,7 +280,6 @@ export default function ConnectivityPanel() {
     if (ghTestingRef.current) { toast.info('GitHub 连通性测试正在进行中…'); return }
     ghTestingRef.current = true
     setGhTesting(true)
-    if (!allTestingRef.current) toast.info('正在测试 GitHub API 连通性…')
     setGhSteps(GITHUB_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
     try {
       // 带 token 时真测 /user 的 Header + Query 认证, 不带 token 时测网络层
@@ -373,7 +375,6 @@ export default function ConnectivityPanel() {
     if (aiTestingRef.current) { toast.info('AI Provider 测试正在进行中…'); return }
     aiTestingRef.current = true
     setAiTesting(true)
-    if (!allTestingRef.current) toast.info('正在跑 AI Provider 端到端测试（要等 Runner 起来）…')
     setAiResult(null)
     // reset steps
     setAiSteps(RUNNER_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
@@ -411,7 +412,6 @@ export default function ConnectivityPanel() {
     if (mineruTestingRef.current) { toast.info('MinerU 测试正在进行中…'); return }
     mineruTestingRef.current = true
     setMineruTesting(true)
-    if (!allTestingRef.current) toast.info('正在跑 MinerU 端到端测试（要等 Runner 起来）…')
     setMineruResult(null)
     setMineruSteps(RUNNER_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
     try {
@@ -451,7 +451,6 @@ export default function ConnectivityPanel() {
     if (stTestingRef.current) { toast.info('SimpleTex 测试正在进行中…'); return }
     stTestingRef.current = true
     setStTesting(true)
-    if (!allTestingRef.current) toast.info('正在跑 SimpleTex 公式识图端到端测试…')
     setStLatex(null)
     setStError(null)
     setStSteps(SIMPLETEX_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as StepStatus })))
@@ -494,7 +493,7 @@ export default function ConnectivityPanel() {
     if (!isInitialized) { toast.warning('等待初始化...'); return }
     if (allTestingRef.current) { toast.info('全部测试正在进行中…'); return }
     allTestingRef.current = true
-    toast.info('正在依次测试四项连通性（每项进度见下方各区块）…')
+    setAllTesting(true)
     try {
       await runGitHubTest()
       await runAITest()
@@ -502,6 +501,7 @@ export default function ConnectivityPanel() {
       await runSimpleTexTest()
     } finally {
       allTestingRef.current = false
+      setAllTesting(false)
     }
   }, [isInitialized, runGitHubTest, runAITest, runMineruE2ETest, runSimpleTexTest])
 
@@ -535,8 +535,11 @@ export default function ConnectivityPanel() {
           type="button"
           onClick={runAll}
           disabled={!isInitialized}
-          className="flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm font-medium border border-seal-400 bg-seal-50 text-seal-700 rounded-control-sm
-                     hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
+          className={`flex items-center gap-1.5 px-ui-gap py-1.5 text-ui-sm font-medium border rounded-control-sm transition
+                     disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200
+                     ${allTesting
+                       ? 'bg-seal-700 text-paper-50 border-seal-700'
+                       : 'border-seal-400 bg-seal-50 text-seal-700 hover:bg-seal-100'}`}
         >
           <Zap className="w-4 h-4" />
           🔌 全部测试
@@ -556,6 +559,7 @@ export default function ConnectivityPanel() {
           : ghTesting ? 'running' : 'idle'}
         buttonLabel="单独测试"
         onButton={runGitHubTest}
+        buttonBusy={ghTesting}
       >
         <StepTimeline steps={ghSteps} />
         {ghReport && <GitHubReportDetail report={ghReport} />}
@@ -570,6 +574,7 @@ export default function ConnectivityPanel() {
         buttonLabel="端到端测试"
         onButton={runAITest}
         buttonDisabled={!owner || !repo}
+        buttonBusy={aiTesting}
       >
         <StepTimeline steps={aiSteps} />
         <RunnerResultView result={aiResult} />
@@ -584,6 +589,7 @@ export default function ConnectivityPanel() {
         buttonLabel="端到端测试"
         onButton={runMineruE2ETest}
         buttonDisabled={!owner || !repo || !mineruToken.trim()}
+        buttonBusy={mineruTesting}
       >
         <StepTimeline steps={mineruSteps} />
         <RunnerResultView result={mineruResult} />
@@ -598,6 +604,7 @@ export default function ConnectivityPanel() {
         buttonLabel="端到端测试"
         onButton={runSimpleTexTest}
         buttonDisabled={!owner || !repo}
+        buttonBusy={stTesting}
       >
         <div className="flex items-start gap-3">
           <img
@@ -647,6 +654,8 @@ function TestBlock(props: {
   buttonLabel: string
   onButton: () => void
   buttonDisabled?: boolean
+  /** 在跑：只换按钮颜色（点下即有回执），不禁用、不转圈、不改文案（ADJ-161） */
+  buttonBusy?: boolean
   children?: React.ReactNode
 }) {
   const toneClasses: Record<BlockTone, string> = {
@@ -683,8 +692,11 @@ function TestBlock(props: {
           type="button"
           onClick={props.onButton}
           disabled={props.buttonDisabled}
-          className="flex items-center gap-1 px-2 py-0.5 text-ui-xs rounded-control-sm border border-seal-300 bg-seal-50 text-seal-700
-                     hover:bg-seal-100 disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200"
+          className={`flex items-center gap-1 px-2 py-0.5 text-ui-xs rounded-control-sm border transition
+                     disabled:text-ink-300 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:border-ink-200
+                     ${props.buttonBusy
+                       ? 'bg-seal-600 text-paper-50 border-seal-600'
+                       : 'border-seal-300 bg-seal-50 text-seal-700 hover:bg-seal-100'}`}
         >
           {props.buttonLabel}
         </button>

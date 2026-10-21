@@ -778,9 +778,12 @@ export default function ManagementPage() {
   const [newPaper, setNewPaper] = useState({ title: '', authors: '', year: '', journal: '', doi: '', keywords: '', abstractEn: '', abstractCn: '', tier: 'auto' as 'auto' | '1' | '2', taskId: '', tags: [] as string[] })
   const [doiFetchError, setDoiFetchError] = useState<string | null>(null)
   const [doiQuickInput, setDoiQuickInput] = useState('')
-  /** 纯防重入闸门：只拦连点 / 重复回车，不驱动任何灰态（ADJ-159） */
+  /** 防重入闸门：只拦连点 / 重复回车，不驱动任何灰态 */
   const addingDoiRef = useRef(false)
   const doiFetchingRef = useRef(false)
+  /** 在跑标记：只驱动按钮颜色回执（点下即有反馈），不禁用、不转圈、不改文案（ADJ-161） */
+  const [addingDoi, setAddingDoi] = useState(false)
+  const [doiFetching, setDoiFetching] = useState(false)
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
   /** 正在删除的文献 id：只作防重入与重拉过滤，不驱动任何 UI（ADJ-159） */
@@ -1365,9 +1368,10 @@ export default function ManagementPage() {
     if (!trimmed) return
     if (doiFetchingRef.current) return
     doiFetchingRef.current = true
+    setDoiFetching(true)
     setDoiFetchError(null)
-    // 结果不可预演（标题 / 作者要等 Crossref 回来）：点下先给即时确认，不灰态、不转圈
-    toast.info('正在从 Crossref 获取元数据…')
+    // 结果不可预演（标题 / 作者要等 Crossref 回来）：点下由「自动填充」按钮换色给回执，
+    // 成功不弹任何提示（字段直接填进表单），只有失败才报错
     try {
       const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(trimmed)}`, {
         headers: { 'User-Agent': 'AcademicFlow/1.0 (https://academicflow.dev)' },
@@ -1411,6 +1415,7 @@ export default function ManagementPage() {
       setDoiFetchError(msg)
       toast.error(`Crossref 获取失败：${msg}`)
     } finally {
+      setDoiFetching(false)
       doiFetchingRef.current = false
     }
   }
@@ -1435,12 +1440,13 @@ export default function ManagementPage() {
     }
 
     addingDoiRef.current = true
+    setAddingDoi(true)
     const prevPapers = papers
     const prevMeta = materialMeta
     const prevInput = doiQuickInput
-    // 结果不可预演（标题 / 作者 / 期刊要等 Crossref 回来）：点下先给即时确认，
-    // 不灰态、不转圈、不造假数据占位；失败由下面的 catch 报可读错误并回滚
-    toast.info('正在按 DOI 入库…')
+    // 结果不可预演（标题 / 作者 / 期刊要等 Crossref 回来）：点下由「入库」按钮换色给回执，
+    // 元数据到手后文献立刻进列表 + 清空输入（安静退出），成功不弹任何提示；
+    // 失败才 toast 并回滚
     try {
       const { entries, failed } = await getCitationEntries([doi])
       if (failed.includes(doi) || entries.length === 0) {
@@ -1498,6 +1504,7 @@ export default function ManagementPage() {
       // Crossref 查询本身失败：界面没变过，只需报可读错误
       toast.error(`DOI 入库失败：${errText(err)}`)
     } finally {
+      setAddingDoi(false)
       addingDoiRef.current = false
     }
   }, [doiQuickInput, papers, activeTaskId, materialMeta])
@@ -2699,7 +2706,11 @@ export default function ManagementPage() {
                 <button
                   onClick={handleAddByDoi}
                   disabled={!doiQuickInput.trim()}
-                  className="flex items-center gap-1 px-2.5 py-2 text-ui-xs font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  className={`flex items-center gap-1 px-2.5 py-2 text-ui-xs font-medium transition
+                             disabled:opacity-50 disabled:cursor-not-allowed
+                             ${addingDoi
+                               ? 'bg-seal-800 text-paper-50'
+                               : 'text-paper-50 bg-seal-600 hover:bg-seal-700'}`}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   入库
@@ -3744,7 +3755,7 @@ export default function ManagementPage() {
                 <button
                   onClick={() => handleFetchFromDoi(newPaper.doi)}
                   disabled={!newPaper.doi.trim()}
-                  className="px-ui-gap py-2 text-ui-sm font-medium text-paper-50 bg-seal-600 hover:bg-seal-700 disabled:bg-ink-400 disabled:cursor-not-allowed rounded-control transition flex items-center gap-1.5 whitespace-nowrap"
+                  className={`px-ui-gap py-2 text-ui-sm font-medium text-paper-50 rounded-control transition flex items-center gap-1.5 whitespace-nowrap disabled:bg-ink-400 disabled:cursor-not-allowed ${doiFetching ? 'bg-seal-800' : 'bg-seal-600 hover:bg-seal-700'}`}
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   自动填充

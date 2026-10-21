@@ -109,10 +109,9 @@ export default function BookEditModal({
     const draft: BookEditDraft = { bookId, tab, content, renameValue }
     try {
       await runOptimistic({
-        // 点下即生效：先关窗并给确认，写盘在后台跑，不让用户对着灰按钮等
+        // 点下即生效：先关窗（安静退出），写盘在后台跑；成功不弹任何提示，失败才由执行器回滚并报错
         apply: () => {
           onClose()
-          toast.success('已保存到 content.md')
         },
         commit: async () => {
           await saveBookContent(bookId, content)
@@ -141,15 +140,13 @@ export default function BookEditModal({
     const draft: BookEditDraft = { bookId, tab: 'rename', content, renameValue: next }
     try {
       await runOptimistic({
-        // 点下即生效：关窗 + 确认；列表与选中项在物理改名完成后跟随新路径切换
+        // 点下即生效：关窗（安静退出）；列表与选中项在物理改名完成后跟随新路径切换
         // （新目录在改名完成前还不存在，提前切过去会把用户甩到一个读不到的路径上）
         apply: () => {
           onClose()
-          toast.success(`已改名为「${next}」`)
         },
         commit: async () => {
           const res = await renameBook(bookId, next)
-          if (res.movedFiles > 0) toast.info(`已同步搬迁 ${res.movedFiles} 个文件`)
           onRenamed?.(res.id)
         },
         rollback: () => onSaveFailed?.(draft),

@@ -211,6 +211,8 @@ export default function TrackingPage() {
   const [doiInput, setDoiInput] = useState('')
   /** DOI 入库请求中的防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
   const addingDoiRef = useRef(false)
+  /** 在跑标记：只驱动「入库」按钮颜色回执（点下即有反馈），不禁用、不转圈（ADJ-161） */
+  const [addingDoi, setAddingDoi] = useState(false)
 
   // ---------- 关键词组 ----------
   const [keywordGroups, setKeywordGroups] = useState<KeywordGroup[]>([])
@@ -238,8 +240,12 @@ export default function TrackingPage() {
   const [journalMatches, setJournalMatches] = useState<JournalCandidate[]>([])
   /** 智能匹配请求中的防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
   const resolvingJournalRef = useRef(false)
+  /** 在跑标记：只驱动「智能匹配」按钮颜色回执（ADJ-161） */
+  const [resolvingJournal, setResolvingJournal] = useState(false)
   /** RSS 检索请求中的防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
   const findingRssRef = useRef(false)
+  /** 在跑标记：只驱动「自动找 RSS」按钮颜色回执（ADJ-161） */
+  const [findingRss, setFindingRss] = useState(false)
 
   // ---------- 搜索 ----------
   const [searchSites, setSearchSites] = useState<SearchSite[]>(DEFAULT_SEARCH_SITES)
@@ -256,6 +262,8 @@ export default function TrackingPage() {
   // ---------- 立即追踪 / 候选 ----------
   /** 追踪任务运行中的防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
   const trackingRef = useRef(false)
+  /** 在跑标记：只驱动「立即追踪」按钮颜色回执（ADJ-161） */
+  const [tracking, setTracking] = useState(false)
   /** 本次（本会话内）追踪结果摘要：追踪了多少期刊 / 关键词组、命中多少新文献 */
   const [trackRun, setTrackRun] = useState<{ groups: number; journals: number; found: number } | null>(null)
   /** 追踪候选（tracking/inbox.csv）：含「待裁决」与「已忽略」两类，页面只显示待裁决 */
@@ -283,6 +291,8 @@ export default function TrackingPage() {
   const [planFormInput, setPlanFormInput] = useState('')
   /** 试跑请求中的防重入闸门：只拦重复点击，不驱动任何灰态 / 转圈 */
   const testingPlanRef = useRef(false)
+  /** 正在试跑的计划 id：只驱动该行试跑按钮颜色回执（ADJ-161） */
+  const [testingPlanId, setTestingPlanId] = useState<string | null>(null)
 
   // ---------- 右栏：已入库但还没传 PDF ----------
   /** 文献库（literatures/literatures.csv）全量，右栏只取 hasPdf === false 的 */
@@ -604,9 +614,10 @@ export default function TrackingPage() {
       return
     }
     addingDoiRef.current = true
+    setAddingDoi(true)
     // 入库要先拿到 DOI 的元数据才知道这条文献长什么样，无法预演一行假记录；
-    // 所以点下立刻给确认，按钮不灰不转，元数据到达后直接落到列表里
-    toast.info('正在解析 DOI 元数据并入库…')
+    // 点下由「入库」按钮换色给回执，元数据到达后直接落进列表 + 清空输入（安静退出），
+    // 成功不弹任何提示，失败才报错
     try {
       const { entries, failed } = await getCitationEntries([result.doi])
       if (failed.length > 0) {
@@ -638,12 +649,12 @@ export default function TrackingPage() {
       const status = await addLiteratureToLibrary(newLit)
       if (status === 'added') setLiteratures((prev) => [...prev, newLit])
       toastAdded(meta.title, status)
-      if (status === 'added') toast.success('已入库')
       setDoiInput('')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`入库失败：${msg}`)
     } finally {
+      setAddingDoi(false)
       addingDoiRef.current = false
     }
   }
@@ -974,7 +985,6 @@ export default function TrackingPage() {
             : p,
         ),
       )
-      toast.message(`已从 ${affected.length} 个追踪计划中移除此期刊`)
     }
   }
 
@@ -1002,7 +1012,6 @@ export default function TrackingPage() {
             : p,
         ),
       )
-      toast.message(`已从 ${affected.length} 个追踪计划中移除所选期刊`)
     }
   }
 
@@ -1031,21 +1040,21 @@ export default function TrackingPage() {
       return
     }
     resolvingJournalRef.current = true
+    setResolvingJournal(true)
     setJournalMatches([])
-    // 查询结果无法预先算出：点下立刻给确认（「正在匹配」），按钮本身不灰不转，
-    // 结果到达后直接落在候选列表里
-    toast.info('正在按 Crossref 权威数据匹配期刊…')
+    // 查询结果无法预先算出：点下由「智能匹配」按钮换色给回执，候选到达后直接铺在下方列表里，
+    // 成功不弹任何提示，失败才报错
     try {
       const matches = await resolveJournals(q)
       if (matches.length === 0) {
         toast.error('没找到匹配的期刊，换个写法或直接手动填写')
       } else {
         setJournalMatches(matches)
-        toast.success(`找到 ${matches.length} 个候选，点选即填入表单`)
       }
     } catch {
       toast.error('智能匹配失败，请稍后重试或直接手动填写')
     } finally {
+      setResolvingJournal(false)
       resolvingJournalRef.current = false
     }
   }
@@ -1073,20 +1082,20 @@ export default function TrackingPage() {
       return
     }
     findingRssRef.current = true
-    // 检索结果无法预先算出：点下立刻给确认（「正在检索」），按钮本身不灰不转，
-    // 地址到达后直接填进输入框
-    toast.info('正在让 AI 联网检索该期刊的 RSS 地址…')
+    setFindingRss(true)
+    // 检索结果无法预先算出：点下由「自动找 RSS」按钮换色给回执，地址到达后直接填进输入框，
+    // 成功不弹任何提示，失败才报错
     try {
       const rss = await findJournalRss(name, journalFormIssn.trim() || undefined)
       if (!rss) {
         toast.error('没找到官方 RSS 地址，可手动填写或留空')
       } else {
         setJournalFormRssUrl(rss)
-        toast.success('已找到并填入，保存前请确认地址正确')
       }
     } catch {
       toast.error('RSS 检索失败，可手动填写或留空')
     } finally {
+      setFindingRss(false)
       findingRssRef.current = false
     }
   }
@@ -1205,9 +1214,9 @@ export default function TrackingPage() {
     }
 
     trackingRef.current = true
-    // 后端要跑几分钟才知道命中什么，结果无法预演：点下立刻给确认，按钮不灰不转，
-    // 跑完直接报「命中几篇」并把候选落到列表里
-    toast.info('已发起追踪，后端跑完即出候选…')
+    setTracking(true)
+    // 后端要跑几分钟才知道命中什么，结果无法预演：点下由「立即追踪」按钮换色 + 摘要行（页面内）
+    // 承担进度表达，跑完直接把候选落进列表、摘要行报「命中几篇」，成功不弹任何提示
     try {
       // 跑之前先记下现有候选的 DOI，跑完用差集算「本次新增」——确定、不靠猜时间戳
       const beforeDois = new Set((await loadTrackingInbox()).map((r) => r.doi))
@@ -1226,11 +1235,11 @@ export default function TrackingPage() {
       const pending = pendingCandidates(rows)
       const found = pending.filter((r) => !beforeDois.has(r.doi)).length
       setTrackRun({ groups: enabledGroups.length, journals: enabledJournals.length, found })
-      toast.success(`追踪完成：命中 ${found} 篇新文献`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`追踪失败：${msg}`)
     } finally {
+      setTracking(false)
       trackingRef.current = false
     }
   }
@@ -1251,10 +1260,10 @@ export default function TrackingPage() {
       return
     }
     testingPlanRef.current = true
-    // 试跑结果无法预演：点下立刻给确认，按钮不灰不转，跑完直接报新增几篇
-    toast.info(`已发起试跑：${plan.planName}`)
+    setTestingPlanId(plan.planId)
+    // 试跑结果无法预演：点下由该行试跑按钮换色给回执，跑完新候选直接出现在候选列表里，
+    // 成功不弹任何提示，失败才报错
     try {
-      const beforeDois = new Set((await loadTrackingInbox()).map((r) => r.doi))
       const sinceIso = new Date().toISOString()
       await dispatchDailyTracking(user.login, repo.name, token, plan.planId)
 
@@ -1267,14 +1276,11 @@ export default function TrackingPage() {
 
       const rows = await loadTrackingInbox(true)
       setInbox(rows)
-      const found = pendingCandidates(rows).filter((r) => !beforeDois.has(r.doi)).length
-      if (result === 'success') {
-        toast.success(`计划「${plan.planName}」试跑完成，新增候选 ${found} 篇`)
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`试跑失败：${msg}`)
     } finally {
+      setTestingPlanId(null)
       testingPlanRef.current = false
     }
   }
@@ -1825,16 +1831,18 @@ export default function TrackingPage() {
               {/* 立即追踪单独一行 */}
               <button
                 onClick={handleTrackNow}
-                className="flex w-full items-center justify-center gap-2 rounded-control bg-seal-600 px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition hover:bg-seal-700"
+                className={`flex w-full items-center justify-center gap-2 rounded-control px-ui-gap py-2 text-ui-xs font-medium text-paper-50 transition ${tracking ? 'bg-seal-800' : 'bg-seal-600 hover:bg-seal-700'}`}
               >
                 <Play className="h-4 w-4" />
                 立即追踪
               </button>
               {/* 结果摘要：只报「本次追了几个刊 / 关键词组、命中几篇」，不做逐刊明细 */}
               <p className="text-ui-2xs leading-relaxed text-ink-500">
-                {trackRun
-                  ? `上次追踪：${trackRun.journals} 个期刊 · ${trackRun.groups} 个关键词组，命中 ${trackRun.found} 篇新文献`
-                  : '尚未发起追踪'}
+                {tracking
+                  ? '正在追踪…跑完候选会直接出现在下方，失败才会弹提示'
+                  : trackRun
+                    ? `上次追踪：${trackRun.journals} 个期刊 · ${trackRun.groups} 个关键词组，命中 ${trackRun.found} 篇新文献`
+                    : '尚未发起追踪'}
               </p>
             </div>
           </div>
@@ -1861,7 +1869,7 @@ export default function TrackingPage() {
                   onClick={handleAddByDoi}
                   disabled={!doiInput.trim()}
                   title="入库"
-                  className="flex shrink-0 items-center justify-center rounded-control bg-seal-600 px-2.5 py-2 text-paper-50 transition hover:bg-seal-700 disabled:opacity-50"
+                  className={`flex shrink-0 items-center justify-center rounded-control px-2.5 py-2 text-paper-50 transition disabled:opacity-50 ${addingDoi ? 'bg-seal-800' : 'bg-seal-600 hover:bg-seal-700'}`}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </button>
@@ -2398,7 +2406,7 @@ export default function TrackingPage() {
                           <button
                             onClick={() => handleTestPlan(plan)}
                             title="立即试跑一次（一次性，不影响定时）"
-                            className="rounded-control-sm p-1 text-ink-400 transition hover:bg-seal-50 hover:text-seal-600"
+                            className={`rounded-control-sm p-1 transition ${testingPlanId === plan.planId ? 'bg-seal-600 text-paper-50' : 'text-ink-400 hover:bg-seal-50 hover:text-seal-600'}`}
                           >
                             <Play className="h-3.5 w-3.5" />
                           </button>
@@ -3029,7 +3037,7 @@ export default function TrackingPage() {
                   <button
                     type="button"
                     onClick={handleResolveJournal}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-ui-sm rounded-control border border-seal-200 text-seal-700 bg-seal-50 hover:bg-seal-100 transition"
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-ui-sm rounded-control border transition ${resolvingJournal ? 'border-seal-600 bg-seal-600 text-paper-50' : 'border-seal-200 text-seal-700 bg-seal-50 hover:bg-seal-100'}`}
                   >
                     <Sparkles className="w-4 h-4" />
                     智能匹配
@@ -3111,7 +3119,7 @@ export default function TrackingPage() {
                   <button
                     type="button"
                     onClick={handleFindRss}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-ui-sm rounded-control border border-seal-200 text-seal-700 bg-seal-50 hover:bg-seal-100 transition"
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-ui-sm rounded-control border transition ${findingRss ? 'border-seal-600 bg-seal-600 text-paper-50' : 'border-seal-200 text-seal-700 bg-seal-50 hover:bg-seal-100'}`}
                   >
                     <Sparkles className="w-4 h-4" />
                     自动查找
