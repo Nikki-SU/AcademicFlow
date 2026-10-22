@@ -97,13 +97,6 @@ export default function BackendCapabilitiesPanel() {
 
   return (
     <div className="space-y-4">
-      <p className="text-ui-xs text-ink-500">
-        后端架构改造后，MinerU 转换和 AI 任务全部跑在 GitHub Actions 上（
-        <b> paper_convert / book_convert / ai_call / session_images</b> 等 workflow）。
-        <b>后端工作流由应用自动同步</b>：每次版本更新后会自动检测并写入私库，无需手动操作；
-        这里只展示同步状态，并引导配置 GitHub Actions 所需的 8 个 Secrets。
-      </p>
-
       {/* 状态条 */}
       <div className={`flex items-center gap-2 p-3 rounded-control-sm border text-ui-sm ${
         autoState === 'ready' ? 'bg-green-50 border-green-200 text-green-800'
@@ -115,7 +108,7 @@ export default function BackendCapabilitiesPanel() {
           <><Loader2 className="w-4 h-4 animate-spin" /> 正在自动同步后端工作流…</>
         ) : autoState === 'ready' ? (
           autoDetail === 'synced'
-            ? <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已自动升级到新版（无需手动操作），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
+            ? <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已是最新，最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
             : <><CheckCircle2 className="w-4 h-4 text-green-600" /> 后端已就绪（新版），最近 pipeline run: <span className="font-mono">{runStatus.pipeline}</span></>
         ) : autoState === 'failed' ? (
           <><AlertTriangle className="w-4 h-4 text-red-600" /> 后端自动同步失败：<span className="font-mono text-ui-xs">{autoError}</span></>
@@ -164,7 +157,7 @@ export default function BackendCapabilitiesPanel() {
       {/* 检测结果明细（仅展示；修复由自动同步完成） */}
       {checkResult && !checkResult.installed && checkResult.missing.length > 0 && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-control-sm space-y-1">
-          <div className="text-ui-xs font-semibold text-amber-800">缺失文件（自动同步会补上）：</div>
+          <div className="text-ui-xs font-semibold text-amber-800">缺失文件（将自动补上）：</div>
           {checkResult.missing.map(p => (
             <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-amber-700">
               <XCircle className="w-3 h-3" /> {p}
@@ -176,7 +169,7 @@ export default function BackendCapabilitiesPanel() {
       {checkResult && checkResult.legacy.length > 0 && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-control-sm space-y-1">
           <div className="text-ui-xs font-semibold text-red-800">
-            残留的旧版文件（会与新版重复触发 / 造成 "no jobs were run"，自动同步会清理）：
+            残留文件（将自动清理）：
           </div>
           {checkResult.legacy.map(p => (
             <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-red-700">
@@ -189,7 +182,7 @@ export default function BackendCapabilitiesPanel() {
       {checkResult && checkResult.outdated.length > 0 && (
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-control-sm space-y-1">
           <div className="text-ui-xs font-semibold text-blue-800">
-            以下文件版本落后于新版（如旧版 session_images 不带课程材料转换），自动同步会升级：
+            版本落后（将自动升级）：
           </div>
           {checkResult.outdated.map(p => (
             <div key={p} className="flex items-center gap-1 text-ui-xs font-mono text-blue-700">
@@ -203,12 +196,11 @@ export default function BackendCapabilitiesPanel() {
       <details className="border border-ink-200 rounded-control-sm overflow-hidden">
         <summary className="cursor-pointer px-ui-gap py-2 bg-paper-100 hover:bg-ink-100 text-ui-sm font-medium text-ink-800 flex items-center gap-2">
           <Wrench className="w-4 h-4 text-seal-600" />
-          8 个必需 Secrets（点击展开查看模板）
+          必需 Secrets（点击展开）
         </summary>
         <div className="p-3 space-y-2">
           <p className="text-ui-xs text-ink-600 leading-relaxed">
-            后端 workflow 由应用自动同步安装。要让 pipeline 真跑起来，必须在 GitHub
-            Settings → Secrets and variables → Actions 里创建下面 8 个 Repository Secret。
+            在 GitHub Settings → Secrets and variables → Actions 里创建下面这些 Repository Secret。
           </p>
           <div className="grid gap-1.5">
             {REQUIRED_SECRETS.map(s => (

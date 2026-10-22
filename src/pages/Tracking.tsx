@@ -3327,11 +3327,6 @@ export default function TrackingPage() {
                         : '去搜索网站搜一个词，把网址粘贴到这里'}
                       className="w-full px-ui-gap py-2 border border-ink-300 rounded-control text-ui-sm focus:outline-none focus:border-seal-400 focus:ring-2 focus:ring-seal-100"
                     />
-                    {!editingSearchSite && (
-                      <p className="text-ui-xs text-ink-400 mt-1">
-                        系统会自动识别搜索参数（如 ?q= 或 ?wd=），无需手动处理
-                      </p>
-                    )}
                   </div>
                   <div>
                     <label className="block text-ui-xs font-medium text-ink-600 mb-1.5">

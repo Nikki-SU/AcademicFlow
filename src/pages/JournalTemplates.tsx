@@ -742,7 +742,6 @@ function JournalTemplatesPage() {
               </select>
               <p className="mt-1 text-ui-xs text-ink-400">
                 只决定正文里引用长什么样；编号与尾处条目格式由上面的 BibTeX style 在编译时决定。
-                选非 cite 的会自动挂上 natbib 宏包。
               </p>
             </div>
             <div className="flex items-end gap-4 pb-2">

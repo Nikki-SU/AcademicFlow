@@ -3762,9 +3762,6 @@ export default function ManagementPage() {
               {doiFetchError && (
                 <p className="text-ui-xs text-red-600">{doiFetchError}</p>
               )}
-              <p className="text-ui-xs text-seal-500/70">
-                DOI 填充后可手动调整标题/作者/期刊/关键词等字段
-              </p>
             </div>
 
             <div>
@@ -4210,9 +4207,6 @@ export default function ManagementPage() {
                           ))}
                         </div>
                       )}
-                      <p className="text-ui-xs text-ink-400 mt-1.5">
-                        笔记在阅读页维护：一篇文献可以写多篇命名笔记，也可上传 md / docx / zip 的总结文稿。
-                      </p>
                     </div>
                     <button
                       onClick={() => {

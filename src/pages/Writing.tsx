@@ -4965,29 +4965,32 @@ export default function WritingPage() {
                       </ul>
                     )}
                     <p className="mt-1.5 text-amber-600">
-                      要改模板：选中它 →「载入到代码板」手改（或让 AI 改代码）→「保存回模板」。
+                      改模板：选中它 →「载入到代码板」→ 改完「保存回模板」。
                     </p>
                   </div>
                 )}
 
                 {/* 编译器的能力边界：写清楚内置了什么，省得用户猜 */}
-                <p className="text-ui-2xs text-ink-400 leading-relaxed bg-paper-100 rounded-control p-2">
-                  编译器是随站点分发的 XeLaTeX 运行时（不联网，约 110MB，首次编译加载一次）。
-                  已内置基础宏包 amsmath / graphicx / hyperref / geometry / xcolor / longtable /
-                  etoolbox / fontspec，常用宏包 booktabs、natbib、amssymb、tabularx、multirow、
-                  caption / subcaption / microtype，文档类{' '}
-                  <b className="font-medium text-ink-500">IEEEtran</b>、
-                  <b className="font-medium text-ink-500">elsarticle</b>、
-                  <b className="font-medium text-ink-500">acmart</b>、
-                  <b className="font-medium text-ink-500">revtex4-2</b>，
-                  中文走 xeCJK + Noto Serif SC（正文里有汉字就自动接管，拉丁文仍用文档类自己的字体）。
-                  其它宏包可以自己导入：在右边编译器顶部点「宏包」，把 .sty / .cls 选进来，
-                  导入一次之后每次编译自动带上。
-                  <br />
-                  还是编不过的（要最新 TeX Live、要 biber、要冷门宏包），就点「正式编译（后端）」——
-                  那是在你自己的私库里跑 GitHub Actions + 官方 TeX Live 镜像，什么宏包都能装，
-                  代价是要排队等一会儿。
-                </p>
+                <details className="text-ui-2xs text-ink-400 bg-paper-100 rounded-control p-2">
+                  <summary className="cursor-pointer select-none">编译器能力与限制</summary>
+                  <div className="mt-2 leading-relaxed">
+                    编译器是随站点分发的 XeLaTeX 运行时（不联网，首次编译加载一次）。
+                    已内置基础宏包 amsmath / graphicx / hyperref / geometry / xcolor / longtable /
+                    etoolbox / fontspec，常用宏包 booktabs、natbib、amssymb、tabularx、multirow、
+                    caption / subcaption / microtype，文档类{' '}
+                    <b className="font-medium text-ink-500">IEEEtran</b>、
+                    <b className="font-medium text-ink-500">elsarticle</b>、
+                    <b className="font-medium text-ink-500">acmart</b>、
+                    <b className="font-medium text-ink-500">revtex4-2</b>，
+                    中文走 xeCJK + Noto Serif SC（正文里有汉字就自动接管，拉丁文仍用文档类自己的字体）。
+                    其它宏包可以自己导入：在右边编译器顶部点「宏包」，把 .sty / .cls 选进来，
+                    导入一次之后每次编译自动带上。
+                    <br />
+                    还是编不过的（要最新 TeX Live、要 biber、要冷门宏包），就点「正式编译（后端）」——
+                    那是在你自己的私库里跑 GitHub Actions + 官方 TeX Live 镜像，什么宏包都能装，
+                    代价是要排队等一会儿。
+                  </div>
+                </details>
 
                 <div>
                   <div className="text-ui-xs font-medium text-ink-600 mb-1.5">目标期刊模板</div>

@@ -208,9 +208,8 @@ function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () => void 
       </div>
 
       {/* 汇总 */}
-      <div className="mt-4 flex items-center justify-between text-ui-xs text-ink-400">
+      <div className="mt-4 text-ui-xs text-ink-400">
         <span>{totalStages} 个阶段</span>
-        <span>数据存储在浏览器 localStorage（key: af_pipeline_traces_v1）</span>
       </div>
     </div>
   )
@@ -245,19 +244,13 @@ export function PipelineDebugPanel() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-ink-800">🔧 Pipeline 调试看板</h2>
-          <p className="text-ui-sm text-ink-500 mt-1">
-            记录每次 PDF 转换的完整链路：每一步的 Prompt、输入、AI 输出、耗时
-          </p>
-        </div>
+      <div className="flex items-center justify-end gap-2 mb-6">
         <div className="flex items-center gap-2">
           {/* 调试入口：直接上传 PDF */}
           {!selectedId && (
             <PdfQuickUploadButton onSuccess={handleUploadSuccess}>
               <span className="flex items-center gap-1.5">
-                🧪 调试上传 PDF
+                上传 PDF 测试
               </span>
             </PdfQuickUploadButton>
           )}

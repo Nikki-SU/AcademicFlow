@@ -27,9 +27,9 @@ interface StepState {
 }
 
 const STEP_DEFS: { key: AsrProbeStepKey; label: string }[] = [
-  { key: 'key', label: 'Key 校验（GET /models）' },
-  { key: 'transcribe', label: '转写真调（录 2.5s → /audio/transcriptions）' },
-  { key: 'translate', label: '翻译真调（/chat/completions）' },
+  { key: 'key', label: 'Key 校验' },
+  { key: 'transcribe', label: '真实转写（录 2.5 秒）' },
+  { key: 'translate', label: '真实翻译' },
 ]
 
 function initSteps(): Record<AsrProbeStepKey, StepState> {

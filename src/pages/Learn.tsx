@@ -3302,7 +3302,7 @@ function PracticePanel({
         </div>
         {grading && (
           <p className="text-ui-xs text-ink-400 mt-1.5">
-            后端需排队跑 GitHub Actions，通常要 1-3 分钟，请耐心等待（界面不会卡住）。
+            通常需要 1-3 分钟。
           </p>
         )}
         {error && (

@@ -543,8 +543,7 @@ function DualEngineTestPanel() {
                 ❌ 双引擎 {result.attempts.length}/{result.maxAttempts} 轮反复纠错后仍未通过
               </div>
               <div className="text-ui-xs leading-relaxed">
-                AI-1 和 AI-2 都参与了纠错但收敛不到"忠实性通过"。可能原因：源材料存在歧义、AI-1
-                持续加戏、AI-2 引证能力受模型能力限制。<b>下面展示的是第 {result.attempts.length} 轮（最后一版）结果</b>，请人工复核，或换更强的模型重试。
+                AI-1 和 AI-2 都参与了纠错，仍没达到忠实性要求。可能是源材料本身有歧义，或模型能力不足。<b>下面展示的是第 {result.attempts.length} 轮（最后一版）结果</b>，请人工复核，或换更强的模型重试。
               </div>
             </div>
           </div>
@@ -779,11 +778,7 @@ function DualEngineTestPanel() {
               <div className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-control-sm">
                 <XCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
                 <div className="text-ui-xs text-orange-800 leading-relaxed">
-                  双引擎未通过审阅。按 SPEC §9.2 设计，M4 起 AI 结果将只放入
-                  <code className="mx-1 px-1 py-0.5 bg-orange-100 rounded-control-sm">
-                    :::ai-output
-                  </code>
-                  折叠块由用户 review，不自动合并到笔记正文。
+                  双引擎未通过审阅，AI 结果不会自动合并到笔记正文。
                 </div>
               </div>
             )}

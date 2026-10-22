@@ -64,24 +64,24 @@ type RunnerTestResult =
 
 // Runner 测试的 4 个固定步骤
 const RUNNER_STEP_DEFS: { key: string; label: string }[] = [
-  { key: 'secrets',   label: 'Sync secrets → 私库' },
-  { key: 'dispatch',  label: 'Dispatch workflow' },
-  { key: 'find_run',  label: '等待 Runner 出现' },
-  { key: 'run',       label: 'Runner 执行' },
+  { key: 'secrets',   label: '同步密钥到私库' },
+  { key: 'dispatch',  label: '触发运行' },
+  { key: 'find_run',  label: '等待运行出现' },
+  { key: 'run',       label: '执行中' },
 ]
 
 // GitHub 测试的 2 个步骤
 const GITHUB_STEP_DEFS: { key: string; label: string }[] = [
-  { key: 'header', label: 'Header 模式 (Authorization: token xxx)' },
-  { key: 'query',  label: 'Query 模式 (?access_token=xxx)' },
+  { key: 'header', label: '请求头鉴权' },
+  { key: 'query',  label: '查询参数鉴权' },
 ]
 
 // SimpleTex 识图测试的 4 个步骤（令牌随 input_json 传，不需要写 secrets）
 const SIMPLETEX_STEP_DEFS: { key: string; label: string }[] = [
   { key: 'image',    label: '载入内置公式样张' },
   { key: 'upload',   label: '图片提交进私库' },
-  { key: 'dispatch', label: 'Dispatch simpletex_ocr' },
-  { key: 'ocr',      label: 'Runner 调 SimpleTex 真识别' },
+  { key: 'dispatch', label: '触发识别' },
+  { key: 'ocr',      label: '真实识别' },
 ]
 
 // ═════════════════════════════════════════════════════════════════════════

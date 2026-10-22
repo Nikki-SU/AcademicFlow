@@ -722,7 +722,7 @@ function Settings() {
               <details className="rounded-control border border-ink-200 bg-paper-100/60 px-ui-gap py-2.5 text-ui-xs text-ink-600">
                 <summary className="flex cursor-pointer items-center gap-2">
                   <ShieldCheck className="h-4 w-4 shrink-0 text-seal-500" />
-                  长时间录音不中断 · 保活与加固
+                  防休眠
                 </summary>
                 <div className="mt-2 space-y-2 leading-relaxed">
                   <p>
@@ -755,7 +755,7 @@ function Settings() {
             <SubHeading title="MinerU Token">
               <input
                 type="password"
-                placeholder="eyJ...（MinerU JWT token）"
+                placeholder="粘贴 MinerU Token"
                 value={mineruToken}
                 onChange={(e) => updateSettings({ mineruToken: e.target.value })}
                 className="w-full rounded-control border border-ink-300 px-ui-gap py-2 font-mono text-ui-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
@@ -910,12 +910,12 @@ function Settings() {
 
                     let icon: string, color: string, label: string
                     if (isSkipped) { icon = '—'; color = 'text-ink-400'; label = '未填写（跳过）' }
-                    else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `PUT 失败 HTTP ${it.putStatus}` }
+                    else if (isFailed) { icon = '✗'; color = 'text-red-600'; label = it.error || `写入失败（HTTP ${it.putStatus}）` }
                     else if (isDelayed) {
                       icon = '⏳'; color = 'text-amber-600'
                       // PUT 已成功（201/204），只是 secrets 列表还没列出来；
                       // workflow 运行时 GitHub Actions 通常能直接读到值
-                      label = it.error || 'GitHub 回查未命中（已重试多次，PUT 实际成功）'
+                      label = it.error || '已写入（暂未回查到）'
                     }
                     else { icon = '✓'; color = 'text-green-600'; label = '已写入 + 已回查确认' }
 
@@ -968,7 +968,7 @@ function Settings() {
           </Section>
 
           <div className="pt-2 text-center text-ui-xs text-ink-400">
-            所有凭据仅存本机 IndexedDB · License AGPL-3.0-or-later
+            License AGPL-3.0-or-later
           </div>
           </div>
         </div>

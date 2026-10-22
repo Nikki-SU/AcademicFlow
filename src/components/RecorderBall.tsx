@@ -486,18 +486,13 @@ export default function RecorderBall() {
               className="flex w-full items-center gap-1.5 px-ui-gap py-2 text-ui-xs font-medium text-ink-500 transition hover:bg-paper-100 hover:text-ink-700"
             >
               <ShieldCheck className="h-3.5 w-3.5 text-seal-500" />
-              防休眠说明
-              <span className="text-ink-400">· 长时间录音更稳</span>
+              防休眠
               <ChevronDown
                 className={`ml-auto h-3.5 w-3.5 transition-transform ${guideOpen ? 'rotate-180' : ''}`}
               />
             </button>
             {guideOpen && (
               <div className="space-y-2.5 af-line-t bg-paper-100/60 px-ui-gap py-2.5 text-ui-xs leading-relaxed text-ink-600">
-                <p>
-                  <span className="font-medium text-ink-700">已内建保活：</span>
-                  录音期间会自动输出一段听不见的静音音源并占住系统锁，浏览器一般不会把本页冻结或回收。
-                </p>
                 <p className="font-medium text-ink-700">若仍被打断，可自行加固：</p>
                 <ul className="list-disc space-y-1 pl-4">
                   <li>
